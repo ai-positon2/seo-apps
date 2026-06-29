@@ -1,0 +1,25 @@
+# Environment & secrets
+.env
+credentials.json
+token.pkl
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# Exports / temp files
+exports/
+*.xlsx
+*.csv
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,75 @@
+{
+  "client_id": "neuro",
+  "client_name": "NeuroWellness Spa",
+  "character_limit": 1500,
+  "link_required": true,
+  "link_rules": "If topic is service/treatment-related, link that specific page. Otherwise, use location page URLs.",
+  "cta_required": true,
+  "cta_rules": "At least one call-to-action must be present. No specific wording required.",
+  "tone": {
+    "description": "Professional, clinical, and compassionate — focused on mental health and neurological wellness"
+  },
+  "writing_style": {
+    "style_guide": "AP Style",
+    "title_capitalization": "Use AP Style title case. Example: 'How To Know if You Need Psychiatry or Therapy in [Location]'",
+    "terminology": {
+      "use_teen": "Always use 'teen' — NEVER use 'adolescent'",
+      "conditions": "Include all conditions treated by NeuroWellness Spa whenever possible"
+    },
+    "bullet_points": "Always use sentence casing for bullet points. Example: 'Prolonged sadness or emotional numbness' (not 'Prolonged Sadness Or Emotional Numbness')",
+    "rules": [
+      "Write in AP Style throughout",
+      "Use 'teen' not 'adolescent'",
+      "Bullet points must use sentence casing (capitalize first word only)",
+      "Include all conditions treated whenever possible"
+    ]
+  },
+  "topic_guidelines": {
+    "valid_topic_sources": [
+      "Services pages",
+      "Treatment pages",
+      "Awareness days/holidays (topic must be closely related to the post content)"
+    ]
+  },
+  "tms_guidelines": {
+    "fda_approved_for": "Depression, including treatment-resistant depression",
+    "off_label_for": "Anxiety, OCD, PTSD, and ADHD",
+    "accuracy_rule": "TMS is FDA-approved for depression (including treatment-resistant depression). It is also used as an off-label approach for anxiety, OCD, PTSD, and ADHD. Never state TMS is FDA-approved for conditions other than depression.",
+    "sacramento_exception": "TMS therapy is NOT available at the Sacramento location — do not mention TMS for Sacramento posts"
+  },
+  "location_specific_rules": {
+    "Sacramento": {
+      "mention_online_services": true,
+      "tms_available": false,
+      "rules": [
+        "MUST mention that online services are available",
+        "Must NOT mention or reference TMS therapy"
+      ]
+    }
+  },
+  "post_types": {
+    "general": {
+      "description": "All posts follow the same core guidelines. Apply location-specific rules where applicable.",
+      "note_required": false
+    }
+  },
+  "image_guidelines": {
+    "allowed": [
+      "Mental health related imagery",
+      "Therapy session imagery relevant to the post"
+    ],
+    "not_allowed": [
+      "Addiction or medicine-specific images (pills, syringes, bottles)",
+      "Images with visible human faces",
+      "Images depicting physical contact with minors (hugs, hand on shoulder, similar gestures)"
+    ],
+    "important_note": "Physical contact with minors in images is a documented cause of GBP post rejections."
+  },
+  "formatting_rules": [
+    "Post must be under 1500 characters",
+    "Post must include a relevant link",
+    "Post must contain at least one CTA",
+    "Bullet points must use sentence casing",
+    "Write in AP Style throughout"
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "client_id": "new_life",
+  "client_name": "New Life",
+  "character_limit": 1500,
+  "link_required": true,
+  "link_rules": "If topic is program/treatment-related, link that specific page. Otherwise, use location page URLs.",
+  "cta_required": true,
+  "cta_rules": "At least one call-to-action must be present. No specific wording required.",
+  "tone": {
+    "description": "Professional, supportive, and focused on men's recovery and wellness"
+  },
+  "content_restrictions": [
+    "Do NOT create posts related to porn addiction — using this term causes GBP to restrict the post"
+  ],
+  "topic_guidelines": {
+    "valid_topic_sources": [
+      "Program pages",
+      "Treatment pages",
+      "Awareness days/holidays (topic must be related to the post content)"
+    ],
+    "banned_topics": [
+      "Porn addiction — this specific term triggers GBP content restrictions and must never appear in posts"
+    ]
+  },
+  "post_types": {
+    "general": {
+      "description": "All posts follow the same guidelines — no location-specific rules specified",
+      "location_name_rule": "Follow sample content format",
+      "note_required": false
+    }
+  },
+  "image_guidelines": {
+    "required": [
+      "Images must feature only men",
+      "Images must be relevant to the post topic"
+    ],
+    "not_allowed": [
+      "Addiction or medicine-specific images (pills, syringes, bottles)",
+      "Images with visible human faces"
+    ],
+    "note": "New Life serves men — all imagery must reflect a men-only audience."
+  },
+  "formatting_rules": [
+    "Post must be under 1500 characters",
+    "Post must include a relevant link",
+    "Post must contain at least one CTA"
+  ]
+}

@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GBP QC Agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<style>
+/* ── Reset & Base ───────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: 'Inter', sans-serif;
+  background: #07071080;
+  background-color: #070710;
+  color: #e2e8f0;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+[x-cloak] { display: none !important; }
+
+/* ── Animated Background ────────────────────────────────────────────────── */
+.bg-scene { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  mix-blend-mode: screen;
+  opacity: 0.55;
+}
+.orb-1 {
+  width: 700px; height: 700px;
+  top: -200px; left: -150px;
+  background: radial-gradient(circle, #4f46e5 0%, transparent 70%);
+  animation: drift1 24s ease-in-out infinite;
+}
+.orb-2 {
+  width: 600px; height: 600px;
+  top: -100px; right: -200px;
+  background: radial-gradient(circle, #7c3aed 0%, transparent 70%);
+  animation: drift2 30s ease-in-out infinite;
+}
+.orb-3 {
+  width: 550px; height: 550px;
+  bottom: -150px; left: 35%;
+  background: radial-gradient(circle, #0891b2 0%, transparent 70%);
+  animation: drift3 36s ease-in-out infinite;
+}
+.orb-4 {
+  width: 400px; height: 400px;
+  bottom: 10%; right: 5%;
+  background: radial-gradient(circle, #6d28d9 0%, transparent 70%);
+  animation: drift4 28s ease-in-out infinite;
+  opacity: 0.35;
+}
+
+@keyframes drift1 {
+  0%,100% { transform: translate(0,0) scale(1); }
+  25%      { transform: translate(40px,-70px) scale(1.08); }
+  50%      { transform: translate(-30px,-40px) scale(0.94); }
+  75%      { transform: translate(60px, 30px) scale(1.04); }
+}
+@keyframes drift2 {
+  0%,100% { transform: translate(0,0) scale(1); }
+  30%      { transform: translate(-60px, 50px) scale(1.1); }
+  60%      { transform: translate(40px,-80px) scale(0.9); }
+}
+@keyframes drift3 {
+  0%,100% { transform: translate(0,0) scale(1); }
+  35%      { transform: translate(-50px,-60px) scale(1.12); }
+  70%      { transform: translate(70px, 40px) scale(0.88); }
+}
+@keyframes drift4 {
+  0%,100% { transform: translate(0,0) scale(1); }
+  40%      { transform: translate(-40px,-80px) scale(1.15); }
+  80%      { transform: translate(50px, 30px) scale(0.85); }
+}
+
+/* Dot grid */
+.bg-grid {
+  position: absolute; inset: 0;
+  background-image: radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+/* Vignette over grid */
+.bg-vignette {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse 80% 60% at 50% 0%, transparent 50%, rgba(7,7,16,0.7) 100%);
+}
+
+/* ── Glass ──────────────────────────────────────────────────────────────── */
+.glass {
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(255,255,255,0.08);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+.glass-md {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.glass-hover {
+  transition: background .2s, border-color .2s, box-shadow .2s, transform .22s cubic-bezier(.16,1,.3,1);
+  cursor: pointer;
+}
+.glass-hover:hover {
+  background: rgba(255,255,255,0.07);
+  border-color: rgba(255,255,255,0.16);
+  transform: translateY(-4px);
+  box-shadow: 0 20px 60px -12px rgba(0,0,0,0.6), 0 0 0 1px rgba(99,102,241,0.15);
+}
+.glass-selected {
+  background: rgba(99,102,241,0.12) !important;
+  border-color: rgba(99,102,241,0.4) !important;
+  box-shadow: 0 0 0 1px rgba(99,102,241,0.3), 0 0 30px -8px rgba(99,102,241,0.3);
+}
+
+/* ── Typography ─────────────────────────────────────────────────────────── */
+.heading {
+  font-size: 1.6rem; font-weight: 700; letter-spacing: -.025em; line-height: 1.2;
+  background: linear-gradient(135deg, #f1f5f9 30%, #94a3b8 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.subheading { font-size: .875rem; color: #64748b; margin-top: 6px; }
+.label { font-size: .75rem; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: .07em; }
+.section-title { font-size: .8rem; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: .08em; display: flex; align-items: center; gap: 8px; }
+.section-title::before { content:''; flex:1; max-width:16px; height:1px; background:rgba(255,255,255,0.1); }
+.section-title::after  { content:''; flex:1; height:1px; background:rgba(255,255,255,0.1); }
+
+/* ── Accent gradient text ───────────────────────────────────────────────── */
+.accent-text {
+  background: linear-gradient(135deg, #818cf8, #67e8f9);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  border: none; border-radius: 12px; padding: 11px 24px;
+  font-size: .875rem; font-weight: 600; cursor: pointer;
+  transition: all .2s; user-select: none; white-space: nowrap;
+}
+.btn:disabled { opacity: .4; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+.btn-primary {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  box-shadow: 0 4px 24px -6px rgba(99,102,241,0.5);
+}
+.btn-primary:not(:disabled):hover {
+  background: linear-gradient(135deg, #818cf8, #a78bfa);
+  box-shadow: 0 8px 30px -6px rgba(99,102,241,0.7);
+  transform: translateY(-1px);
+}
+.btn-purple {
+  background: linear-gradient(135deg, #7c3aed, #6366f1);
+  color: #fff;
+  box-shadow: 0 4px 24px -6px rgba(124,58,237,0.5);
+}
+.btn-purple:not(:disabled):hover {
+  box-shadow: 0 8px 30px -6px rgba(124,58,237,0.7);
+  transform: translateY(-1px);
+}
+.btn-green {
+  background: linear-gradient(135deg, #059669, #10b981);
+  color: #fff;
+  box-shadow: 0 4px 20px -6px rgba(16,185,129,0.5);
+}
+.btn-green:not(:disabled):hover {
+  box-shadow: 0 8px 28px -6px rgba(16,185,129,0.6);
+  transform: translateY(-1px);
+}
+.btn-ghost {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: #94a3b8;
+}
+.btn-ghost:hover { background: rgba(255,255,255,0.1); color: #e2e8f0; }
+.btn-sm { padding: 7px 14px; font-size: .75rem; border-radius: 8px; gap: 5px; }
+
+/* ── Inputs ─────────────────────────────────────────────────────────────── */
+.inp {
+  width: 100%; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.1);
+  color: #e2e8f0; border-radius: 12px; padding: 12px 16px; font-size: .875rem;
+  font-family: inherit; transition: border-color .2s, box-shadow .2s;
+}
+.inp:focus { outline: none; border-color: rgba(99,102,241,0.6); box-shadow: 0 0 0 3px rgba(99,102,241,0.12); }
+.inp::placeholder { color: #374151; }
+textarea.inp { resize: vertical; line-height: 1.6; }
+select.inp {
+  appearance: none; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%236b7280'%3E%3Cpath fill-rule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center; background-size: 16px;
+  padding-right: 40px;
+}
+select.inp option { background: #1a1a2e; color: #e2e8f0; }
+.char-counter { font-size: .75rem; font-weight: 500; padding: 2px 8px; border-radius: 20px; transition: all .2s; }
+.char-ok    { background: rgba(255,255,255,0.06); color: #64748b; }
+.char-warn  { background: rgba(245,158,11,0.15);  color: #fbbf24; }
+.char-over  { background: rgba(239,68,68,0.15);   color: #f87171; }
+
+/* ── Chips / Pills ──────────────────────────────────────────────────────── */
+.chip { display: inline-flex; align-items: center; gap: 5px; border-radius: 20px; padding: 4px 12px; font-size: .75rem; font-weight: 500; }
+.chip-purple  { background: rgba(139,92,246,0.15);  color: #a78bfa;  border: 1px solid rgba(139,92,246,0.25); }
+.chip-blue    { background: rgba(99,102,241,0.15);  color: #818cf8;  border: 1px solid rgba(99,102,241,0.25); }
+.chip-cyan    { background: rgba(6,182,212,0.12);   color: #67e8f9;  border: 1px solid rgba(6,182,212,0.2); }
+.chip-green   { background: rgba(16,185,129,0.12);  color: #34d399;  border: 1px solid rgba(16,185,129,0.2); }
+.chip-amber   { background: rgba(245,158,11,0.12);  color: #fbbf24;  border: 1px solid rgba(245,158,11,0.2); }
+.chip-red     { background: rgba(239,68,68,0.12);   color: #f87171;  border: 1px solid rgba(239,68,68,0.2); }
+
+.pill-type {
+  padding: 8px 18px; border-radius: 100px; font-size: .8rem; font-weight: 500; cursor: pointer;
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); color: #94a3b8;
+  transition: all .18s;
+}
+.pill-type:hover { background: rgba(99,102,241,0.1); border-color: rgba(99,102,241,0.3); color: #a5b4fc; }
+.pill-type.active {
+  background: linear-gradient(135deg, rgba(99,102,241,0.25), rgba(139,92,246,0.25));
+  border-color: rgba(99,102,241,0.5); color: #c7d2fe;
+  box-shadow: 0 0 16px -4px rgba(99,102,241,0.4);
+}
+
+/* ── Score Gauge ────────────────────────────────────────────────────────── */
+.score-progress { transition: stroke-dashoffset 1.2s cubic-bezier(0.4,0,0.2,1); }
+.score-glow { filter: drop-shadow(0 0 8px var(--glow-color, #6366f1)); }
+
+/* ── Progress Bar ───────────────────────────────────────────────────────── */
+.pbar-fill {
+  height: 100%; border-radius: 100px;
+  background: linear-gradient(90deg, #6366f1, #8b5cf6, #06b6d4);
+  transition: width .5s ease;
+  box-shadow: 0 0 16px rgba(99,102,241,0.6);
+  animation: shimmer 3s linear infinite;
+  background-size: 200% 100%;
+}
+@keyframes shimmer {
+  0%   { background-position: 200% center; }
+  100% { background-position: -200% center; }
+}
+
+/* ── Animations ─────────────────────────────────────────────────────────── */
+.fade-up { animation: fadeUp .4s cubic-bezier(.16,1,.3,1); }
+@keyframes fadeUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+
+.stagger > * { animation: fadeUp .4s cubic-bezier(.16,1,.3,1) both; }
+.stagger > *:nth-child(1) { animation-delay: .05s; }
+.stagger > *:nth-child(2) { animation-delay: .12s; }
+.stagger > *:nth-child(3) { animation-delay: .19s; }
+.stagger > *:nth-child(4) { animation-delay: .26s; }
+.stagger > *:nth-child(5) { animation-delay: .33s; }
+
+/* ── Issue cards ────────────────────────────────────────────────────────── */
+.issue-major {
+  background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.2);
+  border-left: 3px solid #ef4444; border-radius: 12px; padding: 14px 16px;
+}
+.issue-minor {
+  background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.15);
+  border-left: 3px solid #f59e0b; border-radius: 12px; padding: 14px 16px;
+}
+.passed-item { border-bottom: 1px solid rgba(255,255,255,0.05); padding: 10px 0; }
+.passed-item:last-child { border-bottom: none; }
+
+/* ── Code / Post block ──────────────────────────────────────────────────── */
+.post-block {
+  background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 12px; padding: 20px; font-size: .83rem; line-height: 1.8;
+  color: #cbd5e1; white-space: pre-wrap; font-family: inherit;
+}
+
+/* ── Scrollbars ─────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: #6366f1; }
+
+/* ── Toast ──────────────────────────────────────────────────────────────── */
+.toast {
+  position: fixed; top: 20px; right: 20px; z-index: 9999;
+  display: flex; align-items: center; gap: 10px;
+  background: rgba(255,255,255,0.08); backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.14); border-radius: 14px;
+  padding: 12px 18px; font-size: .8rem; font-weight: 500; color: #e2e8f0;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+
+/* ── Demo badge ─────────────────────────────────────────────────────────── */
+.demo-badge {
+  font-size: .6rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  background: linear-gradient(135deg, #f59e0b, #ef4444);
+  color: white; padding: 2px 8px; border-radius: 20px;
+}
+
+/* ── Utility ────────────────────────────────────────────────────────────── */
+.rounded-card { border-radius: 20px; }
+.rounded-lg   { border-radius: 14px; }
+.p-card  { padding: 24px; }
+.p-card-sm { padding: 18px; }
+.flex    { display: flex; }
+.flex-col { flex-direction: column; }
+.items-center { align-items: center; }
+.items-start  { align-items: flex-start; }
+.justify-between { justify-content: space-between; }
+.justify-center  { justify-content: center; }
+.gap-2 { gap: 8px; }
+.gap-3 { gap: 12px; }
+.gap-4 { gap: 16px; }
+.gap-5 { gap: 20px; }
+.gap-6 { gap: 24px; }
+.w-full { width: 100%; }
+.mt-1  { margin-top: 4px; }
+.mt-2  { margin-top: 8px; }
+.mt-3  { margin-top: 12px; }
+.mt-4  { margin-top: 16px; }
+.mt-5  { margin-top: 20px; }
+.mt-6  { margin-top: 24px; }
+.mb-2  { margin-bottom: 8px; }
+.mb-4  { margin-bottom: 16px; }
+.mb-6  { margin-bottom: 24px; }
+.mb-8  { margin-bottom: 32px; }
+.ml-auto { margin-left: auto; }
+.text-sm  { font-size: .875rem; }
+.text-xs  { font-size: .75rem; }
+.text-lg  { font-size: 1.125rem; }
+.text-2xl { font-size: 1.5rem; }
+.font-semibold { font-weight: 600; }
+.font-bold { font-weight: 700; }
+.italic { font-style: italic; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.opacity-60 { opacity: .6; }
+.pointer { cursor: pointer; }
+.hidden { display: none !important; }
+.overflow-hidden { overflow: hidden; }
+.relative { position: relative; }
+.grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+@media (max-width: 640px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+@media (min-width: 641px) and (max-width: 900px) { .grid-3 { grid-template-columns: repeat(2, 1fr); } }
+
+.hr { height: 1px; background: rgba(255,255,255,0.06); margin: 16px 0; }
+.grow { flex-grow: 1; }
+.flex-wrap { flex-wrap: wrap; }
+.shrink-0 { flex-shrink: 0; }
+.spin { animation: spin .75s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.rotate-180 { transform: rotate(180deg); }
+.transition-transform { transition: transform .2s ease; }
+
+/* layout */
+.page { max-width: 900px; margin: 0 auto; padding: 0 20px 80px; position: relative; z-index: 10; }
+</style>
+</head>
+
+<body>
+
+<!-- ── Background ─────────────────────────────────────────────────────── -->
+<div class="bg-scene">
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+  <div class="orb orb-4"></div>
+  <div class="bg-grid"></div>
+  <div class="bg-vignette"></div>
+</div>
+
+<!-- ── App ───────────────────────────────────────────────────────────── -->
+<div x-data="gbpApp()" x-init="init()" x-cloak>
+
+  <!-- Toast -->
+  <div x-show="toast.visible" class="toast"
+       x-transition:enter="transition" x-transition:enter-start="opacity-0 translate-y-2" x-transition:enter-end="opacity-100 translate-y-0"
+       x-transition:leave="transition" x-transition:leave-end="opacity-0">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5"><path d="M5 13l4 4L19 7"/></svg>
+    <span x-text="toast.message"></span>
+  </div>
+
+  <!-- ── Header ───────────────────────────────────────────────────────── -->
+  <header style="position:sticky;top:0;z-index:50;background:rgba(7,7,16,0.7);backdrop-filter:blur(20px);border-bottom:1px solid rgba(255,255,255,0.07);">
+    <div style="max-width:900px;margin:0 auto;padding:0 20px;height:60px;display:flex;align-items:center;justify-content:space-between;gap:16px;">
+      <div class="flex items-center gap-3">
+        <div style="width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;box-shadow:0 0 20px rgba(99,102,241,0.5);flex-shrink:0;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span style="font-size:.95rem;font-weight:700;color:#f1f5f9;letter-spacing:-.02em;">GBP QC Agent</span>
+            <span class="demo-badge">Demo</span>
+          </div>
+          <p style="font-size:.7rem;color:#4b5563;margin-top:1px;">Google Business Profile Quality Control</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <span x-show="selectedClient" style="font-size:.75rem;color:#64748b;">
+          <span x-text="selectedClient?.name?.split('(')[0].trim()" style="color:#94a3b8;font-weight:500;"></span>
+        </span>
+        <button x-show="step > 1 || resultType" @click="reset()" class="btn btn-ghost btn-sm">← New Session</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Step Indicator ───────────────────────────────────────────────── -->
+  <div x-show="!resultType" style="position:sticky;top:60px;z-index:40;background:rgba(7,7,16,0.6);backdrop-filter:blur(16px);border-bottom:1px solid rgba(255,255,255,0.05);">
+    <div style="max-width:900px;margin:0 auto;padding:12px 20px;">
+      <div class="flex items-center gap-2">
+        <template x-for="(label, i) in ['Select Client','Choose Stage','Post Type','Enter Content']" :key="i">
+          <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2">
+              <div style="transition:all .3s; width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;flex-shrink:0;"
+                   :style="step > i+1 ? 'background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;box-shadow:0 0 12px rgba(99,102,241,0.5)' : step===i+1 ? 'background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;box-shadow:0 0 20px rgba(99,102,241,0.7),0 0 0 4px rgba(99,102,241,0.15)' : 'background:rgba(255,255,255,0.06);color:#374151'">
+                <template x-if="step > i+1">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><path d="M5 13l4 4L19 7"/></svg>
+                </template>
+                <span x-show="step <= i+1" x-text="i+1"></span>
+              </div>
+              <span style="font-size:.72rem;display:none;" :style="step===i+1?'color:#a5b4fc;font-weight:600;display:block':step>i+1?'color:#374151;display:block':'color:#374151;display:block'"
+                    class="sm-show" x-text="label"></span>
+            </div>
+            <div x-show="i < 3" style="width:24px;height:1px;background:rgba(255,255,255,0.08);flex-shrink:0;"></div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Main ─────────────────────────────────────────────────────────── -->
+  <div class="page" style="padding-top:40px;">
+
+    <!-- Error -->
+    <div x-show="error" x-transition style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:14px;padding:14px 18px;font-size:.85rem;color:#fca5a5;display:flex;align-items:center;gap:12px;margin-bottom:24px;">
+      <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="flex-shrink:0;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      <span x-text="error" class="grow"></span>
+      <button @click="error=null" style="color:#ef4444;background:none;border:none;cursor:pointer;">
+        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <!-- ════════════════ STEP 1 — CLIENT ════════════════ -->
+    <div x-show="step === 1" class="fade-up">
+      <div style="text-align:center;margin-bottom:36px;">
+        <h2 class="heading">Select a Client</h2>
+        <p class="subheading">Choose the brand you're working on</p>
+      </div>
+      <div class="stagger" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;">
+        <template x-for="client in clients" :key="client.id">
+          <div class="glass rounded-card glass-hover" style="padding:22px;" @click="selectClient(client)">
+            <div class="flex items-start justify-between mb-4">
+              <div style="width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:700;color:white;flex-shrink:0;"
+                   :style="`background:linear-gradient(135deg,${clientColor(client.id).a},${clientColor(client.id).b});box-shadow:0 0 20px ${clientColor(client.id).a}55`"
+                   x-text="client.name.charAt(0)"></div>
+              <span x-show="client.has_generator" class="chip chip-purple">Generator</span>
+            </div>
+            <div style="font-size:.95rem;font-weight:600;color:#e2e8f0;line-height:1.3;" x-text="client.name.split('(')[0].trim()"></div>
+            <div style="font-size:.72rem;color:#475569;margin-top:4px;" x-text="(client.name.match(/\(([^)]+)\)/)||[])[1]||''"></div>
+            <div class="hr"></div>
+            <div class="flex gap-4" style="font-size:.72rem;color:#374151;">
+              <span x-text="`${client.stages.length} stages`"></span>
+              <span x-text="`${client.post_types.length} post types`"></span>
+              <span x-show="client.locations.length>0" x-text="`${client.locations.length} locations`"></span>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- ════════════════ STEP 2 — STAGE ════════════════ -->
+    <div x-show="step === 2" class="fade-up">
+      <div style="text-align:center;margin-bottom:36px;">
+        <h2 class="heading">Choose a Stage</h2>
+        <p class="subheading">What would you like to do today?</p>
+      </div>
+      <div class="stagger" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;">
+        <template x-for="stage in (selectedClient?.stages||[])" :key="stage.key">
+          <div class="glass rounded-card glass-hover" style="padding:28px;" @click="selectStage(stage)">
+            <div style="width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;margin-bottom:18px;"
+                 :style="stageIconStyle(stage.key)">
+              <svg x-show="stage.key==='base'"     width="24" height="24" fill="none" stroke="white" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <svg x-show="stage.key==='expanded'" width="24" height="24" fill="none" stroke="white" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              <svg x-show="stage.key==='generate'" width="24" height="24" fill="none" stroke="white" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            </div>
+            <div style="font-size:1rem;font-weight:700;color:#e2e8f0;margin-bottom:8px;" x-text="stage.name"></div>
+            <div style="font-size:.8rem;color:#64748b;line-height:1.5;" x-text="stage.description"></div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- ════════════════ STEP 3 — POST TYPE ════════════════ -->
+    <div x-show="step === 3" class="fade-up">
+      <div style="text-align:center;margin-bottom:36px;">
+        <h2 class="heading">Select Post Type</h2>
+        <p class="subheading">What kind of content are you working with?</p>
+      </div>
+      <div class="glass rounded-card" style="padding:28px;">
+        <div class="flex flex-wrap gap-3">
+          <template x-for="type in (selectedClient?.post_types||[])" :key="type">
+            <button class="pill-type" :class="selectedPostType===type?'active':''" @click="selectPostType(type)" x-text="type"></button>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════ STEP 4 — INPUT ════════════════ -->
+    <div x-show="step === 4" class="fade-up">
+
+      <!-- BASE -->
+      <template x-if="selectedStage?.key==='base'">
+        <div>
+          <div style="margin-bottom:28px;">
+            <h2 class="heading">Base Content Check</h2>
+            <p class="subheading">Review template content against brand guidelines before location customisation</p>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:14px;">
+            <div class="glass rounded-card p-card-sm">
+              <div class="label mb-2">Approved Topic / Title</div>
+              <input class="inp" type="text" x-model="topic" placeholder="e.g. Benefits of Teeth Whitening">
+            </div>
+            <div class="glass rounded-card p-card-sm">
+              <div class="flex items-center justify-between mb-2">
+                <div class="label">Base GBP Post Content</div>
+                <span class="char-counter" :class="baseContent.length>1500?'char-over':baseContent.length>1200?'char-warn':'char-ok'" x-text="`${baseContent.length} / 1500`"></span>
+              </div>
+              <textarea class="inp" rows="12" x-model="baseContent" placeholder="Paste your base GBP post content here…"></textarea>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <div style="font-size:.75rem;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.15);border-radius:10px;padding:8px 14px;color:#92400e;flex:1;">
+                <strong style="color:#fbbf24;">Demo mode</strong> — type anything and submit to see a simulated result
+              </div>
+              <button @click="submit()" :disabled="!topic.trim()||!baseContent.trim()||loading" class="btn btn-primary shrink-0">
+                <svg x-show="loading" class="spin" width="16" height="16" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" opacity=".25"/><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" opacity=".75"/></svg>
+                <svg x-show="!loading" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                <span x-text="loading?'Checking…':'Run QC Check'"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- EXPANDED -->
+      <template x-if="selectedStage?.key==='expanded'">
+        <div>
+          <div style="margin-bottom:28px;">
+            <h2 class="heading">Expanded Content QC</h2>
+            <p class="subheading">Review location-specific content against the approved base template</p>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:14px;">
+            <div class="glass rounded-card p-card-sm">
+              <div class="label mb-2">Location Name</div>
+              <input class="inp" type="text" x-model="location" placeholder="e.g. Arlington, MA">
+            </div>
+            <div class="glass rounded-card p-card-sm">
+              <div class="label mb-2">Approved Base Content</div>
+              <textarea class="inp" rows="8" x-model="baseContent" placeholder="Paste the approved base content template…"></textarea>
+            </div>
+            <div class="glass rounded-card p-card-sm">
+              <div class="flex items-center justify-between mb-2">
+                <div class="label">Location-Specific Expanded Content</div>
+                <span class="char-counter" :class="expandedContent.length>1500?'char-over':expandedContent.length>1200?'char-warn':'char-ok'" x-text="`${expandedContent.length} / 1500`"></span>
+              </div>
+              <textarea class="inp" rows="12" x-model="expandedContent" placeholder="Paste the location-specific version here…"></textarea>
+            </div>
+            <div style="display:flex;justify-content:flex-end;">
+              <button @click="submit()" :disabled="!location.trim()||!baseContent.trim()||!expandedContent.trim()||loading" class="btn btn-primary">
+                <svg x-show="loading" class="spin" width="16" height="16" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" opacity=".25"/><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" opacity=".75"/></svg>
+                <span x-text="loading?'Checking…':'Run QC Check'"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- GENERATE -->
+      <template x-if="selectedStage?.key==='generate'">
+        <div>
+          <div style="margin-bottom:28px;">
+            <h2 class="heading">Location Content Generator</h2>
+            <p class="subheading">Generate a customised, ready-to-post GBP post for a specific location</p>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:14px;">
+            <div class="glass rounded-card p-card-sm">
+              <div class="label mb-2">Select Location</div>
+              <select class="inp" x-model="genLocation">
+                <option value="">— Choose a location —</option>
+                <option value="__all__" x-text="`✦  All Locations  (${selectedClient?.locations?.length} total)`"></option>
+                <template x-for="loc in (selectedClient?.locations||[])" :key="loc">
+                  <option :value="loc" x-text="loc"></option>
+                </template>
+              </select>
+              <div x-show="genLocation==='__all__'" style="margin-top:10px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);border-radius:10px;padding:10px 14px;font-size:.78rem;color:#a5b4fc;display:flex;gap:8px;">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="flex-shrink:0;margin-top:1px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                <span>Will simulate live streaming generation for all <strong x-text="selectedClient?.locations?.length"></strong> locations — watch the progress bar fill in real-time.</span>
+              </div>
+            </div>
+            <div class="glass rounded-card p-card-sm">
+              <div class="flex items-center justify-between mb-2">
+                <div class="label">Approved Base Content</div>
+                <span style="font-size:.72rem;color:#374151;" x-text="`${baseContent.length} chars`"></span>
+              </div>
+              <textarea class="inp" rows="12" x-model="baseContent" placeholder="Paste your approved base content here. The generator will customise it for each location…"></textarea>
+            </div>
+            <div style="display:flex;justify-content:flex-end;">
+              <button @click="submit()" :disabled="!genLocation||!baseContent.trim()||loading"
+                      class="btn shrink-0" :class="genLocation==='__all__'?'btn-purple':'btn-primary'">
+                <svg x-show="loading" class="spin" width="16" height="16" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" opacity=".25"/><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" opacity=".75"/></svg>
+                <span x-text="genLocation==='__all__'?(loading?'Starting…':'Generate All Locations'):(loading?'Generating…':'Generate Content')"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- ════════════════ RESULTS ════════════════ -->
+    <div x-show="resultType" class="fade-up">
+
+      <!-- QC Result -->
+      <template x-if="resultType==='qc' && result">
+        <div style="display:flex;flex-direction:column;gap:14px;" class="stagger">
+
+          <!-- Score header -->
+          <div class="glass rounded-card p-card" style="display:flex;flex-wrap:wrap;align-items:center;gap:28px;">
+            <!-- SVG Gauge with glow -->
+            <div style="position:relative;flex-shrink:0;">
+              <svg width="120" height="120" viewBox="0 0 120 120">
+                <defs>
+                  <filter id="glow-filter" x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur stdDeviation="4" result="blur"/>
+                    <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                  </filter>
+                </defs>
+                <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="8"/>
+                <circle cx="60" cy="60" r="50" fill="none"
+                        :stroke="scoreColor(result.qc_score||0)"
+                        stroke-width="8" stroke-linecap="round"
+                        filter="url(#glow-filter)"
+                        :stroke-dasharray="`${2*Math.PI*50}`"
+                        :stroke-dashoffset="`${2*Math.PI*50*(1-(result.qc_score||0)/100)}`"
+                        transform="rotate(-90 60 60)" class="score-progress"/>
+              </svg>
+              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                <span style="font-size:2rem;font-weight:800;line-height:1;" :style="`color:${scoreColor(result.qc_score||0)}`" x-text="result.qc_score"></span>
+                <span style="font-size:.65rem;color:#475569;font-weight:500;margin-top:2px;">/ 100</span>
+              </div>
+            </div>
+            <!-- Status + summary -->
+            <div class="grow">
+              <div style="margin-bottom:10px;">
+                <span x-show="result.overall_status==='Pass'" class="chip chip-green" style="font-size:.8rem;padding:5px 14px;"><span style="width:6px;height:6px;border-radius:50%;background:#10b981;display:inline-block;margin-right:4px;"></span> Pass</span>
+                <span x-show="result.overall_status==='Needs Minor Edits'" class="chip chip-amber" style="font-size:.8rem;padding:5px 14px;"><span style="width:6px;height:6px;border-radius:50%;background:#f59e0b;display:inline-block;margin-right:4px;"></span> Needs Minor Edits</span>
+                <span x-show="result.overall_status==='Needs Major Edits'" class="chip chip-red" style="font-size:.8rem;padding:5px 14px;"><span style="width:6px;height:6px;border-radius:50%;background:#ef4444;display:inline-block;margin-right:4px;"></span> Needs Major Edits</span>
+              </div>
+              <p style="font-size:.82rem;color:#64748b;line-height:1.6;max-width:440px;" x-text="(result.final_approval_recommendation||'').substring(0,180)+'…'"></p>
+            </div>
+            <button @click="showToast('Export requires the live server — run: python app.py')" class="btn btn-green shrink-0">
+              <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              Export Excel
+            </button>
+          </div>
+
+          <!-- Passed checks -->
+          <div class="glass rounded-card overflow-hidden">
+            <button @click="showPassed=!showPassed" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:16px 22px;background:none;border:none;cursor:pointer;transition:background .2s;" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background='none'">
+              <div class="flex items-center gap-3">
+                <span style="width:8px;height:8px;border-radius:50%;background:#10b981;box-shadow:0 0 8px #10b981;display:inline-block;flex-shrink:0;"></span>
+                <span style="font-size:.85rem;font-weight:600;color:#e2e8f0;">Passed Checks</span>
+                <span class="chip chip-green" style="padding:2px 9px;font-size:.7rem;" x-text="result.passed_checks.length"></span>
+              </div>
+              <svg class="transition-transform" :class="showPassed?'rotate-180':''" width="18" height="18" fill="none" stroke="#475569" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </button>
+            <div x-show="showPassed" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 -translate-y-2" x-transition:enter-end="opacity-100 translate-y-0" style="padding:0 22px 16px;">
+              <template x-for="check in result.passed_checks" :key="check">
+                <div class="passed-item flex items-start gap-3">
+                  <svg width="14" height="14" fill="none" stroke="#10b981" viewBox="0 0 24 24" style="flex-shrink:0;margin-top:3px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                  <span style="font-size:.82rem;color:#94a3b8;" x-text="check"></span>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- Issues -->
+          <div x-show="result.issues_found.length>0" class="glass rounded-card overflow-hidden">
+            <div class="flex items-center gap-3" style="padding:16px 22px;border-bottom:1px solid rgba(255,255,255,0.06);">
+              <span style="width:8px;height:8px;border-radius:50%;background:#ef4444;box-shadow:0 0 8px #ef4444;display:inline-block;flex-shrink:0;"></span>
+              <span style="font-size:.85rem;font-weight:600;color:#e2e8f0;">Issues Found</span>
+              <span class="chip chip-red" style="padding:2px 9px;font-size:.7rem;" x-text="result.issues_found.length"></span>
+            </div>
+            <div style="padding:16px;">
+              <template x-for="issue in result.issues_found" :key="issue.check">
+                <div x-show="issue.severity==='major'" class="issue-major mt-2">
+                  <div class="flex items-start gap-3">
+                    <span class="chip chip-red shrink-0" style="padding:2px 8px;font-size:.65rem;margin-top:1px;">MAJOR</span>
+                    <div>
+                      <div style="font-size:.83rem;font-weight:600;color:#fca5a5;" x-text="issue.check"></div>
+                      <div style="font-size:.8rem;color:#94a3b8;margin-top:4px;" x-text="issue.issue"></div>
+                      <div x-show="issue.reason" style="font-size:.72rem;color:#374151;margin-top:6px;font-style:italic;" x-text="`Guideline: ${issue.reason}`"></div>
+                    </div>
+                  </div>
+                </div>
+                <div x-show="issue.severity!=='major'" class="issue-minor mt-2">
+                  <div class="flex items-start gap-3">
+                    <span class="chip chip-amber shrink-0" style="padding:2px 8px;font-size:.65rem;margin-top:1px;">MINOR</span>
+                    <div>
+                      <div style="font-size:.83rem;font-weight:600;color:#fde68a;" x-text="issue.check"></div>
+                      <div style="font-size:.8rem;color:#94a3b8;margin-top:4px;" x-text="issue.issue"></div>
+                      <div x-show="issue.reason" style="font-size:.72rem;color:#374151;margin-top:6px;font-style:italic;" x-text="`Guideline: ${issue.reason}`"></div>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- Fixes -->
+          <div class="glass rounded-card p-card-sm">
+            <div class="section-title mb-4">Recommended Fixes</div>
+            <ol style="display:flex;flex-direction:column;gap:10px;list-style:none;">
+              <template x-for="(fix, i) in result.recommended_fixes" :key="i">
+                <li class="flex items-start gap-3">
+                  <span style="flex-shrink:0;width:22px;height:22px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:700;color:white;margin-top:1px;" x-text="i+1"></span>
+                  <span style="font-size:.82rem;color:#94a3b8;line-height:1.6;" x-text="fix"></span>
+                </li>
+              </template>
+            </ol>
+          </div>
+
+          <!-- Suggested edit -->
+          <div class="glass rounded-card overflow-hidden">
+            <div class="flex items-center justify-between" style="padding:14px 20px;border-bottom:1px solid rgba(255,255,255,0.06);background:rgba(0,0,0,0.2);">
+              <div class="flex items-center gap-2">
+                <svg width="15" height="15" fill="none" stroke="#67e8f9" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                <span style="font-size:.82rem;font-weight:600;color:#e2e8f0;">Suggested Edited Version</span>
+              </div>
+              <div class="flex items-center gap-3">
+                <span style="font-size:.72rem;color:#374151;" x-text="`${result.suggested_edited_version.length} chars`"></span>
+                <button @click="copyText(result.suggested_edited_version)" class="btn btn-ghost btn-sm">
+                  <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                  Copy
+                </button>
+              </div>
+            </div>
+            <div style="padding:20px;"><pre class="post-block" x-text="result.suggested_edited_version"></pre></div>
+          </div>
+
+          <!-- Final rec -->
+          <div x-show="result.overall_status==='Pass'" style="background:rgba(16,185,129,0.07);border:1px solid rgba(16,185,129,0.2);border-radius:16px;padding:18px 22px;">
+            <div class="label" style="color:#10b981;margin-bottom:8px;">Final Recommendation</div>
+            <p style="font-size:.83rem;color:#6ee7b7;line-height:1.6;" x-text="result.final_approval_recommendation"></p>
+          </div>
+          <div x-show="result.overall_status==='Needs Minor Edits'" style="background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.2);border-radius:16px;padding:18px 22px;">
+            <div class="label" style="color:#f59e0b;margin-bottom:8px;">Final Recommendation</div>
+            <p style="font-size:.83rem;color:#fde68a;line-height:1.6;" x-text="result.final_approval_recommendation"></p>
+          </div>
+          <div x-show="result.overall_status==='Needs Major Edits'" style="background:rgba(239,68,68,0.07);border:1px solid rgba(239,68,68,0.2);border-radius:16px;padding:18px 22px;">
+            <div class="label" style="color:#ef4444;margin-bottom:8px;">Final Recommendation</div>
+            <p style="font-size:.83rem;color:#fca5a5;line-height:1.6;" x-text="result.final_approval_recommendation"></p>
+          </div>
+        </div>
+      </template>
+
+      <!-- Generated (single) -->
+      <template x-if="resultType==='generated' && result">
+        <div style="display:flex;flex-direction:column;gap:14px;" class="stagger">
+          <div class="glass rounded-card p-card flex items-center justify-between" style="flex-wrap:wrap;gap:14px;">
+            <div>
+              <div style="font-size:1.1rem;font-weight:700;color:#e2e8f0;">Generated Post</div>
+              <div style="font-size:.8rem;color:#64748b;margin-top:4px;" x-text="`Location: ${genLocation}`"></div>
+            </div>
+            <div class="flex items-center gap-3">
+              <span x-show="result.within_limit"  class="chip chip-green" x-text="`${result.character_count} chars — OK`"></span>
+              <span x-show="!result.within_limit" class="chip chip-red"   x-text="`${result.character_count} chars — OVER LIMIT`"></span>
+              <button @click="showToast('Export requires the live server — run: python app.py')" class="btn btn-green">
+                <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                Export Excel
+              </button>
+            </div>
+          </div>
+          <div class="glass rounded-card p-card-sm flex flex-wrap items-center gap-2">
+            <span class="label" style="margin-right:4px;">Sections included:</span>
+            <template x-for="s in result.sections_included" :key="s">
+              <span class="chip chip-blue" x-text="s"></span>
+            </template>
+          </div>
+          <div class="glass rounded-card overflow-hidden">
+            <div class="flex items-center justify-between" style="padding:14px 20px;border-bottom:1px solid rgba(255,255,255,0.06);background:rgba(0,0,0,0.2);">
+              <span style="font-size:.82rem;font-weight:600;color:#e2e8f0;">Generated Post — Ready to Use</span>
+              <button @click="copyText(result.full_post)" class="btn btn-ghost btn-sm">
+                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                Copy Post
+              </button>
+            </div>
+            <div style="padding:20px;"><pre class="post-block" x-text="result.full_post"></pre></div>
+          </div>
+          <div style="background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:16px 20px;">
+            <div class="label mb-3">Customisation Notes</div>
+            <template x-for="note in result.customization_notes" :key="note">
+              <div class="flex items-start gap-2 mt-2"><span style="color:#374151;flex-shrink:0;margin-top:2px;">—</span><span style="font-size:.8rem;color:#64748b;" x-text="note"></span></div>
+            </template>
+          </div>
+        </div>
+      </template>
+
+      <!-- All Locations -->
+      <template x-if="resultType==='all'">
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <!-- Progress card -->
+          <div class="glass rounded-card p-card">
+            <div class="flex items-center justify-between mb-1">
+              <div style="font-size:1.1rem;font-weight:700;color:#e2e8f0;">Generating All Locations</div>
+              <span style="font-size:.85rem;font-weight:600;color:#64748b;" x-text="`${gen.progress} / ${gen.total}`"></span>
+            </div>
+            <div style="font-size:.8rem;color:#475569;margin-bottom:16px;" x-text="(selectedClient?.name?.split('(')[0].trim()||'')+' — '+selectedPostType"></div>
+            <div style="height:6px;background:rgba(255,255,255,0.06);border-radius:100px;overflow:hidden;">
+              <div class="pbar-fill" :style="`width:${gen.total>0?(gen.progress/gen.total*100):0}%`"></div>
+            </div>
+            <div class="flex items-center justify-between mt-4" style="flex-wrap:wrap;gap:12px;">
+              <div x-show="gen.inProgress" class="flex items-center gap-2" style="font-size:.82rem;color:#64748b;">
+                <svg class="spin" width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="#6366f1" stroke-width="3" opacity=".3"/><path fill="#6366f1" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                Generating: <strong style="color:#a5b4fc;" x-text="gen.currentLocation"></strong>
+              </div>
+              <div x-show="gen.done&&!gen.inProgress" class="flex items-center gap-2" style="font-size:.82rem;color:#34d399;font-weight:600;">
+                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                All <span x-text="gen.total"></span> locations generated!
+              </div>
+              <button x-show="gen.done" @click="showToast('Export requires the live server — run: python app.py')" class="btn btn-green">
+                <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                Download All Locations Excel
+              </button>
+            </div>
+          </div>
+
+          <!-- Stats (when done) -->
+          <div x-show="gen.done" class="grid-3">
+            <div class="glass rounded-card p-card-sm" style="text-align:center;">
+              <div style="font-size:1.8rem;font-weight:800;" class="accent-text" x-text="gen.total"></div>
+              <div style="font-size:.72rem;color:#374151;margin-top:4px;">Total Locations</div>
+            </div>
+            <div style="background:rgba(16,185,129,0.07);border:1px solid rgba(16,185,129,0.15);border-radius:16px;padding:18px;text-align:center;">
+              <div style="font-size:1.8rem;font-weight:800;color:#34d399;" x-text="Object.values(allResults).filter(r=>r.within_limit).length"></div>
+              <div style="font-size:.72rem;color:#065f46;margin-top:4px;">Within Limit</div>
+            </div>
+            <div style="background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.15);border-radius:16px;padding:18px;text-align:center;">
+              <div style="font-size:1.8rem;font-weight:800;color:#fbbf24;" x-text="Object.values(allResults).filter(r=>!r.within_limit).length"></div>
+              <div style="font-size:.72rem;color:#78350f;margin-top:4px;">Over Limit</div>
+            </div>
+          </div>
+
+          <!-- Live location cards -->
+          <div x-show="Object.keys(allResults).length>0">
+            <div class="section-title mb-4">Generated Posts <span style="font-style:italic;font-weight:400;text-transform:none;letter-spacing:0;margin-left:4px;">(click any to copy)</span></div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <template x-for="[loc, res] in Object.entries(allResults)" :key="loc">
+                <div class="glass-md rounded-lg pointer" style="overflow:hidden;transition:background .2s,box-shadow .2s;" @click="copyText(res.full_post)"
+                     onmouseover="this.style.background='rgba(255,255,255,0.07)';this.style.boxShadow='0 0 0 1px rgba(99,102,241,0.2)'"
+                     onmouseout="this.style.background='';this.style.boxShadow=''">
+                  <div class="flex items-center justify-between" style="padding:10px 16px;border-bottom:1px solid rgba(255,255,255,0.05);">
+                    <span style="font-size:.82rem;font-weight:600;color:#e2e8f0;" x-text="loc"></span>
+                    <div class="flex items-center gap-3">
+                      <span :class="res.within_limit?'chip-green':'chip-red'" class="chip" style="padding:2px 8px;font-size:.68rem;" x-text="`${res.character_count} chars`"></span>
+                      <span style="font-size:.68rem;color:#374151;">Click to copy</span>
+                    </div>
+                  </div>
+                  <div style="padding:10px 16px;max-height:60px;overflow:hidden;position:relative;">
+                    <pre style="font-size:.72rem;color:#475569;white-space:pre-wrap;font-family:inherit;line-height:1.5;" x-text="(res.full_post||'').substring(0,200)"></pre>
+                    <div style="position:absolute;bottom:0;inset-x:0;height:28px;background:linear-gradient(to top,#0a0a14,transparent);pointer-events:none;"></div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </template>
+
+    </div><!-- /results -->
+  </div><!-- /page -->
+</div><!-- /app -->
+
+<script>
+// ── Mock Data ───────────────────────────────────────────────────────────────
+const CLIENTS = [
+  { id:'gentle_dental', name:'Gentle Dental (42 North Dental)', has_generator:true,
+    post_types:['Educational','Seasonal','Treatment Focused','Family / Lifestyle','Local Trust Building','Smile Maintenance','Conversion Focused','Service Focused'],
+    stages:[{key:'base',name:'Base Content Check',description:'Review base template content against brand guidelines'},{key:'expanded',name:'Expanded Content QC',description:'Review location-specific content against approved base'},{key:'generate',name:'Location Content Generator',description:'Generate ready-to-post location-specific content'}],
+    locations:['Gentle Dental in Arlington','Gentle Dental in Attleboro','Gentle Dental in Belmont','Gentle Dental in Beverly','Gentle Dental in Brighton','Gentle Dental in Jamaica Plain','Gentle Dental in South Boston','Gentle Dental in West Roxbury','Gentle Dental in Braintree','Gentle Dental in Brockton','Gentle Dental in Brookline','Gentle Dental in Burlington','Gentle Dental in Cambridge','Gentle Dental in Chelmsford','Gentle Dental in Concord','Gentle Dental in Derry','Gentle Dental in Exeter','Gentle Dental in Franklin','Gentle Dental in Hanover','Gentle Dental in Hudson','Gentle Dental in Keene','Gentle Dental in Malden','Gentle Dental in Manchester','Gentle Dental in South Willow','Gentle Dental in Medford','Gentle Dental in Methuen','Gentle Dental in Milford','Gentle Dental in Nashua','Gentle Dental in South Nashua','Gentle Dental in Natick','Gentle Dental in New Bedford','Gentle Dental in North Andover','Gentle Dental in Norwood','Gentle Dental in Peabody','Gentle Dental in Quincy','Gentle Dental in Rochester','Gentle Dental in Saugus','Gentle Dental in Seekonk','Gentle Dental in Somerville','Gentle Dental in Stoughton','Gentle Dental in Wakefield','Gentle Dental in Waltham','Gentle Dental in TrollyYard','Gentle Dental in Worcester','Gentle Dental in Dover','Newbury Dental Associates'] },
+  { id:'great_lakes', name:'Great Lakes Family Dental (42 North Dental)', has_generator:true,
+    post_types:['Educational','Seasonal','Treatment Focused','Family / Lifestyle','Local Trust Building','Smile Maintenance','Conversion Focused','Service Focused'],
+    stages:[{key:'base',name:'Base Content Check',description:'Review base template content against brand guidelines'},{key:'expanded',name:'Expanded Content QC',description:'Review location-specific content against approved base'},{key:'generate',name:'Location Content Generator',description:'Generate ready-to-post location-specific content'}],
+    locations:['Great Lakes Family Dental in Almont, MI','Great Lakes Family Dental in Blissfield, MI','Great Lakes Family Dental in Charlotte, MI','Great Lakes Family Dental in Howell, MI','Great Lakes Family Dental in Livonia, MI','Great Lakes Family Dental in Saginaw, MI','Great Lakes Family Dental in Tecumseh, MI'] },
+  { id:'neuro', name:'NeuroWellness Spa', has_generator:false, post_types:['General'],
+    stages:[{key:'base',name:'Base Content Check',description:'Review base template content against brand guidelines'},{key:'expanded',name:'Expanded Content QC',description:'Review location-specific content against approved base'}], locations:[] },
+  { id:'new_life', name:'New Life', has_generator:false, post_types:['General'],
+    stages:[{key:'base',name:'Base Content Check',description:'Review base template content against brand guidelines'},{key:'expanded',name:'Expanded Content QC',description:'Review location-specific content against approved base'}], locations:[] },
+  { id:'ybh', name:'YBH / Clear Behavioral Health', has_generator:true,
+    post_types:['Mental Health','Addiction','Teen','Awareness / Holiday','General'],
+    stages:[
+      {key:'base',name:'Base Content Check',description:'Review base template content against brand guidelines'},
+      {key:'expanded',name:'Expanded Content QC',description:'Review location-specific content against approved base'},
+      {key:'generate',name:'Location Content Generator',description:'Generate ready-to-post location-specific content'}
+    ],
+    locations:[
+      'Clear Behavioral Health in Torrance-1','Clear Behavioral Health in Torrance-2',
+      'Clear Behavioral Health in Manhattan Beach-1','Clear Behavioral Health in Manhattan Beach-2',
+      'Clear Behavioral Health in Redondo Beach-1','Clear Behavioral Health in Redondo Beach-2',
+      'Clear Behavioral Health in Redondo Beach-3','Clear Behavioral Health in Redondo Beach-4',
+      'Clear Behavioral Health in Gardena','Clear Behavioral Health in Los Angeles 1',
+      'Clear Behavioral Health in Pasadena','Clear Behavioral Health in El Segundo',
+      'Clear Behavioral Health in Van Nuys','Clear Behavioral Health in El Monte',
+      'Clear Behavioral Health in Santa Clarita','Clear Behavioral Health in Fresno',
+      'Clear Behavioral Health in Bakersfield','Clear Behavioral Health in Los Angeles 2',
+      'Clear Behavioral Health in Southbay','Clear Behavioral Health in Anaheim Hills',
+      'Clear Behavioral Health in Modesto'
+    ] },
+];
+
+const QC_PASS = {
+  overall_status:'Pass', qc_score:92,
+  passed_checks:['Title follows topic/benefit-first structure — brand name not leading','Brand name "Gentle Dental in Arlington" used correctly throughout','Introduction is 2–3 sentences as required','Benefits section includes 5 bullet points with correct intro format','Procedure section covers all required steps','"Why Choose Gentle Dental?" section is present and complete','CTA uses "Book an appointment" — brand name and location included','Post length is 1,387 characters — within the ideal range','No banned phrases detected','Tone is warm, helpful, and patient-first'],
+  issues_found:[{severity:'minor',check:'CTA Specificity',issue:'The CTA could mention the specific service to reinforce the topic.',reason:'cta_rules: "Keep it short and action-focused" — adding the service name is optional but strengthens conversion.'}],
+  recommended_fixes:['Optionally strengthen the CTA with the specific service, e.g. "Book your teeth whitening appointment with Gentle Dental in Arlington today."'],
+  suggested_edited_version:`How Teeth Whitening Can Brighten Your Smile at Gentle Dental in Arlington
+
+A brighter smile can help you feel more confident in everyday moments. At Gentle Dental in Arlington, professional teeth whitening can help reduce stains caused by coffee, tea, wine, tobacco, and daily habits. The treatment is guided by a dental team focused on your comfort and oral health.
+
+Teeth whitening may help with:
+• Reducing surface stains from food and drinks
+• Improving the overall brightness of your smile
+• Boosting confidence before important events
+• Supporting a more youthful appearance
+• Refreshing the look of your smile after years of use
+
+What to expect at Gentle Dental in Arlington:
+Our dental team will begin with an initial evaluation of your teeth and gums. We will review your oral health before recommending the most suitable whitening approach. A personalised treatment plan is created based on your goals and comfort.
+
+Why Choose Gentle Dental?
+Gentle Dental in Arlington offers comprehensive dental care in a comfortable setting. From preventive visits to cosmetic, restorative, and emergency dental services, our team helps patients get the right care for their smile.
+
+Book your teeth whitening appointment with Gentle Dental in Arlington today.`,
+  final_approval_recommendation:'This post is approved for publishing. It follows all required brand guidelines — correct title structure, proper brand name usage, complete sections, and an appropriate CTA. One optional minor improvement is noted but does not block publication.',
+};
+
+const QC_MINOR = {
+  overall_status:'Needs Minor Edits', qc_score:76,
+  passed_checks:['Brand name used correctly in body and CTA','Post length is 1,312 characters — within range','No banned phrases detected','Tone is warm and helpful','"Why Choose" section is present'],
+  issues_found:[{severity:'major',check:'Title Structure',issue:'Title begins with the brand name "Gentle Dental in Brookline offers…" — guidelines require the topic or benefit to come first.',reason:'title_rules.core_rule: "Title must NEVER start with the brand name. Lead with the topic, service benefit, or patient question first."'},{severity:'minor',check:'Benefits Section',issue:'Only 3 bullet points in the benefits section. Guidelines require 5 to 6.',reason:'service_post_structure: "Benefits Section: 5 to 6 bullet points"'}],
+  recommended_fixes:['Rewrite the title to lead with the patient benefit, e.g. "What To Know About Dental Implants at Gentle Dental in Brookline"','Expand the benefits section to include at least 5 bullet points.'],
+  suggested_edited_version:`What To Know About Dental Implants at Gentle Dental in Brookline
+
+Dental implants can help restore the look and function of a natural tooth. At Gentle Dental in Brookline, patients can learn about implant options designed to support long-term oral health. The dental team provides guidance focused on comfort and long-term smile care.
+
+Dental implants may help with:
+• Replacing a missing tooth with a natural-looking restoration
+• Restoring bite function and comfort when chewing
+• Preventing bone loss in the jaw over time
+• Supporting the alignment of surrounding teeth
+• Improving confidence and overall smile appearance
+
+What to expect at Gentle Dental in Brookline:
+Our team will begin with an initial evaluation and review of your oral health. A personalised recommendation and treatment plan will be created based on your needs. The process is paced with comfort-focused care throughout.
+
+Why Choose Gentle Dental?
+Gentle Dental in Brookline offers comprehensive dental care in a comfortable setting. From preventive visits to restorative and cosmetic dental services, our team helps patients get the right care for their smile.
+
+Book an appointment with Gentle Dental in Brookline today.`,
+  final_approval_recommendation:'This post needs minor edits before publishing. The title structure violates the brand rule (must not lead with brand name) and the benefits section is under the required minimum. Use the suggested version above or apply the recommended fixes.',
+};
+
+const mockGenerated = (loc) => ({
+  within_limit:true, character_count:1341,
+  sections_included:['Title','Intro','Benefits','Procedure','Why Choose','CTA'],
+  full_post:`Signs You May Need a Dental Check-Up at ${loc}
+
+Dental concerns are easier to manage when they are addressed early. At ${loc}, patients can receive care for routine dental visits, ongoing discomfort, and urgent oral health needs in a comfortable setting.
+
+Signs it may be time to schedule a visit:
+• Tooth sensitivity when eating hot, cold, or sweet foods
+• Gum tenderness, bleeding when brushing, or visible swelling
+• Persistent bad breath that does not improve with brushing
+• Pain or discomfort in one or more teeth
+• Visible chips, cracks, or changes in tooth appearance
+
+What to expect at ${loc}:
+Your appointment will begin with a thorough evaluation of your teeth and gums. We will review your oral health history before recommending any next steps. A personalised plan is created based on your specific needs.
+
+Why Choose ${loc.split(' in ')[0]}?
+${loc} provides preventive, restorative, cosmetic, and emergency dental care in a supportive environment. Patients can get help for routine visits, ongoing concerns, and urgent dental needs all in one location.
+
+Book an appointment with ${loc} today.`,
+  customization_notes:[`Location name "${loc}" applied to title, intro, body, Why Choose section, and CTA`,'Post follows non-service structure (educational theme)','Character count: 1,341 — within 1,300–1,450 ideal range'],
+});
+
+// ── App ─────────────────────────────────────────────────────────────────────
+function gbpApp() {
+  return {
+    step:1, clients:[], selectedClient:null, selectedStage:null, selectedPostType:null,
+    topic:'', baseContent:'', expandedContent:'', location:'', genLocation:'',
+    loading:false, error:null, result:null, resultType:null,
+    gen:{inProgress:false,done:false,progress:0,total:0,currentLocation:''},
+    allResults:{}, showPassed:false, toast:{visible:false,message:''},
+
+    init() { this.clients = CLIENTS; },
+    selectClient(c) { this.selectedClient=c; this.selectedStage=null; this.selectedPostType=null; this.step=2; },
+    selectStage(s)  { this.selectedStage=s; (this.selectedClient?.post_types||[]).length===1?(this.selectedPostType=this.selectedClient.post_types[0],this.step=4):(this.step=3); },
+    selectPostType(t){ this.selectedPostType=t; this.step=4; },
+
+    async submit() {
+      this.error=null;
+      if (this.selectedStage?.key==='generate' && this.genLocation==='__all__') { this._simulateAll(); return; }
+      this.loading=true;
+      await new Promise(r=>setTimeout(r,1800));
+      if (this.selectedStage?.key==='generate') {
+        this.result=mockGenerated(this.genLocation); this.resultType='generated';
+      } else {
+        this.result=Math.random()>.45?QC_PASS:QC_MINOR; this.resultType='qc';
+      }
+      this.showPassed=false; this.loading=false;
+    },
+
+    async _simulateAll() {
+      const locs=this.selectedClient?.locations||[];
+      this.gen={inProgress:true,done:false,progress:0,total:locs.length,currentLocation:''};
+      this.allResults={}; this.resultType='all';
+      let i=0;
+      const tick=()=>{
+        if (i>=locs.length){this.gen.inProgress=false;this.gen.done=true;return;}
+        this.gen.currentLocation=locs[i]; this.gen.progress=i+1;
+        const r=mockGenerated(locs[i]);
+        r.character_count=1160+Math.floor(Math.random()*320); r.within_limit=r.character_count<=1500;
+        this.allResults={...this.allResults,[locs[i]]:r}; i++;
+        setTimeout(tick,280);
+      };
+      setTimeout(tick,300);
+    },
+
+    copyText(text) {
+      if (!text) return;
+      navigator.clipboard.writeText(text).then(()=>this.showToast('Copied to clipboard!')).catch(()=>{
+        const el=document.createElement('textarea');el.value=text;document.body.appendChild(el);el.select();document.execCommand('copy');document.body.removeChild(el);
+        this.showToast('Copied to clipboard!');
+      });
+    },
+    showToast(msg){this.toast={visible:true,message:msg};setTimeout(()=>{this.toast.visible=false;},3000);},
+    reset(){Object.assign(this,{step:1,selectedClient:null,selectedStage:null,selectedPostType:null,topic:'',baseContent:'',expandedContent:'',location:'',genLocation:'',loading:false,error:null,result:null,resultType:null,showPassed:false,allResults:{},gen:{inProgress:false,done:false,progress:0,total:0,currentLocation:''}});},
+
+    clientColor(id){
+      const m={gentle_dental:{a:'#2563eb',b:'#4f46e5'},great_lakes:{a:'#0891b2',b:'#06b6d4'},ybh:{a:'#7c3aed',b:'#6366f1'},new_life:{a:'#059669',b:'#10b981'},neuro:{a:'#d97706',b:'#f59e0b'}};
+      return m[id]||{a:'#475569',b:'#64748b'};
+    },
+    stageIconStyle(key){
+      const m={base:'background:linear-gradient(135deg,#059669,#10b981);box-shadow:0 0 20px rgba(16,185,129,0.4)',expanded:'background:linear-gradient(135deg,#2563eb,#6366f1);box-shadow:0 0 20px rgba(99,102,241,0.4)',generate:'background:linear-gradient(135deg,#7c3aed,#8b5cf6);box-shadow:0 0 20px rgba(139,92,246,0.4)'};
+      return m[key]||'background:#1e293b';
+    },
+    scoreColor(s){return s>=90?'#10b981':s>=70?'#f59e0b':'#ef4444';},
+  };
+}
+</script>
+</body>
+</html>

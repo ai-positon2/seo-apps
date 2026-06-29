@@ -1,0 +1,22 @@
+{
+  "_comment": "Sample QC output for the base content example above. Illustrates the expected response structure.",
+  "overall_status": "Pass",
+  "qc_score": 94,
+  "passed_checks": [
+    "Character Count — 591 characters, well under 1500 limit",
+    "Topic Alignment — Post clearly addresses the approved topic: Anxiety Treatment in Los Angeles",
+    "Tone & Voice — Compassionate, professional, hopeful, and non-stigmatizing language throughout",
+    "Location Name — 'Los Angeles' correctly mentioned (required for Mental Health post type)",
+    "CTA Present — 'Call us or visit our website' is a valid CTA",
+    "Link Present — clearbehavioralhealth.com link included",
+    "Service Relevance — Anxiety treatment is a valid mental health service for this location",
+    "No DBT Spelling Issues — DBT not referenced in this post",
+    "Teen Topic Restriction — N/A (this is a Mental Health post, not Teen)",
+    "Formatting & Readability — Well-structured with clear paragraph breaks",
+    "Brand Compliance — Content aligns with YBH/Clear Behavioral Health guidelines"
+  ],
+  "issues_found": [],
+  "recommended_fixes": [],
+  "suggested_edited_version": "",
+  "final_approval_recommendation": "This base content passes all QC checks. The post is well within the character limit, includes the required Los Angeles location name, has a clear CTA, and links to the relevant program page. The tone is appropriately compassionate and hopeful. Approved for use as the base version for location-specific expansion."
+}

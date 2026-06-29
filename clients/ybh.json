@@ -1,0 +1,348 @@
+{
+  "client_id": "ybh",
+  "client_name": "YBH / Clear Behavioral Health",
+  "public_brand_name": "Clear Behavioral Health",
+  "brand_name_with_location_format": "Clear Behavioral Health in [Location]",
+  "website": "clearbehavioralhealth.com",
+  "location_page_url_template": "https://clearbehavioralhealth.com/locations/{slug}/",
+  "relationship": "YBH (Young Behavioral Health) is the parent organization. Clear Behavioral Health is a division/subsidiary of YBH.",
+  "content_generation_supported": true,
+  "location_rules": {
+    "Torrance-1": {
+      "website_name": "Torrance – Residential Mental Health Services (18616 Manhattan Place)",
+      "services": ["mental_health"],
+      "service_notes": {
+        "addiction": "Note: Addiction treatment is not available at this location, but services are offered at our Redondo Beach and Gardena centers.",
+        "teen": "Note: Teen mental health treatment at Clear Behavioral Health is available in Los Angeles, Pasadena, Redondo Beach, El Segundo, Van Nuys, El Monte, and Santa Clarita."
+      }
+    },
+    "Torrance-2": {
+      "website_name": "Los Angeles – Residential Mental Health Services (2406 Descanso Way, Torrance)",
+      "services": ["mental_health"],
+      "service_notes": {
+        "addiction": "Note: Addiction treatment is not available at this location, but services are offered at our Redondo Beach and Gardena centers.",
+        "teen": "Note: Teen mental health treatment at Clear Behavioral Health is available in Los Angeles, Pasadena, Redondo Beach, El Segundo, Van Nuys, El Monte, and Santa Clarita."
+      }
+    },
+    "Manhattan Beach-1": {
+      "website_name": "Manhattan Beach – Residential Mental Health Services (1208 Highview Ave)",
+      "services": ["mental_health"],
+      "service_notes": {
+        "addiction": "Note: Addiction treatment is not available at this location, but services are offered at our Redondo Beach and Gardena centers.",
+        "teen": "Note: Teen mental health treatment at Clear Behavioral Health is available in Los Angeles, Pasadena, Redondo Beach, El Segundo, Van Nuys, El Monte, and Santa Clarita."
+      }
+    },
+    "Manhattan Beach-2": {
+      "website_name": "Manhattan Beach – Outpatient Mental Health Services for Teens (515 N Sepulveda Blvd)",
+      "services": ["mental_health", "teen"],
+      "service_notes": {
+        "addiction": "Note: Addiction treatment is not available at this location, but services are offered at our Redondo Beach and Gardena centers."
+      }
+    },
+    "Redondo Beach-1": {
+      "website_name": "Redondo Beach – Drug Rehab and Alcohol Detox (326 & 328 N Prospect St)",
+      "services": ["addiction"],
+      "service_notes": {
+        "mental_health": "Please note that mental health care is not offered at this location but is available at our other Clear Behavioral Health locations.",
+        "teen": "Note: Teen mental health treatment at Clear Behavioral Health is available in Los Angeles, Pasadena, Redondo Beach, El Segundo, Van Nuys, El Monte, and Santa Clarita."
+      }
+    },
+    "Redondo Beach-2": {
+      "website_name": "Redondo Beach – Outpatient Dual Diagnosis (2309 W 190th St)",
+      "services": ["addiction", "mental_health"],
+      "service_notes": {
+        "teen": "Note: Teen mental health treatment at Clear Behavioral Health is available in Los Angeles, Pasadena, Redondo Beach, El Segundo, Van Nuys, El Monte, and Santa Clarita."
+      }
+    },
+    "Redondo Beach-3": {
+      "website_name": "Redondo Beach – Outpatient Mental Health Services (201 Herondo St)",
+      "services": ["mental_health", "teen"],
+      "service_notes": {
+        "addiction": "Note: Addiction treatment is not available at this location, but services are offered at our Redondo Beach and Gardena centers."
+      }
+    },
+    "Redondo Beach-4": {
+      "website_name": "Redondo Beach – Teen Mental Health Services (201 Herondo St, teen page)",
+      "services": ["teen"],
+      "service_notes": {
+        "mental_health": "Please note that mental health care for adults is available at our other Clear Behavioral Health locations.",
+        "addiction": "Note: Addiction treatment is not available at this location, but services are offered at our Redondo Beach and Gardena centers."
+      }
+    },
+    "Gardena": {
+      "website_name": "Gardena – Residential Rehab for Addiction (1921 W 146th St)",
+      "services": ["addiction"],
+      "service_notes": {
+        "mental_health": "Please note that mental health care is not offered at this location but is available at our other Clear Behavioral Health locations.",
+        "teen": "Note: Teen mental health treatment at Clear Behavioral Health is available in Los Angeles, Pasadena, Redondo Beach, El Segundo, Van Nuys, El Monte, and Santa Clarita."
+      }
+    },
+    "Los Angeles 1": {
+      "website_name": "Los Angeles – Outpatient Mental Health Services (640 S San Vicente Blvd)",
+      "services": ["mental_health", "teen"],
+      "service_notes": {
+        "addiction": "Note: Addiction treatment is not available at this location, but services are offered at our Redondo Beach and Gardena centers."
+      }
+    },
+    "Los Angeles 2": {
+      "website_name": "Los Angeles – Residential Mental Health Services (2406 Descanso Way, Torrance)",
+      "services": ["mental_health"],
+      "service_notes": {
+        "addiction": "Note: Addiction treatment is not available at this location, but services are offered at our Redondo Beach and Gardena centers.",
+        "teen": "Note: Teen mental health treatment at Clear Behavioral Health is available in Los Angeles, Pasadena, Redondo Beach, El Segundo, Van Nuys, El Monte, and Santa Clarita."
+      }
+    },
+    "Pasadena": {
+      "website_name": "Pasadena – Outpatient Mental Health Services (769 N Orange Grove Blvd)",
+      "services": ["mental_health", "teen"],
+      "service_notes": {
+        "addiction": "Note: Addiction treatment is not available at this location, but services are offered at our Redondo Beach and Gardena centers."
+      }
+    },
+    "El Segundo": {
+      "website_name": "El Segundo – Outpatient Mental Health Services (115 Main St)",
+      "services": ["mental_health", "teen"],
+      "service_notes": {
+        "addiction": "Note: Addiction treatment is not available at this location, but services are offered at our Redondo Beach and Gardena centers."
+      }
+    },
+    "Van Nuys": {
+      "website_name": "Van Nuys – Outpatient Mental Health Services (6627 Valjean Ave)",
+      "services": ["mental_health", "teen"],
+      "service_notes": {
+        "addiction": "Note: Addiction treatment is not available at this location, but services are offered at our Redondo Beach and Gardena centers."
+      }
+    },
+    "El Monte": {
+      "website_name": "El Monte – Outpatient Mental Health Services (10942 Klingerman St)",
+      "services": ["mental_health", "teen"],
+      "service_notes": {
+        "addiction": "Note: Addiction treatment is not available at this location, but services are offered at our Redondo Beach and Gardena centers."
+      }
+    },
+    "Santa Clarita": {
+      "website_name": "Santa Clarita – Outpatient Mental Health Services (26330 Diamond Place)",
+      "services": ["mental_health", "teen"],
+      "service_notes": {
+        "addiction": "Note: Addiction treatment is not available at this location, but services are offered at our Redondo Beach and Gardena centers."
+      }
+    },
+    "Southbay": {
+      "website_name": "The South Bay – Residential Mental Health Services (2104 W 183rd St, Torrance)",
+      "services": ["mental_health"],
+      "service_notes": {
+        "addiction": "Note: Addiction treatment is not available at this location, but services are offered at our Redondo Beach and Gardena centers.",
+        "teen": "Note: Teen mental health treatment at Clear Behavioral Health is available in Los Angeles, Pasadena, Redondo Beach, El Segundo, Van Nuys, El Monte, and Santa Clarita."
+      }
+    },
+    "Fresno": {
+      "services": ["mental_health"],
+      "service_notes": {
+        "addiction": "Note: Addiction treatment is not available at this location, but services are offered at our Redondo Beach and Gardena centers.",
+        "teen": "Note: Teen mental health treatment at Clear Behavioral Health is available in Los Angeles, Pasadena, Redondo Beach, El Segundo, Van Nuys, El Monte, and Santa Clarita."
+      }
+    },
+    "Bakersfield": {
+      "services": ["mental_health"],
+      "service_notes": {
+        "addiction": "Note: Addiction treatment is not available at this location, but services are offered at our Redondo Beach and Gardena centers.",
+        "teen": "Note: Teen mental health treatment at Clear Behavioral Health is available in Los Angeles, Pasadena, Redondo Beach, El Segundo, Van Nuys, El Monte, and Santa Clarita."
+      }
+    },
+    "Anaheim Hills": {
+      "website_name": "Anaheim Hills – Outpatient Mental Health Services (5481 E Santa Ana Canyon Rd)",
+      "services": ["mental_health", "teen"],
+      "service_notes": {
+        "addiction": "Note: Addiction treatment is not available at this location, but services are offered at our Redondo Beach and Gardena centers."
+      }
+    },
+    "Modesto": {
+      "services": ["mental_health"],
+      "service_notes": {
+        "addiction": "Note: Addiction treatment is not available at this location, but services are offered at our Redondo Beach and Gardena centers.",
+        "teen": "Note: Teen mental health treatment at Clear Behavioral Health is available in Los Angeles, Pasadena, Redondo Beach, El Segundo, Van Nuys, El Monte, and Santa Clarita."
+      }
+    }
+  },
+  "locations": [
+    "Torrance-1",
+    "Manhattan Beach-1",
+    "Redondo Beach-1",
+    "Redondo Beach-2",
+    "Redondo Beach-3",
+    "Gardena",
+    "Los Angeles 1",
+    "Pasadena",
+    "Redondo Beach-4",
+    "El Segundo",
+    "Van Nuys",
+    "El Monte",
+    "Santa Clarita",
+    "Fresno",
+    "Torrance-2",
+    "Bakersfield",
+    "Manhattan Beach-2",
+    "Los Angeles 2",
+    "Southbay",
+    "Anaheim Hills",
+    "Modesto"
+  ],
+  "character_limit": 1500,
+  "link_required": true,
+  "link_rules": "If topic is program/treatment-related, link that specific page. Otherwise, use location page URLs from clearbehavioralhealth.com.",
+  "cta_required": true,
+  "cta_rules": "At least one call-to-action must be present. No specific wording is required.",
+  "tone": {
+    "description": "Compassionate, professional, hopeful, and non-stigmatizing",
+    "guidelines": [
+      "Use warm, empathetic language",
+      "Maintain medical credibility and professional authority",
+      "Focus on recovery, hope, and positive outcomes",
+      "Avoid language that stigmatizes mental health or addiction",
+      "Avoid alarming or fear-based language"
+    ]
+  },
+  "post_types": {
+    "mental_health": {
+      "description": "Posts about mental health programs or treatments",
+      "locations_with_service": [
+        "Los Angeles",
+        "Manhattan Beach",
+        "Torrance Residential - 18616",
+        "Pasadena",
+        "Redondo Beach Outpatient",
+        "Redondo 201",
+        "El Segundo",
+        "Van Nuys",
+        "El Monte",
+        "Santa Clarita",
+        "Los Angeles Residential",
+        "Southbay"
+      ],
+      "location_name_rule": "REQUIRED — Location name MUST appear in the post for all 12 locations listed above.",
+      "non_service_location_notes": {
+        "Redondo Beach 326/328": "Note: Help is available at our outpatient location in Redondo Beach.",
+        "Gardena": "Please note that mental health care is not offered at this location but is available at our other Clear Behavioral Health locations."
+      },
+      "default_note_for_any_other_non_service_location": "Note: Help is available at our outpatient location in Redondo Beach.",
+      "note_required_for_general_posts": false,
+      "note_required_for_service_specific_posts": true,
+      "online_location_rule": "Do NOT include location name in the title or post. Write a general post only."
+    },
+    "addiction": {
+      "description": "Posts about addiction treatment or rehabilitation programs",
+      "locations_with_service": [
+        "Redondo Beach Rehab 326/328",
+        "Redondo 201",
+        "Gardena"
+      ],
+      "location_name_rule": "REQUIRED — Location name MUST appear in the post for the 3 addiction service locations above ONLY.",
+      "non_service_location_notes": {
+        "Redondo Beach Outpatient": "Please note: Treatment is available at our Redondo Beach Residential center."
+      },
+      "default_note_for_any_other_non_service_location": "Note: Addiction treatment is not available at this location, but services are offered at our Redondo Beach and Gardena centers.",
+      "note_for_mental_health_only_locations": "For mental health-only locations (which do not offer addiction treatment): do NOT add the location name in the post. Notes are only required for service-specific addiction posts, NOT for general posts.",
+      "note_required_for_general_posts": false,
+      "note_required_for_service_specific_posts": true,
+      "online_location_rule": "Do NOT include location name in the title or post. Write a general post only."
+    },
+    "teen": {
+      "description": "Posts about teen mental health programs (Young Behavioral Health)",
+      "locations_with_service": [
+        "Los Angeles",
+        "Redondo Beach",
+        "Pasadena",
+        "Van Nuys",
+        "El Monte",
+        "El Segundo",
+        "Santa Clarita"
+      ],
+      "location_name_rule": "REQUIRED — Location name MUST appear in the post for the 7 teen service locations above ONLY.",
+      "default_note_for_non_service_locations": "Note: Teen mental health treatment at Clear Behavioral Health is available in Los Angeles, Pasadena, Redondo Beach, El Segundo, Van Nuys, El Monte, and Santa Clarita.",
+      "note_required_for_general_posts": false,
+      "note_required_for_service_specific_posts": true,
+      "online_location_rule": "Do NOT include location name in the title or post. Write a general post only.",
+      "allowed_conditions_only": true,
+      "allowed_conditions": [
+        "Depression",
+        "Anxiety",
+        "Bipolar Disorder",
+        "PTSD (Post-Traumatic Stress Disorder)",
+        "School Issues",
+        "Failure to Launch"
+      ],
+      "condition_rule": "Teen posts may ONLY cover the 6 conditions listed above. No other conditions or topics are allowed for teen posts."
+    },
+    "awareness_holiday": {
+      "description": "Posts tied to an awareness day or holiday",
+      "sub_type_rules": {
+        "mental_health_awareness": {
+          "example": "World Mental Health Day, Mental Health Awareness Month",
+          "location_name_rule": "SAME as mental health posts — add location names for all 12 mental health service locations",
+          "note_rule": "SAME as mental health posts — add notes for Redondo Beach 326/328 and Gardena. Notes are only required if the post is service-specific; skip if general awareness."
+        },
+        "addiction_awareness": {
+          "example": "National Recovery Month, Alcohol Awareness Month",
+          "location_name_rule": "SAME as addiction posts — add location names only for the 3 addiction service locations",
+          "note_rule": "For mental health-only locations, do NOT add location name. Notes for non-service locations only needed for service-specific posts, not general awareness."
+        },
+        "teen_awareness": {
+          "example": "Teen Mental Health Day, Back to School awareness",
+          "location_name_rule": "SAME as teen posts — add location names only for the 7 teen service locations",
+          "note_rule": "SAME as teen posts — add notes for non-teen locations only for service-specific posts."
+        },
+        "general_holiday": {
+          "example": "New Year, Thanksgiving, general wellness holidays not tied to mental health or addiction",
+          "location_name_rule": "NO location names needed",
+          "note_rule": "NO service availability notes needed"
+        }
+      },
+      "topic_rule": "The awareness day topic must be closely related to what is being posted. Do not use an awareness day as a loose hook for unrelated content.",
+      "online_location_rule": "Do NOT include location name for any awareness/holiday post. Write a general post only."
+    },
+    "general": {
+      "description": "General posts not specific to mental health, addiction, or teens",
+      "location_name_rule": "No location name required",
+      "note_required": false
+    }
+  },
+  "image_guidelines": {
+    "allowed": [
+      "Mental health related imagery",
+      "Addiction recovery related imagery",
+      "Therapy session imagery",
+      "General supportive and hopeful imagery"
+    ],
+    "not_allowed": [
+      "Addiction or medicine-specific images (pills, syringes, bottles, drugs)",
+      "Images with visible human faces",
+      "Images showing any physical contact with minors (hugs, hand on shoulder, any touch)"
+    ],
+    "critical_note": "Images depicting physical contact with minors are a documented cause of GBP post rejections."
+  },
+  "special_rules": [
+    {
+      "id": "dbt_spelling",
+      "rule": "CRITICAL: Always use 'Dialectical Behavior Therapy' — NEVER 'Dialectical Behavioral Therapy'",
+      "detail": "The word is 'Behavior' (not 'Behavioral'). This is a very common error and must be flagged every time.",
+      "check": "If DBT or its full name appears anywhere in the post, verify the spelling is 'Behavior' not 'Behavioral'."
+    },
+    {
+      "id": "torrance_18123_tracks",
+      "rule": "Torrance 18123 offers BOTH day AND evening virtual tracks",
+      "check": "If Torrance 18123 virtual programs are referenced, confirm both tracks are mentioned."
+    },
+    {
+      "id": "bakersfield_tracks",
+      "rule": "Bakersfield offers BOTH day AND evening virtual tracks",
+      "check": "If Bakersfield virtual programs are referenced, confirm both tracks are mentioned."
+    }
+  ],
+  "formatting_rules": [
+    "Post must be UNDER 1500 characters — count all characters including spaces and line breaks",
+    "Post must include a relevant link to clearbehavioralhealth.com",
+    "Location name must be present where required by post type and location",
+    "Service-availability note must be included where required by post type and location",
+    "At least one CTA (call to action) must be present"
+  ]
+}

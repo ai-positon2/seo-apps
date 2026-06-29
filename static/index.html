@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GBP QC Agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<style>
+/* ── Reset & Base ───────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: #070710;
+  color: #e2e8f0;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+[x-cloak] { display: none !important; }
+
+/* ── Animated Background ────────────────────────────────────────────────── */
+.bg-scene { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.orb { position: absolute; border-radius: 50%; filter: blur(80px); mix-blend-mode: screen; opacity: 0.5; }
+.orb-1 { width: 700px; height: 700px; top: -200px; left: -150px; background: radial-gradient(circle, #4f46e5 0%, transparent 70%); animation: drift1 24s ease-in-out infinite; }
+.orb-2 { width: 600px; height: 600px; top: -100px; right: -200px; background: radial-gradient(circle, #7c3aed 0%, transparent 70%); animation: drift2 30s ease-in-out infinite; }
+.orb-3 { width: 550px; height: 550px; bottom: -150px; left: 35%; background: radial-gradient(circle, #0891b2 0%, transparent 70%); animation: drift3 36s ease-in-out infinite; }
+.orb-4 { width: 400px; height: 400px; bottom: 10%; right: 5%; background: radial-gradient(circle, #6d28d9 0%, transparent 70%); animation: drift4 28s ease-in-out infinite; opacity: 0.3; }
+
+@keyframes drift1 {
+  0%,100% { transform: translate(0,0) scale(1); }
+  25%      { transform: translate(40px,-70px) scale(1.08); }
+  50%      { transform: translate(-30px,-40px) scale(0.94); }
+  75%      { transform: translate(60px,30px) scale(1.04); }
+}
+@keyframes drift2 {
+  0%,100% { transform: translate(0,0) scale(1); }
+  30%      { transform: translate(-60px,50px) scale(1.1); }
+  60%      { transform: translate(40px,-80px) scale(0.9); }
+}
+@keyframes drift3 {
+  0%,100% { transform: translate(0,0) scale(1); }
+  35%      { transform: translate(-50px,-60px) scale(1.12); }
+  70%      { transform: translate(70px,40px) scale(0.88); }
+}
+@keyframes drift4 {
+  0%,100% { transform: translate(0,0) scale(1); }
+  40%      { transform: translate(-40px,-80px) scale(1.15); }
+  80%      { transform: translate(50px,30px) scale(0.85); }
+}
+
+.bg-grid {
+  position: absolute; inset: 0;
+  background-image: radial-gradient(rgba(255,255,255,0.055) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+.bg-vignette {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse 80% 60% at 50% 0%, transparent 50%, rgba(7,7,16,0.7) 100%);
+}
+
+/* ── Glass ──────────────────────────────────────────────────────────────── */
+.glass {
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(255,255,255,0.08);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+.glass-md {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.glass-hover {
+  transition: background .2s, border-color .2s, box-shadow .2s, transform .22s cubic-bezier(.16,1,.3,1);
+  cursor: pointer;
+}
+.glass-hover:hover {
+  background: rgba(255,255,255,0.07);
+  border-color: rgba(255,255,255,0.16);
+  transform: translateY(-4px);
+  box-shadow: 0 20px 60px -12px rgba(0,0,0,0.6), 0 0 0 1px rgba(99,102,241,0.15);
+}
+.glass-selected {
+  background: rgba(99,102,241,0.12) !important;
+  border-color: rgba(99,102,241,0.4) !important;
+  box-shadow: 0 0 0 1px rgba(99,102,241,0.3), 0 0 30px -8px rgba(99,102,241,0.3);
+}
+
+/* ── Typography ─────────────────────────────────────────────────────────── */
+.heading {
+  font-size: 1.6rem; font-weight: 700; letter-spacing: -.025em; line-height: 1.2;
+  background: linear-gradient(135deg, #f1f5f9 30%, #94a3b8 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.subheading { font-size: .875rem; color: #64748b; margin-top: 6px; }
+.label { font-size: .75rem; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: .07em; }
+.section-title {
+  font-size: .8rem; font-weight: 600; color: #94a3b8;
+  text-transform: uppercase; letter-spacing: .08em;
+  display: flex; align-items: center; gap: 8px;
+}
+.section-title::before { content:''; flex:1; max-width:16px; height:1px; background:rgba(255,255,255,0.1); }
+.section-title::after  { content:''; flex:1; height:1px; background:rgba(255,255,255,0.1); }
+.accent-text {
+  background: linear-gradient(135deg, #818cf8, #67e8f9);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  border: none; border-radius: 12px; padding: 11px 24px;
+  font-size: .875rem; font-weight: 600; cursor: pointer;
+  transition: all .2s; user-select: none; white-space: nowrap;
+}
+.btn:disabled { opacity: .4; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+.btn-primary { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; box-shadow: 0 4px 24px -6px rgba(99,102,241,0.5); }
+.btn-primary:not(:disabled):hover { background: linear-gradient(135deg, #818cf8, #a78bfa); box-shadow: 0 8px 30px -6px rgba(99,102,241,0.7); transform: translateY(-1px); }
+.btn-purple { background: linear-gradient(135deg, #7c3aed, #6366f1); color: #fff; box-shadow: 0 4px 24px -6px rgba(124,58,237,0.5); }
+.btn-purple:not(:disabled):hover { box-shadow: 0 8px 30px -6px rgba(124,58,237,0.7); transform: translateY(-1px); }
+.btn-green { background: linear-gradient(135deg, #059669, #10b981); color: #fff; box-shadow: 0 4px 20px -6px rgba(16,185,129,0.5); }
+.btn-green:not(:disabled):hover { box-shadow: 0 8px 28px -6px rgba(16,185,129,0.6); transform: translateY(-1px); }
+.btn-ghost { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #94a3b8; }
+.btn-ghost:hover { background: rgba(255,255,255,0.1); color: #e2e8f0; }
+.btn-sm { padding: 7px 14px; font-size: .75rem; border-radius: 8px; gap: 5px; }
+
+/* ── Inputs ─────────────────────────────────────────────────────────────── */
+.inp {
+  width: 100%; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.1);
+  color: #e2e8f0; border-radius: 12px; padding: 12px 16px; font-size: .875rem;
+  font-family: inherit; transition: border-color .2s, box-shadow .2s;
+}
+.inp:focus { outline: none; border-color: rgba(99,102,241,0.6); box-shadow: 0 0 0 3px rgba(99,102,241,0.12); }
+.inp::placeholder { color: #374151; }
+textarea.inp { resize: vertical; line-height: 1.6; }
+select.inp {
+  appearance: none; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%236b7280'%3E%3Cpath fill-rule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center; background-size: 16px;
+  padding-right: 40px;
+}
+select.inp option { background: #1a1a2e; color: #e2e8f0; }
+.char-counter { font-size: .75rem; font-weight: 500; padding: 2px 8px; border-radius: 20px; transition: all .2s; }
+.char-ok   { background: rgba(255,255,255,0.06); color: #64748b; }
+.char-warn { background: rgba(245,158,11,0.15); color: #fbbf24; }
+.char-over { background: rgba(239,68,68,0.15); color: #f87171; }
+
+/* ── Chips ──────────────────────────────────────────────────────────────── */
+.chip { display: inline-flex; align-items: center; gap: 5px; border-radius: 20px; padding: 4px 12px; font-size: .75rem; font-weight: 500; }
+.chip-purple { background: rgba(139,92,246,0.15); color: #a78bfa; border: 1px solid rgba(139,92,246,0.25); }
+.chip-blue   { background: rgba(99,102,241,0.15); color: #818cf8; border: 1px solid rgba(99,102,241,0.25); }
+.chip-cyan   { background: rgba(6,182,212,0.12);  color: #67e8f9; border: 1px solid rgba(6,182,212,0.2); }
+.chip-green  { background: rgba(16,185,129,0.12); color: #34d399; border: 1px solid rgba(16,185,129,0.2); }
+.chip-amber  { background: rgba(245,158,11,0.12); color: #fbbf24; border: 1px solid rgba(245,158,11,0.2); }
+.chip-red    { background: rgba(239,68,68,0.12);  color: #f87171; border: 1px solid rgba(239,68,68,0.2); }
+
+.pill-type {
+  padding: 8px 18px; border-radius: 100px; font-size: .8rem; font-weight: 500; cursor: pointer;
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); color: #94a3b8;
+  transition: all .18s;
+}
+.pill-type:hover { background: rgba(99,102,241,0.1); border-color: rgba(99,102,241,0.3); color: #a5b4fc; }
+.pill-type.active {
+  background: linear-gradient(135deg, rgba(99,102,241,0.25), rgba(139,92,246,0.25));
+  border-color: rgba(99,102,241,0.5); color: #c7d2fe;
+  box-shadow: 0 0 16px -4px rgba(99,102,241,0.4);
+}
+
+/* ── Score Gauge ────────────────────────────────────────────────────────── */
+.score-progress { transition: stroke-dashoffset 1.2s cubic-bezier(0.4,0,0.2,1); }
+
+/* ── Progress bar ───────────────────────────────────────────────────────── */
+.pbar-fill {
+  height: 100%; border-radius: 100px;
+  background: linear-gradient(90deg, #6366f1, #8b5cf6, #06b6d4);
+  background-size: 200% 100%;
+  transition: width .5s ease;
+  box-shadow: 0 0 16px rgba(99,102,241,0.6);
+  animation: shimmer 3s linear infinite;
+}
+@keyframes shimmer {
+  0%   { background-position: 200% center; }
+  100% { background-position: -200% center; }
+}
+
+/* ── Animations ─────────────────────────────────────────────────────────── */
+.fade-up { animation: fadeUp .4s cubic-bezier(.16,1,.3,1); }
+@keyframes fadeUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+.stagger > * { animation: fadeUp .4s cubic-bezier(.16,1,.3,1) both; }
+.stagger > *:nth-child(1) { animation-delay: .05s; }
+.stagger > *:nth-child(2) { animation-delay: .12s; }
+.stagger > *:nth-child(3) { animation-delay: .19s; }
+.stagger > *:nth-child(4) { animation-delay: .26s; }
+.stagger > *:nth-child(5) { animation-delay: .33s; }
+.spin { animation: spin .75s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.rotate-180 { transform: rotate(180deg); }
+.transition-transform { transition: transform .2s ease; }
+
+/* ── Issue cards ────────────────────────────────────────────────────────── */
+.issue-major { background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.2); border-left: 3px solid #ef4444; border-radius: 12px; padding: 14px 16px; }
+.issue-minor { background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.15); border-left: 3px solid #f59e0b; border-radius: 12px; padding: 14px 16px; }
+.passed-item { border-bottom: 1px solid rgba(255,255,255,0.05); padding: 10px 0; }
+.passed-item:last-child { border-bottom: none; }
+
+/* ── Post block ─────────────────────────────────────────────────────────── */
+.post-block {
+  background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 12px; padding: 20px; font-size: .83rem; line-height: 1.8;
+  color: #cbd5e1; white-space: pre-wrap; font-family: inherit;
+}
+
+/* ── Toast ──────────────────────────────────────────────────────────────── */
+.toast {
+  position: fixed; top: 20px; right: 20px; z-index: 9999;
+  display: flex; align-items: center; gap: 10px;
+  background: rgba(255,255,255,0.08); backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.14); border-radius: 14px;
+  padding: 12px 18px; font-size: .8rem; font-weight: 500; color: #e2e8f0;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+
+/* ── Scrollbar ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: #6366f1; }
+
+/* ── Layout helpers ─────────────────────────────────────────────────────── */
+.page { max-width: 960px; margin: 0 auto; padding: 40px 20px 80px; position: relative; z-index: 10; }
+.rounded-card { border-radius: 20px; }
+.rounded-lg   { border-radius: 14px; }
+.p-card    { padding: 24px; }
+.p-card-sm { padding: 18px; }
+.gap-sm { gap: 12px; }
+.gap-md { gap: 16px; }
+.gap-lg { gap: 24px; }
+.space-y > * + * { margin-top: 14px; }
+.hr { height: 1px; background: rgba(255,255,255,0.06); margin: 16px 0; }
+.grow { flex-grow: 1; }
+.shrink-0 { flex-shrink: 0; }
+.ml-auto { margin-left: auto; }
+.overflow-hidden { overflow: hidden; }
+.relative { position: relative; }
+.grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.grid-auto { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+@media (max-width: 640px) { .grid-2, .grid-3, .grid-auto { grid-template-columns: 1fr; } }
+@media (min-width: 641px) and (max-width: 900px) { .grid-3 { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+
+<body>
+
+<!-- ── Background ──────────────────────────────────────────────────────── -->
+<div class="bg-scene">
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+  <div class="orb orb-4"></div>
+  <div class="bg-grid"></div>
+  <div class="bg-vignette"></div>
+</div>
+
+<!-- ── App ─────────────────────────────────────────────────────────────── -->
+<div x-data="gbpApp()" x-init="init()" x-cloak>
+
+  <!-- Toast -->
+  <div x-show="toast.visible" class="toast"
+       x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 translate-y-2" x-transition:enter-end="opacity-100 translate-y-0"
+       x-transition:leave="transition ease-in duration-150" x-transition:leave-end="opacity-0">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5"><path d="M5 13l4 4L19 7"/></svg>
+    <span x-text="toast.message"></span>
+  </div>
+
+  <!-- ── Header ──────────────────────────────────────────────────────── -->
+  <header style="position:sticky;top:0;z-index:50;background:rgba(7,7,16,0.7);backdrop-filter:blur(20px);border-bottom:1px solid rgba(255,255,255,0.07);">
+    <div style="max-width:960px;margin:0 auto;padding:0 20px;height:60px;display:flex;align-items:center;justify-content:space-between;gap:16px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;box-shadow:0 0 20px rgba(99,102,241,0.5);flex-shrink:0;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <div>
+          <div style="font-size:.95rem;font-weight:700;color:#f1f5f9;letter-spacing:-.02em;">GBP QC Agent</div>
+          <p style="font-size:.7rem;color:#4b5563;margin-top:1px;">Google Business Profile Quality Control</p>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span x-show="selectedClient" style="font-size:.75rem;color:#94a3b8;font-weight:500;" x-text="selectedClient?.name?.split('(')[0].trim()"></span>
+        <button x-show="step > 1 || resultType" @click="reset()" class="btn btn-ghost btn-sm">← New Session</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Step Indicator ─────────────────────────────────────────────── -->
+  <div x-show="!resultType" style="position:sticky;top:60px;z-index:40;background:rgba(7,7,16,0.6);backdrop-filter:blur(16px);border-bottom:1px solid rgba(255,255,255,0.05);">
+    <div style="max-width:960px;margin:0 auto;padding:12px 20px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <template x-for="(label, i) in ['Select Client','Choose Stage','Post Type','Enter Content']" :key="i">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <div style="width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;flex-shrink:0;transition:all .3s;"
+                   :style="step > i+1 ? 'background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;box-shadow:0 0 12px rgba(99,102,241,0.5)' : step===i+1 ? 'background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;box-shadow:0 0 20px rgba(99,102,241,0.7),0 0 0 4px rgba(99,102,241,0.15)' : 'background:rgba(255,255,255,0.06);color:#374151'">
+                <template x-if="step > i+1">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><path d="M5 13l4 4L19 7"/></svg>
+                </template>
+                <span x-show="step <= i+1" x-text="i+1"></span>
+              </div>
+              <span style="font-size:.72rem;" :style="step===i+1?'color:#a5b4fc;font-weight:600':step>i+1?'color:#374151':'color:#374151'" x-text="label"></span>
+            </div>
+            <div x-show="i < 3" style="width:20px;height:1px;background:rgba(255,255,255,0.08);flex-shrink:0;"></div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Main ──────────────────────────────────────────────────────────── -->
+  <div class="page">
+
+    <!-- Error -->
+    <div x-show="error" x-transition style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:14px;padding:14px 18px;font-size:.85rem;color:#fca5a5;display:flex;align-items:center;gap:12px;margin-bottom:24px;">
+      <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="flex-shrink:0;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      <span x-text="error" style="flex-grow:1;"></span>
+      <button @click="error=null" style="color:#ef4444;background:none;border:none;cursor:pointer;">
+        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <!-- ════════════════ STEP 1 — CLIENT ════════════════ -->
+    <div x-show="step === 1" class="fade-up">
+      <div style="text-align:center;margin-bottom:36px;">
+        <h2 class="heading">Select a Client</h2>
+        <p class="subheading">Choose the brand you're creating content for</p>
+      </div>
+
+      <!-- Loading -->
+      <div x-show="clients.length === 0" style="display:flex;align-items:center;justify-content:center;padding:64px;color:#374151;gap:10px;">
+        <svg class="spin" width="20" height="20" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="#6366f1" stroke-width="4" opacity=".25"/><path fill="#6366f1" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" opacity=".75"/></svg>
+        Loading clients…
+      </div>
+
+      <div class="grid-auto stagger">
+        <template x-for="client in clients" :key="client.id">
+          <div class="glass rounded-card glass-hover" style="padding:22px;" @click="selectClient(client)">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;">
+              <div style="width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:700;color:white;flex-shrink:0;"
+                   :style="`background:linear-gradient(135deg,${clientColorA(client.id)},${clientColorB(client.id)});box-shadow:0 0 20px ${clientColorA(client.id)}55`"
+                   x-text="client.name.charAt(0)"></div>
+              <span x-show="client.has_generator" class="chip chip-purple">Generator</span>
+            </div>
+            <div style="font-size:.95rem;font-weight:600;color:#e2e8f0;line-height:1.3;" x-text="client.name.split('(')[0].trim()"></div>
+            <div style="font-size:.72rem;color:#475569;margin-top:4px;" x-text="(client.name.match(/\(([^)]+)\)/)||[])[1]||''"></div>
+            <div class="hr"></div>
+            <div style="display:flex;gap:16px;font-size:.72rem;color:#374151;">
+              <span x-text="`${client.stages.length} stages`"></span>
+              <span x-text="`${client.post_types.length} post types`"></span>
+              <span x-show="client.locations.length>0" x-text="`${client.locations.length} locations`"></span>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- ════════════════ STEP 2 — STAGE ════════════════ -->
+    <div x-show="step === 2" class="fade-up">
+      <div style="text-align:center;margin-bottom:36px;">
+        <h2 class="heading">Choose a Stage</h2>
+        <p class="subheading">What would you like to do today?</p>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;" class="stagger">
+        <template x-for="stage in (selectedClient?.stages||[])" :key="stage.key">
+          <div class="glass rounded-card glass-hover" style="padding:28px;" @click="selectStage(stage)">
+            <div style="width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;margin-bottom:18px;"
+                 :style="stageIconStyle(stage.key)">
+              <svg x-show="stage.key==='base'"     width="24" height="24" fill="none" stroke="white" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <svg x-show="stage.key==='expanded'" width="24" height="24" fill="none" stroke="white" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              <svg x-show="stage.key==='generate'" width="24" height="24" fill="none" stroke="white" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            </div>
+            <div style="font-size:1rem;font-weight:700;color:#e2e8f0;margin-bottom:8px;" x-text="stage.name"></div>
+            <div style="font-size:.8rem;color:#64748b;line-height:1.5;" x-text="stage.description"></div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- ════════════════ STEP 3 — POST TYPE ════════════════ -->
+    <div x-show="step === 3" class="fade-up">
+      <div style="text-align:center;margin-bottom:36px;">
+        <h2 class="heading">Select Post Type</h2>
+        <p class="subheading">What type of content is this?</p>
+      </div>
+      <div class="glass rounded-card" style="padding:28px;">
+        <div style="display:flex;flex-wrap:wrap;gap:10px;">
+          <template x-for="type in (selectedClient?.post_types||[])" :key="type">
+            <button class="pill-type" :class="selectedPostType===type?'active':''" @click="selectPostType(type)" x-text="type"></button>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════ STEP 4 — INPUT ════════════════ -->
+    <div x-show="step === 4" class="fade-up">
+
+      <!-- Base Content Check -->
+      <template x-if="selectedStage?.key==='base'">
+        <div>
+          <div style="margin-bottom:28px;">
+            <h2 class="heading">Base Content Check</h2>
+            <p class="subheading">Review template content against brand guidelines before location customisation</p>
+          </div>
+          <div class="space-y">
+            <div class="glass rounded-card p-card-sm">
+              <div class="label" style="margin-bottom:8px;">Approved Topic / Title</div>
+              <input class="inp" type="text" x-model="topic" placeholder="e.g. Benefits of Teeth Whitening">
+            </div>
+            <div class="glass rounded-card p-card-sm">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                <div class="label">Base GBP Post Content</div>
+                <span class="char-counter" :class="baseContent.length>1500?'char-over':baseContent.length>1200?'char-warn':'char-ok'" x-text="`${baseContent.length} / 1500`"></span>
+              </div>
+              <textarea class="inp" rows="11" x-model="baseContent" placeholder="Paste your base GBP post content here…"></textarea>
+            </div>
+            <div style="display:flex;justify-content:flex-end;">
+              <button @click="submit()" :disabled="!topic.trim()||!baseContent.trim()||loading" class="btn btn-primary">
+                <svg x-show="loading" class="spin" width="16" height="16" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" opacity=".25"/><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" opacity=".75"/></svg>
+                <svg x-show="!loading" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                <span x-text="loading?'Running Check…':'Run QC Check'"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Expanded Content QC -->
+      <template x-if="selectedStage?.key==='expanded'">
+        <div>
+          <div style="margin-bottom:28px;">
+            <h2 class="heading">Expanded Content QC</h2>
+            <p class="subheading">Review location-specific content against the approved base template</p>
+          </div>
+          <div class="space-y">
+            <div class="glass rounded-card p-card-sm">
+              <div class="label" style="margin-bottom:8px;">Location Name</div>
+              <input class="inp" type="text" x-model="location" placeholder="e.g. Arlington, MA">
+            </div>
+            <div class="glass rounded-card p-card-sm">
+              <div class="label" style="margin-bottom:8px;">Approved Base Content</div>
+              <textarea class="inp" rows="7" x-model="baseContent" placeholder="Paste the approved base content template…"></textarea>
+            </div>
+            <div class="glass rounded-card p-card-sm">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                <div class="label">Location-Specific Expanded Content</div>
+                <span class="char-counter" :class="expandedContent.length>1500?'char-over':expandedContent.length>1200?'char-warn':'char-ok'" x-text="`${expandedContent.length} / 1500`"></span>
+              </div>
+              <textarea class="inp" rows="11" x-model="expandedContent" placeholder="Paste the location-specific version here…"></textarea>
+            </div>
+            <div style="display:flex;justify-content:flex-end;">
+              <button @click="submit()" :disabled="!location.trim()||!baseContent.trim()||!expandedContent.trim()||loading" class="btn btn-primary">
+                <svg x-show="loading" class="spin" width="16" height="16" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" opacity=".25"/><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" opacity=".75"/></svg>
+                <svg x-show="!loading" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                <span x-text="loading?'Running Check…':'Run QC Check'"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Location Content Generator -->
+      <template x-if="selectedStage?.key==='generate'">
+        <div>
+          <div style="margin-bottom:28px;">
+            <h2 class="heading">Location Content Generator</h2>
+            <p class="subheading">Generate a customised, ready-to-post GBP post for a specific location</p>
+          </div>
+          <div class="space-y">
+            <div class="glass rounded-card p-card-sm">
+              <div class="label" style="margin-bottom:8px;">Select Location</div>
+              <select class="inp" x-model="genLocation">
+                <option value="">— Choose a location —</option>
+                <option value="__all__" x-text="`✦  All Locations  (${selectedClient?.locations?.length} total)`"></option>
+                <template x-for="loc in (selectedClient?.locations||[])" :key="loc">
+                  <option :value="loc" x-text="loc"></option>
+                </template>
+              </select>
+              <div x-show="genLocation==='__all__'" style="margin-top:10px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);border-radius:10px;padding:10px 14px;font-size:.78rem;color:#a5b4fc;display:flex;gap:8px;">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="flex-shrink:0;margin-top:1px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                <span>Will generate posts for all <strong x-text="selectedClient?.locations?.length"></strong> locations. Progress updates stream live — this takes a few minutes.</span>
+              </div>
+            </div>
+            <div class="glass rounded-card p-card-sm">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                <div class="label">Approved Base Content</div>
+                <span style="font-size:.72rem;color:#374151;" x-text="`${baseContent.length} chars`"></span>
+              </div>
+              <textarea class="inp" rows="11" x-model="baseContent" placeholder="Paste the approved base content here. The generator will customise it for each location…"></textarea>
+            </div>
+            <div style="display:flex;justify-content:flex-end;">
+              <button @click="submit()" :disabled="!genLocation||!baseContent.trim()||loading"
+                      class="btn" :class="genLocation==='__all__'?'btn-purple':'btn-primary'">
+                <svg x-show="loading" class="spin" width="16" height="16" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" opacity=".25"/><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" opacity=".75"/></svg>
+                <svg x-show="!loading&&genLocation!=='__all__'" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                <svg x-show="!loading&&genLocation==='__all__'" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+                <span x-text="genLocation==='__all__'?(loading?'Starting…':'Generate All Locations'):(loading?'Generating…':'Generate Content')"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- ════════════════ RESULTS ════════════════ -->
+    <div x-show="resultType" class="fade-up">
+
+      <!-- QC Result -->
+      <template x-if="resultType==='qc'&&result">
+        <div class="space-y stagger">
+
+          <!-- Score header -->
+          <div class="glass rounded-card p-card" style="display:flex;flex-wrap:wrap;align-items:center;gap:28px;">
+            <div style="position:relative;flex-shrink:0;">
+              <svg width="120" height="120" viewBox="0 0 120 120">
+                <defs>
+                  <filter id="glow-f" x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur stdDeviation="4" result="blur"/>
+                    <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                  </filter>
+                </defs>
+                <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="8"/>
+                <circle cx="60" cy="60" r="50" fill="none"
+                        :stroke="scoreColor(result.qc_score||0)"
+                        stroke-width="8" stroke-linecap="round"
+                        filter="url(#glow-f)"
+                        :stroke-dasharray="`${2*Math.PI*50}`"
+                        :stroke-dashoffset="`${2*Math.PI*50*(1-(result.qc_score||0)/100)}`"
+                        transform="rotate(-90 60 60)" class="score-progress"/>
+              </svg>
+              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                <span style="font-size:2rem;font-weight:800;line-height:1;" :style="`color:${scoreColor(result.qc_score||0)}`" x-text="result.qc_score"></span>
+                <span style="font-size:.65rem;color:#475569;font-weight:500;margin-top:2px;">/ 100</span>
+              </div>
+            </div>
+            <div style="flex:1;">
+              <div style="margin-bottom:10px;">
+                <span x-show="result.overall_status==='Pass'" class="chip chip-green" style="font-size:.8rem;padding:5px 14px;"><span style="width:6px;height:6px;border-radius:50%;background:#10b981;display:inline-block;margin-right:4px;"></span>Pass</span>
+                <span x-show="result.overall_status==='Needs Minor Edits'" class="chip chip-amber" style="font-size:.8rem;padding:5px 14px;"><span style="width:6px;height:6px;border-radius:50%;background:#f59e0b;display:inline-block;margin-right:4px;"></span>Needs Minor Edits</span>
+                <span x-show="result.overall_status!=='Pass'&&result.overall_status!=='Needs Minor Edits'" class="chip chip-red" style="font-size:.8rem;padding:5px 14px;"><span style="width:6px;height:6px;border-radius:50%;background:#ef4444;display:inline-block;margin-right:4px;"></span><span x-text="result.overall_status"></span></span>
+              </div>
+              <p style="font-size:.82rem;color:#64748b;line-height:1.6;max-width:440px;" x-text="(result.final_approval_recommendation||'').substring(0,180)+((result.final_approval_recommendation||'').length>180?'…':'')"></p>
+            </div>
+            <button @click="downloadExcel()" class="btn btn-green shrink-0">
+              <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              Export Excel
+            </button>
+          </div>
+
+          <!-- Passed checks -->
+          <div x-show="(result.passed_checks||[]).length>0" class="glass rounded-card overflow-hidden">
+            <button @click="showPassed=!showPassed" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:16px 22px;background:none;border:none;cursor:pointer;transition:background .2s;" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background='none'">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span style="width:8px;height:8px;border-radius:50%;background:#10b981;box-shadow:0 0 8px #10b981;display:inline-block;flex-shrink:0;"></span>
+                <span style="font-size:.85rem;font-weight:600;color:#e2e8f0;">Passed Checks</span>
+                <span class="chip chip-green" style="padding:2px 9px;font-size:.7rem;" x-text="(result.passed_checks||[]).length"></span>
+              </div>
+              <svg class="transition-transform" :class="showPassed?'rotate-180':''" width="18" height="18" fill="none" stroke="#475569" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </button>
+            <div x-show="showPassed" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 -translate-y-2" x-transition:enter-end="opacity-100 translate-y-0" style="padding:0 22px 16px;">
+              <template x-for="check in (result.passed_checks||[])" :key="check">
+                <div class="passed-item" style="display:flex;align-items:flex-start;gap:10px;">
+                  <svg width="14" height="14" fill="none" stroke="#10b981" viewBox="0 0 24 24" style="flex-shrink:0;margin-top:3px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                  <span style="font-size:.82rem;color:#94a3b8;" x-text="check"></span>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- No issues banner -->
+          <div x-show="(result.issues_found||[]).length===0&&result.overall_status==='Pass'" style="background:rgba(16,185,129,0.07);border:1px solid rgba(16,185,129,0.2);border-radius:16px;padding:16px 20px;display:flex;align-items:center;gap:12px;font-size:.85rem;color:#34d399;">
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            No issues found — post meets all brand guidelines.
+          </div>
+
+          <!-- Issues -->
+          <div x-show="(result.issues_found||[]).length>0" class="glass rounded-card overflow-hidden">
+            <div style="display:flex;align-items:center;gap:10px;padding:16px 22px;border-bottom:1px solid rgba(255,255,255,0.06);">
+              <span style="width:8px;height:8px;border-radius:50%;background:#ef4444;box-shadow:0 0 8px #ef4444;display:inline-block;flex-shrink:0;"></span>
+              <span style="font-size:.85rem;font-weight:600;color:#e2e8f0;">Issues Found</span>
+              <span class="chip chip-red" style="padding:2px 9px;font-size:.7rem;" x-text="(result.issues_found||[]).length"></span>
+            </div>
+            <div style="padding:16px;display:flex;flex-direction:column;gap:10px;">
+              <template x-for="issue in (result.issues_found||[])" :key="issue.check+issue.issue">
+                <div x-show="issue.severity==='major'" class="issue-major">
+                  <div style="display:flex;align-items:flex-start;gap:10px;">
+                    <span class="chip chip-red shrink-0" style="padding:2px 8px;font-size:.65rem;margin-top:1px;">MAJOR</span>
+                    <div>
+                      <div style="font-size:.83rem;font-weight:600;color:#fca5a5;" x-text="issue.check"></div>
+                      <div style="font-size:.8rem;color:#94a3b8;margin-top:4px;" x-text="issue.issue"></div>
+                      <div x-show="issue.reason" style="font-size:.72rem;color:#374151;margin-top:6px;font-style:italic;" x-text="`Guideline: ${issue.reason}`"></div>
+                    </div>
+                  </div>
+                </div>
+                <div x-show="issue.severity!=='major'" class="issue-minor">
+                  <div style="display:flex;align-items:flex-start;gap:10px;">
+                    <span class="chip chip-amber shrink-0" style="padding:2px 8px;font-size:.65rem;margin-top:1px;">MINOR</span>
+                    <div>
+                      <div style="font-size:.83rem;font-weight:600;color:#fde68a;" x-text="issue.check"></div>
+                      <div style="font-size:.8rem;color:#94a3b8;margin-top:4px;" x-text="issue.issue"></div>
+                      <div x-show="issue.reason" style="font-size:.72rem;color:#374151;margin-top:6px;font-style:italic;" x-text="`Guideline: ${issue.reason}`"></div>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- Recommended fixes -->
+          <div x-show="(result.recommended_fixes||[]).length>0" class="glass rounded-card p-card-sm">
+            <div class="section-title" style="margin-bottom:16px;">Recommended Fixes</div>
+            <ol style="display:flex;flex-direction:column;gap:10px;list-style:none;">
+              <template x-for="(fix,i) in (result.recommended_fixes||[])" :key="i">
+                <li style="display:flex;align-items:flex-start;gap:10px;">
+                  <span style="flex-shrink:0;width:22px;height:22px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:700;color:white;margin-top:1px;" x-text="i+1"></span>
+                  <span style="font-size:.82rem;color:#94a3b8;line-height:1.6;" x-text="fix"></span>
+                </li>
+              </template>
+            </ol>
+          </div>
+
+          <!-- Suggested edited version -->
+          <div x-show="result.suggested_edited_version&&result.suggested_edited_version.trim()" class="glass rounded-card overflow-hidden">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(255,255,255,0.06);background:rgba(0,0,0,0.2);">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <svg width="15" height="15" fill="none" stroke="#67e8f9" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                <span style="font-size:.82rem;font-weight:600;color:#e2e8f0;">Suggested Edited Version</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;">
+                <span style="font-size:.72rem;color:#374151;" x-text="`${(result.suggested_edited_version||'').length} chars`"></span>
+                <button @click="copyText(result.suggested_edited_version)" class="btn btn-ghost btn-sm">
+                  <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                  Copy
+                </button>
+              </div>
+            </div>
+            <div style="padding:20px;"><pre class="post-block" x-text="result.suggested_edited_version"></pre></div>
+          </div>
+
+          <!-- Final recommendation -->
+          <div x-show="result.final_approval_recommendation">
+            <div x-show="result.overall_status==='Pass'" style="background:rgba(16,185,129,0.07);border:1px solid rgba(16,185,129,0.2);border-radius:16px;padding:18px 22px;">
+              <div class="label" style="color:#10b981;margin-bottom:8px;">Final Recommendation</div>
+              <p style="font-size:.83rem;color:#6ee7b7;line-height:1.6;" x-text="result.final_approval_recommendation"></p>
+            </div>
+            <div x-show="result.overall_status==='Needs Minor Edits'" style="background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.2);border-radius:16px;padding:18px 22px;">
+              <div class="label" style="color:#f59e0b;margin-bottom:8px;">Final Recommendation</div>
+              <p style="font-size:.83rem;color:#fde68a;line-height:1.6;" x-text="result.final_approval_recommendation"></p>
+            </div>
+            <div x-show="result.overall_status!=='Pass'&&result.overall_status!=='Needs Minor Edits'" style="background:rgba(239,68,68,0.07);border:1px solid rgba(239,68,68,0.2);border-radius:16px;padding:18px 22px;">
+              <div class="label" style="color:#ef4444;margin-bottom:8px;">Final Recommendation</div>
+              <p style="font-size:.83rem;color:#fca5a5;line-height:1.6;" x-text="result.final_approval_recommendation"></p>
+            </div>
+          </div>
+
+        </div>
+      </template>
+
+      <!-- Generated (single location) -->
+      <template x-if="resultType==='generated'&&result">
+        <div class="space-y stagger">
+          <div class="glass rounded-card p-card" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;">
+            <div>
+              <div style="font-size:1.1rem;font-weight:700;color:#e2e8f0;">Generated Post</div>
+              <div style="font-size:.8rem;color:#64748b;margin-top:4px;" x-text="`Location: ${genLocation}`"></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <span x-show="result.within_limit"  class="chip chip-green" x-text="`${result.character_count} chars — OK`"></span>
+              <span x-show="!result.within_limit" class="chip chip-red"   x-text="`${result.character_count} chars — OVER LIMIT`"></span>
+              <button @click="downloadExcel()" class="btn btn-green">
+                <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                Export Excel
+              </button>
+            </div>
+          </div>
+          <div x-show="(result.sections_included||[]).length>0" class="glass rounded-card p-card-sm" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;">
+            <span class="label" style="margin-right:4px;">Sections:</span>
+            <template x-for="s in (result.sections_included||[])" :key="s">
+              <span class="chip chip-blue" x-text="s"></span>
+            </template>
+          </div>
+          <div class="glass rounded-card overflow-hidden">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(255,255,255,0.06);background:rgba(0,0,0,0.2);">
+              <span style="font-size:.82rem;font-weight:600;color:#e2e8f0;">Generated Post — Ready to Use</span>
+              <button @click="copyText(result.full_post)" class="btn btn-ghost btn-sm">
+                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                Copy Post
+              </button>
+            </div>
+            <div style="padding:20px;"><pre class="post-block" x-text="result.full_post"></pre></div>
+          </div>
+          <div x-show="(result.customization_notes||[]).length>0" style="background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:16px 20px;">
+            <div class="label" style="margin-bottom:12px;">Customisation Notes</div>
+            <template x-for="note in (result.customization_notes||[])" :key="note">
+              <div style="display:flex;align-items:flex-start;gap:8px;margin-top:8px;">
+                <span style="color:#374151;flex-shrink:0;margin-top:2px;">—</span>
+                <span style="font-size:.8rem;color:#64748b;" x-text="note"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+
+      <!-- All Locations -->
+      <template x-if="resultType==='all'">
+        <div class="space-y">
+          <div class="glass rounded-card p-card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+              <div style="font-size:1.1rem;font-weight:700;color:#e2e8f0;">Generating All Locations</div>
+              <span style="font-size:.85rem;font-weight:600;color:#64748b;" x-text="`${gen.progress} / ${gen.total}`"></span>
+            </div>
+            <div style="font-size:.8rem;color:#475569;margin-bottom:16px;" x-text="(selectedClient?.name?.split('(')[0].trim()||'')+' — '+selectedPostType"></div>
+            <div style="height:6px;background:rgba(255,255,255,0.06);border-radius:100px;overflow:hidden;">
+              <div class="pbar-fill" :style="`width:${gen.total>0?(gen.progress/gen.total*100):0}%`"></div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px;flex-wrap:wrap;gap:12px;">
+              <div x-show="gen.inProgress" style="display:flex;align-items:center;gap:8px;font-size:.82rem;color:#64748b;">
+                <svg class="spin" width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="#6366f1" stroke-width="3" opacity=".3"/><path fill="#6366f1" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                Generating: <strong style="color:#a5b4fc;" x-text="gen.currentLocation"></strong>
+              </div>
+              <div x-show="gen.done&&!gen.inProgress" style="display:flex;align-items:center;gap:8px;font-size:.82rem;color:#34d399;font-weight:600;">
+                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                All <span x-text="gen.total"></span> locations generated!
+              </div>
+              <button x-show="gen.done" @click="downloadAllExcel()" class="btn btn-green">
+                <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                Download All Locations Excel
+              </button>
+            </div>
+          </div>
+
+          <!-- Stats when done -->
+          <div x-show="gen.done" class="grid-3">
+            <div class="glass rounded-card p-card-sm" style="text-align:center;">
+              <div style="font-size:1.8rem;font-weight:800;" class="accent-text" x-text="gen.total"></div>
+              <div style="font-size:.72rem;color:#374151;margin-top:4px;">Total Locations</div>
+            </div>
+            <div style="background:rgba(16,185,129,0.07);border:1px solid rgba(16,185,129,0.15);border-radius:16px;padding:18px;text-align:center;">
+              <div style="font-size:1.8rem;font-weight:800;color:#34d399;" x-text="Object.values(allResults).filter(r=>r.within_limit).length"></div>
+              <div style="font-size:.72rem;color:#065f46;margin-top:4px;">Within Limit</div>
+            </div>
+            <div style="background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.15);border-radius:16px;padding:18px;text-align:center;">
+              <div style="font-size:1.8rem;font-weight:800;color:#fbbf24;" x-text="Object.values(allResults).filter(r=>!r.within_limit).length"></div>
+              <div style="font-size:.72rem;color:#78350f;margin-top:4px;">Over Limit</div>
+            </div>
+          </div>
+
+          <!-- Live location cards -->
+          <div x-show="Object.keys(allResults).length>0">
+            <div class="section-title" style="margin-bottom:14px;">Generated Posts <span style="font-style:italic;font-weight:400;text-transform:none;letter-spacing:0;margin-left:4px;">(click to copy)</span></div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <template x-for="[loc,res] in Object.entries(allResults)" :key="loc">
+                <div class="glass-md rounded-lg" style="overflow:hidden;transition:background .2s,box-shadow .2s;cursor:pointer;" @click="copyText(res.full_post)"
+                     onmouseover="this.style.background='rgba(255,255,255,0.07)';this.style.boxShadow='0 0 0 1px rgba(99,102,241,0.2)'"
+                     onmouseout="this.style.background='';this.style.boxShadow=''">
+                  <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid rgba(255,255,255,0.05);">
+                    <span style="font-size:.82rem;font-weight:600;color:#e2e8f0;" x-text="loc"></span>
+                    <div style="display:flex;align-items:center;gap:10px;">
+                      <span :class="res.within_limit?'chip-green':'chip-red'" class="chip" style="padding:2px 8px;font-size:.68rem;" x-text="`${res.character_count} chars`"></span>
+                      <span style="font-size:.68rem;color:#374151;">Click to copy</span>
+                    </div>
+                  </div>
+                  <div style="padding:10px 16px;max-height:60px;overflow:hidden;position:relative;">
+                    <pre style="font-size:.72rem;color:#475569;white-space:pre-wrap;font-family:inherit;line-height:1.5;" x-text="(res.full_post||'').substring(0,200)"></pre>
+                    <div style="position:absolute;bottom:0;inset-x:0;height:28px;background:linear-gradient(to top,#080710,transparent);pointer-events:none;"></div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </template>
+
+    </div><!-- /results -->
+  </div><!-- /page -->
+</div><!-- /app -->
+
+<script>
+function gbpApp() {
+  return {
+    step: 1,
+    clients: [],
+    selectedClient: null,
+    selectedStage:  null,
+    selectedPostType: null,
+    topic: '', baseContent: '', expandedContent: '', location: '', genLocation: '',
+    loading: false, error: null, result: null, resultType: null,
+    gen: { inProgress: false, done: false, progress: 0, total: 0, currentLocation: '' },
+    allResults: {},
+    showPassed: false,
+    toast: { visible: false, message: '' },
+
+    async init() {
+      try {
+        const resp = await fetch('/api/clients');
+        if (!resp.ok) throw new Error('Failed to load clients');
+        this.clients = await resp.json();
+      } catch (e) { this.error = e.message; }
+    },
+
+    selectClient(client) { this.selectedClient = client; this.selectedStage = null; this.selectedPostType = null; this.step = 2; },
+
+    selectStage(stage) {
+      this.selectedStage = stage;
+      if ((this.selectedClient?.post_types || []).length === 1) {
+        this.selectedPostType = this.selectedClient.post_types[0]; this.step = 4;
+      } else { this.step = 3; }
+    },
+
+    selectPostType(type) { this.selectedPostType = type; this.step = 4; },
+
+    async submit() {
+      this.error = null;
+      const key = this.selectedStage?.key;
+      if (key === 'generate' && this.genLocation === '__all__') { await this._startGenerateAll(); return; }
+      this.loading = true;
+      try {
+        let endpoint, body;
+        if (key === 'base') {
+          endpoint = '/api/qc/base';
+          body = { client_id: this.selectedClient.id, topic: this.topic, content: this.baseContent, post_type: this.selectedPostType };
+        } else if (key === 'expanded') {
+          endpoint = '/api/qc/expanded';
+          body = { client_id: this.selectedClient.id, base_content: this.baseContent, expanded_content: this.expandedContent, post_type: this.selectedPostType, location: this.location };
+        } else {
+          endpoint = '/api/generate';
+          body = { client_id: this.selectedClient.id, base_content: this.baseContent, location: this.genLocation, post_type: this.selectedPostType };
+        }
+        const resp = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!resp.ok) throw new Error(await resp.text());
+        this.result = await resp.json();
+        this.resultType = key === 'generate' ? 'generated' : 'qc';
+        this.showPassed = false;
+      } catch (e) {
+        this.error = e.message || 'An error occurred. Please try again.';
+      } finally { this.loading = false; }
+    },
+
+    async _startGenerateAll() {
+      this.gen = { inProgress: true, done: false, progress: 0, total: this.selectedClient.locations.length, currentLocation: '' };
+      this.allResults = {}; this.resultType = 'all'; this.loading = false;
+      try {
+        const startResp = await fetch('/api/generate/all/start', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client_id: this.selectedClient.id, base_content: this.baseContent, post_type: this.selectedPostType }),
+        });
+        if (!startResp.ok) throw new Error(await startResp.text());
+        const { job_id, total } = await startResp.json();
+        this.gen.total = total;
+        const source = new EventSource(`/api/generate/all/stream/${job_id}`);
+        source.onmessage = (e) => {
+          const data = JSON.parse(e.data);
+          if (data.type === 'progress') {
+            this.gen.progress = data.index; this.gen.currentLocation = data.location;
+            this.allResults = { ...this.allResults, [data.location]: data.result };
+          } else if (data.type === 'done') {
+            this.gen.inProgress = false; this.gen.done = true; source.close();
+          } else if (data.type === 'error') {
+            this.error = data.message; this.gen.inProgress = false; source.close();
+          }
+        };
+        source.onerror = () => {
+          if (this.gen.inProgress) { this.error = 'Connection dropped. Partial results shown above.'; this.gen.inProgress = false; }
+          source.close();
+        };
+      } catch (e) { this.error = e.message; this.gen.inProgress = false; }
+    },
+
+    async downloadExcel() {
+      try {
+        let endpoint, body;
+        if (this.resultType === 'qc') {
+          endpoint = '/api/export/qc';
+          body = { result: this.result, client_id: this.selectedClient.id, stage: this.selectedStage.key, client_name: this.selectedClient.name };
+        } else {
+          endpoint = '/api/export/generated';
+          body = { result: this.result, client_id: this.selectedClient.id, location: this.genLocation, client_name: this.selectedClient.name };
+        }
+        const resp = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!resp.ok) throw new Error('Export failed');
+        this._blob(await resp.blob(), 'report.xlsx');
+        this.showToast('Excel file downloaded!');
+      } catch (e) { this.error = e.message; }
+    },
+
+    async downloadAllExcel() {
+      try {
+        const resp = await fetch('/api/export/all', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ results: this.allResults, client_id: this.selectedClient.id, post_type: this.selectedPostType, client_name: this.selectedClient.name }),
+        });
+        if (!resp.ok) throw new Error('Export failed');
+        this._blob(await resp.blob(), 'all_locations.xlsx');
+        this.showToast('Excel file downloaded!');
+      } catch (e) { this.error = e.message; }
+    },
+
+    _blob(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    },
+
+    copyText(text) {
+      if (!text) return;
+      navigator.clipboard.writeText(text)
+        .then(() => this.showToast('Copied to clipboard!'))
+        .catch(() => {
+          const el = document.createElement('textarea'); el.value = text;
+          document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el);
+          this.showToast('Copied to clipboard!');
+        });
+    },
+
+    showToast(msg) { this.toast = { visible: true, message: msg }; setTimeout(() => { this.toast.visible = false; }, 2800); },
+
+    reset() {
+      Object.assign(this, {
+        step: 1, selectedClient: null, selectedStage: null, selectedPostType: null,
+        topic: '', baseContent: '', expandedContent: '', location: '', genLocation: '',
+        loading: false, error: null, result: null, resultType: null,
+        showPassed: false, allResults: {},
+        gen: { inProgress: false, done: false, progress: 0, total: 0, currentLocation: '' },
+      });
+    },
+
+    clientColorA(id) {
+      const m = { gentle_dental:'#2563eb', great_lakes:'#0891b2', ybh:'#7c3aed', new_life:'#059669', neuro:'#d97706' };
+      return m[id] || '#475569';
+    },
+    clientColorB(id) {
+      const m = { gentle_dental:'#4f46e5', great_lakes:'#06b6d4', ybh:'#6366f1', new_life:'#10b981', neuro:'#f59e0b' };
+      return m[id] || '#64748b';
+    },
+    stageIconStyle(key) {
+      const m = {
+        base:     'background:linear-gradient(135deg,#059669,#10b981);box-shadow:0 0 20px rgba(16,185,129,0.4)',
+        expanded: 'background:linear-gradient(135deg,#2563eb,#6366f1);box-shadow:0 0 20px rgba(99,102,241,0.4)',
+        generate: 'background:linear-gradient(135deg,#7c3aed,#8b5cf6);box-shadow:0 0 20px rgba(139,92,246,0.4)',
+      };
+      return m[key] || 'background:#1e293b';
+    },
+    scoreColor(s) { return s >= 90 ? '#10b981' : s >= 70 ? '#f59e0b' : '#ef4444'; },
+  };
+}
+</script>
+</body>
+</html>
