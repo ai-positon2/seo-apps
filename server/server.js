@@ -28,6 +28,7 @@ const robotsMonitorRoutes = require('./modules/robotsMonitor/routes');
 const hubSpokeRoutes = require('./modules/hubSpoke/routes');
 const onPageAuditRoutes = require('./modules/onPageAudit/routes');
 const marketPotentialRoutes = require('./modules/marketPotential/routes');
+const competitorTrackerRoutes = require('./modules/competitorTracker/routes');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -94,6 +95,7 @@ app.use('/api/robots-monitor',          lpbLimiter, requireAuth, robotsMonitorRo
 app.use('/api/hub-spoke',               lpbLimiter, requireAuth, hubSpokeRoutes);
 app.use('/api/on-page-audit',           lpbLimiter, requireAuth, onPageAuditRoutes);
 app.use('/api/market-potential',        lpbLimiter, requireAuth, marketPotentialRoutes);
+app.use('/api/competitor-tracker',      lpbLimiter, requireAuth, competitorTrackerRoutes);
 
 // ── SEO team only ────────────────────────────────────────────────────────────
 app.use('/api/search',              requireSeo, searchRoutes);
@@ -150,6 +152,14 @@ require('./modules/robotsMonitor/monitorStore').init().then(() => {
   });
 }).catch(err => {
   console.error('[RobotsMonitor] Store init failed:', err.message);
+});
+
+require('./modules/competitorTracker/store').init().then(() => {
+  require('./modules/competitorTracker/scheduler').init().catch(err => {
+    console.error('[CompetitorTracker] Scheduler init failed:', err.message);
+  });
+}).catch(err => {
+  console.error('[CompetitorTracker] Store init failed:', err.message);
 });
 
 const server = app.listen(PORT, () => {

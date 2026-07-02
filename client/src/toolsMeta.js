@@ -31,6 +31,7 @@ export const TOOL_GROUPS = [
     tools: [
       { id: 'robots-monitor',         path: '/robots-monitor',         label: 'Robots Monitor',         icon: '🛡️' },
       { id: 'team-insights',          path: '/team-insights',          label: 'Team Insights',          icon: '📊' },
+      { id: 'competitor-analysis-dashboard', path: '/competitor-analysis-dashboard', label: 'Competitor Analysis Dashboard', icon: '🎯' },
     ],
   },
 ];

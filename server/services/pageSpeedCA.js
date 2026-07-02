@@ -33,17 +33,25 @@ async function runPageSpeed(url, strategy = 'mobile') {
     return { score, lcp, cls, ttfb, fcp, inp, coreWebVitalsPassed };
   } catch (err) {
     const status = err.response?.status;
-    if (status === 429) throw new Error('PageSpeed rate limit hit');
-    if (status === 400) return null; // Domain unreachable
-    return null;
+    if (status === 400) return null; // Domain unreachable — not a real error, don't surface one
+    const reason = err.response?.data?.error?.message || err.message;
+    throw new Error(status ? `PageSpeed ${strategy} request failed (${status}): ${reason}` : `PageSpeed ${strategy} request failed: ${reason}`);
   }
 }
 
+// Mobile and desktop are independent PSI calls — one failing (e.g. a rate
+// limit hit on the second call) must not discard a result the other already
+// got back, so each is caught on its own rather than one throw losing both.
 async function getPageSpeedForDomain(domain) {
   const url = `https://${domain}`;
-  const mobile = await runPageSpeed(url, 'mobile');
+  const errors = [];
+
+  let mobile = null;
+  try { mobile = await runPageSpeed(url, 'mobile'); } catch (err) { errors.push(err.message); }
   await sleep(DELAY_MS);
-  const desktop = await runPageSpeed(url, 'desktop');
+
+  let desktop = null;
+  try { desktop = await runPageSpeed(url, 'desktop'); } catch (err) { errors.push(err.message); }
   await sleep(DELAY_MS);
 
   return {
@@ -52,6 +60,7 @@ async function getPageSpeedForDomain(domain) {
     desktop: desktop || { score: null, lcp: 'N/A', cls: 'N/A', ttfb: 'N/A', fcp: 'N/A', inp: 'N/A' },
     coreWebVitalsPassed: mobile?.coreWebVitalsPassed || false,
     dataUnavailable: !mobile && !desktop,
+    ...(errors.length ? { error: errors.join('; ') } : {}),
   };
 }
 

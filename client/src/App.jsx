@@ -25,6 +25,7 @@ import HubSpokePage from './pages/HubSpokePage';
 import HubSpokeProjectPage from './pages/HubSpokeProjectPage';
 import OnPageAuditPage from './pages/OnPageAuditPage';
 import MarketPotentialPage from './pages/MarketPotentialPage';
+import CompetitorAnalysisDashboardPage from './pages/CompetitorAnalysisDashboardPage';
 
 export default function App() {
   return (
@@ -55,6 +56,7 @@ export default function App() {
           <Route path="/hub-spoke/:id" element={<HubSpokeProjectPage />} />
           <Route path="/on-page-audit" element={<OnPageAuditPage />} />
           <Route path="/market-potential" element={<MarketPotentialPage />} />
+          <Route path="/competitor-analysis-dashboard" element={<CompetitorAnalysisDashboardPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

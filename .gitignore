@@ -11,3 +11,8 @@ data/
 
 # Robots Monitor runtime data — contains plaintext credentials, do not commit
 modules/robotsMonitor/data/
+server/modules/robotsMonitor/data/
+
+# Competitor Activity Tracker runtime data (client/competitor config + cached AI writeups)
+modules/competitorTracker/data/
+server/modules/competitorTracker/data/

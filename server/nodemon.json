@@ -4,6 +4,7 @@
     "modules/hubSpoke/data",
     "modules/robotsMonitor/data",
     "modules/marketPotential/data",
+    "modules/competitorTracker/data",
     "**/*.log",
     "**/*.db",
     "**/*.sqlite"
