@@ -1,0 +1,7 @@
+[
+  { "url": "https://www.gentledental.com/dental-offices/ma/cambridge", "keywords": ["dentist in cambridge", "cambridge dentist"], "pageIntent": "auto", "htmlFile": "../../modules/bulk-scraper/output/www_gentledental_com_dental_offices_ma_cambridge.html" },
+  { "url": "https://www.gentledental.com/dental-offices/nh/manchester/elm-st", "keywords": ["dentist in manchester", "manchester dentist"], "pageIntent": "auto", "htmlFile": "../../modules/bulk-scraper/output/www_gentledental_com_dental_offices_nh_manchester_elm_st.html" },
+  { "url": "https://www.brushandfloss.com/locations/charlotte", "keywords": ["dentist in charlotte", "charlotte dentist"], "pageIntent": "auto", "htmlFile": "../../modules/bulk-scraper/output/www_brushandfloss_com_locations_charlotte.html" },
+  { "url": "https://commonwealth-dentistry.com/midlothian/", "keywords": ["dentist in midlothian", "midlothian dentist"], "pageIntent": "auto", "htmlFile": "../../modules/bulk-scraper/output/commonwealth_dentistry_com_midlothian.html" },
+  { "url": "https://clearbehavioralhealth.com/locations/dual-diagnosis-outpatient-redondo-beach/", "keywords": ["dual diagnosis treatment redondo beach", "outpatient dual diagnosis"], "pageIntent": "auto", "htmlFile": "../../modules/bulk-scraper/output/clearbehavioralhealth_com_locations_dual_diagnosis_outpatient_redondo_beach.html" }
+]

@@ -2465,9 +2465,12 @@ function checksKW($, rawHtml, keywords, pageUrl = null, pageContext = {}) {
     ? KWM.countOccurrences(brandName, contentText, { gap: G_META, minTier: 'exact_phrase_inflected' }).count
     : 0;
   const density = contentWords > 0 ? (strict.count / contentWords * 100) : 0;
+  // brandHits counts occurrences of the brand name, a different search term from the keyword — it is
+  // not a subset of family.count, so it must not be phrased as "of which" (that implied family.count
+  // included it, and produced nonsensical output like "7 mentions, of which ~12 are the brand name").
   const densityDetail = `${strict.count} phrase occurrence(s) in ${contentWords} content words (${density.toFixed(2)}%). `
-    + `${family.count} looser topical/family mention(s)`
-    + (brandHits ? `, of which ~${brandHits} are the brand name "${brandName}"` : '') + '.';
+    + `${family.count} looser topical/family mention(s) of the keyword`
+    + (brandHits ? `; separately, the brand name "${brandName}" appears ~${brandHits} time(s) in this text` : '') + '.';
   if (density >= 0.5 && density <= 3.0) pass(KW8, `${density.toFixed(2)}%`, `Density is within the 0.5–3.0% target. ${densityDetail}`);
   else if (density < 0.5) notice(KW8, `${density.toFixed(2)}%`, `Density is below 0.5% — page may be under-optimised. ${densityDetail}`);
   else warn(KW8, `${density.toFixed(2)}%`, `Density is above 3.0% — over-optimisation risk. ${densityDetail}`);

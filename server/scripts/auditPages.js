@@ -11,6 +11,10 @@
 // batch.json defaults to scripts/audit-batch.sample.json. Format:
 //   [ { "url": "https://...", "keywords": ["primary kw","secondary kw"], "pageIntent": "auto" }, ... ]
 //
+// An entry may set "htmlFile" (path relative to the batch.json file, or absolute) to audit
+// a locally cached copy of the page instead of fetching "url" live — useful for regression
+// runs against a snapshot when the live site is unreachable.
+//
 // --full writes the complete runAllChecks() output for each page to
 // scripts/audit-results/<slug>.json for deeper inspection.
 
@@ -31,6 +35,14 @@ async function fetchHtml(url) {
     validateStatus: () => true,
   });
   return { html: typeof resp.data === 'string' ? resp.data : String(resp.data), status: resp.status };
+}
+
+function loadHtml(page, batchDir) {
+  if (page.htmlFile) {
+    const file = path.isAbsolute(page.htmlFile) ? page.htmlFile : path.join(batchDir, page.htmlFile);
+    return Promise.resolve({ html: fs.readFileSync(file, 'utf8'), status: 200 });
+  }
+  return fetchHtml(page.url);
 }
 
 function slugFor(url) {
@@ -63,13 +75,14 @@ async function main() {
   const full = args.includes('--full');
   const batchPath = args.find(a => !a.startsWith('--')) || path.join(__dirname, 'audit-batch.sample.json');
   const batch = JSON.parse(fs.readFileSync(batchPath, 'utf8'));
+  const batchDir = path.dirname(batchPath);
 
   const resultsDir = path.join(__dirname, 'audit-results');
   if (full) fs.mkdirSync(resultsDir, { recursive: true });
 
   for (const page of batch) {
     try {
-      const { html, status } = await fetchHtml(page.url);
+      const { html, status } = await loadHtml(page, batchDir);
       if (status !== 200) {
         console.log(`\n=== ${page.url} ===\nHTTP ${status} — skipped.`);
         continue;
