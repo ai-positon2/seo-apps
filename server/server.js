@@ -30,6 +30,7 @@ const hubSpokeRoutes = require('./modules/hubSpoke/routes');
 const onPageAuditRoutes = require('./modules/onPageAudit/routes');
 const marketPotentialRoutes = require('./modules/marketPotential/routes');
 const competitorAnalysisTrackerRoutes = require('./modules/competitorAnalysis/routes');
+const gbpQcRoutes = require('./modules/gbpQc/routes');
 const semrushRoutes = require('./routes/semrush');
 
 const app = express();
@@ -99,6 +100,7 @@ app.use('/api/hub-spoke',               lpbLimiter, requireAuth, hubSpokeRoutes)
 app.use('/api/on-page-audit',           lpbLimiter, requireAuth, onPageAuditRoutes);
 app.use('/api/market-potential',        lpbLimiter, requireAuth, marketPotentialRoutes);
 app.use('/api/competitor-tracker',      lpbLimiter, requireAuth, competitorAnalysisTrackerRoutes);
+app.use('/api/gbp-qc',                  requireAuth, gbpQcRoutes);
 app.use('/api/semrush',                 requireAuth, semrushRoutes);
 
 // ── SEO team only ────────────────────────────────────────────────────────────

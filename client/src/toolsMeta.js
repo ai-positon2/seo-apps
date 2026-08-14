@@ -33,6 +33,7 @@ export const TOOL_GROUPS = [
       { id: 'seo-geo-snapshot',       path: '/seo-geo-snapshot',       label: 'SEO & GEO Snapshot',     icon: '📊', tag: 'beta' },
       { id: 'agent-readiness-audit',  path: '/agent-readiness-audit',  label: 'Agent Readiness Audit',  icon: '🤖', tag: 'testing' },
       { id: 'image-alt-audit',        path: '/image-alt-audit',        label: 'Image Alt Tag Audit',    icon: '🖼️', tag: 'beta' },
+      { id: 'gbp-qc',                 path: '/gbp-qc',                 label: 'GBP Quality Check',      icon: '📍', tag: 'beta' },
     ],
   },
   {

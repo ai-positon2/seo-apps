@@ -1,0 +1,231 @@
+{
+  "client_id": "gentle_dental",
+  "client_name": "Gentle Dental (42 North Dental)",
+  "public_brand_name": "Gentle Dental",
+  "brand_name_with_location_format": "Gentle Dental in [Location]",
+  "parent_brand": "42 North Dental",
+  "content_generation_supported": true,
+  "location_page_url_template": "https://www.gentledental.com/locations/{slug}/",
+  "locations": [
+    "Arlington", "Attleboro", "Belmont", "Beverly", "Brighton",
+    "Jamaica Plain", "South Boston", "West Roxbury", "Braintree",
+    "Brockton", "Brookline", "Burlington", "Cambridge", "Chelmsford",
+    "Concord", "Derry", "Exeter", "Franklin", "Hanover", "Hudson",
+    "Keene", "Malden", "Manchester", "South Willow", "Medford",
+    "Methuen", "Milford", "Nashua", "South Nashua", "Natick",
+    "New Bedford", "North Andover", "Norwood", "Peabody", "Quincy",
+    "Rochester", "Saugus", "Seekonk", "Somerville", "Stoughton",
+    "Wakefield", "Waltham", "TrollyYard", "Worcester", "Dover",
+    "Newbury Dental Associates"
+  ],
+  "location_format_exceptions": ["Newbury Dental Associates"],
+  "character_limit": 1500,
+  "ideal_character_range": "1300 to 1450 characters when detailed content is needed",
+  "link_required": true,
+  "link_rules": "If topic is service/treatment-related, link that specific page. Otherwise use location page URLs.",
+  "cta_required": true,
+
+  "title_rules": {
+    "structure": "Topic / Benefit / Question + Brand Name + Location",
+    "core_rule": "Title must NEVER start with the brand name. Lead with the topic, service benefit, or patient question first. The brand name and location come after a few words.",
+    "approved_formats": [
+      "How [Service] Can Transform Your Smile at Gentle Dental in [Location]",
+      "What To Know About [Topic] at Gentle Dental in [Location]",
+      "When Should You Consider [Topic] at Gentle Dental in [Location]?",
+      "Signs You May Need [Service] at Gentle Dental in [Location]",
+      "When [Patient Concern] Needs Attention at Gentle Dental in [Location]"
+    ],
+    "avoid_formats": [
+      "Gentle Dental Offers [Service] in [Location]",
+      "Gentle Dental in [Location] Explains [Topic]",
+      "Gentle Dental Provides [Service] in [Location]"
+    ],
+    "rule_note": "The title should feel helpful and patient-first, not brand-first."
+  },
+
+  "brand_name_usage": {
+    "rule": "Always use 'Gentle Dental in [Location]' in patient-facing content. Never drop the location when referencing the brand in context.",
+    "in_title": true,
+    "in_body": true,
+    "correct_format": "Gentle Dental in [Location]",
+    "examples": [
+      "Gentle Dental in Arlington",
+      "Gentle Dental in Brookline, MA",
+      "Gentle Dental in South Boston"
+    ]
+  },
+
+  "intro_guidelines": {
+    "length": "2 to 3 short sentences",
+    "must_do": [
+      "Explain the service or topic in simple language",
+      "Mention the patient concern or benefit",
+      "Introduce the brand and location naturally",
+      "Avoid sounding too promotional"
+    ],
+    "example_service": "A brighter smile can help you feel more confident in everyday moments. At Gentle Dental in Arlington, professional teeth whitening can help reduce stains caused by coffee, tea, wine, tobacco, aging, and daily habits. The treatment is guided by a dental team focused on your comfort and oral health.",
+    "example_topic": "Dental concerns are easier to manage when they are addressed early. At Gentle Dental in [Location], patients can receive care for routine dental visits, ongoing discomfort, and urgent oral health needs in a comfortable setting."
+  },
+
+  "service_post_structure": {
+    "description": "For service-based posts (treatment_focused, service_focused post themes)",
+    "sections_in_order": [
+      "Title: topic/benefit-first, brand name and location after a few words",
+      "Short Intro: 2-3 sentences explaining the service and why it matters",
+      "Benefits Section: 5 to 6 bullet points, introduced with '[Service] may help with:'",
+      "Procedure / Process Section: what the patient can expect — initial evaluation, review of oral health, personalized recommendation, treatment planning, comfort-focused care",
+      "Why Choose Gentle Dental? section",
+      "CTA: Book or Schedule an appointment with Gentle Dental in [Location]"
+    ],
+    "benefits_intro_format": "[Service] may help with:",
+    "procedure_must_mention": [
+      "Initial evaluation",
+      "Review of oral health",
+      "Personalized recommendation",
+      "Treatment planning",
+      "Comfort-focused care"
+    ]
+  },
+
+  "non_service_post_structure": {
+    "description": "For educational, symptom-based, or awareness posts (educational, seasonal, family_lifestyle, smile_maintenance, conversion_focused, local_trust_building post themes)",
+    "sections_in_order": [
+      "Title: question or patient concern-first",
+      "Short Intro: 2-3 sentences explaining why the topic matters",
+      "Signs / Tips / Reasons Section: bullet points for symptoms, warning signs, or tips",
+      "Why Choose Gentle Dental? section",
+      "CTA: appointment-focused"
+    ]
+  },
+
+  "why_choose_section": {
+    "required_for_all_posts": true,
+    "heading": "Why Choose Gentle Dental?",
+    "must_highlight": [
+      "Comfortable care",
+      "Experienced dental team",
+      "Personalized treatment",
+      "Preventive and restorative support",
+      "Local office convenience",
+      "Care for routine and urgent dental needs"
+    ],
+    "example": "Gentle Dental in [Location] offers comprehensive dental care in a comfortable setting. From preventive visits to restorative, cosmetic, pediatric, orthodontic, and emergency dental services, our team helps patients get the right care for their smile."
+  },
+
+  "cta_rules": "End every post with a clear, appointment-focused CTA. Mention the brand name and location. Use 'Book an appointment' or 'Schedule an appointment'. Keep it short and action-focused. Avoid phone numbers unless specifically required.",
+  "cta_examples": [
+    "Book an appointment with Gentle Dental in [Location] today.",
+    "Schedule an appointment at Gentle Dental in [Location] today.",
+    "Book your dental appointment today.",
+    "Schedule your visit with Gentle Dental in [Location] today."
+  ],
+
+  "tone": {
+    "description": "Warm, helpful, patient-first, simple, reassuring, and locally approachable",
+    "avoid": "Too sales-heavy, too clinical, too robotic, fear-based, or overly promotional",
+    "good_phrases": [
+      "A brighter smile can help you feel more confident.",
+      "Dental concerns are easier to manage when they are addressed early.",
+      "Our team will review your oral health before recommending treatment.",
+      "Your comfort and oral health are always part of the conversation.",
+      "A timely visit can help protect your smile.",
+      "Schedule an appointment today."
+    ]
+  },
+
+  "clinical_language_rules": {
+    "avoid_guarantees": true,
+    "banned_phrases": [
+      "guaranteed results",
+      "pain-free",
+      "permanent cure",
+      "permanent relief",
+      "best dentist",
+      "best dental clinic",
+      "cheapest dental care",
+      "perfect smile guaranteed",
+      "the number one dentist"
+    ],
+    "approved_safe_phrases": [
+      "may help",
+      "can support",
+      "designed to help",
+      "your dentist can recommend",
+      "personalized to your needs"
+    ]
+  },
+
+  "post_themes": {
+    "educational": {
+      "description": "Explaining dental concerns, symptoms, prevention, or oral health basics",
+      "structure": "non_service_post_structure",
+      "must_include": ["What the issue is", "Common causes or signs", "Why it should not be ignored", "Simple care tips", "Why Choose section", "CTA to schedule a checkup"]
+    },
+    "seasonal": {
+      "description": "Connect the season or holiday to oral health naturally",
+      "structure": "non_service_post_structure",
+      "must_include": ["Seasonal context", "Relevant oral health concern", "Simple preventive tips", "Why Choose section", "CTA"]
+    },
+    "treatment_focused": {
+      "description": "Explain a treatment in a simple, benefit-led way",
+      "structure": "service_post_structure",
+      "must_include": ["What the treatment helps with", "Who may need it", "Benefits section", "Procedure section", "Why Choose section", "CTA"]
+    },
+    "family_lifestyle": {
+      "description": "Relatable content for parents, children, and busy households",
+      "structure": "non_service_post_structure",
+      "must_include": ["Everyday family dental needs", "Preventive care habits", "Why routine visits matter", "Why Choose section", "CTA for families to schedule"]
+    },
+    "local_trust_building": {
+      "description": "Build local relevance and patient confidence in the office",
+      "structure": "non_service_post_structure",
+      "must_include": ["Location mention", "How the office supports local patients", "Services available", "Why Choose section", "CTA"]
+    },
+    "smile_maintenance": {
+      "description": "Ongoing oral health habits and preventive care",
+      "structure": "non_service_post_structure",
+      "must_include": ["Why maintenance matters", "Simple daily habits", "Role of cleanings and exams", "Why Choose section", "CTA to schedule routine care"]
+    },
+    "conversion_focused": {
+      "description": "Stronger appointment-driven language, still helpful",
+      "structure": "non_service_post_structure",
+      "must_include": ["Patient pain point or need", "Why now is a good time to schedule", "Why Choose section", "Direct CTA"]
+    },
+    "service_focused": {
+      "description": "Highlight a specific dental service clearly and directly",
+      "structure": "service_post_structure",
+      "must_include": ["Service name", "What the service is used for", "Benefits section (5-6 bullets)", "Procedure section", "Why Choose section", "CTA"]
+    }
+  },
+
+  "pre_publish_checklist": [
+    "Title does NOT start with the brand name",
+    "Brand name appears after a few words in the title",
+    "Intro briefly explains the service or topic in 2-3 sentences",
+    "Service posts include a benefits section with 5-6 bullets",
+    "Service posts include a procedure or process section",
+    "Every post includes a 'Why Choose Gentle Dental?' section",
+    "CTA uses 'Book an appointment' or 'Schedule an appointment'",
+    "Brand name and location are used naturally throughout",
+    "Tone is helpful, clear, and patient-friendly",
+    "Content does not overpromise results",
+    "Post is within the 1500 character limit",
+    "No banned phrases used"
+  ],
+
+  "image_guidelines": {
+    "allowed": ["Dental care related imagery", "Patient-friendly and reassuring imagery", "Images relevant to the post topic"],
+    "not_allowed": ["Overly clinical or graphic dental procedure images", "Images that may cause anxiety in patients"]
+  },
+
+  "formatting_rules": [
+    "Post must be under 1500 characters",
+    "Ideal length: 1300-1450 characters for detailed posts",
+    "Title must be topic/benefit-first — never brand-first",
+    "Intro must be 2-3 short sentences",
+    "Use bullet points for benefits, symptoms, tips, or process steps",
+    "Every post must include a 'Why Choose Gentle Dental?' section",
+    "Must end with a closing CTA using 'Book' or 'Schedule an appointment'",
+    "No banned phrases or guarantee language"
+  ]
+}
