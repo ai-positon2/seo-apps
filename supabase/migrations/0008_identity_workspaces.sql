@@ -64,7 +64,11 @@ create index if not exists idx_activity_log_user on activity_log (user_id, creat
 
 -- Future: full per-run input/output, opt-in per tool (not wired into every
 -- module yet — this table is ready for a module to start writing to it).
-create table if not exists runs (
+-- Named tool_runs, NOT runs — a `runs` table already exists in this Supabase
+-- project with an unrelated, pre-existing schema (id, tool, label, inputs,
+-- output, status, created_at, no user_id/workspace_id) that isn't tracked in
+-- this repo's migrations. Left untouched rather than guessing at its schema.
+create table if not exists tool_runs (
   id           uuid primary key default gen_random_uuid(),
   user_id      uuid references app_users(id) on delete set null,
   workspace_id uuid references workspaces(id) on delete set null,
@@ -76,5 +80,5 @@ create table if not exists runs (
   completed_at timestamptz
 );
 
-create index if not exists idx_runs_user on runs (user_id, created_at desc);
-create index if not exists idx_runs_workspace on runs (workspace_id, created_at desc);
+create index if not exists idx_tool_runs_user on tool_runs (user_id, created_at desc);
+create index if not exists idx_tool_runs_workspace on tool_runs (workspace_id, created_at desc);
