@@ -1,6 +1,7 @@
 const express = require('express');
 const { runAudit } = require('./auditor');
 const { getAudit, listAudits, deleteAudit } = require('./store');
+const runsStore = require('../../services/runsStore');
 
 const router = express.Router();
 
@@ -20,6 +21,7 @@ router.post('/run', async (req, res) => {
 
   const jobId = `job_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   jobs.set(jobId, { status: 'running', auditId: null, progress: 'Starting…', error: null });
+  const userId = req.user?.userId;
 
   // Fire-and-forget
   (async () => {
@@ -29,6 +31,14 @@ router.post('/run', async (req, res) => {
         if (job) job.progress = msg;
       });
       jobs.set(jobId, { status: 'complete', auditId: audit.id, progress: 'Done', error: audit.errorMessage || null });
+
+      runsStore.saveRun({
+        userId,
+        toolId: 'on-page-audit',
+        title: `On-Page SEO Audit: ${url}`,
+        input: { url, primaryKeywords: kws },
+        output: audit,
+      });
     } catch (err) {
       jobs.set(jobId, { status: 'failed', auditId: null, progress: 'Failed', error: err.message });
     }

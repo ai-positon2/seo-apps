@@ -9,6 +9,7 @@ import MacWindow from './components/MacWindow';
 import LoginPage from './pages/LoginPage';
 import ProfileSetupPage from './pages/ProfileSetupPage';
 import WorkspacesPage from './pages/WorkspacesPage';
+import RunsPage from './pages/RunsPage';
 import HomePage from './pages/HomePage';
 import ContentResearchPage from './pages/ContentResearchPage';
 import KeywordResearchPage from './pages/KeywordResearchPage';
@@ -104,6 +105,7 @@ export default function App() {
           <Route path="/market-potential" element={<MarketPotentialPage />} />
           <Route path="/competitor-analysis" element={<CompetitorAnalysisDashboardPage />} />
           <Route path="/workspaces" element={<WorkspacesPage />} />
+          <Route path="/runs" element={<RunsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

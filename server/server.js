@@ -31,6 +31,7 @@ const competitorAnalysisTrackerRoutes = require('./modules/competitorAnalysis/ro
 const semrushRoutes = require('./routes/semrush');
 const profileRoutes = require('./routes/profile');
 const workspaceRoutes = require('./routes/workspaces');
+const runsRoutes = require('./routes/runs');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -101,6 +102,7 @@ app.use('/api/competitor-tracker',      lpbLimiter, requireAuth, competitorAnaly
 app.use('/api/semrush',                 requireAuth, semrushRoutes);
 app.use('/api/profile',                 requireAuth, profileRoutes);
 app.use('/api/workspaces',              requireAuth, workspaceRoutes);
+app.use('/api/runs',                    requireAuth, runsRoutes);
 
 // ── SEO team only ────────────────────────────────────────────────────────────
 app.use('/api/search',              requireSeo, searchRoutes);

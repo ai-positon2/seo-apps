@@ -8,6 +8,7 @@ const { getPageSpeedForAllDomains } = require('../services/pageSpeedCA');
 const gptAnalysis = require('../services/gptAnalysisCA');
 const { generatePptx } = require('../services/pptxGenerator');
 const { parseOrganicCSV, parseReferringDomainsCSV } = require('../services/semrushUploadParser');
+const runsStore = require('../services/runsStore');
 
 // Simple UUID using crypto (no external dep)
 function generateId() {
@@ -87,6 +88,7 @@ router.post('/discover', async (req, res) => {
       database,
       dateRange,
       status: 'pending',
+      userId: req.user?.userId,
     });
 
     return res.json({ jobId, competitors: kept, gptSummary });
@@ -223,6 +225,7 @@ router.post('/prepare', (req, res) => {
     dateRange,
     mode: 'manual',
     status: 'pending',
+    userId: req.user?.userId,
   });
   return res.json({ jobId });
 });
@@ -644,6 +647,14 @@ async function runFullAnalysis(jobId) {
   doneSection('pptx', 100);
 
   emit({ type: 'done', reportData });
+
+  runsStore.saveRun({
+    userId: job.userId,
+    toolId: 'competitor-analysis',
+    title: `Competitor Analysis: ${brandName}`,
+    input: { brandName, clientDomain, competitors, country, dateRange, analysisLevel, subUrl },
+    output: reportData,
+  });
 }
 
 // ── Manual analysis pipeline (sourced from uploaded CSVs) ─────────────────────
@@ -898,6 +909,14 @@ async function runManualAnalysis(jobId, domainKwMap, domainBlMap, authorityScore
   jobStore.update(jobId, { reportData, status: 'done' });
   doneSection('pptx', 100);
   emit({ type: 'done', reportData });
+
+  runsStore.saveRun({
+    userId: job.userId,
+    toolId: 'competitor-analysis',
+    title: `Competitor Analysis: ${brandName}`,
+    input: { brandName, clientDomain, competitors, country, dateRange },
+    output: reportData,
+  });
 }
 
 module.exports = router;

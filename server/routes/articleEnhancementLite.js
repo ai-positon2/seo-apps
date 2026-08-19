@@ -36,6 +36,7 @@ const {
   deduplicateAdditions,
   buildDocx,
 } = require('./articleEnhancement').helpers;
+const runsStore = require('../services/runsStore');
 
 const sessions = new Map();
 function generateToken() { return crypto.randomBytes(16).toString('hex'); }
@@ -216,6 +217,22 @@ router.get('/stream/:token', async (req, res) => {
       reportMarkdown: buildCoverageMarkdownLite(coverage.report),
     });
     emit('enhanced', { text: enhancedText });
+
+    runsStore.saveRun({
+      userId: req.user?.userId,
+      toolId: 'article-enhancement-lite',
+      title: `Article Enhancer: ${articleData.title || url}`,
+      input: { url, contentType, hasManualContent: Boolean(manualContent) },
+      output: {
+        articleMeta: {
+          title: articleData.title, url: articleData.url, wordCount: articleData.wordCount,
+          h1: articleData.h1, h2s: articleData.h2s, metaDescription: articleData.metaDescription,
+        },
+        themeData, analysis, recommendations,
+        coverage: { checked: coverage.report.length, total: LITE_COVERAGE_PARAMETERS.length, covered: coverage.coveredCount, reportMarkdown: buildCoverageMarkdownLite(coverage.report) },
+        enhancedText,
+      },
+    });
 
   } catch (err) {
     console.error('[article-enhancement-lite] Error:', err.message);

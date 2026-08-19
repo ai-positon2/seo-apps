@@ -7,11 +7,14 @@ import { useState } from 'react';
 //
 //   const ctl = useSeoGeoAudit();
 //
-// `restoring` is always false and `persistKey`/`onRestored` are accepted but
-// unused — this hook does not persist a run across a page refresh. A prior
-// version depended on a `usePersistedRun`/`/api/runs` layer that is a
-// separate, not-yet-shipped piece of work; re-add persistence here once that
-// lands, rather than carrying an unreviewed dependency in the meantime.
+// `persistKey` is forwarded to the backend as `toolId` so completed runs are
+// saved to tool_runs under the right tool (see server/routes/seoGeoAudit.js);
+// it distinguishes the full "SEO & GEO Audit" page from the "SEO & GEO
+// Snapshot" page even though both call the same endpoint. `restoring` is
+// always false and `onRestored` is accepted but unused — this hook does not
+// restore a run across a page refresh (see server/routes/runs.js /
+// GET /api/runs for fetching history; wiring a restore-on-load flow into
+// this hook is still open).
 export function useSeoGeoAudit(persistKey, { onRestored, onResult } = {}) {
   const [inputType, setInputType] = useState('url');
   const [urlInput, setUrlInput] = useState('');
@@ -40,8 +43,8 @@ export function useSeoGeoAudit(persistKey, { onRestored, onResult } = {}) {
 
     const keywords = [keyword1.trim(), keyword2.trim()].filter(Boolean);
     const body = inputType === 'url'
-      ? { url: urlInput.trim(), keywords, pageIntent }
-      : { html: htmlInput.trim(), keywords, pageIntent };
+      ? { url: urlInput.trim(), keywords, pageIntent, toolId: persistKey }
+      : { html: htmlInput.trim(), keywords, pageIntent, toolId: persistKey };
 
     try {
       const resp = await fetch('/api/seo-geo-audit/run', {

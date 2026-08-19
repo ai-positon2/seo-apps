@@ -5,6 +5,7 @@ const OpenAI = require('openai');
 const { searchGoogle } = require('../services/googleSearch');
 const { getUrlKeywords } = require('../services/semrush');
 const { loadKBContext } = require('../services/kbLoader');
+const runsStore = require('../services/runsStore');
 
 // In-memory session store (token → params, expires in 2 min)
 const sessions = new Map();
@@ -524,6 +525,14 @@ Return this exact JSON:
     }
 
     emit('result', result);
+
+    runsStore.saveRun({
+      userId: req.user?.userId,
+      toolId: 'keyword-research',
+      title: `Keyword Research: ${keyword}`,
+      input: { keyword, client, intent },
+      output: result,
+    });
 
   } catch (err) {
     console.error('[keyword-research] Error:', err.message);

@@ -5,6 +5,7 @@ const router = express.Router();
 const axios = require('axios');
 const OpenAI = require('openai');
 const { runAllChecks } = require('../checks/seoGeoChecks');
+const runsStore = require('../services/runsStore');
 
 let _openai = null;
 function getOpenAI() {
@@ -326,7 +327,8 @@ async function fetchUrl(url) {
 
 // POST /api/seo-geo-audit/run  — SSE streaming
 router.post('/run', async (req, res) => {
-  const { url, html: pastedHtml, keywords, pageIntent: pageIntentInput } = req.body;
+  const { url, html: pastedHtml, keywords, pageIntent: pageIntentInput, toolId: toolIdInput } = req.body;
+  const toolId = toolIdInput === 'seo-geo-snapshot' ? 'seo-geo-snapshot' : 'seo-geo-audit';
   const kwArray = Array.isArray(keywords) ? keywords.filter(Boolean) : [];
   // 'auto' lets the check engine infer intent from the detected page type. An explicit
   // 'commercial'/'informational' always wins; anything unrecognised degrades to 'auto'.
@@ -544,6 +546,14 @@ router.post('/run', async (req, res) => {
     emit('result', {
       findings,
       ai: aiAnalysis,
+    });
+
+    runsStore.saveRun({
+      userId: req.user?.userId,
+      toolId,
+      title: `${toolId === 'seo-geo-snapshot' ? 'SEO & GEO Snapshot' : 'SEO & GEO Audit'}: ${findings.meta.url}`,
+      input: { url, keywords: kwArray, pageIntent: intentInput },
+      output: { findings, ai: aiAnalysis },
     });
 
     res.end();

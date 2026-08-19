@@ -9,6 +9,7 @@ const store = require('../services/kbStore');
 const { searchGoogle } = require('../services/googleSearch');
 const { createLlmClient, resolveModelIds, WRITER_MODEL_ID } = require('../services/llmProviders');
 const { synthesizeRecommendations } = require('../services/llmSynthesis');
+const runsStore = require('../services/runsStore');
 
 // gpt-5-mini was removed — it failed on 100% of runs and added only noise.
 const MODELS = [
@@ -197,6 +198,22 @@ router.get('/stream/:token', async (req, res) => {
       reportMarkdown: buildCoverageMarkdown(coverage.report),
     });
     emit('enhanced', { text: enhancedText });
+
+    runsStore.saveRun({
+      userId: req.user?.userId,
+      toolId: 'article-enhancement',
+      title: `Enhance Existing Article: ${articleData.title || url}`,
+      input: { url, contentType, hasManualContent: Boolean(manualContent) },
+      output: {
+        articleMeta: {
+          title: articleData.title, url: articleData.url, wordCount: articleData.wordCount,
+          h1: articleData.h1, h2s: articleData.h2s, metaDescription: articleData.metaDescription,
+        },
+        themeData, recommendations,
+        coverage: { checked: coverage.report.length, total: 12, covered: coverage.coveredCount, reportMarkdown: buildCoverageMarkdown(coverage.report) },
+        enhancedText,
+      },
+    });
 
   } catch (err) {
     console.error('[article-enhancement] Error:', err.message);

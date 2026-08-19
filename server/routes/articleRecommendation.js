@@ -5,6 +5,7 @@ const OpenAI = require('openai');
 const { searchGoogle } = require('../services/googleSearch');
 const { scrapeUrlsDetailed } = require('../services/scraper');
 const { loadKBContext } = require('../services/kbLoader');
+const runsStore = require('../services/runsStore');
 
 // In-memory session store (token → params, expires in 5 min)
 const sessions = new Map();
@@ -276,6 +277,14 @@ Revise and return the FULL corrected content brief now, following the same struc
     }
 
     emit('result', { brief, sourceUrls: top10 });
+
+    runsStore.saveRun({
+      userId: req.user?.userId,
+      toolId: 'article-recommendation',
+      title: `Article Recommendation: ${keyword}`,
+      input: { keyword, client },
+      output: { brief, sourceUrls: top10 },
+    });
 
   } catch (err) {
     console.error('[article-recommendation] Error:', err.message);

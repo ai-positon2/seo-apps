@@ -16,6 +16,7 @@ const exporter = require('../locationPageBuilder/exporter');
 const keywordAdapter = require('../locationPageBuilder/keywordAdapter');
 const dentalWizard = require('../locationPageBuilder/dentalWizard');
 const qaEngine = require('../locationPageBuilder/qaEngine');
+const runsStore = require('../services/runsStore');
 
 // Feature flag (Spec §0.2)
 router.use((req, res, next) => {
@@ -168,6 +169,15 @@ router.get('/stream/:token', async (req, res) => {
     } else if (job.kind === 'generate') {
       const result = await pageService.generateContent(job.pageId, onStep);
       emit('result', { qa_result: result.qa_result, status: result.page_object.meta.status });
+
+      const page = await store.get('pages', job.pageId);
+      runsStore.saveRun({
+        userId: req.user?.userId,
+        toolId: 'location-page-builder',
+        title: `Location + Service Page: ${page?.service_id || ''} / ${page?.location_id || ''}`,
+        input: { pageId: job.pageId, clientId: page?.client_id, serviceId: page?.service_id, locationId: page?.location_id },
+        output: { qa_result: result.qa_result, page_object: result.page_object },
+      });
     }
   } catch (e) {
     emit('fail', { message: e.message });
@@ -246,6 +256,14 @@ router.post('/wizard/generate', async (req, res) => {
       clientId, serviceId, locationId, primaryKeywords, secondaryKeywords: secondaryKeywords || [],
     });
     res.json(result);
+
+    runsStore.saveRun({
+      userId: req.user?.userId,
+      toolId: 'location-page-builder',
+      title: `Location + Service Page: ${serviceId} / ${locationId}`,
+      input: { clientId, serviceId, locationId, primaryKeywords, secondaryKeywords: secondaryKeywords || [] },
+      output: result,
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

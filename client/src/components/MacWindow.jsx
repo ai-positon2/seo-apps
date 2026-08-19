@@ -258,6 +258,16 @@ export default function MacWindow() {
               <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{email}</span>
             )}
             <button
+              onClick={() => navigate('/runs')}
+              style={{
+                fontSize: 12, fontWeight: 600, color: 'var(--text-2)',
+                background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+                padding: '5px 10px', cursor: 'pointer',
+              }}
+            >
+              My Runs
+            </button>
+            <button
               onClick={() => navigate('/workspaces')}
               style={{
                 fontSize: 12, fontWeight: 600, color: 'var(--text-2)',

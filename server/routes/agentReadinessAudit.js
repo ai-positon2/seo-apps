@@ -7,6 +7,7 @@ const chromium = require('@sparticuz/chromium');
 const fs = require('fs');
 const { runOnPageChecks } = require('../checks/onpage');
 const { discoverLinks } = require('../utils/linkDiscovery');
+const runsStore = require('../services/runsStore');
 
 function findLocalBrowser() {
   const candidates = [
@@ -619,7 +620,7 @@ router.post('/', async (req, res) => {
       console.warn('[agent-readiness] CMO brief failed:', e.message);
     }
 
-    res.json({
+    const result = {
       site: {
         url: parsedUrl.hostname,
         full: parsedUrl.href,
@@ -634,6 +635,16 @@ router.post('/', async (req, res) => {
       checks: httpChecks,
       onPageChecks: rawOnPageChecks,
       cmoBrief,
+    };
+
+    res.json(result);
+
+    runsStore.saveRun({
+      userId: req.user?.userId,
+      toolId: 'agent-readiness-audit',
+      title: `Agent Readiness Audit: ${parsedUrl.hostname}`,
+      input: urls,
+      output: result,
     });
   } catch (err) {
     console.error('[agent-readiness] Error:', err.message);
@@ -758,7 +769,7 @@ router.post('/stream', async (req, res) => {
     if (disconnected) return;
 
     // Emit complete event with full result object (identical to POST /)
-    emit('complete', {
+    const result = {
       site: {
         url: parsedUrl.hostname,
         full: parsedUrl.href,
@@ -773,6 +784,15 @@ router.post('/stream', async (req, res) => {
       checks: httpChecks,
       onPageChecks: rawOnPageChecks,
       cmoBrief,
+    };
+    emit('complete', result);
+
+    runsStore.saveRun({
+      userId: req.user?.userId,
+      toolId: 'agent-readiness-audit',
+      title: `Agent Readiness Audit: ${parsedUrl.hostname}`,
+      input: urls,
+      output: result,
     });
 
     if (!res.writableEnded) res.end();
