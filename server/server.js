@@ -17,7 +17,6 @@ const auditRoutes = require('./routes/audit');
 const kbContextRoutes = require('./routes/kbContext');
 const articleRecommendationRoutes = require('./routes/articleRecommendation');
 const imageAltAuditRoutes = require('./routes/imageAltAudit');
-const teamInsightsRoutes = require('./routes/teamInsights');
 const competitorAnalysisRoutes = require('./routes/competitorAnalysis');
 const agentReadinessAuditRoutes = require('./routes/agentReadinessAudit');
 const seoGeoAuditRoutes = require('./routes/seoGeoAudit');
@@ -26,7 +25,6 @@ const articleEnhancementRoutes = require('./routes/articleEnhancement');
 const articleEnhancementLiteRoutes = require('./routes/articleEnhancementLite');
 const locationPageBuilderRoutes = require('./routes/locationPageBuilder');
 const robotsMonitorRoutes = require('./modules/robotsMonitor/routes');
-const hubSpokeRoutes = require('./modules/hubSpoke/routes');
 const onPageAuditRoutes = require('./modules/onPageAudit/routes');
 const marketPotentialRoutes = require('./modules/marketPotential/routes');
 const competitorAnalysisTrackerRoutes = require('./modules/competitorAnalysis/routes');
@@ -95,7 +93,6 @@ app.use('/api/article-enhancement',    requireAuth, articleEnhancementRoutes);
 app.use('/api/article-enhancement-lite', requireAuth, articleEnhancementLiteRoutes);
 app.use('/api/location-page-builder',   lpbLimiter, requireAuth, locationPageBuilderRoutes);
 app.use('/api/robots-monitor',          lpbLimiter, requireAuth, robotsMonitorRoutes);
-app.use('/api/hub-spoke',               lpbLimiter, requireAuth, hubSpokeRoutes);
 app.use('/api/on-page-audit',           lpbLimiter, requireAuth, onPageAuditRoutes);
 app.use('/api/market-potential',        lpbLimiter, requireAuth, marketPotentialRoutes);
 app.use('/api/competitor-tracker',      lpbLimiter, requireAuth, competitorAnalysisTrackerRoutes);
@@ -106,7 +103,6 @@ app.use('/api/search',              requireSeo, searchRoutes);
 app.use('/api/scrape',              requireSeo, scrapeRoutes);
 app.use('/api/analyze',             requireSeo, analyzeRoutes);
 app.use('/api/export',              requireSeo, exportRoutes);
-app.use('/api/team-insights',       requireSeo, teamInsightsRoutes);
 app.use('/api/competitor-analysis', requireSeo, competitorAnalysisRoutes);
 
 
@@ -138,10 +134,6 @@ app.get('*', (req, res) => {
 });
 
 // ── Module schedulers ────────────────────────────────────────────────────────
-require('./modules/hubSpoke/store').init().catch(err => {
-  console.error('[HubSpoke] Store init failed:', err.message);
-});
-
 require('./modules/onPageAudit/store').init().catch(err => {
   console.error('[OnPageAudit] Store init failed:', err.message);
 });
@@ -172,7 +164,6 @@ const server = app.listen(PORT, () => {
   console.log(`   SEMRUSH_API_KEY:   ${process.env.SEMRUSH_API_KEY ? '✓' : '✗ missing'}`);
   console.log(`   APP_USERNAME:      ${process.env.APP_USERNAME ? '✓' : '✗ missing'}`);
   console.log(`   JWT_SECRET:        ${process.env.JWT_SECRET ? '✓' : '✗ missing'}`);
-  console.log(`   GOOGLE_SHEETS_ID:  ${process.env.GOOGLE_SHEETS_ID ? '✓' : '✗ missing (team insights disabled)'}`);
   console.log(`   GOOGLE_PSI_KEY:    ${process.env.GOOGLE_PSI_API_KEY ? '✓' : '○ optional (PageSpeed)'}`);
 
 });

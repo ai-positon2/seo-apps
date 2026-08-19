@@ -16,7 +16,6 @@ import ModuleAuditPage from './pages/ModuleAuditPage';
 import ClientFeedbackPage from './pages/ClientFeedbackPage';
 import ArticleRecommendationPage from './pages/ArticleRecommendationPage';
 import ImageAltAuditPage from './pages/ImageAltAuditPage';
-import TeamInsightsPage from './pages/TeamInsightsPage';
 import AgentReadinessAuditPage from './pages/AgentReadinessAuditPage';
 import AgentReadinessSummaryPage from './pages/AgentReadinessSummaryPage';
 import SeoGeoAuditPage from './pages/SeoGeoAuditPage';
@@ -29,15 +28,9 @@ import LocationPageDetailPage from './pages/LocationPageDetailPage';
 import LocationServiceWizardPage from './pages/LocationServiceWizardPage';
 import GentleDentalPagesPage from './pages/GentleDentalPagesPage';
 import RobotsMonitorPage from './pages/RobotsMonitorPage';
-import HubSpokePage from './pages/HubSpokePage';
-import HubSpokeProjectPage from './pages/HubSpokeProjectPage';
 import OnPageAuditPage from './pages/OnPageAuditPage';
 import MarketPotentialPage from './pages/MarketPotentialPage';
 import CompetitorAnalysisDashboardPage from './pages/CompetitorAnalysisDashboardPage';
-// GscExplorerPage, GscExplorerProjectPage, and CompResBetaPage are separate,
-// not-yet-shipped work — their page files aren't committed yet, so their
-// imports/routes are deliberately left out here rather than added back
-// without the files that make them resolve.
 
 // Keeps the parent Intelligence Platform shell's URL + breadcrumb in sync with
 // the tool the user navigates to here. The shell embeds us in a cross-origin
@@ -69,7 +62,6 @@ export default function App() {
           <Route path="/kb/:id" element={<KBEditorPage />} />
           <Route path="/article-recommendation" element={<ArticleRecommendationPage />} />
           <Route path="/image-alt-audit" element={<ImageAltAuditPage />} />
-          <Route path="/team-insights" element={<TeamInsightsPage />} />
           <Route path="/agent-readiness-audit" element={<AgentReadinessAuditPage />} />
           <Route path="/agent-readiness-audit/summary" element={<AgentReadinessSummaryPage />} />
           <Route path="/seo-geo-audit" element={<SeoGeoAuditPage />} />
@@ -82,8 +74,6 @@ export default function App() {
           <Route path="/location-page-builder/gentle-dental-pages" element={<GentleDentalPagesPage />} />
           <Route path="/location-page-builder/:id" element={<LocationPageDetailPage />} />
           <Route path="/robots-monitor" element={<RobotsMonitorPage />} />
-          <Route path="/hub-spoke" element={<HubSpokePage />} />
-          <Route path="/hub-spoke/:id" element={<HubSpokeProjectPage />} />
           <Route path="/on-page-audit" element={<OnPageAuditPage />} />
           <Route path="/market-potential" element={<MarketPotentialPage />} />
           <Route path="/competitor-analysis" element={<CompetitorAnalysisDashboardPage />} />

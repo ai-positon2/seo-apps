@@ -155,17 +155,6 @@ const TOOLS = [
     ),
   },
   {
-    id: 'hub-spoke', path: '/hub-spoke', badge: 'Internal Linking', group: 'Build',
-    label: 'Hub & Spoke', tagline: 'AI internal linking strategy & recommendations',
-    description: 'Upload an existing hub and spoke spreadsheet or paste a URL list to auto-categorize with AI. Review the cluster structure, approve it, then generate targeted internal linking recommendations.',
-    features: ['XLSX hub/spoke import + AI categorization', 'GAP hub & dual-cluster detection', 'Hub-to-spoke, spoke-to-hub, cross-cluster recs', 'Export to XLSX or CSV'],
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 3M21 7.5H7.5" />
-      </svg>
-    ),
-  },
-  {
     id: 'knowledge-base', path: '/kb', badge: 'Knowledge', group: 'Build',
     label: 'Knowledge Base', tagline: 'Client & industry context management',
     description: 'Create and maintain knowledge base entries for clients, industries, and best practices. KB context is automatically injected into AI tools when a client is selected.',
@@ -195,17 +184,6 @@ const TOOLS = [
     icon: (
       <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
         <path d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'team-insights', path: '/team-insights', badge: 'PM', group: 'Monitor',
-    label: 'Team Insights', tagline: 'Live SEO PM dashboard from Google Sheets',
-    description: "Connect to your team's task management sheet and surface daily intelligence — blocked tasks, overdue work, WIP limits, capacity vs load, client health, and team-level signals.",
-    features: ['Morning triage dashboard', 'Monday planning & capacity', 'Weekly review & slippage', 'Client health & cadence'],
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
       </svg>
     ),
   },

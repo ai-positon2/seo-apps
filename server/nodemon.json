@@ -1,7 +1,6 @@
 {
   "watch": ["server.js", "routes", "modules", "locationPageBuilder", "services"],
   "ignore": [
-    "modules/hubSpoke/data",
     "modules/robotsMonitor/data",
     "modules/marketPotential/data",
     "modules/competitorAnalysis/data",
