@@ -4,7 +4,9 @@ import { getToolByPath } from './toolsMeta';
 import { notifyRouteChange } from './lib/agentRunSignal';
 import { ThemeProvider } from './components/ThemeContext';
 import { ToastProvider } from './ui/Toast';
+import { useAuth } from './context/AuthContext';
 import MacWindow from './components/MacWindow';
+import LoginPage from './pages/LoginPage';
 import HomePage from './pages/HomePage';
 import ContentResearchPage from './pages/ContentResearchPage';
 import KeywordResearchPage from './pages/KeywordResearchPage';
@@ -45,6 +47,20 @@ function RouteBridge() {
 }
 
 export default function App() {
+  const { authState } = useAuth();
+
+  if (authState === 'loading') {
+    return <div style={{ height: '100vh', background: 'var(--bg)' }} />;
+  }
+
+  if (authState === 'unauthenticated') {
+    return (
+      <ThemeProvider>
+        <LoginPage />
+      </ThemeProvider>
+    );
+  }
+
   return (
     <ThemeProvider>
       <ToastProvider>
