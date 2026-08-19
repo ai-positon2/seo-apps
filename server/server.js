@@ -29,6 +29,8 @@ const onPageAuditRoutes = require('./modules/onPageAudit/routes');
 const marketPotentialRoutes = require('./modules/marketPotential/routes');
 const competitorAnalysisTrackerRoutes = require('./modules/competitorAnalysis/routes');
 const semrushRoutes = require('./routes/semrush');
+const profileRoutes = require('./routes/profile');
+const workspaceRoutes = require('./routes/workspaces');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -97,6 +99,8 @@ app.use('/api/on-page-audit',           lpbLimiter, requireAuth, onPageAuditRout
 app.use('/api/market-potential',        lpbLimiter, requireAuth, marketPotentialRoutes);
 app.use('/api/competitor-tracker',      lpbLimiter, requireAuth, competitorAnalysisTrackerRoutes);
 app.use('/api/semrush',                 requireAuth, semrushRoutes);
+app.use('/api/profile',                 requireAuth, profileRoutes);
+app.use('/api/workspaces',              requireAuth, workspaceRoutes);
 
 // ── SEO team only ────────────────────────────────────────────────────────────
 app.use('/api/search',              requireSeo, searchRoutes);

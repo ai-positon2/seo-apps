@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { TOOL_GROUPS, TAGS, getToolByPath } from '../toolsMeta';
+import { useAuth } from '../context/AuthContext';
 import SemrushBalanceBadge from './SemrushBalanceBadge';
 
 /* ── Embed mode ──────────────────────────────────────────────────────────────
@@ -116,6 +117,7 @@ export default function MacWindow() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [search, setSearch] = useState('');
+  const { email, logout } = useAuth();
 
   const isHome = pathname === '/';
   const currentTool = getToolByPath(pathname);
@@ -251,7 +253,31 @@ export default function MacWindow() {
           </div>
 
           {/* Right controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingRight: 16 }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingRight: 16 }}>
+            {email && (
+              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{email}</span>
+            )}
+            <button
+              onClick={() => navigate('/workspaces')}
+              style={{
+                fontSize: 12, fontWeight: 600, color: 'var(--text-2)',
+                background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+                padding: '5px 10px', cursor: 'pointer',
+              }}
+            >
+              Workspaces
+            </button>
+            <button
+              onClick={() => logout()}
+              style={{
+                fontSize: 12, fontWeight: 600, color: 'var(--text-2)',
+                background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+                padding: '5px 10px', cursor: 'pointer',
+              }}
+            >
+              Log out
+            </button>
+          </div>
         </div>
 
         {/* ── Body: sidebar + content ── */}

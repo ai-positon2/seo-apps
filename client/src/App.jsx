@@ -7,6 +7,8 @@ import { ToastProvider } from './ui/Toast';
 import { useAuth } from './context/AuthContext';
 import MacWindow from './components/MacWindow';
 import LoginPage from './pages/LoginPage';
+import ProfileSetupPage from './pages/ProfileSetupPage';
+import WorkspacesPage from './pages/WorkspacesPage';
 import HomePage from './pages/HomePage';
 import ContentResearchPage from './pages/ContentResearchPage';
 import KeywordResearchPage from './pages/KeywordResearchPage';
@@ -47,7 +49,7 @@ function RouteBridge() {
 }
 
 export default function App() {
-  const { authState } = useAuth();
+  const { authState, hasProfile } = useAuth();
 
   if (authState === 'loading') {
     return <div style={{ height: '100vh', background: 'var(--bg)' }} />;
@@ -57,6 +59,14 @@ export default function App() {
     return (
       <ThemeProvider>
         <LoginPage />
+      </ThemeProvider>
+    );
+  }
+
+  if (!hasProfile) {
+    return (
+      <ThemeProvider>
+        <ProfileSetupPage />
       </ThemeProvider>
     );
   }
@@ -93,6 +103,7 @@ export default function App() {
           <Route path="/on-page-audit" element={<OnPageAuditPage />} />
           <Route path="/market-potential" element={<MarketPotentialPage />} />
           <Route path="/competitor-analysis" element={<CompetitorAnalysisDashboardPage />} />
+          <Route path="/workspaces" element={<WorkspacesPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

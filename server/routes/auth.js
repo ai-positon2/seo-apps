@@ -1,6 +1,8 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
+const { isSupabaseConfigured } = require('../services/supabase');
+const identityStore = require('../services/identityStore');
 const router = express.Router();
 
 const COOKIE_NAME = 'seo_session';
@@ -46,12 +48,16 @@ router.post('/logout', (req, res) => {
   res.json({ ok: true });
 });
 
-router.get('/verify', (req, res) => {
+router.get('/verify', async (req, res) => {
   const token = req.cookies?.[COOKIE_NAME];
   if (!token) return res.json({ valid: false });
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    res.json({ valid: true, role: payload.role, email: payload.username });
+    let hasProfile = true; // platform/embed sessions (no userId) skip the profile step
+    if (payload.userId && isSupabaseConfigured()) {
+      hasProfile = Boolean(await identityStore.getProfile(payload.userId));
+    }
+    res.json({ valid: true, role: payload.role, email: payload.username, userId: payload.userId, hasProfile });
   } catch (e) {
     res.json({ valid: false });
   }
@@ -62,6 +68,9 @@ function requireAuth(req, res, next) {
   if (!token) return res.status(401).json({ error: 'Not authenticated.' });
   try {
     req.user = jwt.verify(token, JWT_SECRET);
+    identityStore.recordActivity({
+      userId: req.user.userId, workspaceId: req.cookies?.workspace_id, method: req.method, path: req.baseUrl || req.path,
+    });
     next();
   } catch (e) {
     return res.status(401).json({ error: 'Session expired. Please log in again.' });
@@ -104,8 +113,14 @@ router.get('/google/callback', async (req, res) => {
       return res.redirect('/login?error=unauthorized');
     }
 
+    let userId;
+    if (isSupabaseConfigured()) {
+      const user = await identityStore.getOrCreateUser(payload.email);
+      userId = user.id;
+    }
+
     const sessionToken = jwt.sign(
-      { username: payload.email, role: 'seo' },
+      { username: payload.email, role: 'seo', userId },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
