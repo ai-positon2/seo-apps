@@ -31,6 +31,15 @@ const competitorAnalysisTrackerRoutes = require('./modules/competitorAnalysis/ro
 const semrushRoutes = require('./routes/semrush');
 const profileRoutes = require('./routes/profile');
 const workspaceRoutes = require('./routes/workspaces');
+const runsRoutes = require('./routes/runs');
+const { trackRuns } = require('./middleware/runTracking');
+const { RUN_TRACKING } = require('./config/runTracking');
+const runStore = require('./services/runStore');
+
+// Run tracking for one API mount — see server/config/runTracking.js for which
+// endpoints of which module count as a run. Installed after requireAuth on
+// every mount, so a run row always carries the user and workspace behind it.
+const track = (mountKey) => trackRuns(RUN_TRACKING[mountKey]);
 
 const app = express();
 app.set('trust proxy', 1);
@@ -51,7 +60,7 @@ const limiter = rateLimit({
   message: { error: 'Too many requests. Please wait a moment and try again.' },
   skip: (req) => {
     const u = req.originalUrl || req.url || '';
-    return u.startsWith('/api/location-page-builder') || u.startsWith('/api/kb') || u.startsWith('/api/modules') || u.startsWith('/api/audit') || u.startsWith('/api/market-potential') || u.startsWith('/api/competitor-tracker');
+    return u.startsWith('/api/location-page-builder') || u.startsWith('/api/kb') || u.startsWith('/api/modules') || u.startsWith('/api/audit') || u.startsWith('/api/market-potential') || u.startsWith('/api/competitor-tracker') || u.startsWith('/api/runs');
   },
 });
 
@@ -81,33 +90,34 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 // ── Protected routes (JWT cookie required on every request) ─────────────────
 // ── Extended team + SEO team (all authenticated users) ──────────────────────
-app.use('/api/kb',                     kbLimiter, requireAuth, kbRoutes);
+app.use('/api/kb',                     kbLimiter, requireAuth, track('knowledge-base'), kbRoutes);
 app.use('/api/modules',                kbLimiter, requireAuth, modulesRoutes);
 app.use('/api/audit',                  kbLimiter, requireAuth, auditRoutes);
 app.use('/api/kb-context',             kbLimiter, requireAuth, kbContextRoutes);
-app.use('/api/keyword-research',       requireAuth, keywordResearchRoutes);
-app.use('/api/article-recommendation', requireAuth, articleRecommendationRoutes);
-app.use('/api/image-alt-audit',        requireAuth, imageAltAuditRoutes);
-app.use('/api/agent-readiness-audit',  requireAuth, agentReadinessAuditRoutes);
-app.use('/api/seo-geo-audit',          requireAuth, seoGeoAuditRoutes);
-app.use('/api/content-enhancement',     requireAuth, contentEnhancementRoutes);
-app.use('/api/article-enhancement',    requireAuth, articleEnhancementRoutes);
-app.use('/api/article-enhancement-lite', requireAuth, articleEnhancementLiteRoutes);
-app.use('/api/location-page-builder',   lpbLimiter, requireAuth, locationPageBuilderRoutes);
-app.use('/api/robots-monitor',          lpbLimiter, requireAuth, robotsMonitorRoutes);
-app.use('/api/on-page-audit',           lpbLimiter, requireAuth, onPageAuditRoutes);
-app.use('/api/market-potential',        lpbLimiter, requireAuth, marketPotentialRoutes);
-app.use('/api/competitor-tracker',      lpbLimiter, requireAuth, competitorAnalysisTrackerRoutes);
+app.use('/api/keyword-research',       requireAuth, track('keyword-research'), keywordResearchRoutes);
+app.use('/api/article-recommendation', requireAuth, track('article-recommendation'), articleRecommendationRoutes);
+app.use('/api/image-alt-audit',        requireAuth, track('image-alt-audit'), imageAltAuditRoutes);
+app.use('/api/agent-readiness-audit',  requireAuth, track('agent-readiness-audit'), agentReadinessAuditRoutes);
+app.use('/api/seo-geo-audit',          requireAuth, track('seo-geo-audit'), seoGeoAuditRoutes);
+app.use('/api/content-enhancement',    requireAuth, track('content-enhancement'), contentEnhancementRoutes);
+app.use('/api/article-enhancement',    requireAuth, track('article-enhancement'), articleEnhancementRoutes);
+app.use('/api/article-enhancement-lite', requireAuth, track('article-enhancement-lite'), articleEnhancementLiteRoutes);
+app.use('/api/location-page-builder',   lpbLimiter, requireAuth, track('location-page-builder'), locationPageBuilderRoutes);
+app.use('/api/robots-monitor',          lpbLimiter, requireAuth, track('robots-monitor'), robotsMonitorRoutes);
+app.use('/api/on-page-audit',           lpbLimiter, requireAuth, track('on-page-audit'), onPageAuditRoutes);
+app.use('/api/market-potential',        lpbLimiter, requireAuth, track('market-potential'), marketPotentialRoutes);
+app.use('/api/competitor-tracker',      lpbLimiter, requireAuth, track('competitor-tracker'), competitorAnalysisTrackerRoutes);
 app.use('/api/semrush',                 requireAuth, semrushRoutes);
 app.use('/api/profile',                 requireAuth, profileRoutes);
 app.use('/api/workspaces',              requireAuth, workspaceRoutes);
+app.use('/api/runs',                    kbLimiter, requireAuth, runsRoutes);
 
 // ── SEO team only ────────────────────────────────────────────────────────────
 app.use('/api/search',              requireSeo, searchRoutes);
 app.use('/api/scrape',              requireSeo, scrapeRoutes);
-app.use('/api/analyze',             requireSeo, analyzeRoutes);
-app.use('/api/export',              requireSeo, exportRoutes);
-app.use('/api/competitor-analysis', requireSeo, competitorAnalysisRoutes);
+app.use('/api/analyze',             requireSeo, track('content-research'), analyzeRoutes);
+app.use('/api/export',              requireSeo, track('content-research-export'), exportRoutes);
+app.use('/api/competitor-analysis', requireSeo, track('competitor-analysis-report'), competitorAnalysisRoutes);
 
 
 // ── Platform auto-login (Position2 Intelligence Platform) ────────────────────
@@ -157,6 +167,19 @@ require('./modules/robotsMonitor/monitorStore').init().then(() => {
 }).catch(err => {
   console.error('[RobotsMonitor] Store init failed:', err.message);
 });
+
+// ── Stale run sweeper ────────────────────────────────────────────────────────
+// A run whose process died mid-flight (deploy, crash) would sit at 'running'
+// forever. Swept on boot and hourly so the run history only ever shows
+// genuinely in-flight work as running.
+const STALE_RUN_SWEEP_MS = 60 * 60 * 1000;
+function sweepStaleRuns() {
+  runStore.sweepStaleRuns({ olderThanMinutes: 120 }).then(count => {
+    if (count) console.log(`[runs] Closed ${count} stale run(s) left at 'running'.`);
+  });
+}
+sweepStaleRuns();
+setInterval(sweepStaleRuns, STALE_RUN_SWEEP_MS).unref();
 
 const server = app.listen(PORT, () => {
   console.log(`✅ Server running at http://localhost:${PORT}`);

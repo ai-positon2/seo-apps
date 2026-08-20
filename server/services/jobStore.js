@@ -23,7 +23,37 @@ function get(id) {
 function update(id, patch) {
   const job = jobs.get(id);
   if (!job) return;
-  jobs.set(id, { ...job, ...patch });
+  const next = { ...job, ...patch };
+  jobs.set(id, next);
+  settleRun(next, patch);
+}
+
+// ── Run tracking ─────────────────────────────────────────────────────────────
+// The competitor report pipeline answers its HTTP request ("status: running")
+// long before the analysis finishes, so the route attaches its tracked run to
+// the job (`run`, see server/config/runTracking.js) and the row is closed here
+// — when the job actually reaches a terminal status.
+function settleRun(job, patch) {
+  if (!job.run || job.runSettled) return;
+  if (patch.status !== 'done' && patch.status !== 'error') return;
+
+  job.runSettled = true;
+  const label = [job.brandName, job.clientDomain].filter(Boolean).join(' · ') || null;
+
+  if (patch.status === 'error') {
+    job.run.fail(job.errorMessage || 'Analysis failed.', { label });
+    return;
+  }
+  job.run.finish({
+    label,
+    output: {
+      brandName: job.brandName || null,
+      clientDomain: job.clientDomain || null,
+      country: job.country || null,
+      competitors: Array.isArray(job.competitors) ? job.competitors.length : null,
+      sections: job.reportData ? Object.keys(job.reportData) : null,
+    },
+  });
 }
 
 function emit(id, event) {

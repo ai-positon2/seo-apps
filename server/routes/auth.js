@@ -3,9 +3,14 @@ const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
 const { isSupabaseConfigured } = require('../services/supabase');
 const identityStore = require('../services/identityStore');
+const { peekWorkspaceId } = require('../services/workspaceContext');
 const router = express.Router();
 
 const COOKIE_NAME = 'seo_session';
+// Which workspace the user is currently working in. Only ever read through
+// workspaceContext, which membership-checks it before anything is written
+// against it — a cookie is caller-supplied and never trusted as-is.
+const WORKSPACE_COOKIE = 'workspace_id';
 const JWT_SECRET = process.env.JWT_SECRET || 'seo-automation-fallback-secret';
 
 function normalizeSameSite(value) {
@@ -68,8 +73,13 @@ function requireAuth(req, res, next) {
   if (!token) return res.status(401).json({ error: 'Not authenticated.' });
   try {
     req.user = jwt.verify(token, JWT_SECRET);
+    // peek, not resolve: the cached workspace is already membership-checked,
+    // and the activity trail must never add a query to the request path.
     identityStore.recordActivity({
-      userId: req.user.userId, workspaceId: req.cookies?.workspace_id, method: req.method, path: req.baseUrl || req.path,
+      userId: req.user.userId,
+      workspaceId: peekWorkspaceId(req.user.userId),
+      method: req.method,
+      path: req.baseUrl || req.path,
     });
     next();
   } catch (e) {
@@ -145,4 +155,4 @@ router.get('/platform-login', (req, res) => {
   res.json({ ok: true });
 });
 
-module.exports = { router, requireAuth, requireSeo };
+module.exports = { router, requireAuth, requireSeo, COOKIE_OPTIONS, WORKSPACE_COOKIE };

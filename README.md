@@ -137,6 +137,59 @@ serp-content-researcher/
 
 ---
 
+## Run Tracking
+
+Every module records what it ran into the `tool_runs` table (Supabase), scoped
+to a workspace, and the workspace belongs to a primary user — its creator/owner.
+The history is at **/runs** in the app ("Runs" in the top bar).
+
+**What a run row holds:** tool, action (`run` / `export` / `save` / …), a label
+(the URL, keyword or client it ran on), who ran it, which workspace, status
+(`running` / `completed` / `failed` / `cancelled`), duration, and a sanitized,
+size-capped copy of the input and output.
+
+**How it is captured** — `server/middleware/runTracking.js`, installed once per
+API mount, observes the request/response instead of each route being rewritten.
+It handles the three run shapes in this codebase:
+
+| Shape | Modules | How the outcome is captured |
+| --- | --- | --- |
+| JSON request → response | SEO & GEO Audit, Content Enhancement, Market Potential, Agent Readiness, KB saves | HTTP status + response body |
+| `POST /init` → `GET /stream/:token` (SSE) | Keyword Research, Article Recommendation, Article Enhancement (+ Lite), Image Alt Audit, Location Pages | Input bridged from `/init` by token; outcome from the terminal SSE event (`done`/`complete` vs `fail`/`error`) |
+| Response returns, work continues in the background | On-Page Audit, Robots Monitor, Competitor Tracker, Competitor Report | Row opens as `running`; the module closes it with `req.run.finish()` / `req.run.fail()` |
+
+**Which endpoints count as a run** is declared in one place:
+`server/config/runTracking.js`. Status polls, result fetches and settings are
+deliberately not tracked; sub-steps of a larger run (`/api/search` and
+`/api/scrape`, which feed `/api/analyze`) are recorded as the one run they
+belong to. `server/config/__tests__/registry.test.js` fails if a matcher there
+stops corresponding to a real route.
+
+**Workspaces.** A user's runs land in their active workspace — chosen on the
+Workspaces page ("Use this workspace", stored in a `workspace_id` cookie and
+membership-checked on every use). Until someone picks one, their runs go to
+their own personal workspace, created on their first run and owned by them;
+being added to a teammate's workspace never silently starts recording your runs
+there, so a team sharing one run history means each member switching to it once.
+Platform-embed sessions (shared iframe token, no individual user) are attributed
+to one synthetic user and workspace rather than being dropped.
+
+**Safety properties** worth keeping if you touch this:
+
+- Tracking never breaks a tool: the store swallows and logs its own errors, and
+  nothing is awaited in the request path.
+- Payloads are sanitized before storage — keys that look like credentials are
+  redacted, content blobs (HTML, pasted articles, CSV uploads) are reduced to
+  size markers, and anything over 16 KB is summarized and flagged as truncated.
+- Runs still `running` after two hours are swept to `failed`, so a crash or
+  deploy mid-run can't leave rows dangling.
+
+Requires `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` and the migrations in
+`supabase/migrations/`. Without them the app runs exactly as before and records
+nothing.
+
+---
+
 ## Rate Limits
 
 - **Backend rate limit:** 5 API requests per minute per IP

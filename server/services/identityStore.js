@@ -84,7 +84,85 @@ async function listWorkspacesForUser(userId) {
   const { data: memberships, error } = await sb
     .from('workspace_members').select('role, workspace_id, workspaces(*)').eq('user_id', userId);
   if (error) fail('listWorkspacesForUser', error);
-  return (memberships || []).map(m => ({ ...m.workspaces, myRole: m.role }));
+
+  const workspaces = (memberships || [])
+    .filter(m => m.workspaces)
+    .map(m => ({ ...m.workspaces, myRole: m.role }));
+
+  // Every workspace has one primary user — its creator/owner. Resolved here so
+  // the workspace list (and the runs list built on top of it) can show whose
+  // workspace a run landed in without a second round trip per row.
+  const ownerIds = [...new Set(workspaces.map(w => w.created_by).filter(Boolean))];
+  if (ownerIds.length) {
+    const { data: owners, error: ownerErr } = await sb
+      .from('app_users').select('id, email').in('id', ownerIds);
+    if (ownerErr) fail('listWorkspacesForUser(owners)', ownerErr);
+    const byId = new Map((owners || []).map(o => [o.id, o.email]));
+    for (const w of workspaces) w.ownerEmail = byId.get(w.created_by) || null;
+  }
+
+  // Personal workspace first, then newest — the order the switcher shows them in.
+  return workspaces.sort((a, b) => {
+    if (Boolean(a.is_personal) !== Boolean(b.is_personal)) return a.is_personal ? -1 : 1;
+    return String(b.created_at).localeCompare(String(a.created_at));
+  });
+}
+
+// True when the user is a member of the workspace. Used to validate the
+// workspace a request claims (the workspace_id cookie) before anything is
+// written against it — a cookie is caller-supplied and never trusted.
+async function isWorkspaceMember(workspaceId, userId) {
+  if (!workspaceId || !userId) return false;
+  const { data, error } = await getSupabase()
+    .from('workspace_members').select('user_id')
+    .eq('workspace_id', workspaceId).eq('user_id', userId).maybeSingle();
+  if (error) fail('isWorkspaceMember', error);
+  return Boolean(data);
+}
+
+// The user's own workspace, or null if they don't have one yet.
+async function getPersonalWorkspace(userId) {
+  const { data, error } = await getSupabase()
+    .from('workspaces').select('*').eq('created_by', userId).eq('is_personal', true).maybeSingle();
+  if (error) fail('getPersonalWorkspace', error);
+  return data;
+}
+
+// Creates the user's personal workspace — owned by that user (created_by plus
+// an 'owner' membership row), one per user. Concurrent callers are safe: the
+// partial unique index on workspaces(created_by) where is_personal makes the
+// second insert fail, and we re-read the winner instead of erroring.
+//
+// This — not "whichever shared workspace they happen to belong to" — is where
+// a user's runs land until they explicitly pick another one. Being added to
+// someone else's workspace shouldn't silently start publishing your runs into
+// it; switching is a deliberate act (POST /api/workspaces/:id/activate).
+async function ensurePersonalWorkspace(userId, email, nameOverride) {
+  const existing = await getPersonalWorkspace(userId);
+  if (existing) return existing;
+
+  const sb = getSupabase();
+  const local = String(email || '').split('@')[0] || 'My';
+  const name = nameOverride || `${local}'s workspace`;
+
+  const { data: workspace, error } = await sb
+    .from('workspaces').insert({ name, created_by: userId, is_personal: true }).select('*').single();
+  if (error) {
+    // Lost the race (or the index rejected a duplicate) — the other caller's
+    // workspace is the one that counts.
+    const winner = await getPersonalWorkspace(userId);
+    if (winner) return winner;
+    fail('ensurePersonalWorkspace', error);
+  }
+
+  const { error: memberErr } = await sb
+    .from('workspace_members').upsert(
+      { workspace_id: workspace.id, user_id: userId, role: 'owner' },
+      { onConflict: 'workspace_id,user_id' },
+    );
+  if (memberErr) fail('ensurePersonalWorkspace(addOwner)', memberErr);
+
+  return workspace;
 }
 
 async function createWorkspace(userId, name) {
@@ -177,6 +255,21 @@ async function removeWorkspaceMember(workspaceId, requesterId, targetUserId) {
   return true;
 }
 
+// ── Platform-embed identity ─────────────────────────────────────────────────
+// The Intelligence Platform embeds this app in an iframe and auto-logs in with
+// a shared token (see /api/auth/platform-login) — those sessions have no
+// individual user behind them. Rather than dropping their runs on the floor,
+// they are attributed to one synthetic user and its workspace, so the
+// invariant every run has a workspace, and every workspace has a primary user
+// still holds. Marked is_personal so the unique index guarantees exactly one.
+const PLATFORM_EMAIL = 'platform-embed@position2.com';
+
+async function ensurePlatformWorkspace() {
+  const user = await getOrCreateUser(PLATFORM_EMAIL);
+  const workspace = await ensurePersonalWorkspace(user.id, PLATFORM_EMAIL, 'Platform (embedded)');
+  return { userId: user.id, workspaceId: workspace?.id || null };
+}
+
 // ── Activity trail ───────────────────────────────────────────────────────────
 // Fire-and-forget — never throws, so a logging failure can't break a request.
 async function recordActivity({ userId, workspaceId, method, path }) {
@@ -195,5 +288,7 @@ module.exports = {
   getOrCreateUser, getUserById,
   getProfile, upsertProfile,
   listWorkspacesForUser, createWorkspace, getWorkspace, addWorkspaceMember, removeWorkspaceMember,
+  isWorkspaceMember, getPersonalWorkspace, ensurePersonalWorkspace, ensurePlatformWorkspace,
+  PLATFORM_EMAIL,
   recordActivity,
 };

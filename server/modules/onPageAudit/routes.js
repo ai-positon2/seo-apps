@@ -21,6 +21,11 @@ router.post('/run', async (req, res) => {
   const jobId = `job_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   jobs.set(jobId, { status: 'running', auditId: null, progress: 'Starting…', error: null });
 
+  // The tracked run (server/config/runTracking.js marks this endpoint
+  // `deferred`) outlives the response below, so it is closed out here, where
+  // the audit actually settles — not when the jobId is handed back.
+  const run = req.run;
+
   // Fire-and-forget
   (async () => {
     try {
@@ -29,8 +34,10 @@ router.post('/run', async (req, res) => {
         if (job) job.progress = msg;
       });
       jobs.set(jobId, { status: 'complete', auditId: audit.id, progress: 'Done', error: audit.errorMessage || null });
+      run?.finish({ output: { jobId, auditId: audit.id, url, keywords: kws, warning: audit.errorMessage || null } });
     } catch (err) {
       jobs.set(jobId, { status: 'failed', auditId: null, progress: 'Failed', error: err.message });
+      run?.fail(err.message, { output: { jobId, url, keywords: kws } });
     }
   })();
 

@@ -131,6 +131,9 @@ router.post('/clients/:clientId/run', async (req, res) => {
   }
 
   runs.set(clientId, { status: 'running', error: null, startedAt: Date.now(), finishedAt: null });
+  // Tracked run (marked `deferred` in server/config/runTracking.js): the
+  // response returns now, so the run row is closed where the work settles.
+  const run = req.run;
   res.json({ status: 'running' });
 
   // Fire-and-forget — the mock provider is instant, but a future live
@@ -141,8 +144,10 @@ router.post('/clients/:clientId/run', async (req, res) => {
       const snapshot = await fetchClientDashboardData(client, previousSnapshot);
       await store.saveSnapshot(clientId, snapshot);
       runs.set(clientId, { status: 'done', error: null, startedAt: runs.get(clientId).startedAt, finishedAt: Date.now() });
+      run?.finish({ output: { clientId, clientName: client.name, competitors: client.competitors?.length ?? null } });
     } catch (err) {
       runs.set(clientId, { status: 'error', error: err.message, startedAt: runs.get(clientId)?.startedAt, finishedAt: Date.now() });
+      run?.fail(err.message, { output: { clientId, clientName: client.name } });
     }
   })();
 });
@@ -175,6 +180,7 @@ router.post('/clients/:clientId/run-pagespeed', async (req, res) => {
   const force = req.body?.force !== false;
 
   pageSpeedRuns.set(clientId, { status: 'running', error: null, startedAt: Date.now(), finishedAt: null });
+  const run = req.run; // deferred tracked run — closed when the refresh settles
   res.json({ status: 'running' });
 
   (async () => {
@@ -185,8 +191,10 @@ router.post('/clients/:clientId/run-pagespeed', async (req, res) => {
         : await refreshStalePageSpeed(client, previousSnapshot);
       await store.saveSnapshot(clientId, snapshot);
       pageSpeedRuns.set(clientId, { status: 'done', error: null, startedAt: pageSpeedRuns.get(clientId).startedAt, finishedAt: Date.now() });
+      run?.finish({ output: { clientId, clientName: client.name, force } });
     } catch (err) {
       pageSpeedRuns.set(clientId, { status: 'error', error: err.message, startedAt: pageSpeedRuns.get(clientId)?.startedAt, finishedAt: Date.now() });
+      run?.fail(err.message, { output: { clientId, clientName: client.name, force } });
     }
   })();
 });
@@ -216,6 +224,7 @@ router.post('/clients/:clientId/content-analysis/run', async (req, res) => {
   }
 
   contentAnalysisRuns.set(clientId, { status: 'running', error: null, startedAt: Date.now(), finishedAt: null });
+  const run = req.run; // deferred tracked run — closed when the analysis settles
   res.json({ status: 'running' });
 
   (async () => {
@@ -226,8 +235,10 @@ router.post('/clients/:clientId/content-analysis/run', async (req, res) => {
       const data = await runContentAnalysis(client, previous);
       await store.saveContentAnalysis(clientId, data);
       contentAnalysisRuns.set(clientId, { status: 'done', error: null, startedAt: contentAnalysisRuns.get(clientId).startedAt, finishedAt: Date.now() });
+      run?.finish({ output: { clientId, clientName: client.name, folders: data?.folderMap ? Object.keys(data.folderMap).length : null } });
     } catch (err) {
       contentAnalysisRuns.set(clientId, { status: 'error', error: err.message, startedAt: contentAnalysisRuns.get(clientId)?.startedAt, finishedAt: Date.now() });
+      run?.fail(err.message, { output: { clientId, clientName: client.name } });
     }
   })();
 });

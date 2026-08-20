@@ -108,7 +108,11 @@ router.post('/run', (req, res) => {
   const job = jobStore.get(jobId);
   if (!job) return res.status(404).json({ error: 'Job not found.' });
 
-  jobStore.update(jobId, { competitors, status: 'running' });
+  // `req.run` is the tracked run for this request (deferred — see
+  // server/config/runTracking.js). Handing it to the job lets jobStore close
+  // the run out when the pipeline reaches a terminal status, which is long
+  // after this response has been sent.
+  jobStore.update(jobId, { competitors, status: 'running', run: req.run });
 
   // Kick off async data pull without awaiting
   runFullAnalysis(jobId).catch(err => {
@@ -272,7 +276,7 @@ router.post('/run-manual', (req, res) => {
     return res.status(422).json({ error: parseErrors.join('\n') });
   }
 
-  jobStore.update(jobId, { competitors, status: 'running' });
+  jobStore.update(jobId, { competitors, status: 'running', run: req.run });
 
   runManualAnalysis(jobId, domainKwMap, domainBlMap, authorityScores).catch(err => {
     console.error('[CA] runManualAnalysis error:', err.message);

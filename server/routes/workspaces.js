@@ -1,6 +1,12 @@
 const express = require('express');
 const identityStore = require('../services/identityStore');
+const workspaceContext = require('../services/workspaceContext');
+const { COOKIE_OPTIONS, WORKSPACE_COOKIE } = require('./auth');
 const router = express.Router();
+
+// Runs are recorded against the workspace the user is currently working in.
+// A month is long enough that the choice sticks across sessions.
+const WORKSPACE_COOKIE_MAX_AGE = 30 * 24 * 60 * 60 * 1000;
 
 function requireUserId(req, res) {
   if (!req.user.userId) {
@@ -14,12 +20,33 @@ function handleError(res, e) {
   res.status(e.status || 500).json({ error: e.message });
 }
 
-// GET /api/workspaces — workspaces the current user belongs to.
+// GET /api/workspaces — workspaces the current user belongs to, plus which
+// one is active (the one their runs are being recorded against).
 router.get('/', async (req, res) => {
   const userId = requireUserId(req, res);
   if (!userId) return;
   try {
-    res.json({ workspaces: await identityStore.listWorkspacesForUser(userId) });
+    const workspaces = await identityStore.listWorkspacesForUser(userId);
+    const { workspaceId: activeId } = await workspaceContext.resolveIdentity(req);
+    res.json({
+      workspaces: workspaces.map(w => ({ ...w, active: w.id === activeId })),
+      activeWorkspaceId: activeId || null,
+    });
+  } catch (e) { handleError(res, e); }
+});
+
+// POST /api/workspaces/:id/activate — switch the workspace this user's runs
+// are recorded against. Membership is checked here and again on every use.
+router.post('/:id/activate', async (req, res) => {
+  const userId = requireUserId(req, res);
+  if (!userId) return;
+  try {
+    if (!(await identityStore.isWorkspaceMember(req.params.id, userId))) {
+      return res.status(403).json({ error: 'You are not a member of that workspace.' });
+    }
+    res.cookie(WORKSPACE_COOKIE, req.params.id, { ...COOKIE_OPTIONS, maxAge: WORKSPACE_COOKIE_MAX_AGE });
+    workspaceContext.setActiveWorkspace(userId, req.params.id, req.user.username);
+    res.json({ ok: true, activeWorkspaceId: req.params.id });
   } catch (e) { handleError(res, e); }
 });
 
@@ -63,6 +90,9 @@ router.delete('/:id/members/:userId', async (req, res) => {
   if (!userId) return;
   try {
     await identityStore.removeWorkspaceMember(req.params.id, userId, req.params.userId);
+    // The removed member may have had this workspace active — drop their
+    // cached resolution so the next request falls back to one they can use.
+    workspaceContext.invalidate(req.params.userId);
     res.json({ ok: true });
   } catch (e) { handleError(res, e); }
 });

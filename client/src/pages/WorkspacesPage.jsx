@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { SectionHeader } from '../ui/SectionHeader';
 
 async function req(path, options = {}) {
@@ -13,14 +14,28 @@ async function req(path, options = {}) {
 }
 
 export default function WorkspacesPage() {
+  const navigate = useNavigate();
   const [workspaces, setWorkspaces] = useState([]);
+  const [activeId, setActiveId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState('');
   const [selected, setSelected] = useState(null);
   const [error, setError] = useState('');
 
   function loadList() {
-    return req('/api/workspaces').then(d => setWorkspaces(d.workspaces || []));
+    return req('/api/workspaces').then(d => {
+      setWorkspaces(d.workspaces || []);
+      setActiveId(d.activeWorkspaceId || null);
+    });
+  }
+
+  // The active workspace is the one every tool run gets recorded against.
+  async function handleActivate(id) {
+    setError('');
+    try {
+      await req(`/api/workspaces/${id}/activate`, { method: 'POST' });
+      setActiveId(id);
+    } catch (e) { setError(e.message); }
   }
 
   useEffect(() => { loadList().finally(() => setLoading(false)); }, []);
@@ -65,7 +80,21 @@ export default function WorkspacesPage() {
 
   return (
     <div style={{ padding: '28px 32px 48px' }}>
-      <SectionHeader title="Workspaces" subtitle="Share access to your work with teammates." />
+      <SectionHeader
+        title="Workspaces"
+        subtitle="Share access to your work with teammates. The active workspace is where your tool runs are recorded."
+        actions={
+          <button
+            onClick={() => navigate('/runs')}
+            style={{
+              fontSize: 12, fontWeight: 600, color: 'var(--text-2)', background: 'none',
+              border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', cursor: 'pointer',
+            }}
+          >
+            View run history
+          </button>
+        }
+      />
 
       {error && (
         <div style={{
@@ -92,21 +121,54 @@ export default function WorkspacesPage() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {workspaces.map(ws => (
-              <button
+              <div
                 key={ws.id}
-                onClick={() => openWorkspace(ws.id)}
                 style={{
-                  textAlign: 'left',
                   padding: '10px 12px',
                   borderRadius: 8,
                   border: `1px solid ${selected?.id === ws.id ? 'var(--primary)' : 'var(--border)'}`,
                   background: 'var(--card)',
-                  cursor: 'pointer',
                 }}
               >
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{ws.name}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{ws.myRole}</div>
-              </button>
+                <button
+                  onClick={() => openWorkspace(ws.id)}
+                  style={{
+                    display: 'block', width: '100%', textAlign: 'left',
+                    background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+                    {ws.name}
+                    {ws.is_personal && (
+                      <span style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 500, marginLeft: 6 }}>personal</span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                    {ws.myRole}{ws.ownerEmail ? ` · owner ${ws.ownerEmail}` : ''}
+                  </div>
+                </button>
+
+                <div style={{ marginTop: 6 }}>
+                  {ws.id === activeId ? (
+                    <span style={{
+                      fontSize: 10, fontWeight: 600, color: 'var(--success)',
+                      background: 'var(--success-soft)', borderRadius: 999, padding: '2px 8px',
+                    }}>
+                      Active — runs recorded here
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => handleActivate(ws.id)}
+                      style={{
+                        fontSize: 11, color: 'var(--text-2)', background: 'none',
+                        border: '1px solid var(--border)', borderRadius: 6, padding: '2px 8px', cursor: 'pointer',
+                      }}
+                    >
+                      Use this workspace
+                    </button>
+                  )}
+                </div>
+              </div>
             ))}
             {!workspaces.length && (
               <div style={{ fontSize: 12, color: 'var(--text-3)' }}>No workspaces yet — create one above.</div>

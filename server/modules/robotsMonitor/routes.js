@@ -209,11 +209,15 @@ router.post('/run', async (req, res) => {
 
   // Generate a placeholder runId immediately so client can track
   const runId = 'run_manual_' + Date.now().toString(36);
+  const run = req.run; // tracked run, closed out when the check really finishes
   res.json({ ok: true, runId });
 
   // Run async — do not await
-  runMonitorCheck({ triggeredBy: 'manual' }).catch(err => {
+  runMonitorCheck({ triggeredBy: 'manual' }).then(result => {
+    run?.finish({ output: { runId: result?.runId || runId, summary: result?.summary || null, durationMs: result?.durationMs ?? null } });
+  }).catch(err => {
     console.error('[RobotsMonitor] Manual run failed:', err.message);
+    run?.fail(err.message);
   });
 });
 
