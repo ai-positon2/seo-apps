@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import KBStatusBadge from '../components/KBStatusBadge';
+import ModuleRuns from '../components/ModuleRuns';
 
 const CATEGORIES = ['all', 'industry', 'brand', 'client-feedback', 'best-practices'];
 const CATEGORY_LABELS = {
@@ -274,6 +275,7 @@ export default function KnowledgeBasePage() {
             )}
           </div>
         )}
+        <ModuleRuns toolId="knowledge-base" title="Recent changes" />
       </main>
     </>
   );

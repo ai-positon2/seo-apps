@@ -141,7 +141,27 @@ serp-content-researcher/
 
 Every module records what it ran into the `tool_runs` table (Supabase), scoped
 to a workspace, and the workspace belongs to a primary user — its creator/owner.
-The history is at **/runs** in the app ("Runs" in the top bar).
+The history is readable in two places:
+
+- **/runs** ("Runs" in the top bar) — every run in the active workspace, with
+  filters for tool, status, who ran it and what it ran on.
+- **Each module's own page** — a "Recent runs" panel at the bottom of the tool,
+  showing only that tool's runs, newest first and grouped by day (Today /
+  Yesterday / weekday), with an *Everyone / Just me* switch, a 30-day rollup
+  line, the failure reason inline on failed runs, and the same click-through to
+  a run's full input and output. It refreshes itself (5s while a run is in
+  flight, 15s otherwise, plus on tab focus), so a run started on the page — or
+  finished in the background — appears without a reload.
+
+  One component does this: `client/src/components/ModuleRuns.jsx`, added to a
+  page as `<ModuleRuns toolId="keyword-research" />`. Pages that are already
+  about one thing scope the panel to it with the `search` prop (the label
+  `page <id>` on a location page's detail view, `client <id>` on the competitor
+  dashboard) so the panel lists that page's or client's runs rather than the
+  whole tool's.
+  `server/config/__tests__/moduleRuns.test.js` fails if a tracked tool shows its
+  runs on no page, or a panel points at a tool id nothing records — both of
+  which look, in the product, exactly like "this tool has never been run".
 
 **What a run row holds:** tool, action (`run` / `export` / `save` / …), a label
 (the URL, keyword or client it ran on), who ran it, which workspace, status

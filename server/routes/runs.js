@@ -92,7 +92,8 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/runs/stats — per-tool rollup for the active workspace.
+// GET /api/runs/stats — per-tool rollup for the active workspace. `toolId`
+// narrows it to one tool, for the run panel on that module's own page.
 router.get('/stats', async (req, res) => {
   if (!isSupabaseConfigured()) return notConfigured(res);
   try {
@@ -101,7 +102,11 @@ router.get('/stats', async (req, res) => {
       return res.json({ tools: [], totals: null, workspace: null, trackedTools: TRACKED_TOOL_IDS });
     }
     const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 365);
-    const stats = await runStore.runStats({ workspaceId: identity.workspaceId, days });
+    const stats = await runStore.runStats({
+      workspaceId: identity.workspaceId,
+      days,
+      toolId: req.query.toolId || null,
+    });
     res.json({ ...stats, days, workspace: workspaceView(workspace, identity), trackedTools: TRACKED_TOOL_IDS });
   } catch (e) {
     res.status(500).json({ error: e.message });

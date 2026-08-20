@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import { saveAs } from 'file-saver';
 import { notifyAgentRunStarted, notifyAgentRunFinished } from '../lib/agentRunSignal';
+import ModuleRuns from '../components/ModuleRuns';
 
 const STEPS = [
   { id: 'search',   label: 'Searching Google US',  icon: '🔍' },
@@ -699,6 +700,7 @@ export default function ArticleRecommendationPage() {
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
       `}</style>
+      <ModuleRuns toolId="article-recommendation" />
     </main>
   );
 }

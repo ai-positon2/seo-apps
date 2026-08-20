@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import ModuleRuns from '../components/ModuleRuns';
 
 const SC = {
   pass: { label: 'Pass', bg: 'var(--success-soft)', color: 'var(--success)', icon: '✓' },
@@ -1071,6 +1072,7 @@ export default function AgentReadinessAuditPage() {
             )}
           </div>
         )}
+        <ModuleRuns toolId="agent-readiness-audit" />
       </main>
 
       <style>{`

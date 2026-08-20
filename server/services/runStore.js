@@ -238,14 +238,16 @@ async function getRun(runId, allowedWorkspaceIds = []) {
 
 // Per-tool rollup for the workspace over a trailing window. Aggregated in JS:
 // the row set is (tool_id, status, duration) only, and the window keeps it small.
-async function runStats({ workspaceId, days = 30 }) {
+// `toolId` narrows it to one tool, which is what a module's own run panel needs.
+async function runStats({ workspaceId, days = 30, toolId = null }) {
   if (!isSupabaseConfigured()) return { tools: [], totals: { total: 0, completed: 0, failed: 0, running: 0, cancelled: 0 } };
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   try {
-    const { data, error } = await getSupabase().from('tool_runs')
+    let q = getSupabase().from('tool_runs')
       .select('tool_id, status, duration_ms, created_at')
-      .eq('workspace_id', workspaceId).gte('created_at', since)
-      .order('created_at', { ascending: false }).limit(5000);
+      .eq('workspace_id', workspaceId).gte('created_at', since);
+    if (toolId) q = q.eq('tool_id', toolId);
+    const { data, error } = await q.order('created_at', { ascending: false }).limit(5000);
     if (error) { log('runStats', error); return { tools: [], totals: { total: 0, completed: 0, failed: 0, running: 0, cancelled: 0 } }; }
 
     const totals = { total: 0, completed: 0, failed: 0, running: 0, cancelled: 0 };

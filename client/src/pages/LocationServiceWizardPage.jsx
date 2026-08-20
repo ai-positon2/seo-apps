@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { lpb } from '../lib/lpbApi';
 import { ProgressSteps } from '../ui/ProgressSteps';
+import ModuleRuns from '../components/ModuleRuns';
 
 // Matches server/locationPageBuilder/seed.js GD_CLIENT_ID — this wizard is
 // scoped to a single client (Gentle Dental), so it's fixed, not selected.
@@ -822,6 +823,13 @@ export default function LocationServiceWizardPage() {
           </SectionCard>
         </div>
       )}
+
+      <ModuleRuns
+        toolId="location-page-builder"
+        action="wizard"
+        title="Recent wizard runs"
+        scopeNote="Pages generated through this wizard"
+      />
     </main>
   );
 }

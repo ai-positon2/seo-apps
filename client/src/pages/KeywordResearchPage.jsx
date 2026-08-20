@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { refreshSemrushBalance } from '../lib/semrushBalanceStore';
 import { notifyAgentRunStarted, notifyAgentRunFinished } from '../lib/agentRunSignal';
+import ModuleRuns from '../components/ModuleRuns';
 
 const STEP_CONFIG = [
   { id: 'variants',    label: 'Query Variants',   desc: 'Expanding across intent variants' },
@@ -1023,6 +1024,7 @@ export default function KeywordResearchPage() {
           50%       { opacity: 0.5; }
         }
       `}</style>
+      <ModuleRuns toolId="keyword-research" />
     </main>
   );
 }

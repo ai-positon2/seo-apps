@@ -6,6 +6,7 @@ import ManualUpload from '../components/competitorAnalysis/ManualUpload';
 import ProgressTracker from '../components/competitorAnalysis/ProgressTracker';
 import ReportPreview from '../components/competitorAnalysis/ReportPreview';
 import { refreshSemrushBalance } from '../lib/semrushBalanceStore';
+import ModuleRuns from '../components/ModuleRuns';
 
 const API_STEPS  = [{ id: 1, label: 'Input' }, { id: 2, label: 'Discovery' }, { id: 3, label: 'Confirm' }, { id: 4, label: 'Analysis' }, { id: 5, label: 'Report' }];
 const MANUAL_STEPS = [{ id: 1, label: 'Input' }, { id: 3, label: 'Upload' }, { id: 4, label: 'Analysis' }, { id: 5, label: 'Report' }];
@@ -370,6 +371,8 @@ export default function CompetitorAnalysisPage() {
                 : 'Semrush API · approximately 150,000–200,000 units per report'}
             </p>
           )}
+
+          <ModuleRuns toolId="competitor-analysis-report" />
         </main>
       </div>
     </>

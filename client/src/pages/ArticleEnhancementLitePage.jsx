@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LLM_MODEL_OPTIONS, DEFAULT_LLM_MODEL } from '../llmModels';
+import ModuleRuns from '../components/ModuleRuns';
 
 // Verified-only, no-SERP variant of the article enhancer. Pipeline steps mirror
 // the backend (server/routes/articleEnhancementLite.js).
@@ -724,6 +725,7 @@ export default function ArticleEnhancementLitePage() {
             )}
           </div>
         </div>
+        <ModuleRuns toolId="article-enhancement-lite" />
       </main>
     </>
   );

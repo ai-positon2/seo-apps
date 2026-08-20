@@ -5,6 +5,7 @@ import SerpUrls from '../components/SerpUrls';
 import ResultsTable from '../components/ResultsTable';
 import ExportButtons from '../components/ExportButtons';
 import KBContextSelector from '../components/KBContextSelector';
+import ModuleRuns from '../components/ModuleRuns';
 
 const CONFIDENCE_STYLES = {
   HIGH:   { bg: 'var(--success-soft)', text: 'var(--success)', label: 'KB: HIGH' },
@@ -165,6 +166,7 @@ export default function ContentResearchPage() {
           <ResultsTable keyword={keyword} analysis={analysis} />
         </div>
       )}
+      <ModuleRuns toolId="content-research" />
     </main>
   );
 }

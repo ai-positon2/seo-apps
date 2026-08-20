@@ -11,6 +11,7 @@ import DecisionBoard, { topMarket } from '../components/marketPotential/Decision
 import ScenarioDiff from '../components/marketPotential/ScenarioDiff';
 import { scoreRows, WEIGHT_PRESETS } from '../components/marketPotential/scoring';
 import { loadAssumptions, saveAssumptions } from '../components/marketPotential/assumptions';
+import ModuleRuns from '../components/ModuleRuns';
 
 /* ── Step machine: setup → signals → regions → results ── */
 const STEPS = [
@@ -778,6 +779,8 @@ export default function MarketPotentialPage() {
           onBack={() => setStep('regions')}
         />
       )}
+
+      <ModuleRuns toolId="market-potential" />
 
       <ScenarioDiff open={!!diff} onClose={() => setDiff(null)} left={diff?.left} right={diff?.right} />
     </div>

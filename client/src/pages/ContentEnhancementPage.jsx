@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import ModuleRuns from '../components/ModuleRuns';
 
 const CATEGORY_COLORS = {
   'Content Structure': '#2563EB',
@@ -950,6 +951,7 @@ export default function ContentEnhancementPage() {
           )}
         </section>
       )}
+      <ModuleRuns toolId="content-enhancement" />
     </main>
   );
 }

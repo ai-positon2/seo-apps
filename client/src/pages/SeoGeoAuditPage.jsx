@@ -5,6 +5,7 @@ import { useSeoGeoAudit } from '../hooks/useSeoGeoAudit';
 import { scoreColor } from '../components/seoGeo/primitives';
 import AuditInputPanel from '../components/seoGeo/AuditInputPanel';
 import ScoreDashboard, { AuditMetaBar } from '../components/seoGeo/ScoreDashboard';
+import ModuleRuns from '../components/ModuleRuns';
 
 const SEV_COLOR = {
   error:   { bg: 'var(--danger-soft)',  text: 'var(--danger)',  border: 'var(--danger)',  label: 'Error' },
@@ -842,6 +843,7 @@ export default function SeoGeoAuditPage() {
 
         </div>
       )}
+      <ModuleRuns toolId="seo-geo-audit" />
     </main>
   );
 }

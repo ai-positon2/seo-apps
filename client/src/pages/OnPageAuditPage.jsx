@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { startAudit, pollStatus, getResult, listAudits, deleteAudit } from '../lib/onPageAuditApi';
+import ModuleRuns from '../components/ModuleRuns';
 
 const POLL_MS = 3500;
 
@@ -700,6 +701,7 @@ export default function OnPageAuditPage() {
               <InputForm onSubmit={handleSubmit} loading={loading} />
             </div>
             <HistoryList audits={history} onSelect={handleSelectHistory} onDelete={handleDeleteHistory} />
+            <ModuleRuns toolId="on-page-audit" />
           </div>
         </main>
       )}

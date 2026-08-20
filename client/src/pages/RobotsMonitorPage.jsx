@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { rm } from '../lib/robotsMonitorApi';
+import ModuleRuns from '../components/ModuleRuns';
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 
@@ -1186,6 +1187,7 @@ export default function RobotsMonitorPage() {
         {tab === 'clients' && <ClientsTab showToast={showToast} />}
         {tab === 'history' && <HistoryTab showToast={showToast} />}
         {tab === 'settings' && <SettingsTab showToast={showToast} />}
+        <ModuleRuns toolId="robots-monitor" />
       </main>
 
       {toast && (

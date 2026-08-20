@@ -16,6 +16,7 @@ import PageSpeedTab from '../components/competitorAnalysisDashboard/PageSpeedTab
 import BacklinkTab from '../components/competitorAnalysisDashboard/BacklinkTab';
 import ContentAnalysisTab from '../components/competitorAnalysisDashboard/ContentAnalysisTab';
 import DiscoverCompetitorsModal from '../components/competitorAnalysisDashboard/DiscoverCompetitorsModal';
+import ModuleRuns from '../components/ModuleRuns';
 
 const EMPTY_CLIENT_FORM = { name: '', domain: '', country: 'United States', brandName: '' };
 
@@ -572,6 +573,14 @@ export default function CompetitorAnalysisDashboardPage() {
           </div>
         </>
       )}
+
+      {/* Run history: scoped to the selected client when there is one, so the
+          panel answers "what have we run for this client, and when?" */}
+      <ModuleRuns
+        toolId="competitor-analysis"
+        search={selectedClientId ? `client ${selectedClientId}` : ''}
+        scopeNote={client ? `Runs for ${client.name}` : ''}
+      />
 
       <Drawer
         open={drawerOpen}

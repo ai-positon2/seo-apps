@@ -1,6 +1,7 @@
 import { useSeoGeoAudit } from '../hooks/useSeoGeoAudit';
 import AuditInputPanel from '../components/seoGeo/AuditInputPanel';
 import ScoreDashboard, { AuditMetaBar } from '../components/seoGeo/ScoreDashboard';
+import ModuleRuns from '../components/ModuleRuns';
 
 // The server emits step {id:'ai', status:'error'} and then still emits `result`
 // with ai: null — so `findings` can arrive without `ai` and most of the cards
@@ -52,6 +53,7 @@ export default function SeoGeoSnapshotPage() {
           <ScoreDashboard findings={ctl.findings} ai={ctl.ai} />
         </div>
       )}
+      <ModuleRuns toolId="seo-geo-audit" title="Recent audits" />
     </main>
   );
 }

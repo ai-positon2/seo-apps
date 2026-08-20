@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { lpb } from '../lib/lpbApi';
+import ModuleRuns from '../components/ModuleRuns';
 
 // This page's Pages dashboard + LocationPageDetailPage are built around
 // Neuro's page_object shape and approval workflow — NOT generic across
@@ -307,6 +308,7 @@ export default function LocationPageBuilderPage() {
             </tbody>
           </table>
         </div>
+        <ModuleRuns toolId="location-page-builder" />
       </main>
       {wizard && (
         <NewPageWizard

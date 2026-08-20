@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import ModuleRuns from '../components/ModuleRuns';
 
 const STEPS = [
   { id: 'scrape', label: 'Scraping Pages',      icon: '🔍' },
@@ -627,6 +628,7 @@ export default function ImageAltAuditPage() {
           </div>
         )}
 
+        <ModuleRuns toolId="image-alt-audit" />
       </main>
     </>
   );

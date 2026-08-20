@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { LLM_MODEL_OPTIONS, DEFAULT_LLM_MODEL } from '../llmModels';
 import { EMBED_MODE } from '../components/MacWindow';
 import { notifyAgentRunStarted, notifyAgentRunFinished } from '../lib/agentRunSignal';
+import ModuleRuns from '../components/ModuleRuns';
 
 const MODELS = [
   'gpt-4o-mini',
@@ -933,6 +934,7 @@ export default function ArticleEnhancementPage() {
             )}
           </div>
         </div>
+        <ModuleRuns toolId="article-enhancement" />
       </main>
     </>
   );

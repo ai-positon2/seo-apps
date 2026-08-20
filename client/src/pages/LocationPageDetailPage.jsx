@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { lpb, openStream } from '../lib/lpbApi';
+import ModuleRuns from '../components/ModuleRuns';
 
 const TABS = ['Keywords', 'Content', 'Schema', 'Approval', 'Export'];
 
@@ -969,6 +970,14 @@ export default function LocationPageDetailPage() {
       {tab === 'Schema' && <SchemaTab page={page} />}
       {tab === 'Approval' && <ApprovalTab page={page} reload={reload} />}
       {tab === 'Export' && <ExportTab page={page} />}
+
+      {/* Scoped to this page: the run label the server records is `page <id>`. */}
+      <ModuleRuns
+        toolId="location-page-builder"
+        title="Runs for this page"
+        search={`page ${id}`}
+        scopeNote="Keyword pipeline, content generation, QA and field regenerations for this page"
+      />
     </main>
   );
 }
