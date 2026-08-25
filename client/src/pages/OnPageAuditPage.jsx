@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { startAudit, pollStatus, getResult, listAudits, deleteAudit } from '../lib/onPageAuditApi';
 import ModuleRuns from '../components/ModuleRuns';
+import ProjectReportBar from '../components/project/ProjectReportBar';
+import ReportResolving from '../components/project/ReportResolving';
 
 const POLL_MS = 3500;
 
@@ -613,6 +615,11 @@ function InputForm({ onSubmit, loading }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function OnPageAuditPage() {
+  // Which screen to draw: 'loading' until ProjectReportBar has worked out
+  // whether this client has a stored report, then 'report' or 'none'. Starting
+  // at 'loading' is the point — the input form used to render on mount and be
+  // replaced a moment later.
+  const [reportState, setReportState] = useState('loading');
   const [view, setView] = useState('input'); // input | progress | report
   const [jobId, setJobId] = useState(null);
   const [progress, setProgress] = useState('');
@@ -684,8 +691,24 @@ export default function OnPageAuditPage() {
 
   return (
     <>
-      {view === 'input' && (
-        <main style={{ flex: 1, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 48, padding: '48px 16px 0' }}>
+      {/* Above the view switch, because it stays mounted while you use it: it
+          opens a page's report (same path as the tool's own history — set the
+          audit, switch view), and switching page has to swap the report rather
+          than unmount the switcher. */}
+      <div style={{ width: '100%', maxWidth: 1120, margin: '0 auto', padding: '20px 16px 0', boxSizing: 'border-box' }}>
+        <ProjectReportBar
+          moduleKey="on_page"
+          onOpenReport={(native) => { setAudit(native); setView('report'); }}
+          onResolved={setReportState}
+        />
+      </div>
+
+      {/* Resolved before drawn: the input form no longer flashes on a client
+          that already has a stored report. */}
+      {reportState === 'loading' && view === 'input' && <ReportResolving maxWidth={576} />}
+
+      {view === 'input' && reportState !== 'loading' && (
+        <main style={{ flex: 1, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '8px 16px 0' }}>
           <div style={{ width: '100%', maxWidth: 576 }}>
             <div style={{
               background: 'var(--card)', borderRadius: 'var(--r-lg)',

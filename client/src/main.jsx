@@ -6,25 +6,13 @@ import './index.css'
 import App from './App.jsx'
 
 
-// Embedded in the Position2 Intelligence Platform iframe
+// Embedded in the Position2 Intelligence Platform iframe.
+//
+// This only marks the document so the CSS can drop outer chrome. The shared-token
+// auto-login that used to run here is gone: a framed visitor now signs in with
+// Google like anyone else, and sees the login card until they do.
 if (window.self !== window.top) {
   document.documentElement.classList.add('embedded');
-
-  // Auto-login with platform token so users never see the login page
-  const params = new URLSearchParams(window.location.search);
-  const pt = params.get('pt');
-  if (pt) {
-    fetch('/api/auth/verify')
-      .then(r => r.json())
-      .then(d => {
-        if (!d.valid) {
-          fetch('/api/auth/platform-login?token=' + encodeURIComponent(pt))
-            .then(r => r.json())
-            .then(result => { if (result.ok) window.location.reload(); });
-        }
-      })
-      .catch(() => {});
-  }
 }
 
 createRoot(document.getElementById('root')).render(

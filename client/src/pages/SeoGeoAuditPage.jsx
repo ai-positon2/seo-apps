@@ -6,6 +6,8 @@ import { scoreColor } from '../components/seoGeo/primitives';
 import AuditInputPanel from '../components/seoGeo/AuditInputPanel';
 import ScoreDashboard, { AuditMetaBar } from '../components/seoGeo/ScoreDashboard';
 import ModuleRuns from '../components/ModuleRuns';
+import ProjectReportBar from '../components/project/ProjectReportBar';
+import ReportResolving from '../components/project/ReportResolving';
 
 const SEV_COLOR = {
   error:   { bg: 'var(--danger-soft)',  text: 'var(--danger)',  border: 'var(--danger)',  label: 'Error' },
@@ -551,6 +553,11 @@ function downloadReport(findings, ai) {
 // ── Main page component ───────────────────────────────────────────────────────
 export default function SeoGeoAuditPage() {
   // View-only state — not shared with the Snapshot page, which has no panels.
+  // Which screen to draw: 'loading' until ProjectReportBar has worked out
+  // whether this client has a stored report, then 'report' or 'none'. Starting
+  // at 'loading' is the point — the input form used to render on mount and be
+  // replaced a moment later.
+  const [reportState, setReportState] = useState('loading');
   const [activePanel, setActivePanel] = useState('dashboard');
   const [expandedCats, setExpandedCats] = useState({});
   const [issueTab, setIssueTab] = useState('severity');
@@ -585,10 +592,24 @@ export default function SeoGeoAuditPage() {
 
   return (
     <main style={{ maxWidth: 1280, margin: '0 auto', padding: '24px' }}>
+      {/* The stored project run, loaded into this page's own report. Same
+          components and same data shape as a live run, so it IS that report —
+          `reset` on it goes back to auditing an ad-hoc URL. */}
+      <ProjectReportBar
+        moduleKey="seo_geo"
+        onOpenReport={(native) => ctl.hydrate(native)}
+        onResolved={setReportState}
+      />
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
 
+      {/* Which screen: resolved first, drawn second.
+          While the stored run is still being looked up this shows a skeleton
+          rather than the input form — the form used to appear for a moment on
+          every client that already had a report. */}
+      {reportState === 'loading' && !findings && <ReportResolving maxWidth={672} />}
+
       {/* Input panel */}
-      {!findings && (
+      {reportState !== 'loading' && !findings && (
         <div style={{ maxWidth: 672, margin: '0 auto' }}>
           <AuditInputPanel
             ctl={ctl}

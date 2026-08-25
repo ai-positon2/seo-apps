@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
-const OpenAI = require('openai');
+const { createLlmClient } = require('../services/llmProviders');
 const puppeteer = require('puppeteer-core');
 const chromium = require('@sparticuz/chromium');
 const fs = require('fs');
@@ -249,6 +249,14 @@ const CHECK_META = {
 };
 
 // ── CMO brief ─────────────────────────────────────────────────────────────────
+// Claude Sonnet via the shared factory. Memoised because the streaming route
+// and the plain route both write briefs.
+let _briefClient = null;
+function briefClient() {
+  if (!_briefClient) _briefClient = createLlmClient('claude-sonnet-5');
+  return _briefClient;
+}
+
 async function generateCmoBrief(siteUrl, score, level, checks, openai, cats) {
   const passed = Object.entries(checks).filter(([, c]) => c.status === 'pass').map(([id]) => id);
   const failed = Object.entries(checks).filter(([, c]) => c.status === 'fail').map(([id]) => id);
@@ -281,8 +289,11 @@ Generate an executive summary. Be specific to this site's industry based on its 
 }`;
 
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    max_tokens: 600,
+    model: 'claude-sonnet-5',
+    // 600 tokens of prose is plenty, but a reasoning model would spend the whole
+    // budget thinking and return nothing — see the note in routes/seoGeoAudit.js.
+    thinking: { type: 'disabled' },
+    max_tokens: 1500,
     messages: [{ role: 'user', content: prompt }],
     response_format: { type: 'json_object' },
   });
@@ -536,15 +547,33 @@ router.get('/discover-links', async (req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+/**
+ * The agent-readiness audit, callable without an HTTP request.
+ *
+ * Extracted from the route handler rather than reimplemented, so a project-scoped
+ * run and an ad-hoc run share one code path and cannot drift into producing
+ * different scores for the same site (PRD §32: prefer service extraction over
+ * parallel replacement). The route below is now a thin wrapper over this.
+ *
+ * @param {object}  input
+ * @param {string}  input.url_homepage  (or legacy `url`)
+ * @param {string} [input.url_action]
+ * @param {string} [input.url_form]
+ * @param {boolean}[input.skipBrief]    skip the LLM-written CMO brief. A
+ *                                      project run that only needs the score and
+ *                                      the checks should not spend a model call
+ *                                      on prose nobody asked for.
+ * @returns {Promise<object>} { site, cats, checks, onPageChecks, cmoBrief }
+ * @throws  an Error with a `status` for bad input
+ */
+async function runAgentReadiness({ url, url_homepage, url_action, url_form, skipBrief = false } = {}) {
   // Accept { url_homepage, url_action, url_form } or legacy { url }
-  const { url, url_homepage, url_action, url_form } = req.body;
   const homepageRaw = url_homepage || url;
-  if (!homepageRaw) return res.status(400).json({ error: 'url_homepage is required' });
+  if (!homepageRaw) throw Object.assign(new Error('url_homepage is required'), { status: 400 });
 
   let parsedUrl;
   try { parsedUrl = new URL(homepageRaw.startsWith('http') ? homepageRaw : `https://${homepageRaw}`); }
-  catch { return res.status(400).json({ error: 'Invalid URL' }); }
+  catch { throw Object.assign(new Error('Invalid URL'), { status: 400 }); }
 
   const parseOptional = (u) => {
     if (!u || !u.trim()) return null;
@@ -610,16 +639,22 @@ router.post('/', async (req, res) => {
 
     const allCats = [...httpCats, ...onPageCats];
 
-    // CMO brief (HTTP checks only for the prompt)
+    // CMO brief (HTTP checks only for the prompt). A failure here is logged and
+    // left null — the score and the checks are the measurement, the brief is
+    // commentary on it, and losing the commentary must not lose the audit.
     let cmoBrief = null;
-    try {
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-      cmoBrief = await generateCmoBrief(parsedUrl.href, totalScore, levelFromScore(totalScore), rawHttpChecks, openai, allCats);
-    } catch (e) {
-      console.warn('[agent-readiness] CMO brief failed:', e.message);
+    if (!skipBrief) {
+      try {
+        cmoBrief = await generateCmoBrief(
+          parsedUrl.href, totalScore, levelFromScore(totalScore), rawHttpChecks,
+          briefClient(), allCats,
+        );
+      } catch (e) {
+        console.warn('[agent-readiness] CMO brief failed:', e.message);
+      }
     }
 
-    res.json({
+    return {
       site: {
         url: parsedUrl.hostname,
         full: parsedUrl.href,
@@ -634,10 +669,19 @@ router.post('/', async (req, res) => {
       checks: httpChecks,
       onPageChecks: rawOnPageChecks,
       cmoBrief,
-    });
+    };
   } catch (err) {
     console.error('[agent-readiness] Error:', err.message);
-    res.status(500).json({ error: err.message });
+    throw err;
+  }
+}
+
+// POST /api/agent-readiness-audit — the HTTP face of runAgentReadiness.
+router.post('/', async (req, res) => {
+  try {
+    res.json(await runAgentReadiness(req.body || {}));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
@@ -749,8 +793,10 @@ router.post('/stream', async (req, res) => {
     // CMO brief
     let cmoBrief = null;
     try {
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-      cmoBrief = await generateCmoBrief(parsedUrl.href, totalScore, levelFromScore(totalScore), rawHttpChecks, openai, allCats);
+      cmoBrief = await generateCmoBrief(
+        parsedUrl.href, totalScore, levelFromScore(totalScore), rawHttpChecks,
+        briefClient(), allCats,
+      );
     } catch (e) {
       console.warn('[agent-readiness/stream] CMO brief failed:', e.message);
     }
@@ -824,3 +870,8 @@ router.post('/pdf', async (req, res) => {
 });
 
 module.exports = router;
+// Named export for the project-scoped runner (modules/projects/moduleRunners.js).
+// Attached to the router the way crawlScope/api/routes.js exports its manager,
+// so server.js's `app.use(...)` keeps working unchanged.
+module.exports.runAgentReadiness = runAgentReadiness;
+module.exports.levelFromScore = levelFromScore;

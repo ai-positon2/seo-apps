@@ -8,23 +8,34 @@ function getBandColor(score) {
 
 /**
  * ScoreRing — SVG donut with animated fill
- * @param {number} score — 0-100
+ *
+ * A score of null/undefined draws the empty track with an em dash rather than a
+ * zero. Some modules have no 0-100 rubric at all — CrawlScope reports severity
+ * counts, on-page reports pass/fail checks — and a ring pinned at 0 reads as a
+ * catastrophic result rather than as "not scored". Callers that pass a number
+ * are unaffected.
+ *
+ * @param {number|null} score — 0-100, or null when the module does not score
  * @param {64|80|120} size
  * @param {string} label — optional small label below number
  */
-export function ScoreRing({ score = 0, size = 80, label }) {
+export function ScoreRing({ score, size = 80, label }) {
+  const scored = Number.isFinite(Number(score));
+  const value = scored ? Number(score) : 0;
+
   const [animated, setAnimated] = useState(0);
   const ref = useRef(null);
 
   const strokeWidth = size <= 64 ? 6 : 8;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  const color = getBandColor(score);
+  const color = scored ? getBandColor(value) : 'var(--text-3)';
 
   useEffect(() => {
-    const timeout = setTimeout(() => setAnimated(score), 50);
+    // Nothing to animate when there is no score: the track stays empty.
+    const timeout = setTimeout(() => setAnimated(scored ? value : 0), 50);
     return () => clearTimeout(timeout);
-  }, [score]);
+  }, [scored, value]);
 
   const offset = circumference - (animated / 100) * circumference;
 
@@ -77,7 +88,7 @@ export function ScoreRing({ score = 0, size = 80, label }) {
             fill: color,
           }}
         >
-          {Math.round(score)}
+          {scored ? Math.round(value) : '—'}
         </text>
       </svg>
       {label && (

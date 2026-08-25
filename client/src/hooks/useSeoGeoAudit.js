@@ -7,11 +7,13 @@ import { useState } from 'react';
 //
 //   const ctl = useSeoGeoAudit();
 //
-// `restoring` is always false and `persistKey`/`onRestored` are accepted but
-// unused — this hook does not persist a run across a page refresh. A prior
-// version depended on a `usePersistedRun`/`/api/runs` layer that is a
-// separate, not-yet-shipped piece of work; re-add persistence here once that
-// lands, rather than carrying an unreviewed dependency in the meantime.
+// `restoring` is always false and `persistKey` is accepted but unused: this hook
+// still does not persist a run across a page refresh of its own accord.
+//
+// It CAN now be handed a stored run, which is the piece the older comment here
+// was waiting on. `hydrate({ findings, ai })` fills the same state a live run
+// fills, so the report renders identically — the project panel uses it to show
+// what the last project audit found. `onRestored` fires when it does.
 export function useSeoGeoAudit(persistKey, { onRestored, onResult } = {}) {
   const [inputType, setInputType] = useState('url');
   const [urlInput, setUrlInput] = useState('');
@@ -25,6 +27,29 @@ export function useSeoGeoAudit(persistKey, { onRestored, onResult } = {}) {
   const [ai, setAi] = useState(null);
   const [error, setError] = useState('');
   const restoring = false;
+
+  /**
+   * Fills this hook with an already-completed run.
+   *
+   * The report is rendered from `findings` and `ai` alone, so setting those two
+   * is enough to reproduce it exactly — no separate read-only rendering path,
+   * and no chance of the restored view drifting from the live one.
+   *
+   * A run with no `findings` is ignored rather than clearing a report the user
+   * may be looking at.
+   */
+  function hydrate(run) {
+    if (!run?.findings) return false;
+    setRunning(false);
+    setSteps({});
+    setError('');
+    setFindings(run.findings);
+    setAi(run.ai || null);
+    // So the page can put its panel back to the dashboard view, the same way it
+    // does after a live run.
+    onRestored?.(run);
+    return true;
+  }
 
   function reset() {
     setRunning(false); setSteps({}); setFindings(null); setAi(null); setError('');
@@ -110,6 +135,6 @@ export function useSeoGeoAudit(persistKey, { onRestored, onResult } = {}) {
     keyword2, setKeyword2,
     pageIntent, setPageIntent,
     running, steps, findings, ai, error, restoring,
-    runAudit, reset,
+    runAudit, reset, hydrate,
   };
 }

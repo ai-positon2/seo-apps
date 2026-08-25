@@ -1,6 +1,9 @@
 const express = require('express');
 const identityStore = require('../services/identityStore');
 const workspaceContext = require('../services/workspaceContext');
+const projectAccess = require('../services/projectAccess');
+const projectStore = require('../modules/projects/store');
+const workspaceLifecycle = require('../services/workspaceLifecycle');
 const { COOKIE_OPTIONS, WORKSPACE_COOKIE } = require('./auth');
 const router = express.Router();
 
@@ -28,8 +31,16 @@ router.get('/', async (req, res) => {
   try {
     const workspaces = await identityStore.listWorkspacesForUser(userId);
     const { workspaceId: activeId } = await workspaceContext.resolveIdentity(req);
+    // How many projects each one holds. Without this the list is a set of names
+    // with no way to tell a workspace holding a client's whole audit history
+    // from an empty one somebody made and never used.
+    const summaries = await projectStore.summariesForWorkspaces(workspaces.map(w => w.id));
     res.json({
-      workspaces: workspaces.map(w => ({ ...w, active: w.id === activeId })),
+      workspaces: workspaces.map(w => ({
+        ...w,
+        active: w.id === activeId,
+        projectCount: (summaries.get(w.id) || []).length,
+      })),
       activeWorkspaceId: activeId || null,
     });
   } catch (e) { handleError(res, e); }
@@ -68,7 +79,10 @@ router.get('/:id', async (req, res) => {
   try {
     const workspace = await identityStore.getWorkspace(req.params.id, userId);
     if (!workspace) return res.status(404).json({ error: 'Workspace not found.' });
-    res.json({ workspace });
+    // Membership was just checked above, so the projects inside it are readable
+    // by this caller by definition — the workspace IS the authorization boundary.
+    const summaries = await projectStore.summariesForWorkspaces([workspace.id]);
+    res.json({ workspace: { ...workspace, projects: summaries.get(workspace.id) || [] } });
   } catch (e) { handleError(res, e); }
 });
 
@@ -95,6 +109,45 @@ router.delete('/:id/members/:userId', async (req, res) => {
     workspaceContext.invalidate(req.params.userId);
     res.json({ ok: true });
   } catch (e) { handleError(res, e); }
+});
+
+// ── Lifecycle (PRD §3.3.4, phase 2) ─────────────────────────────────────────
+//
+// Deletion is a request with a grace period, not an immediate destruction. The
+// capability check is the shared one: 'requestWorkspaceDeletion' is granted to
+// admin and owner and explicitly NOT to a platform administrator, who can see
+// every workspace — being able to destroy any of them is a different power.
+
+// POST /api/workspaces/:id/request-deletion  { reason }
+router.post('/:id/request-deletion', async (req, res) => {
+  try {
+    const access = await projectAccess.requireWorkspace(req, req.params.id, 'requestWorkspaceDeletion');
+    const result = await workspaceLifecycle.requestDeletion({ access, reason: req.body?.reason });
+    res.json({
+      workspace: result.workspace,
+      purgeAfter: result.purgeAfter,
+      graceDays: result.graceDays,
+      message:
+        `This workspace and everything in it will be permanently deleted after `
+        + `${result.graceDays} days. It stays fully usable and restorable until then.`,
+    });
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message, code: e.code });
+    console.error('[workspaces.requestDeletion]', e.message);
+    res.status(500).json({ error: 'Could not request deletion.' });
+  }
+});
+
+// POST /api/workspaces/:id/restore — cancels a pending deletion.
+router.post('/:id/restore', async (req, res) => {
+  try {
+    const access = await projectAccess.requireWorkspace(req, req.params.id, 'restorePendingDeletion');
+    res.json(await workspaceLifecycle.restore({ access }));
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message, code: e.code });
+    console.error('[workspaces.restore]', e.message);
+    res.status(500).json({ error: 'Could not restore the workspace.' });
+  }
 });
 
 module.exports = router;

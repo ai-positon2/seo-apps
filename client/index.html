@@ -3,12 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark" />
-    <style>html, body { background: #0A1628; }</style>
+    <!-- Dark is the default paint. ThemeContext restores a saved light choice on
+         mount and rewrites both attributes, so the only flash possible is
+         dark → light for someone who chose light, never a white flash for
+         everyone else. -->
+    <meta name="color-scheme" content="dark light" />
+    <style>html, body { background: #14171A; }</style>
     <title>SEO Studio</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <!-- Poppins carries the whole interface; JetBrains Mono is kept for tabular
+         figures in dense tables, where column alignment matters more than
+         family consistency. -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   </head>
   <body>
     <div id="root"></div>

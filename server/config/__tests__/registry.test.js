@@ -37,6 +37,8 @@ const ROUTE_FILES = {
   'image-alt-audit': 'routes/imageAltAudit.js',
   'content-enhancement': 'routes/contentEnhancement.js',
   'location-page-builder': 'routes/locationPageBuilder.js',
+  'content-architect': 'modules/contentArchitect/routes.js',
+  'crawl-scope': 'modules/crawlScope/api/routes.js',
   'knowledge-base': 'routes/kb.js',
   'robots-monitor': 'modules/robotsMonitor/routes.js',
 };
@@ -48,7 +50,12 @@ const SERVER_DIR = path.join(__dirname, '../..');
 function declaredRoutes(file) {
   const source = fs.readFileSync(path.join(SERVER_DIR, file), 'utf8');
   const routes = [];
-  const re = /router\.(get|post|put|patch|delete)\(\s*'([^']+)'/g;
+  // Both quote styles: this app writes route paths in single quotes, but the
+  // ported CrawlScope module keeps its original double-quoted style. A
+  // single-quote-only pattern found none of its routes, which failed loudly
+  // (every matcher looked orphaned) rather than silently — but it failed for
+  // the wrong reason.
+  const re = /router\.(get|post|put|patch|delete)\(\s*['"]([^'"]+)['"]/g;
   let m;
   while ((m = re.exec(source)) !== null) {
     routes.push({

@@ -2,69 +2,133 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Ledger × Signal Design Tokens ── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   Design tokens — SEO Studio
+   ───────────────────────────────────────────────────────────────────────────
+   Retuned from the Ledger × Signal (indigo/navy) palette to the Intelligence
+   Toolkit theme: warm paper neutrals, a single deep-teal accent, and a
+   three-value data palette (accent / amber / coral). Both themes are first
+   class — dark is the default (index.html stamps data-theme="dark"), light is a
+   real, designed alternative rather than an inversion.
+
+   Every token name from the previous system is kept and re-pointed, so the ~120
+   files that reference var(--primary), var(--text-2) and friends pick the new
+   theme up without being touched. That is the whole reason this file is the
+   single place the theme lives.
+
+   Two ramps are new, and they are the ones new UI should reach for:
+
+     --accent-100 … --accent-900     the teal, nine steps
+     --neutral-100 … --neutral-900   the warm greys, nine steps
+
+   Both are INVERTED between themes on purpose: step 100 is the lightest value
+   in dark and the darkest in light. So a pairing like
+   `background: var(--accent-800); color: var(--accent-100)` stays a legible
+   low-contrast chip in either theme, with no per-theme override at the call
+   site. Read the steps as "furthest from the page" → "closest to the page",
+   not as absolute lightness.
+
+   Data values (--viz-warn, --viz-neg, --viz-neg-deep) exist because a chart
+   needs to say "worse" without saying "error": they are tuned for fills and
+   strokes on both grounds, and are not interface colors.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Light theme (the :root default; dark overrides below) ── */
 :root {
-  /* Surfaces */
-  --bg:           #FFFFFF;
-  --surface:      #F6F9FC;
-  --surface-2:    #FBFCFE;
+  /* Surfaces — warm paper, not white-on-grey */
+  --bg:           #F5F3EE;
+  --surface:      #EDEAE2;
+  --surface-2:    #F5F3EE;
   --card:         #FFFFFF;
 
-  /* Navigation (premium navy) */
-  --nav-bg-top:   #0A2540;
-  --nav-bg-bot:   #0E2F52;
-  --nav-text:     #C7D2E0;
-  --nav-text-active: #FFFFFF;
-  --nav-active-bg: rgba(99,91,255,0.18);
-  --nav-active-bar: #635BFF;
+  /* Navigation. The sidebar is part of the page in this theme rather than a
+     contrasting slab, so it takes surface tones, not a separate brand color. */
+  --nav-bg-top:   #EDEAE2;
+  --nav-bg-bot:   #F5F3EE;
+  --nav-text:     #4A4A50;
+  --nav-text-active: #1C1E24;
+  --nav-active-bg: #DCE7E2;
+  --nav-active-bar: #2F5D50;
 
   /* Lines */
-  --border:       #E6EBF3;
-  --border-strong:#D4DEEA;
+  --border:       #E0DCD3;
+  --border-strong:#C9C4B9;
 
   /* Text */
-  --text:         #0A2540;
-  --text-2:       #425466;
-  --text-3:       #8792A2;
+  --text:         #1C1E24;
+  --text-2:       #4A4A50;
+  --text-3:       #6E6E73;
   --text-on-primary: #FFFFFF;
 
-  /* Brand */
-  --primary:        #635BFF;
-  --primary-hover:  #5249E0;
-  --primary-press:  #4A41C9;
-  --primary-soft:   #EEF0FF;
-  --primary-text:   #4A41C9;
-  --accent:         #00B3A4;
-  --focus-ring:     rgba(99,91,255,0.40);
+  /* Brand — one deep teal, used for every affirmative state */
+  --primary:        #2F5D50;
+  --primary-hover:  #3E7365;
+  --primary-press:  #24504A;
+  --primary-soft:   #DCE7E2;
+  --primary-text:   #2F5D50;
+  --accent:         #2F5D50;
+  --focus-ring:     rgba(47,93,80,0.35);
 
-  /* Status */
-  --success:      #1FA871;  --success-soft: #E3F7EF;
-  --warning:      #B7791F;  --warning-soft: #FFF7E6;
-  --danger:       #DE350B;  --danger-soft:  #FDEBE7;
-  --info:         #0073E6;  --info-soft:    #E6F0FB;
+  /* Accent ramp — 100 is the darkest here so accent-800/accent-100 pairings
+     hold in both themes (see the header note). */
+  --accent-100: #1F4239;
+  --accent-200: #24504A;
+  --accent-300: #2F5D50;
+  --accent-400: #3E7365;
+  --accent-500: #4A8674;
+  --accent-600: #6EA394;
+  --accent-700: #A6C6BB;
+  --accent-800: #DCE7E2;
+  --accent-900: #EEF4F1;
 
-  /* Data-viz ramp */
-  --viz-1:#635BFF; --viz-2:#00B3A4; --viz-3:#0073E6;
-  --viz-4:#B7791F; --viz-5:#DE350B; --viz-6:#8792A2;
+  /* Warm neutral ramp, same inversion */
+  --neutral-100: #1C1E24;
+  --neutral-200: #33343A;
+  --neutral-300: #4A4A50;
+  --neutral-400: #5C5C61;
+  --neutral-500: #6E6E73;
+  --neutral-600: #C9C4B9;
+  --neutral-700: #E0DCD3;
+  --neutral-800: #EDEAE2;
+  --neutral-900: #F5F3EE;
 
-  /* Typography */
-  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* Status. `info` deliberately reuses the teal rather than introducing a blue:
+     this palette carries one affirmative hue, and a fourth hue would read as a
+     different system. Amber and coral are the only other signal colors. */
+  --success:      #2F5D50;  --success-soft: #DCE7E2;
+  --warning:      #A8762C;  --warning-soft: #F6EBD8;
+  --danger:       #B4483F;  --danger-soft:  #F7E4E1;
+  --info:         #4A8674;  --info-soft:    #E4EFEA;
+
+  /* Data values */
+  --viz-warn:     #A8762C;
+  --viz-neg:      #B4483F;
+  --viz-neg-deep: #963A32;
+
+  /* Data-viz ramp (charts). Teal-led, with amber and coral for the negative
+     end so a series chart and a status badge agree on what "bad" looks like. */
+  --viz-1:#2F5D50; --viz-2:#4A8674; --viz-3:#24504A;
+  --viz-4:#A8762C; --viz-5:#B4483F; --viz-6:#6E6E73;
+
+  /* Typography. Poppins app-wide; the mono stack is retained for tabular
+     figures in dense tables, where column alignment beats family consistency. */
+  --font-sans: 'Poppins', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 
   /* Radius */
   --r-sm: 6px;  --r-md: 8px;  --r-lg: 12px;  --r-xl: 16px;  --r-pill: 999px;
 
-  /* Elevation */
-  --shadow-sm: 0 1px 2px rgba(10,37,64,0.06), 0 1px 3px rgba(10,37,64,0.04);
-  --shadow-md: 0 4px 12px rgba(10,37,64,0.08), 0 2px 4px rgba(10,37,64,0.05);
-  --shadow-lg: 0 12px 32px rgba(10,37,64,0.12);
+  /* Elevation — ink-tinted, warm */
+  --shadow-sm: 0 1px 2px rgba(28,30,36,0.06), 0 1px 3px rgba(28,30,36,0.04);
+  --shadow-md: 0 4px 12px rgba(28,30,36,0.08), 0 2px 4px rgba(28,30,36,0.05);
+  --shadow-lg: 0 12px 32px rgba(28,30,36,0.14);
   --shadow-focus: 0 0 0 3px var(--focus-ring);
 
   /* Motion */
   --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
   --dur-fast: 120ms;  --dur: 160ms;  --dur-slow: 240ms;
 
-  /* Legacy aliases – keeps old inline-style references working */
+  /* Legacy aliases — keep older inline-style references working */
   --wallpaper:    var(--bg);
   --glass:        var(--card);
   --glass-border: var(--border);
@@ -75,7 +139,6 @@
   --input-bg:     var(--card);
   --input-border: var(--border-strong);
   --scrollbar-thumb: var(--border-strong);
-  /* Old accent → new primary */
   --accent-soft:  var(--primary-soft);
   --accent-text:  var(--primary-text);
   --dk-surface:   var(--card);
@@ -84,39 +147,68 @@
   --dk-border:    var(--border);
 }
 
+/* ── Dark theme (default at first paint) ── */
 [data-theme='dark'] {
-  --bg:           #0A1628;
-  --surface:      #111E33;
-  --surface-2:    #0E1A2D;
-  --card:         #13203A;
+  --bg:           #14171A;
+  --surface:      #1B1F22;
+  --surface-2:    #101315;
+  --card:         #1B1F22;
 
-  --nav-bg-top:   #060F1E;
-  --nav-bg-bot:   #0A1628;
-  --nav-text:     #9BB0C9;
-  --nav-text-active: #FFFFFF;
-  --nav-active-bg: rgba(139,133,255,0.20);
-  --nav-active-bar: #8B85FF;
+  --nav-bg-top:   #101315;
+  --nav-bg-bot:   #14171A;
+  --nav-text:     #ABB1AD;
+  --nav-text-active: #EDEAE3;
+  --nav-active-bg: rgba(95,175,151,0.16);
+  --nav-active-bar: #5FAF97;
 
-  --border:       rgba(255,255,255,0.09);
-  --border-strong:rgba(255,255,255,0.16);
+  --border:       #2A3033;
+  --border-strong:#4A5255;
 
-  --text:         #EAF0F8;
-  --text-2:       #9BB0C9;
-  --text-3:       #62758F;
-  --text-on-primary: #FFFFFF;
+  --text:         #EDEAE3;
+  --text-2:       #ABB1AD;
+  --text-3:       #6E7679;
+  /* Teal is light enough here that white-on-teal fails; ink-on-teal passes. */
+  --text-on-primary: #0F1416;
 
-  --primary:        #8B85FF;
-  --primary-hover:  #9D98FF;
-  --primary-press:  #7A73FF;
-  --primary-soft:   rgba(139,133,255,0.14);
-  --primary-text:   #B3AEFF;
-  --accent:         #2DD4C4;
-  --focus-ring:     rgba(139,133,255,0.45);
+  --primary:        #5FAF97;
+  --primary-hover:  #74BDA6;
+  --primary-press:  #4A937D;
+  --primary-soft:   rgba(95,175,151,0.14);
+  --primary-text:   #8CCBB7;
+  --accent:         #5FAF97;
+  --focus-ring:     rgba(95,175,151,0.45);
 
-  --success:#34D399; --success-soft:rgba(52,211,153,0.15);
-  --warning:#FBBF55; --warning-soft:rgba(251,191,85,0.15);
-  --danger: #F87171; --danger-soft: rgba(248,113,113,0.15);
-  --info:   #5AA9FF; --info-soft:   rgba(90,169,255,0.15);
+  --accent-100: #DCEFE8;
+  --accent-200: #B4DCCD;
+  --accent-300: #8CCBB7;
+  --accent-400: #74BDA6;
+  --accent-500: #5FAF97;
+  --accent-600: #4A937D;
+  --accent-700: #357064;
+  --accent-800: #24504A;
+  --accent-900: #17332F;
+
+  --neutral-100: #E4E6E2;
+  --neutral-200: #C9CDC8;
+  --neutral-300: #ABB1AD;
+  --neutral-400: #8B928F;
+  --neutral-500: #6E7679;
+  --neutral-600: #4A5255;
+  --neutral-700: #2A3033;
+  --neutral-800: #1B1F22;
+  --neutral-900: #101315;
+
+  --success:#5FAF97; --success-soft:rgba(95,175,151,0.15);
+  --warning:#D3A45E; --warning-soft:rgba(211,164,94,0.15);
+  --danger: #E9998C; --danger-soft: rgba(233,153,140,0.15);
+  --info:   #8CCBB7; --info-soft:   rgba(140,203,183,0.15);
+
+  --viz-warn:     #D3A45E;
+  --viz-neg:      #E9998C;
+  --viz-neg-deep: #D4796D;
+
+  --viz-1:#5FAF97; --viz-2:#8CCBB7; --viz-3:#4A937D;
+  --viz-4:#D3A45E; --viz-5:#E9998C; --viz-6:#6E7679;
 
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.40);
   --shadow-md: 0 4px 14px rgba(0,0,0,0.45);
@@ -152,11 +244,27 @@
     font-size: 14px;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* The theme switch is a deliberate, user-initiated change, so it is worth
+       animating; nothing else in the app cross-fades its ground. */
+    transition: background var(--dur-slow) var(--ease), color var(--dur-slow) var(--ease);
   }
   .num {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
+  /* Uppercase section eyebrow — the design's recurring label form. Poppins
+     rather than mono, which is what makes it read as a heading and not as data. */
+  .eyebrow {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body { transition: none; }
 }
 
 /* ── Scrollbar ── */
@@ -179,7 +287,11 @@
 html.embedded header { display: none !important; }
 html.embedded main  { padding-top: 0 !important; }
 
-/* ── Dark mode: surface/border/text overrides for old Tailwind classes ── */
+/* ── Dark mode: surface/border/text overrides for old Tailwind classes ──
+   Screens written before the token system used literal Tailwind colors
+   (bg-white, text-gray-900). These map them onto the tokens so those screens
+   follow the theme instead of staying stuck in light mode. New code should use
+   the tokens directly and needs none of this. */
 [data-theme='dark'] .bg-white,
 [data-theme='dark'] .bg-white\/80,
 [data-theme='dark'] .bg-white\/90,
@@ -250,3 +362,34 @@ html.embedded main  { padding-top: 0 !important; }
 [data-theme='dark'] .bg-green-50  { background-color: var(--success-soft) !important; }
 [data-theme='dark'] .hover\:bg-gray-50:hover  { background-color: var(--surface)   !important; }
 [data-theme='dark'] .hover\:bg-gray-100:hover { background-color: var(--surface-2) !important; }
+
+/* ── Light mode: the same legacy classes, retuned to warm paper ──
+   Previously unnecessary, because the old light theme *was* white-and-grey.
+   This theme is not: leaving bg-white as pure #FFF next to a #F5F3EE page reads
+   as a rendering bug rather than a card. */
+[data-theme='light'] .bg-gray-50,
+[data-theme='light'] .bg-\[\#F4F5F7\],
+[data-theme='light'] .bg-\[\#F9FAFB\],
+[data-theme='light'] .bg-\[\#F6F9FC\] {
+  background-color: var(--surface) !important;
+}
+[data-theme='light'] .bg-gray-100,
+[data-theme='light'] .bg-\[\#F3F4F6\] {
+  background-color: var(--surface-2) !important;
+}
+[data-theme='light'] .border-\[\#E5E7EB\],
+[data-theme='light'] .border-\[\#E6EBF3\],
+[data-theme='light'] .border-gray-100,
+[data-theme='light'] .border-gray-200 {
+  border-color: var(--border) !important;
+}
+[data-theme='light'] .text-\[\#0A2540\],
+[data-theme='light'] .text-gray-900,
+[data-theme='light'] .text-gray-800 {
+  color: var(--text) !important;
+}
+[data-theme='light'] .text-gray-500,
+[data-theme='light'] .text-gray-400,
+[data-theme='light'] .text-\[\#8792A2\] {
+  color: var(--text-3) !important;
+}

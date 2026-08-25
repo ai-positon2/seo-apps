@@ -69,6 +69,9 @@ function once(key, factory) {
   return promise;
 }
 
+// Reached only by a session that carries no user id — a Google sign-in on a
+// deployment with Supabase unconfigured. The shared-token embed that this was
+// originally written for no longer exists.
 async function resolvePlatformIdentity() {
   const cached = cacheGet(PLATFORM_KEY);
   if (cached) return cached;

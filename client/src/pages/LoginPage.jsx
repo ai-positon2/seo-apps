@@ -34,7 +34,7 @@ export default function LoginPage() {
           alignItems: 'center',
           justifyContent: 'center',
         }}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text-on-primary)" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 15.803a7.5 7.5 0 0010.607 10.607z" />
           </svg>
         </div>
@@ -48,9 +48,9 @@ export default function LoginPage() {
         {error && (
           <div style={{
             fontSize: 12,
-            color: '#f87171',
-            background: 'rgba(248,113,113,0.10)',
-            border: '1px solid rgba(248,113,113,0.25)',
+            color: 'var(--viz-neg)',
+            background: 'color-mix(in srgb, var(--viz-neg) 10%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--viz-neg) 28%, transparent)',
             borderRadius: 8,
             padding: '8px 10px',
             marginBottom: 16,

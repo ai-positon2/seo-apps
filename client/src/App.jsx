@@ -9,6 +9,8 @@ import MacWindow from './components/MacWindow';
 import LoginPage from './pages/LoginPage';
 import ProfileSetupPage from './pages/ProfileSetupPage';
 import WorkspacesPage from './pages/WorkspacesPage';
+import ProjectsPage from './pages/ProjectsPage';
+import AdminPage from './pages/AdminPage';
 import RunsPage from './pages/RunsPage';
 import HomePage from './pages/HomePage';
 import ContentResearchPage from './pages/ContentResearchPage';
@@ -36,6 +38,11 @@ import RobotsMonitorPage from './pages/RobotsMonitorPage';
 import OnPageAuditPage from './pages/OnPageAuditPage';
 import MarketPotentialPage from './pages/MarketPotentialPage';
 import CompetitorAnalysisDashboardPage from './pages/CompetitorAnalysisDashboardPage';
+import ContentArchitectPage from './pages/ContentArchitectPage';
+import ContentArchitectProjectPage from './pages/ContentArchitectProjectPage';
+import CrawlScopePage from './pages/CrawlScopePage';
+import CrawlScopeRunPage from './pages/CrawlScopeRunPage';
+import CrawlScopeReviewPage from './pages/CrawlScopeReviewPage';
 
 // Keeps the parent Intelligence Platform shell's URL + breadcrumb in sync with
 // the tool the user navigates to here. The shell embeds us in a cross-origin
@@ -104,7 +111,16 @@ export default function App() {
           <Route path="/on-page-audit" element={<OnPageAuditPage />} />
           <Route path="/market-potential" element={<MarketPotentialPage />} />
           <Route path="/competitor-analysis" element={<CompetitorAnalysisDashboardPage />} />
+          <Route path="/content-architect" element={<ContentArchitectPage />} />
+          <Route path="/content-architect/:id" element={<ContentArchitectProjectPage />} />
+          <Route path="/crawl-scope" element={<CrawlScopePage />} />
+          <Route path="/crawl-scope/runs/:id" element={<CrawlScopeRunPage />} />
+          <Route path="/crawl-scope/runs/:id/review" element={<CrawlScopeReviewPage />} />
           <Route path="/workspaces" element={<WorkspacesPage />} />
+          <Route path="/projects" element={<ProjectsPage />} />
+          {/* Rendered for anyone; the page itself only shows controls after
+              /api/admin answers, and every admin route re-checks the grant. */}
+          <Route path="/admin" element={<AdminPage />} />
           <Route path="/runs" element={<RunsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

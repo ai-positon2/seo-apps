@@ -3,12 +3,45 @@
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
-const OpenAI = require('openai');
+const { createLlmClient } = require('../services/llmProviders');
 const { runAllChecks } = require('../checks/seoGeoChecks');
+
+// Claude Sonnet through the shared provider factory, which handles the one
+// behavioural difference that matters here: Anthropic's OpenAI-compatible
+// endpoint ignores response_format: json_object and rejects `temperature`, so
+// the factory reinforces JSON-only in the system prompt, strips markdown fences,
+// and drops the sampling parameter. The call site below is unchanged.
+const ANALYSIS_MODEL = 'claude-sonnet-5';
+
+// Output budget for the analysis call.
+//
+// 4,000 was enough for the model this was written against. It is not enough for
+// a reasoning model: measured against a 15 KB system prompt and a 23 KB payload,
+// Sonnet spent the entire 4,000-token budget thinking and returned
+// finish_reason 'length' with an EMPTY string — which the `|| '{}'` fallback
+// below then turned into a valid-looking empty analysis. The report rendered
+// with every AI section blank and nothing anywhere said why.
+// Observed usage on a 252-check page: 12,960 and 14,471 tokens on two runs of
+// the same URL. 16,000 left so little headroom that a slightly longer answer
+// truncated and the analysis was lost, so the budget is set well clear of the
+// measured range rather than just above it.
+const ANALYSIS_MAX_TOKENS = 24000;
+
+// Extended thinking off for this call.
+//
+// These prompts were written for a non-reasoning model and ask for a large,
+// strictly-shaped JSON answer. With thinking on, Sonnet spends the output budget
+// reasoning instead of answering: measured on this exact prompt, a 32,000-token
+// budget produced 28,000 tokens of thinking, 16,573 characters of TRUNCATED JSON,
+// and took 318 seconds. With thinking disabled the same call returns complete
+// JSON — 39,304 characters, 14,471 tokens — in a fraction of the time.
+//
+// Accepted by Anthropic's OpenAI-compatible endpoint and ignored by the others,
+// so it is safe to pass unconditionally.
 
 let _openai = null;
 function getOpenAI() {
-  if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  if (!_openai) _openai = createLlmClient(ANALYSIS_MODEL);
   return _openai;
 }
 
@@ -325,30 +358,40 @@ async function fetchUrl(url) {
 }
 
 // POST /api/seo-geo-audit/run  — SSE streaming
-router.post('/run', async (req, res) => {
-  const { url, html: pastedHtml, keywords, pageIntent: pageIntentInput } = req.body;
+/**
+ * The SEO & GEO audit, callable without an HTTP request.
+ *
+ * Extracted from the SSE route rather than reimplemented, so an ad-hoc audit and
+ * a project-scoped one share one code path and can never report different scores
+ * for the same page (PRD §32: prefer service extraction over parallel
+ * replacement).
+ *
+ * Progress is pushed through `emit`, which the route wires to the SSE stream and
+ * a project run leaves as a no-op. Failures throw instead of emitting an error
+ * event, because a caller that isn't a stream needs to know the audit did not
+ * happen — a resolved promise carrying an error event reads as success.
+ *
+ * @param {object}   input
+ * @param {string}  [input.url]         one of url / html is required
+ * @param {string}  [input.html]        pasted HTML, when there is no fetchable URL
+ * @param {string[]}[input.keywords]
+ * @param {string}  [input.pageIntent]  'commercial' | 'informational' | 'auto'
+ * @param {boolean} [input.skipAi]      skip the LLM analysis and return checks only
+ * @param {Function}[input.emit]        (event, data) progress sink
+ * @returns {Promise<{findings: object, ai: object|null}>}
+ * @throws  an Error with a `status` for bad input, or the underlying failure
+ */
+async function runSeoGeoAudit({
+  url, html: pastedHtml, keywords, pageIntent: pageIntentInput, skipAi = false, emit = () => {},
+} = {}) {
   const kwArray = Array.isArray(keywords) ? keywords.filter(Boolean) : [];
   // 'auto' lets the check engine infer intent from the detected page type. An explicit
   // 'commercial'/'informational' always wins; anything unrecognised degrades to 'auto'.
   const intentInput = ['commercial', 'informational'].includes(pageIntentInput) ? pageIntentInput : 'auto';
 
   if (!url && !pastedHtml) {
-    return res.status(400).json({ error: 'Provide a URL or raw HTML.' });
+    throw Object.assign(new Error('Provide a URL or raw HTML.'), { status: 400 });
   }
-
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.flushHeaders();
-
-  let closed = false;
-  req.on('close', () => { closed = true; });
-
-  const emit = (event, data) => {
-    if (closed) return;
-    try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch { closed = true; }
-  };
 
   try {
     let rawHtml = '';
@@ -373,9 +416,10 @@ router.post('/run', async (req, res) => {
         emit('step', { id: 'fetch', status: 'done', message: `Fetched ${Math.round(rawHtml.length/1024)}KB in ${fetchTimeMs}ms (HTTP ${httpStatus})` });
       } catch (err) {
         emit('step', { id: 'fetch', status: 'error', message: `Fetch failed: ${err.message}` });
-        emit('error', { message: `Could not fetch URL: ${err.message}` });
-        res.end();
-        return;
+        throw Object.assign(
+          new Error(`Could not fetch URL: ${err.message}`),
+          { status: 502 },
+        );
       }
     } else {
       rawHtml = pastedHtml;
@@ -383,9 +427,10 @@ router.post('/run', async (req, res) => {
     }
 
     if (!rawHtml || rawHtml.trim().length < 50) {
-      emit('error', { message: 'HTML is empty or too short to audit.' });
-      res.end();
-      return;
+      throw Object.assign(
+        new Error('HTML is empty or too short to audit.'),
+        { status: 422 },
+      );
     }
 
     // ── Step 2: Run checks ───────────────────────────────────────────────────
@@ -448,10 +493,13 @@ router.post('/run', async (req, res) => {
         };
         // We pass minimal info for classification — the checks already extracted these
         const classCompletion = await getOpenAI().chat.completions.create({
-          model: 'gpt-4o-mini',
+          model: ANALYSIS_MODEL,
           response_format: { type: 'json_object' },
           temperature: 0,
-          max_tokens: 200,
+          thinking: { type: 'disabled' },
+          // Small answer, but the budget has to cover a reasoning model's
+          // internal tokens as well as the JSON — see ANALYSIS_MAX_TOKENS.
+          max_tokens: 2000,
           messages: [
             {
               role: 'system',
@@ -463,7 +511,13 @@ router.post('/run', async (req, res) => {
             }
           ],
         });
-        const classRaw = classCompletion.choices[0]?.message?.content || '{}';
+        const classRaw = classCompletion.choices[0]?.message?.content || '';
+        // An empty reply is not a classification. Parsing '{}' here gave an
+        // object whose confidence was undefined, which failed the >= 0.8 gate
+        // below and quietly left the rule-based page type in place — the right
+        // outcome, reached by accident. Made explicit so a future change to that
+        // gate cannot turn "the model said nothing" into a confident answer.
+        if (!classRaw.trim()) throw new Error('the classifier returned an empty response');
         aiPageType = JSON.parse(classRaw);
         if (aiPageType.confidence >= 0.8) {
           // Deliberately does NOT re-derive page_intent: scoring already ran against the rule-based
@@ -479,8 +533,11 @@ router.post('/run', async (req, res) => {
             findings.pageContext.detectedVertical = aiPageType.contentVertical;
           }
         }
-      } catch {
-        // AI classification is best-effort — don't fail the whole audit
+      } catch (err) {
+        // Best-effort: the rule-based page type stands. Logged rather than
+        // swallowed, because a classifier that never succeeds is worth knowing
+        // about even though it costs the audit nothing.
+        console.warn('[seo-geo] page classification skipped:', err.message);
       }
     }
 
@@ -499,8 +556,11 @@ router.post('/run', async (req, res) => {
     findings.meta.checks_sent_to_ai = sentChecks.length;
     findings.meta.checks_truncated = notableChecks.length - sentChecks.length;
 
+    // The AI layer explains the checks; it does not produce the score. A project
+    // run that only needs the score and the findings can skip it, and a failure
+    // here leaves aiAnalysis null rather than losing the audit.
     let aiAnalysis = null;
-    try {
+    if (!skipAi) try {
       const gptInput = {
         meta: findings.meta,
         scores: findings.scores,
@@ -523,34 +583,86 @@ router.post('/run', async (req, res) => {
       };
 
       const completion = await getOpenAI().chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: ANALYSIS_MODEL,
         response_format: { type: 'json_object' },
         temperature: 0.3,
-        max_tokens: 4000,
+        max_tokens: ANALYSIS_MAX_TOKENS,
+        thinking: { type: 'disabled' },
         messages: [
           { role: 'system', content: GPT_SYSTEM_PROMPT },
           { role: 'user', content: JSON.stringify(gptInput) },
         ],
       });
 
-      const raw = completion.choices[0]?.message?.content || '{}';
+      const choice = completion.choices?.[0];
+      const raw = choice?.message?.content || '';
+
+      // An empty answer is a failure, not an empty analysis. Defaulting it to
+      // '{}' produced an object that parsed, rendered, and said nothing — the
+      // report looked finished and had no findings in it. If the model ran out
+      // of room, say so, because the fix is a bigger budget rather than a retry.
+      if (!raw.trim()) {
+        throw new Error(
+          choice?.finish_reason === 'length'
+            ? `the model used its entire ${ANALYSIS_MAX_TOKENS}-token output budget without answering`
+            : 'the model returned an empty response',
+        );
+      }
+
       aiAnalysis = JSON.parse(raw);
       emit('step', { id: 'ai', status: 'done', message: 'AI analysis complete.' });
     } catch (err) {
+      // Logged as well as emitted. `emit` is a no-op for a project run, so an
+      // emit-only failure meant the analysis silently vanished and the stored
+      // report came back with ai: null and nothing anywhere saying why.
+      console.error('[seo-geo] AI analysis failed:', err.message);
       emit('step', { id: 'ai', status: 'error', message: `AI analysis failed: ${err.message}` });
     }
 
-    // ── Step 5: Emit final result ─────────────────────────────────────────────
-    emit('result', {
-      findings,
-      ai: aiAnalysis,
-    });
+    // ── Step 5: Hand the result back ─────────────────────────────────────────
+    return { findings, ai: aiAnalysis };
+  } catch (err) {
+    // Progress consumers still want to see the failure; the caller still needs
+    // it to be a rejection.
+    emit('step', { id: 'audit', status: 'error', message: err.message || 'Unexpected error during audit.' });
+    throw err;
+  }
+}
 
-    res.end();
+// POST /api/seo-geo-audit/run — the SSE face of runSeoGeoAudit.
+//
+// Errors are emitted rather than thrown once the stream has started: the status
+// line is long gone by then, so an 'error' event is the only way to tell the
+// browser. Bad input, which is detected before any of that, still answers 400.
+router.post('/run', async (req, res) => {
+  const body = req.body || {};
+  if (!body.url && !body.html) {
+    return res.status(400).json({ error: 'Provide a URL or raw HTML.' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  let closed = false;
+  req.on('close', () => { closed = true; });
+
+  const emit = (event, data) => {
+    if (closed) return;
+    try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch { closed = true; }
+  };
+
+  try {
+    const result = await runSeoGeoAudit({ ...body, emit });
+    emit('result', result);
   } catch (err) {
     emit('error', { message: err.message || 'Unexpected error during audit.' });
-    res.end();
   }
+  res.end();
 });
 
 module.exports = router;
+// Named export for the project-scoped runner (modules/projects/moduleRunners.js).
+module.exports.runSeoGeoAudit = runSeoGeoAudit;

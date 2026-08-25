@@ -1,9 +1,9 @@
 {
   "watch": ["server.js", "routes", "modules", "locationPageBuilder", "services"],
   "ignore": [
-    "modules/robotsMonitor/data",
-    "modules/marketPotential/data",
-    "modules/competitorAnalysis/data",
+    "**/data/**",
+    "**/__tests__/**",
+    "**/*.test.js",
     "**/*.log",
     "**/*.db",
     "**/*.sqlite"

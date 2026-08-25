@@ -16,6 +16,7 @@ import PageSpeedTab from '../components/competitorAnalysisDashboard/PageSpeedTab
 import BacklinkTab from '../components/competitorAnalysisDashboard/BacklinkTab';
 import ContentAnalysisTab from '../components/competitorAnalysisDashboard/ContentAnalysisTab';
 import DiscoverCompetitorsModal from '../components/competitorAnalysisDashboard/DiscoverCompetitorsModal';
+import { useSearchParams } from 'react-router-dom';
 import ModuleRuns from '../components/ModuleRuns';
 
 const EMPTY_CLIENT_FORM = { name: '', domain: '', country: 'United States', brandName: '' };
@@ -38,6 +39,12 @@ export default function CompetitorAnalysisDashboardPage() {
   const [meta, setMeta] = useState(null);
   const [clients, setClients] = useState([]);
   const [selectedClientId, setSelectedClientId] = useState('');
+  // ?client=<id> selects that client on arrival. A project audit mirrors its
+  // client into this module's store and links here with its id, so opening the
+  // module from the dashboard lands on that project's comparison rather than on
+  // whichever client happens to be first.
+  const [searchParams] = useSearchParams();
+  const requestedClientId = searchParams.get('client');
   const [client, setClient] = useState(null);
   const [snapshot, setSnapshot] = useState(null);
   const [loadingDashboard, setLoadingDashboard] = useState(false);
@@ -79,8 +86,12 @@ export default function CompetitorAnalysisDashboardPage() {
   const refreshClients = useCallback(async (selectId) => {
     const { clients: list } = await ct.clients();
     setClients(list);
-    if (selectId) setSelectedClientId(selectId);
-    else if (!selectId && list.length && !list.find((c) => c.id === selectedClientId)) {
+    // A requested id is honoured only when it exists. Internal callers pass ids
+    // they just created, but a ?client= from a link can be stale — selecting it
+    // blind would show an empty dashboard for a client that is not there.
+    const requested = selectId && list.find((c) => c.id === selectId) ? selectId : null;
+    if (requested) setSelectedClientId(requested);
+    else if (list.length && !list.find((c) => c.id === selectedClientId)) {
       setSelectedClientId(list[0].id);
     }
     return list;
@@ -115,7 +126,9 @@ export default function CompetitorAnalysisDashboardPage() {
 
   useEffect(() => {
     ct.meta().then(setMeta).catch(() => {});
-    refreshClients();
+    // A requested client is honoured only if it exists; a stale id falls back to
+    // the normal first-client behaviour rather than showing an empty dashboard.
+    refreshClients(requestedClientId || undefined);
     return () => {
       clearInterval(pollRef.current);
       clearInterval(pageSpeedPollRef.current);

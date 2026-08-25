@@ -8,6 +8,10 @@ export function AuthProvider({ children }) {
   const [email, setEmail] = useState(null);
   const [userId, setUserId] = useState(null);
   const [hasProfile, setHasProfile] = useState(true);
+  // UI hint only: it decides whether the admin link is worth showing. Every
+  // /api/admin route re-reads the persisted grant server-side (PRD §7.3), so
+  // flipping this in a debugger reveals a 403, not a control panel.
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
 
   async function checkAuth() {
     try {
@@ -18,6 +22,7 @@ export function AuthProvider({ children }) {
         setEmail(data.email);
         setUserId(data.userId);
         setHasProfile(data.hasProfile !== false);
+        setIsPlatformAdmin(data.isPlatformAdmin === true);
         setAuthState('authenticated');
       } else {
         setAuthState('unauthenticated');
@@ -39,11 +44,12 @@ export function AuthProvider({ children }) {
     setRole(null);
     setEmail(null);
     setUserId(null);
+    setIsPlatformAdmin(false);
     setAuthState('unauthenticated');
   }
 
   return (
-    <AuthContext.Provider value={{ authState, role, email, userId, hasProfile, markAuthenticated, logout, checkAuth }}>
+    <AuthContext.Provider value={{ authState, role, email, userId, hasProfile, isPlatformAdmin, markAuthenticated, logout, checkAuth }}>
       {children}
     </AuthContext.Provider>
   );

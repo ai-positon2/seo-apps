@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LLM_MODEL_OPTIONS, DEFAULT_LLM_MODEL } from '../llmModels';
 import { EMBED_MODE } from '../components/MacWindow';
@@ -353,9 +353,27 @@ function CrawlFailedPanel({ manualContent, setManualContent, onContinue }) {
 
 export default function ArticleEnhancementPage() {
   const navigate = useNavigate();
-  const [url, setUrl] = useState('');
+  // Prefill from whoever sent you here — today that is the Hub and Spoke report's
+  // Enhance button, which knows the page's URL and whether it is a hub or a
+  // spoke. Read once, as INITIAL state: everything stays editable afterwards,
+  // and re-reading the query string on every render would fight the user's own
+  // typing.
+  //
+  // contentType is validated against the options this page actually offers. A
+  // hand-edited ?contentType=anything falls back to 'article' rather than
+  // putting the select into a state it cannot display.
+  const prefill = useMemo(() => {
+    const q = new URLSearchParams(window.location.search);
+    const raw = (q.get('contentType') || '').toLowerCase();
+    return {
+      url: q.get('url') || '',
+      contentType: ['article', 'hub', 'thin-content'].includes(raw) ? raw : 'article',
+    };
+  }, []);
+
+  const [url, setUrl] = useState(prefill.url);
   const [urlError, setUrlError] = useState('');
-  const [contentType, setContentType] = useState('article');
+  const [contentType, setContentType] = useState(prefill.contentType);
   const [selectedModels, setSelectedModels] = useState([DEFAULT_LLM_MODEL]);
   const [kbs, setKbs] = useState([]);
   const [selectedKbId, setSelectedKbId] = useState('seo-geo-article-enhancement-knowledge-base');

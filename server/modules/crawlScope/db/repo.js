@@ -1,0 +1,614 @@
+// Data-access layer. Every function takes a Supabase `client` as its first
+// argument. In the standalone CrawlScope app that was sometimes a user-scoped
+// client with RLS enforced; here it is always the app's service-role client,
+// because identity in this app is our own signed JWT over `app_users` and there
+// is no Supabase Auth session for RLS to key off (see ./supabase.js).
+//
+// Ownership note — load-bearing: with RLS out of the picture, the explicit
+// `owner` filter in these functions IS the tenancy boundary. Anything reachable
+// from an HTTP route must pass `owner`; the `owner = null` defaults exist for
+// the worker, which legitimately operates across users. If you add a route,
+// pass the owner.
+//
+// Tables carry a `crawl_` prefix in this app (crawl_projects, crawl_runs,
+// crawl_run_results, crawl_run_findings) so they don't collide conceptually
+// with the app's own `tool_runs` / `user_profiles`. See
+// supabase/migrations/0010_crawlscope.sql.
+
+function unwrap({ data, error }) {
+  if (error) throw new Error(error.message || String(error));
+  return data;
+}
+
+// Compare-and-swap helpers use `.select()` (not `.select().single()`) because zero
+// matched rows is the normal "another worker won the race" outcome, and `single()`
+// raises PGRST116 for it.
+function firstRow(rows) {
+  return (Array.isArray(rows) ? rows[0] : rows) || null;
+}
+
+// ---- projects -------------------------------------------------------------
+
+async function listProjects(client, owner) {
+  return unwrap(
+    await client
+      .from("crawl_projects")
+      .select("*")
+      .eq("owner", owner)
+      .order("created_at", { ascending: false }),
+  );
+}
+
+// `owner` is optional so the worker (which has no request user) can read any project,
+// while every HTTP path passes it and gets explicit tenant scoping.
+async function getProject(client, id, owner = null) {
+  let query = client.from("crawl_projects").select("*").eq("id", id);
+  if (owner) query = query.eq("owner", owner);
+  return unwrap(await query.maybeSingle());
+}
+
+async function createProject(client, owner, data) {
+  return unwrap(
+    await client
+      .from("crawl_projects")
+      .insert({
+        owner,
+        // Recorded, not used for access control — see 0010_crawlscope.sql.
+        workspace_id: data.workspace_id || null,
+        name: data.name || null,
+        url: data.url,
+        options: data.options || {},
+        cron: data.cron,
+        timezone: data.timezone,
+        recipients: data.recipients || [],
+        enabled: data.enabled !== false,
+        next_run_at: data.next_run_at || null,
+      })
+      .select()
+      .single(),
+  );
+}
+
+async function updateProject(client, id, patch, owner = null) {
+  let query = client.from("crawl_projects").update(patch).eq("id", id);
+  if (owner) query = query.eq("owner", owner);
+  return firstRow(unwrap(await query.select()));
+}
+
+async function deleteProject(client, id, owner = null) {
+  let query = client.from("crawl_projects").delete().eq("id", id);
+  if (owner) query = query.eq("owner", owner);
+  return firstRow(unwrap(await query.select()));
+}
+
+// Enabled projects whose next_run_at is due (service client only).
+// Ordered so the most overdue fires first, and bounded so one tick cannot pull the
+// entire table into memory.
+async function dueProjects(client, nowIso, { limit = 50 } = {}) {
+  return unwrap(
+    await client
+      .from("crawl_projects")
+      .select("*")
+      .eq("enabled", true)
+      .not("next_run_at", "is", null)
+      .lte("next_run_at", nowIso)
+      .order("next_run_at", { ascending: true })
+      .limit(limit),
+  );
+}
+
+// Enabled projects with next_run_at IS NULL. SQL NULL comparison means dueProjects can
+// never see these, so without a repair pass they sleep forever.
+async function dormantProjects(client, { limit = 50 } = {}) {
+  return unwrap(
+    await client
+      .from("crawl_projects")
+      .select("id,cron,timezone")
+      .eq("enabled", true)
+      .is("next_run_at", null)
+      .limit(limit),
+  );
+}
+
+// Advance a project's fire slot, but only if it still holds `expectedIso`. Two worker
+// replicas ticking the same due project therefore cannot both advance it.
+async function advanceProjectFrom(client, id, expectedIso, patch) {
+  return firstRow(
+    unwrap(
+      await client
+        .from("crawl_projects")
+        .update(patch)
+        .eq("id", id)
+        .eq("enabled", true)
+        .eq("next_run_at", expectedIso)
+        .select(),
+    ),
+  );
+}
+
+async function repairProjectNextRun(client, id, nextIso) {
+  return firstRow(
+    unwrap(
+      await client
+        .from("crawl_projects")
+        .update({ next_run_at: nextIso })
+        .eq("id", id)
+        .eq("enabled", true)
+        .is("next_run_at", null)
+        .select(),
+    ),
+  );
+}
+
+// ---- runs -----------------------------------------------------------------
+
+async function createRun(client, run) {
+  return unwrap(
+    await client
+      .from("crawl_runs")
+      .insert({
+        owner: run.owner,
+        workspace_id: run.workspace_id || null,
+        project_id: run.project_id || null,
+        scheduled_for: run.scheduled_for || null,
+        url: run.url,
+        options: run.options || {},
+        status: "queued",
+        trigger: run.trigger || "manual",
+      })
+      .select()
+      .single(),
+  );
+}
+
+// Idempotent enqueue for one (project, fire slot) pair, guarded by the
+// runs_project_slot_uniq constraint. Returns null when the slot was already taken,
+// which is how two replicas racing the same tick converge on a single crawl and a
+// single client email.
+//
+// This reads the raw error rather than going through unwrap() because unwrap discards
+// the Postgres error code, and 23505 is the one code here that means "success, someone
+// else got there first" rather than a failure.
+async function enqueueScheduledRun(client, run) {
+  const { data, error } = await client
+    .from("crawl_runs")
+    .insert({
+      owner: run.owner,
+      workspace_id: run.workspace_id || null,
+      project_id: run.project_id,
+      scheduled_for: run.scheduled_for,
+      url: run.url,
+      options: run.options || {},
+      status: "queued",
+      trigger: run.trigger || "schedule",
+    })
+    .select()
+    .single();
+  if (error) {
+    if (error.code === "23505") return null;
+    throw new Error(error.message || String(error));
+  }
+  return data;
+}
+
+// ── Viewer scope ——————————————————————————————@
+//
+// A crawl run is readable by the WORKSPACE it belongs to, not by whoever happened
+// to click Start.
+//
+// Every read in this file used `.eq("owner", owner)`, which made the module
+// single-user in a way nothing announced: a teammate could see a project through
+// /api/projects, open it, and get "Run not found" on its crawl. `workspace_id`
+// was written on every row and never once read back.
+//
+// The rule, and the null branch is the part worth being careful about:
+//
+//   workspace_id set   — visible to members of that workspace
+//   workspace_id null  — visible only to the user who created it
+//
+// Null means "written before workspaces existed". Reading null as "belongs to
+// everybody" would hand every legacy crawl to the whole deployment, so it stays
+// with its creator instead.
+//
+// This is the same shape as runStore.getRun(id, workspaceIds), which is how the
+// rest of the app has always scoped tool runs — CrawlScope was the outlier.
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Whether `viewer` may read a row carrying `owner` + `workspace_id`. */
+function canViewRow(row, viewer) {
+  if (!row || !viewer) return false;
+  if (row.workspace_id) return (viewer.workspaceIds || []).includes(row.workspace_id);
+  return Boolean(viewer.userId) && row.owner === viewer.userId;
+}
+
+/**
+ * The same rule as a PostgREST filter, for list reads that cannot fetch first and
+ * authorize after.
+ *
+ * Ids are format-checked before interpolation. They come from our own tables and
+ * our own JWT rather than from a request body, but this string becomes query
+ * syntax, and a filter builder that trusts its input is how that stops being true
+ * later.
+ *
+ * Returns '' when the viewer has no identity at all. Callers MUST treat that as
+ * "no rows" — never as "no filter", which would read the whole table.
+ */
+function viewerFilter(viewer) {
+  const ids = (viewer?.workspaceIds || []).filter((id) => UUID_RE.test(String(id)));
+  const userId = UUID_RE.test(String(viewer?.userId)) ? viewer.userId : null;
+  const clauses = [];
+  if (ids.length) clauses.push(`workspace_id.in.(${ids.join(",")})`);
+  if (userId) clauses.push(`and(workspace_id.is.null,owner.eq.${userId})`);
+  return clauses.join(",");
+}
+
+/** One run, if this viewer may see it. Null when it does not exist OR is theirs
+ *  to not see — the route answers 404 for both, per the house rule that a
+ *  cross-workspace read must not confirm the row exists. */
+async function getRunForViewer(client, id, viewer) {
+  const row = unwrap(
+    await client.from("crawl_runs").select("*").eq("id", id).maybeSingle(),
+  );
+  return canViewRow(row, viewer) ? row : null;
+}
+
+async function listRunsForViewer(client, viewer, { limit = 50, projectId = null } = {}) {
+  const filter = viewerFilter(viewer);
+  if (!filter) return [];
+  let query = client
+    .from("crawl_runs")
+    // workspace_id and owner ride along so a returned row can be checked against
+    // the scope that produced it. Still no `summary`, which carries every finding
+    // and reaches tens of megabytes on a large crawl.
+    .select(
+      "id,url,status,trigger,project_id,workspace_id,owner,scheduled_for,created_at,started_at,finished_at,report_path,counts:summary->counts",
+    )
+    .or(filter);
+  if (projectId) query = query.eq("project_id", projectId);
+  return unwrap(await query.order("created_at", { ascending: false }).limit(limit));
+}
+
+async function listProjectsForViewer(client, viewer) {
+  const filter = viewerFilter(viewer);
+  if (!filter) return [];
+  return unwrap(
+    await client
+      .from("crawl_projects")
+      .select("*")
+      .or(filter)
+      .order("created_at", { ascending: false }),
+  );
+}
+
+async function getProjectForViewer(client, id, viewer) {
+  const row = unwrap(
+    await client.from("crawl_projects").select("*").eq("id", id).maybeSingle(),
+  );
+  return canViewRow(row, viewer) ? row : null;
+}
+
+async function getRun(client, id, owner = null) {
+  let query = client.from("crawl_runs").select("*").eq("id", id);
+  if (owner) query = query.eq("owner", owner);
+  return unwrap(await query.maybeSingle());
+}
+
+// Narrow select: the UI only reads summary.counts, while `summary` itself carries every
+// finding and can reach tens of megabytes on a large crawl.
+async function listRuns(client, owner, { limit = 50, projectId = null } = {}) {
+  let query = client
+    .from("crawl_runs")
+    .select(
+      "id,url,status,trigger,project_id,scheduled_for,created_at,started_at,finished_at,report_path,counts:summary->counts",
+    )
+    .eq("owner", owner);
+  if (projectId) query = query.eq("project_id", projectId);
+  return unwrap(await query.order("created_at", { ascending: false }).limit(limit));
+}
+
+// Claim the oldest queued run for execution. Optimistic: flip status queued->running
+// scoped to the id, so if two workers race only one update succeeds. `triggers` limits
+// which runs a caller will claim (the worker claims 'schedule' and 'initial' runs;
+// plain 'manual' runs are executed in-process by the web service).
+//
+// Walks a small candidate window rather than only the single oldest row: losing one CAS
+// should cost another round trip, not a whole poll interval of idleness while queued
+// work sits there.
+async function claimNextQueuedRun(serviceClient, { triggers, trigger, workerId } = {}) {
+  const wanted = triggers?.length ? triggers : trigger ? [trigger] : null;
+  const candidateLimit = Number(process.env.WORKER_CLAIM_CANDIDATES) || 5;
+  let query = serviceClient
+    .from("crawl_runs")
+    .select("id")
+    .eq("status", "queued")
+    .order("created_at", { ascending: true })
+    .limit(candidateLimit);
+  if (wanted) query = query.in("trigger", wanted);
+  const candidates = unwrap(await query);
+
+  for (const candidate of candidates || []) {
+    const nowIso = new Date().toISOString();
+    const claimed = unwrap(
+      await serviceClient
+        .from("crawl_runs")
+        .update({
+          status: "running",
+          started_at: nowIso,
+          heartbeat_at: nowIso,
+          worker_id: workerId || null,
+        })
+        .eq("id", candidate.id)
+        .eq("status", "queued")
+        .select()
+        .maybeSingle(),
+    );
+    if (claimed) return claimed;
+  }
+  return null;
+}
+
+async function updateRun(client, id, patch) {
+  return unwrap(await client.from("crawl_runs").update(patch).eq("id", id).select().maybeSingle());
+}
+
+// Put a run back on the queue. Used when our own shutdown interrupted it, and by the
+// reaper when a worker died holding it. Stale terminal fields from the dead attempt are
+// cleared too, so a queued run doesn't report a duration or carry the old summary.
+async function requeueRun(client, id, { attempts } = {}) {
+  const patch = {
+    status: "queued",
+    started_at: null,
+    finished_at: null,
+    heartbeat_at: null,
+    worker_id: null,
+    error: null,
+    summary: null,
+    progress: {},
+  };
+  if (attempts !== undefined) patch.attempts = attempts;
+  return unwrap(await client.from("crawl_runs").update(patch).eq("id", id).select().maybeSingle());
+}
+
+// Runs that claim to be executing but whose worker has stopped stamping heartbeats.
+//
+// `paused` is included alongside `running`: a paused run keeps heart-beating, so a stale
+// heartbeat there means the process died rather than that a user paused it. Excluding it
+// would leave a run hard-killed while paused stuck forever.
+//
+// The NULL-heartbeat arm matters more than it looks. `heartbeat_at < x` evaluates to NULL
+// (not true) when the column is NULL, so any row written before this column existed — or
+// by a path that cleared it — would be invisible to the reaper permanently. `started_at`
+// is the fallback liveness signal for those.
+const STALE_RUN_COLUMNS =
+  "id,owner,project_id,url,status,trigger,attempts,worker_id,heartbeat_at,started_at";
+
+async function staleRuns(client, staleBeforeIso, { limit = 20 } = {}) {
+  const executing = (query) => query.in("status", ["running", "paused"]);
+
+  // Two plain queries rather than one `.or(...)` with an embedded timestamp: PostgREST's
+  // or= grammar is comma/dot delimited, and smuggling an ISO timestamp through it is a
+  // parsing subtlety this code cannot verify offline. Two selects are unambiguous.
+  const beating = unwrap(
+    await executing(client.from("crawl_runs").select(STALE_RUN_COLUMNS))
+      .lt("heartbeat_at", staleBeforeIso)
+      .order("heartbeat_at", { ascending: true })
+      .limit(limit),
+  );
+
+  const neverStamped = unwrap(
+    await executing(client.from("crawl_runs").select(STALE_RUN_COLUMNS))
+      .is("heartbeat_at", null)
+      .lt("started_at", staleBeforeIso)
+      .order("started_at", { ascending: true })
+      .limit(limit),
+  );
+
+  return [...beating, ...neverStamped].slice(0, limit);
+}
+
+// Guard a reaper write on exactly the row we observed, so a revived worker or a second
+// replica's reaper cannot act on it twice. `.eq(column, null)` never matches in
+// PostgREST, so a NULL heartbeat has to be expressed as `.is`.
+function guardObservedRun(query, run) {
+  const guarded = query.eq("id", run.id).eq("status", run.status);
+  return run.heartbeat_at
+    ? guarded.eq("heartbeat_at", run.heartbeat_at)
+    : guarded.is("heartbeat_at", null);
+}
+
+async function reclaimStaleRun(client, run, attempts) {
+  return firstRow(
+    unwrap(
+      await guardObservedRun(
+        client.from("crawl_runs").update({
+          status: "queued",
+          started_at: null,
+          finished_at: null,
+          heartbeat_at: null,
+          worker_id: null,
+          error: null,
+          summary: null,
+          progress: {},
+          attempts,
+        }),
+        run,
+      ).select(),
+    ),
+  );
+}
+
+async function failStaleRun(client, run, attempts, message) {
+  return firstRow(
+    unwrap(
+      await guardObservedRun(
+        client.from("crawl_runs").update({
+          status: "failed",
+          error: message,
+          attempts,
+          finished_at: new Date().toISOString(),
+        }),
+        run,
+      ).select(),
+    ),
+  );
+}
+
+// Most recent completed run for a project before a given time (for deltas).
+async function previousCompletedRun(client, projectId, beforeIso) {
+  if (!projectId) return null;
+  const rows = unwrap(
+    await client
+      .from("crawl_runs")
+      .select("id,summary,finished_at")
+      .eq("project_id", projectId)
+      .eq("status", "completed")
+      .lt("created_at", beforeIso)
+      .order("created_at", { ascending: false })
+      .limit(1),
+  );
+  return rows[0] || null;
+}
+
+// ---- results / findings ---------------------------------------------------
+
+async function insertResults(serviceClient, rows) {
+  if (!rows.length) return;
+  unwrap(await serviceClient.from("crawl_run_results").insert(rows));
+}
+
+async function insertFindings(serviceClient, rows) {
+  if (!rows.length) return;
+  unwrap(await serviceClient.from("crawl_run_findings").insert(rows));
+}
+
+// Internal link edges for one run (migration 0012). Chunked because a crawl of
+// a few hundred pages produces tens of thousands of edges, and one insert that
+// size is refused by the REST layer rather than being slow.
+const LINK_CHUNK = 1000;
+
+async function insertRunLinks(serviceClient, rows) {
+  if (!rows.length) return 0;
+  let written = 0;
+  for (let i = 0; i < rows.length; i += LINK_CHUNK) {
+    const chunk = rows.slice(i, i + LINK_CHUNK);
+    unwrap(await serviceClient.from("crawl_run_links").insert(chunk));
+    written += chunk.length;
+  }
+  return written;
+}
+
+async function listRunLinks(client, runId, { limit = 20000 } = {}) {
+  return unwrap(
+    await client
+      .from("crawl_run_links")
+      .select("from_url, to_url, anchor, nofollow")
+      .eq("run_id", runId)
+      .limit(limit),
+  );
+}
+
+// Clear a reclaimed run's partial rows before it is retried, so the retry does not
+// append to a half-finished result set.
+async function deleteRunResults(serviceClient, runId) {
+  unwrap(await serviceClient.from("crawl_run_results").delete().eq("run_id", runId));
+  unwrap(await serviceClient.from("crawl_run_findings").delete().eq("run_id", runId));
+  // A retry re-derives the graph from scratch; leaving the previous attempt's
+  // edges would double every count in the clustering.
+  unwrap(await serviceClient.from("crawl_run_links").delete().eq("run_id", runId));
+}
+
+async function listResults(client, runId, { limit = 500, offset = 0, owner = null } = {}) {
+  let query = client.from("crawl_run_results").select("data").eq("run_id", runId);
+  if (owner) query = query.eq("owner", owner);
+  return unwrap(await query.order("id", { ascending: true }).range(offset, offset + limit - 1));
+}
+
+// ── Issue review ────────────────────────────────────────────────────────────
+// Per-finding triage (status + notes) for one run. See
+// crawl_finding_reviews in supabase/migrations/0010_crawlscope.sql for why this
+// is keyed on the analyzer's finding id rather than on crawl_run_findings,
+// which is a per-rule rollup.
+//
+// `owner` is required, not optional, on every function here: these are only ever
+// reached from an HTTP route, so there is no worker case that legitimately spans
+// users the way claimNextQueuedRun does.
+
+// Keyed on the run, not on the reader.
+//
+// This used to filter `.eq("owner", owner)` while saveFindingReviews upserts on
+// (run_id, finding_id) — so a second reviewer's decision OVERWROTE the first
+// reviewer's row, and then neither could read the other's back. One row, two
+// people, each seeing only their own writes to it.
+//
+// The row was always shared; only the read pretended otherwise. `reviewed_by`
+// carries who decided, which is the attribution the UI actually shows. The
+// caller has already authorized the run, and the run is the boundary.
+async function listFindingReviews(client, runId) {
+  return unwrap(
+    await client
+      .from("crawl_finding_reviews")
+      .select("finding_id,rule_id,review_status,reviewer_notes,reviewed_by,updated_at")
+      .eq("run_id", runId),
+  );
+}
+
+// Upsert, because a finding has no review row until someone first touches it —
+// the UI shows every finding as "Needs review" by default without writing
+// anything, so the first edit is an insert and later ones are updates.
+async function saveFindingReviews(client, runId, owner, reviews, reviewedBy = null) {
+  if (!reviews.length) return [];
+  const rows = reviews.map((r) => ({
+    run_id: runId,
+    finding_id: r.findingId,
+    owner,
+    rule_id: r.ruleId,
+    review_status: r.reviewStatus,
+    reviewer_notes: r.reviewerNotes ?? null,
+    reviewed_by: reviewedBy,
+    updated_at: new Date().toISOString(),
+  }));
+  return unwrap(
+    await client
+      .from("crawl_finding_reviews")
+      .upsert(rows, { onConflict: "run_id,finding_id" })
+      .select(),
+  );
+}
+
+module.exports = {
+  canViewRow,
+  viewerFilter,
+  getRunForViewer,
+  listRunsForViewer,
+  listProjectsForViewer,
+  getProjectForViewer,
+  listProjects,
+  getProject,
+  createProject,
+  updateProject,
+  deleteProject,
+  dueProjects,
+  dormantProjects,
+  advanceProjectFrom,
+  repairProjectNextRun,
+  createRun,
+  enqueueScheduledRun,
+  getRun,
+  listRuns,
+  claimNextQueuedRun,
+  updateRun,
+  requeueRun,
+  staleRuns,
+  reclaimStaleRun,
+  failStaleRun,
+  previousCompletedRun,
+  insertResults,
+  insertRunLinks,
+  listRunLinks,
+  insertFindings,
+  deleteRunResults,
+  listResults,
+  listFindingReviews,
+  saveFindingReviews,
+};

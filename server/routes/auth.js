@@ -3,15 +3,30 @@ const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
 const { isSupabaseConfigured } = require('../services/supabase');
 const identityStore = require('../services/identityStore');
+const platformAdmin = require('../services/platformAdmin');
 const { peekWorkspaceId } = require('../services/workspaceContext');
 const router = express.Router();
 
 const COOKIE_NAME = 'seo_session';
+
+// The synthetic identity the removed shared-token logins used to mint. Kept as a
+// constant only so already-issued cookies can be recognised and refused.
+const LEGACY_EMBED_USER = 'platform_embed';
 // Which workspace the user is currently working in. Only ever read through
 // workspaceContext, which membership-checks it before anything is written
 // against it — a cookie is caller-supplied and never trusted as-is.
 const WORKSPACE_COOKIE = 'workspace_id';
-const JWT_SECRET = process.env.JWT_SECRET || 'seo-automation-fallback-secret';
+// No fallback. A default here would be a secret published in the source: any
+// deployment that forgot the variable would accept sessions forged by anyone who
+// can read this repo. Refusing to boot is the safe failure.
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error(
+    'JWT_SECRET is not set. Sessions are signed with it, so the server will not start ' +
+    'without one. Generate a long random value (e.g. `openssl rand -hex 32`) and put it ' +
+    'in .env as JWT_SECRET.'
+  );
+}
 
 function normalizeSameSite(value) {
   const normalized = String(value || '').toLowerCase();
@@ -58,11 +73,27 @@ router.get('/verify', async (req, res) => {
   if (!token) return res.json({ valid: false });
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    let hasProfile = true; // platform/embed sessions (no userId) skip the profile step
+    if (payload.username === LEGACY_EMBED_USER) return res.json({ valid: false });
+    let hasProfile = true; // a session with no userId skips the profile step
     if (payload.userId && isSupabaseConfigured()) {
       hasProfile = Boolean(await identityStore.getProfile(payload.userId));
     }
-    res.json({ valid: true, role: payload.role, email: payload.username, userId: payload.userId, hasProfile });
+    // Sent so the client can render the admin nav. It is a hint, never an
+    // authorization decision: every /api/admin route re-checks the persisted
+    // grant server-side, so a browser that flips this flag gains nothing
+    // (PRD §7.2 last paragraph, AC-002).
+    const isPlatformAdmin = await platformAdmin.isPlatformAdmin({
+      email: payload.username,
+      userId: payload.userId,
+    });
+    res.json({
+      valid: true,
+      role: payload.role,
+      email: payload.username,
+      userId: payload.userId,
+      hasProfile,
+      isPlatformAdmin,
+    });
   } catch (e) {
     res.json({ valid: false });
   }
@@ -73,6 +104,12 @@ function requireAuth(req, res, next) {
   if (!token) return res.status(401).json({ error: 'Not authenticated.' });
   try {
     req.user = jwt.verify(token, JWT_SECRET);
+    // Sessions minted by the removed shared-token paths. They are still validly
+    // signed for up to a week, so they are rejected by identity rather than left
+    // to expire — otherwise "removed" would mean "removed for new visitors".
+    if (req.user.username === LEGACY_EMBED_USER) {
+      return res.status(401).json({ error: 'Please sign in with Google.' });
+    }
     // peek, not resolve: the cached workspace is already membership-checked,
     // and the activity trail must never add a query to the request path.
     identityStore.recordActivity({
@@ -127,6 +164,12 @@ router.get('/google/callback', async (req, res) => {
     if (isSupabaseConfigured()) {
       const user = await identityStore.getOrCreateUser(payload.email);
       userId = user.id;
+      // This is the one moment both the Google-verified email and the app_users
+      // row are known, so it is where a pending platform-admin grant gets
+      // linked to a user id (PRD §7.3, requirement 4: idempotent when the
+      // account already exists). Never fails the login — a link failure means
+      // the grant stays pending and is retried next sign-in.
+      await platformAdmin.linkGrantForUser({ userId, email: payload.email });
     }
 
     const sessionToken = jwt.sign(
@@ -140,19 +183,6 @@ router.get('/google/callback', async (req, res) => {
     console.error('[Auth] Google callback failed:', e.message);
     res.redirect('/login?error=login_failed');
   }
-});
-
-// GET /api/auth/platform-login?token=xxx
-// Silent auto-login for the Position2 Intelligence Platform iframe embed.
-router.get('/platform-login', (req, res) => {
-  const platformToken = process.env.PLATFORM_TOKEN;
-  if (!platformToken || req.query.token !== platformToken) {
-    return res.status(401).json({ error: 'Invalid platform token.' });
-  }
-  const role = process.env.PLATFORM_DEFAULT_ROLE || 'seo';
-  const token = jwt.sign({ username: 'platform_embed', role }, JWT_SECRET, { expiresIn: '7d' });
-  res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
-  res.json({ ok: true });
 });
 
 module.exports = { router, requireAuth, requireSeo, COOKIE_OPTIONS, WORKSPACE_COOKIE };

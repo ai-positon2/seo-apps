@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import ModuleRuns from '../components/ModuleRuns';
+import ProjectReportBar from '../components/project/ProjectReportBar';
+import ReportResolving from '../components/project/ReportResolving';
 
 const SC = {
   pass: { label: 'Pass', bg: 'var(--success-soft)', color: 'var(--success)', icon: '✓' },
@@ -304,6 +306,11 @@ function SkeletonLine({ w = '100%' }) {
 
 // ─── Main page component ──────────────────────────────────────────────────────
 export default function AgentReadinessAuditPage() {
+  // Which screen to draw: 'loading' until ProjectReportBar has worked out
+  // whether this client has a stored report, then 'report' or 'none'. Starting
+  // at 'loading' is the point — the input form used to render on mount and be
+  // replaced a moment later.
+  const [reportState, setReportState] = useState('loading');
   const [urlHomepage, setUrlHomepage] = useState('');
   const [urlAction, setUrlAction]     = useState('');
   const [urlForm, setUrlForm]         = useState('');
@@ -559,6 +566,13 @@ export default function AgentReadinessAuditPage() {
   return (
     <>
       <main style={{ maxWidth: 960, margin: '0 auto', padding: '2rem 1.5rem' }}>
+        {/* The report renders entirely from `result`, so handing the stored run
+            to setResult reproduces an individual run exactly. */}
+        <ProjectReportBar
+          moduleKey="agent_readiness"
+          onOpenReport={(native) => setResult(native)}
+          onResolved={setReportState}
+        />
 
         {/* Agent importance one-liner */}
         <div style={{ background: 'var(--primary)', borderRadius: 10, padding: '10px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -701,7 +715,10 @@ export default function AgentReadinessAuditPage() {
           )}
         </div>
 
-        {!result && !loading && (
+        {/* Resolved before drawn — see ReportResolving. */}
+        {reportState === 'loading' && !result && !loading && <ReportResolving maxWidth={960} />}
+
+        {!result && !loading && reportState !== 'loading' && (
           <div style={{ textAlign: 'center', padding: '4rem 0', color: 'var(--text-3)' }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>🤖</div>
             <p style={{ fontSize: 13, margin: '0 0 4px' }}>Enter a URL above to audit its agent readiness.</p>

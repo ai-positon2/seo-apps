@@ -75,7 +75,19 @@ function createLlmClient(modelId) {
   if (provider !== 'openai') {
     const rawCreate = client.chat.completions.create.bind(client.chat.completions);
     client.chat.completions.create = async (params) => {
-      const { max_completion_tokens, max_tokens, response_format, messages, ...rest } = params;
+      const {
+        max_completion_tokens, max_tokens, response_format, messages, temperature, ...rest
+      } = params;
+
+      // Anthropic's current models reject `temperature` outright ("temperature
+      // is deprecated for this model", HTTP 400), and every call site here was
+      // written against OpenAI where passing it is normal. Dropping it for that
+      // provider keeps those call sites unchanged instead of making each one
+      // learn which parameters its model tolerates.
+      //
+      // Google is left alone: it accepts temperature, and silently discarding a
+      // caller's sampling choice where it would have worked is its own bug.
+      const sampling = provider === 'anthropic' ? {} : { temperature };
       const wantsJson = response_format?.type === 'json_object';
       const finalMessages = wantsJson
         ? messages.map((m, i) => (i === 0 && m.role === 'system'
@@ -84,6 +96,7 @@ function createLlmClient(modelId) {
         : messages;
       const res = await rawCreate({
         ...rest,
+        ...sampling,
         max_completion_tokens: max_completion_tokens || max_tokens || DEFAULT_MAX_OUTPUT_TOKENS,
         messages: finalMessages,
       });

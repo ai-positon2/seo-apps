@@ -1,8 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { TOOL_GROUPS, TAGS, getToolByPath } from '../toolsMeta';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from './ThemeContext';
+import { projectsApi } from '../lib/projectsApi';
+import { useActiveProjectId } from '../lib/activeProject';
 import SemrushBalanceBadge from './SemrushBalanceBadge';
+import CrawlStatusBar from './home/CrawlStatusBar';
+import { useCrawlStatus } from '../lib/useCrawlStatus';
 
 /* ── Embed mode ──────────────────────────────────────────────────────────────
    When the app is framed with ?embed=1 (used by the public intelligence.position2.com
@@ -84,6 +89,16 @@ const TOOL_ICONS = {
       <path d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
     </svg>
   ),
+  'crawl-scope': (
+    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 21a9 9 0 100-18 9 9 0 000 18zm0 0V3m0 18c-2.5-2.2-4-5.4-4-9s1.5-6.8 4-9m0 18c2.5-2.2 4-5.4 4-9s-1.5-6.8-4-9M3.6 9h16.8M3.6 15h16.8" />
+    </svg>
+  ),
+  'content-architect': (
+    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 6.75V15m6-6v8.25m.503-13.036L20.25 6.75V19.5l-5.747-2.036M8.503 3.964L3.75 6.75v12.75l5.747-2.036m0-13.5l6-2.036" />
+    </svg>
+  ),
   'knowledge-base': (
     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
@@ -106,6 +121,183 @@ const TOOL_ICONS = {
   ),
 };
 
+/* -- Header icons -- */
+const ChevronDownIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M6 9l6 6 6-6" />
+  </svg>
+);
+
+const SunIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4" />
+  </svg>
+);
+
+const MoonIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 12.8A8.5 8.5 0 1111.2 3a6.6 6.6 0 009.8 9.8z" />
+  </svg>
+);
+
+const GearIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z" />
+  </svg>
+);
+
+/* Header buttons share one treatment: quiet until hovered, never a filled
+   rectangle -- the design keeps a single accent per screen. */
+function HeaderButton({ children, onClick, title, active, style }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        height: 30,
+        padding: '0 10px',
+        fontSize: 12,
+        fontWeight: 500,
+        fontFamily: 'var(--font-sans)',
+        color: active ? 'var(--primary-text)' : hover ? 'var(--text)' : 'var(--text-2)',
+        background: hover || active ? 'var(--surface)' : 'transparent',
+        border: '1px solid ' + (active ? 'var(--primary)' : 'var(--border)'),
+        borderRadius: 6,
+        cursor: 'pointer',
+        whiteSpace: 'nowrap',
+        transition: 'background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease)',
+        ...style,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+/* -- Client switcher --------------------------------------------------------
+   The header names the client every screen below it is about, so switching is
+   one click from anywhere. It lists only the projects /api/projects returned --
+   i.e. only workspaces the caller belongs to -- and picking one just records the
+   choice locally; every request still names the project and is authorised
+   server-side. */
+function ClientSwitcher() {
+  const navigate = useNavigate();
+  const [activeProjectId, setActiveProjectId] = useActiveProjectId();
+  const [projects, setProjects] = useState([]);
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    // A failure here is not worth an error state in the chrome: the dashboard
+    // below reports it properly, and the switcher simply has nothing to offer.
+    projectsApi.list()
+      .then((data) => { if (!cancelled) setProjects(data.projects || []); })
+      .catch(() => { if (!cancelled) setProjects([]); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDocClick = (e) => {
+      if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const active = useMemo(
+    () => projects.find((p) => p.id === activeProjectId) || projects[0] || null,
+    [projects, activeProjectId],
+  );
+
+  if (!projects.length) {
+    return (
+      <HeaderButton title="Set up a client project" onClick={() => navigate('/projects')}>
+        Add a client
+      </HeaderButton>
+    );
+  }
+
+  return (
+    <div ref={boxRef} style={{ position: 'relative' }}>
+      <HeaderButton title="Switch client" onClick={() => setOpen((v) => !v)} active={open}>
+        <span
+          style={{
+            width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+            background: active?.schedule?.enabled ? 'var(--primary)' : 'var(--text-3)',
+          }}
+        />
+        <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {active ? active.name : 'Select a client'}
+        </span>
+        <ChevronDownIcon />
+      </HeaderButton>
+
+      {open && (
+        <div
+          role="menu"
+          style={{
+            position: 'absolute', top: 36, left: 0, minWidth: 260, zIndex: 40,
+            background: 'var(--card)', border: '1px solid var(--border)',
+            borderRadius: 'var(--r-md)', boxShadow: 'var(--shadow-md)',
+            padding: 6, display: 'flex', flexDirection: 'column', gap: 2,
+          }}
+        >
+          {projects.map((project) => {
+            const isActive = active?.id === project.id;
+            return (
+              <button
+                key={project.id}
+                role="menuitem"
+                onClick={() => { setActiveProjectId(project.id); setOpen(false); navigate('/'); }}
+                style={{
+                  textAlign: 'left', border: 'none', cursor: 'pointer',
+                  background: isActive ? 'var(--nav-active-bg)' : 'transparent',
+                  color: 'var(--text)', padding: '7px 9px', borderRadius: 'var(--r-sm)',
+                  display: 'flex', flexDirection: 'column', gap: 1,
+                  fontFamily: 'var(--font-sans)',
+                }}
+              >
+                <span style={{ fontSize: 13, fontWeight: isActive ? 600 : 400 }}>{project.name}</span>
+                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                  {project.primaryDomain?.host || project.legacyUrl}
+                  {project.countryCode ? ' · ' + project.countryCode : ' · country not set'}
+                </span>
+              </button>
+            );
+          })}
+          <div style={{ height: 1, background: 'var(--border)', margin: '4px 2px' }} />
+          <button
+            onClick={() => { setOpen(false); navigate('/projects'); }}
+            style={{
+              textAlign: 'left', border: 'none', cursor: 'pointer', background: 'transparent',
+              color: 'var(--primary-text)', padding: '7px 9px', borderRadius: 'var(--r-sm)',
+              fontSize: 12.5, fontFamily: 'var(--font-sans)',
+            }}
+          >
+            Manage projects
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const ChevronLeftIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
     <path d="M15 18l-6-6 6-6" />
@@ -117,7 +309,34 @@ export default function MacWindow() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [search, setSearch] = useState('');
-  const { email, logout } = useAuth();
+
+  // The live crawl for the active client, polled here so it survives navigation.
+  // Server-derived on every tick, so there is no client-side crawl state that a
+  // route change could drop.
+  const crawl = useCrawlStatus({ enabled: !EMBED_MODE });
+
+  // Collapsing the tool list is a per-person preference about their own screen,
+  // so it is remembered locally rather than round-tripped to the server. Wrapped
+  // because localStorage throws outright in a private window rather than
+  // returning null.
+  const [navCollapsed, setNavCollapsed] = useState(() => {
+    try {
+      return window.localStorage.getItem('seoStudio.navCollapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('seoStudio.navCollapsed', navCollapsed ? '1' : '0');
+    } catch {
+      // A viewer who cannot store the preference still gets to use the toggle;
+      // it just does not survive a reload.
+    }
+  }, [navCollapsed]);
+  const { email, logout, isPlatformAdmin } = useAuth();
+  const { isDark, toggle: toggleTheme } = useTheme();
 
   const isHome = pathname === '/';
   const currentTool = getToolByPath(pathname);
@@ -156,17 +375,18 @@ export default function MacWindow() {
           alignItems: 'center',
           zIndex: 10,
         }}>
-          {/* Brand block — aligned to sidebar width */}
+          {/* Brand block — aligned to sidebar width, and collapses with it */}
           <div style={{
-            width: 248,
+            width: navCollapsed ? 60 : 248,
             flexShrink: 0,
             height: '100%',
             display: 'flex',
             alignItems: 'center',
-            padding: '0 16px',
+            padding: navCollapsed ? '0 10px' : '0 16px',
             gap: 10,
             borderRight: '1px solid var(--border)',
             boxSizing: 'border-box',
+            transition: 'width 160ms ease, padding 160ms ease',
           }}>
             {/* Brand square */}
             <div style={{
@@ -179,19 +399,66 @@ export default function MacWindow() {
               justifyContent: 'center',
               flexShrink: 0,
             }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-on-primary)" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 15.803a7.5 7.5 0 0010.607 10.607z" />
               </svg>
             </div>
-            <span style={{
-              fontWeight: 700,
-              fontSize: 14,
-              color: 'var(--text)',
-              letterSpacing: '-0.015em',
-              userSelect: 'none',
-            }}>
-              SEO Studio
-            </span>
+            {!navCollapsed && (
+              <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15, minWidth: 0 }}>
+                <span style={{
+                  fontWeight: 600,
+                  fontSize: 13.5,
+                  color: 'var(--text)',
+                  letterSpacing: '-0.015em',
+                  userSelect: 'none',
+                  whiteSpace: 'nowrap',
+                }}>
+                  SEO Studio
+                </span>
+                <span style={{
+                  fontSize: 9.5,
+                  fontFamily: 'var(--font-mono)',
+                  letterSpacing: '0.14em',
+                  textTransform: 'uppercase',
+                  color: 'var(--text-3)',
+                  userSelect: 'none',
+                }}>
+                  Position2
+                </span>
+              </div>
+            )}
+
+            {/* Collapse the tool list. Lives in the header rather than inside the
+                pane so it stays reachable once the pane is gone. */}
+            <button
+              type="button"
+              onClick={() => setNavCollapsed((v) => !v)}
+              title={navCollapsed ? 'Show the tool list' : 'Hide the tool list'}
+              aria-label={navCollapsed ? 'Show the tool list' : 'Hide the tool list'}
+              aria-expanded={!navCollapsed}
+              style={{
+                marginLeft: navCollapsed ? 0 : 'auto',
+                width: 28,
+                height: 28,
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'none',
+                border: '1px solid var(--border)',
+                borderRadius: 7,
+                cursor: 'pointer',
+                color: 'var(--text-3)',
+                padding: 0,
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path d="M9 3v18" />
+              </svg>
+            </button>
           </div>
 
           {/* Breadcrumb / page title */}
@@ -248,78 +515,79 @@ export default function MacWindow() {
               letterSpacing: '-0.01em',
               userSelect: 'none',
             }}>
-              {isHome ? 'SEO Tools' : (currentTool ? currentTool.label : 'SEO Studio')}
+              {isHome ? 'Overview' : (currentTool ? currentTool.label : 'SEO Studio')}
             </span>
+
+            {/* Which client the screens below are about (PRD 20.1). */}
+            <div style={{ marginLeft: 12 }}>
+              <ClientSwitcher />
+            </div>
           </div>
 
-          {/* Right controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingRight: 16 }}>
-            {email && (
-              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{email}</span>
-            )}
-            <button
-              onClick={() => navigate('/runs')}
-              style={{
-                fontSize: 12, fontWeight: 600, color: 'var(--text-2)',
-                background: 'none', border: '1px solid var(--border)', borderRadius: 6,
-                padding: '5px 10px', cursor: 'pointer',
-              }}
-            >
+          {/* Right controls: usage, navigation, appearance, identity */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingRight: 16 }}>
+            <SemrushBalanceBadge />
+
+            <HeaderButton title="Crawl and tool runs" onClick={() => navigate('/runs')}>
               Runs
-            </button>
-            <button
-              onClick={() => navigate('/workspaces')}
-              style={{
-                fontSize: 12, fontWeight: 600, color: 'var(--text-2)',
-                background: 'none', border: '1px solid var(--border)', borderRadius: 6,
-                padding: '5px 10px', cursor: 'pointer',
-              }}
-            >
+            </HeaderButton>
+            <HeaderButton title="Projects and competitors" onClick={() => navigate('/projects')}>
+              Projects
+            </HeaderButton>
+            <HeaderButton title="Workspaces and members" onClick={() => navigate('/workspaces')}>
               Workspaces
-            </button>
-            <button
-              onClick={() => logout()}
-              style={{
-                fontSize: 12, fontWeight: 600, color: 'var(--text-2)',
-                background: 'none', border: '1px solid var(--border)', borderRadius: 6,
-                padding: '5px 10px', cursor: 'pointer',
-              }}
+            </HeaderButton>
+
+            {/* Shown on the server's say-so; /api/admin re-checks the persisted
+                grant on every request, so this is a signpost, not a gate. */}
+            {isPlatformAdmin && (
+              <HeaderButton title="Platform administration" onClick={() => navigate('/admin')}>
+                <GearIcon />
+                Admin
+              </HeaderButton>
+            )}
+
+            <HeaderButton
+              title={isDark ? 'Switch to the light theme' : 'Switch to the dark theme'}
+              onClick={toggleTheme}
+              style={{ padding: '0 8px' }}
             >
-              Log out
-            </button>
+              {isDark ? <SunIcon /> : <MoonIcon />}
+            </HeaderButton>
+
+            <UserChip email={email} onLogout={logout} />
           </div>
         </div>
 
         {/* ── Body: sidebar + content ── */}
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
 
-          {/* ── Sidebar (navy gradient) ── */}
+          {/* ── Sidebar ──────────────────────────────────────────────────
+              Painted from the nav tokens rather than white alphas: the same
+              markup has to read on a warm-paper light background and on the
+              near-black dark one, and an alpha tuned for navy does neither. */}
           <div style={{
-            width: 248,
+            width: navCollapsed ? 0 : 248,
             flexShrink: 0,
             background: 'linear-gradient(180deg, var(--nav-bg-top) 0%, var(--nav-bg-bot) 100%)',
-            borderRight: '1px solid rgba(255,255,255,0.06)',
+            borderRight: navCollapsed ? 'none' : '1px solid var(--border)',
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
+            transition: 'width 160ms ease',
           }}>
-            {/* Semrush balance */}
-            <div style={{ padding: '12px 12px 0' }}>
-              <SemrushBalanceBadge />
-            </div>
-
             {/* Search */}
-            <div style={{ padding: '12px 12px 8px' }}>
+            <div style={{ padding: '14px 12px 8px' }}>
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: 7,
-                background: 'rgba(255,255,255,0.08)',
-                border: '1px solid rgba(255,255,255,0.12)',
+                background: 'var(--card)',
+                border: '1px solid var(--border)',
                 borderRadius: 8,
                 padding: '6px 10px',
               }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(199,210,224,0.7)" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="11" cy="11" r="8" />
                   <path d="m21 21-4.35-4.35" />
                 </svg>
@@ -332,6 +600,7 @@ export default function MacWindow() {
                     border: 'none',
                     outline: 'none',
                     fontSize: 12,
+                    fontFamily: 'var(--font-sans)',
                     color: 'var(--nav-text-active)',
                     width: '100%',
                   }}
@@ -341,6 +610,11 @@ export default function MacWindow() {
 
             {/* Nav groups */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '4px 8px 20px' }}>
+              {search.trim() && !filteredGroups.length && (
+                <div style={{ padding: '8px 10px', fontSize: 12, color: 'var(--text-3)' }}>
+                  No tool matches “{search.trim()}”.
+                </div>
+              )}
               {filteredGroups.map(group => (
                 <div key={group.label} style={{ marginBottom: 20 }}>
                   {/* Group label */}
@@ -350,7 +624,7 @@ export default function MacWindow() {
                     fontWeight: 600,
                     textTransform: 'uppercase',
                     letterSpacing: '0.12em',
-                    color: 'rgba(255,255,255,0.40)',
+                    color: 'var(--text-3)',
                     padding: '4px 10px 6px',
                   }}>
                     {group.label}
@@ -378,10 +652,122 @@ export default function MacWindow() {
             overflowY: 'auto',
             background: 'var(--bg)',
           }}>
+            {/* The live crawl, above whatever screen you are on.
+                It sits in the shell rather than on the dashboard because a crawl
+                runs for tens of minutes and people do not stand still for it —
+                walking over to another tool used to make the crawl disappear,
+                which reads as "it stopped" rather than "you changed screens".
+                Renders nothing when no crawl is in flight. */}
+            {crawl.status && (
+              // Same column geometry as the dashboard beneath it (32px gutters,
+              // 1520 max, centred), so the bar's edges line up with the cards
+              // rather than sitting proud of them by eight pixels.
+              <div style={{ padding: '24px 32px 0', maxWidth: 1520, margin: '0 auto' }}>
+                <CrawlStatusBar
+                  status={crawl.status}
+                  onWatch={(runId) => navigate(`/crawl-scope/runs/${runId}`)}
+                />
+              </div>
+            )}
             <Outlet />
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* -- Identity ---------------------------------------------------------------
+   Avatar and name, with sign-out behind it. The initials come from the signed-in
+   email, which is the only identity the client is given -- there is no display
+   name in the session, so inventing one would only be decoration. */
+function UserChip({ email, onLogout }) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDocClick = (e) => {
+      if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const local = (email || '').split('@')[0] || '';
+  const initials = local
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join('') || '?';
+
+  return (
+    <div ref={boxRef} style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title={email || 'Account'}
+        aria-label="Account"
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          height: 30, padding: '0 8px 0 3px',
+          background: open ? 'var(--surface)' : 'transparent',
+          border: '1px solid ' + (open ? 'var(--primary)' : 'var(--border)'),
+          borderRadius: 999, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+        }}
+      >
+        <span style={{
+          width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
+          background: 'var(--accent-800)', color: 'var(--accent-100)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 10.5, fontWeight: 600, letterSpacing: '0.02em',
+        }}>
+          {initials}
+        </span>
+        <span style={{
+          fontSize: 12, color: 'var(--text-2)', maxWidth: 120,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          {local || 'Account'}
+        </span>
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          style={{
+            position: 'absolute', top: 36, right: 0, minWidth: 220, zIndex: 40,
+            background: 'var(--card)', border: '1px solid var(--border)',
+            borderRadius: 'var(--r-md)', boxShadow: 'var(--shadow-md)',
+            padding: 10, display: 'flex', flexDirection: 'column', gap: 8,
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={{ fontSize: 12.5, color: 'var(--text)', wordBreak: 'break-all' }}>
+              {email || 'Signed in'}
+            </span>
+            <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+              Roles are held per workspace
+            </span>
+          </div>
+          <div style={{ height: 1, background: 'var(--border)' }} />
+          <button
+            onClick={() => { setOpen(false); onLogout(); }}
+            style={{
+              textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer',
+              color: 'var(--viz-neg)', fontSize: 12.5, padding: '4px 0',
+              fontFamily: 'var(--font-sans)',
+            }}
+          >
+            Log out
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -407,11 +793,12 @@ function SidebarItem({ tool, icon, isActive, onClick }) {
         cursor: 'pointer',
         fontSize: 13,
         fontWeight: isActive ? 600 : 400,
-        color: isActive ? 'var(--nav-text-active)' : hovered ? '#e8edf5' : 'var(--nav-text)',
+        fontFamily: 'var(--font-sans)',
+        color: isActive || hovered ? 'var(--nav-text-active)' : 'var(--nav-text)',
         background: isActive
           ? 'var(--nav-active-bg)'
           : hovered
-          ? 'rgba(255,255,255,0.06)'
+          ? 'color-mix(in srgb, var(--text) 7%, transparent)'
           : 'transparent',
         transition: 'background 0.12s var(--ease), color 0.12s var(--ease)',
         marginBottom: 1,

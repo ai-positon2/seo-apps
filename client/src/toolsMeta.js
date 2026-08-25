@@ -37,12 +37,15 @@ export const TOOL_GROUPS = [
     label: 'Build',
     tools: [
       { id: 'location-page-builder',  path: '/location-page-builder',  label: 'Location + Service Pages', icon: '📍', tag: 'testing' },
+      { id: 'content-architect',      path: '/content-architect',      label: 'Content Architect',      icon: '🗺️', tag: 'testing' },
       { id: 'knowledge-base',         path: '/kb',                     label: 'Knowledge Base',         icon: '📚', tag: 'internal' },
     ],
   },
   {
     label: 'Monitor',
-    tools: [],
+    tools: [
+      { id: 'crawl-scope',            path: '/crawl-scope',            label: 'Site Crawler',           icon: '🕷️', tag: 'testing' },
+    ],
   },
 ];
 

@@ -256,9 +256,9 @@ async function removeWorkspaceMember(workspaceId, requesterId, targetUserId) {
 }
 
 // ── Platform-embed identity ─────────────────────────────────────────────────
-// The Intelligence Platform embeds this app in an iframe and auto-logs in with
-// a shared token (see /api/auth/platform-login) — those sessions have no
-// individual user behind them. Rather than dropping their runs on the floor,
+// A session can still carry no individual user behind it — a Google sign-in on a
+// deployment with Supabase unconfigured. (This was written for a shared-token
+// iframe login that has since been removed.) Rather than dropping their runs,
 // they are attributed to one synthetic user and its workspace, so the
 // invariant every run has a workspace, and every workspace has a primary user
 // still holds. Marked is_personal so the unique index guarantees exactly one.

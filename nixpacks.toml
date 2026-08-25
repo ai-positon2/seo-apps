@@ -1,5 +1,8 @@
 [phases.setup]
-nixPkgs = ["nodejs_20", "chromium", "nss", "freetype", "harfbuzz", "ca-certificates", "ttf-dejavu"]
+# nodejs_22, not _20: the CrawlScope crawler module requires Node >= 22
+# (server/modules/crawlScope). The Dockerfile already uses node:24-slim, so this
+# only mattered on the nixpacks path.
+nixPkgs = ["nodejs_22", "chromium", "nss", "freetype", "harfbuzz", "ca-certificates", "ttf-dejavu"]
 
 [phases.install]
 cmds = ["npm run build"]

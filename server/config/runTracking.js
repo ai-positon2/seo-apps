@@ -177,6 +177,30 @@ const RUN_TRACKING = {
     ],
   },
 
+  // Content Architect is a staged wizard, and the stages a user waits on are
+  // the three worth a row: discovery (sitemap → URL patterns), draft
+  // clustering, and the full crawl-and-cluster analysis. Discovery and analysis
+  // each use their own /init → /stream pair rather than the shared /stream
+  // endpoint the other modules have, so the paths are spelled out here; the
+  // token is still the last path segment, which is all the bridge needs.
+  // Project CRUD and pattern selection are setup, not runs, so they aren't
+  // tracked — nor are the GET reads of stored patterns, clusters or analyses.
+  'content-architect': {
+    toolId: 'content-architect',
+    matchers: [
+      { method: 'POST', path: /^\/projects\/([^/]+)\/discover$/, bridge: 'init', action: 'discover',
+        label: ({ match }) => `project ${match[1]}` },
+      { method: 'GET', path: /^\/projects\/[^/]+\/discover\/stream\/[^/]+$/, bridge: 'stream', action: 'discover' },
+      { method: 'POST', path: /^\/projects\/([^/]+)\/draft-clusters$/, action: 'draft-clusters',
+        label: ({ match }) => `project ${match[1]}` },
+      { method: 'POST', path: /^\/projects\/([^/]+)\/analyze$/, bridge: 'init', action: 'run',
+        label: ({ match }) => `project ${match[1]}` },
+      { method: 'GET', path: /^\/projects\/[^/]+\/analyze\/stream\/[^/]+$/, bridge: 'stream', action: 'run' },
+      { method: 'GET', path: /^\/projects\/([^/]+)\/export$/, action: 'export',
+        label: ({ match }) => `project ${match[1]}` },
+    ],
+  },
+
   // KB edits are explicit, button-driven saves (no auto-save), so one row per
   // save is a useful trail of who changed which knowledge base, and why.
   'knowledge-base': {
@@ -189,6 +213,39 @@ const RUN_TRACKING = {
         label: ({ match }) => match[1] },
       { method: 'PATCH', path: /^\/([^/]+)\/toggle$/, action: 'toggle',
         label: ({ match }) => match[1] },
+    ],
+  },
+
+  // CrawlScope keeps its own first-class run history in `crawl_runs` — status,
+  // progress, per-URL results, findings — which its own pages read. What is
+  // tracked here is the app-level "someone used this tool" trail, so the two
+  // don't duplicate each other:
+  //
+  //   POST /runs            a manual crawl, executed in this process. Deferred,
+  //                         and genuinely closed: the route awaits the
+  //                         RunManager promise and calls finish()/fail().
+  //   POST /projects        creating a scheduled project (which also queues its
+  //                         first crawl).
+  //   POST /projects/:id/run  queueing an out-of-band crawl.
+  //
+  // The two queueing endpoints are deliberately NOT deferred. Their crawl is
+  // claimed later by the worker — possibly in another process, possibly hours
+  // later — so this request can never observe the outcome. Marking them
+  // deferred would leave a row at 'running' until the two-hour sweeper called
+  // it failed, which would be a lie about a crawl that succeeded. The tracked
+  // action is the enqueue, which really does complete with the response; the
+  // crawl's own fate lives in crawl_runs.
+  //
+  // pause/resume/stop are controls, not runs, and every GET here is a read.
+  'crawl-scope': {
+    toolId: 'crawl-scope',
+    matchers: [
+      { method: 'POST', path: '/runs', action: 'run', deferred: true },
+      { method: 'POST', path: '/projects', action: 'create' },
+      { method: 'POST', path: /^\/projects\/([^/]+)\/run$/, action: 'queue',
+        label: ({ match }) => `project ${match[1]}` },
+      { method: 'GET', path: /^\/runs\/([^/]+)\/report\.xlsx$/, action: 'export',
+        label: ({ match }) => `run ${match[1]}` },
     ],
   },
 

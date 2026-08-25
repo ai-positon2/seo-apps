@@ -1,376 +1,791 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SectionHeader } from '../ui/SectionHeader';
-import { Badge } from '../ui/Badge';
-import { TAGS, ALL_TOOLS } from '../toolsMeta';
+import { projectsApi, relativeTime, countryLabel } from '../lib/projectsApi';
+import { useActiveProjectId } from '../lib/activeProject';
+import { cs } from '../lib/crawlScopeApi';
+import {
+  Card, Kicker, Muted, Tag, Btn, FadingRule, SectionHead,
+} from '../components/home/primitives';
+import ModuleCard from '../components/home/ModuleCard';
+import InsightsPanel from '../components/home/InsightsPanel';
+import SiteFavicon from '../components/home/SiteFavicon';
+import AuditRadar from '../components/home/AuditRadar';
+import Takeaway from '../components/home/Takeaway';
+import ProjectSetupCard from '../components/home/ProjectSetupCard';
+import HomeSkeleton from '../components/home/HomeSkeleton';
+import { useCrawlStatus } from '../lib/useCrawlStatus';
 
-// Status tags live in toolsMeta.js (single source, also drives the sidebar).
-// Cards look theirs up by tool id, so the two surfaces never drift; a card
-// may still set `tag` inline to override for a card-only tool.
-const TAG_BY_ID = Object.fromEntries(ALL_TOOLS.filter((t) => t.tag).map((t) => [t.id, t.tag]));
+// How often the dashboard re-reads itself while a crawl is running. The crawl
+// BAR is not this — that lives in the app shell and polls a cheap endpoint of its
+// own. This is the dashboard's own numbers, which a running crawl keeps changing.
+const CRAWL_POLL_MS = 8000;
 
-const TOOLS = [
-  {
-    id: 'keyword-research', path: '/keyword-research', badge: 'Keywords', group: 'Research',
-    label: 'Keyword Research', tagline: 'AI-powered keyword shortlisting',
-    description: 'Enter a seed keyword, find the top ranking competitors, pull their real keyword rankings via SEMrush, and let AI shortlist 2 primary and 10 secondary keywords for your campaign.',
-    features: ['Top competitor analysis', 'SEMrush keyword data', 'AI filtering & ranking', '2 primary + 10 secondary keywords'],
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 15.803a7.5 7.5 0 0010.607 10.607z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'content-research', path: '/content-research', badge: 'Content', group: 'Research',
-    label: 'Content Research', tagline: 'Competitor-based content briefs',
-    description: 'Scrape the top 10 ranking pages for any keyword, extract their structure, and generate a ready-to-use content brief with H2 recommendations and competitor insights.',
-    features: ['Top 10 SERP analysis', 'Competitor H2 mapping', 'Word count benchmarks', 'Export to Word (.docx)'],
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'article-recommendation', path: '/article-recommendation', badge: 'Briefs', group: 'Research',
-    label: 'Article Recommendation', tagline: 'Structured content briefs from SERP data',
-    description: 'Analyze the top 10 ranking pages for any keyword and generate a complete article brief with H1/H2/H3 structure, writing instructions, keywords per section, and FAQ recommendations.',
-    features: ['Top 10 SERP scraping', 'H2/H3 structure analysis', 'FAQ pattern extraction', 'Export to .docx'],
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 01-2.25 2.25M16.5 7.5V18a2.25 2.25 0 002.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 002.25 2.25h13.5M6 7.5h3v3H6V7.5z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'market-potential', path: '/market-potential', badge: 'Market Intel', group: 'Research',
-    label: 'Healthcare Market Potential', tagline: 'Rank metros by commercial search demand',
-    description: 'Enter your home market(s) and a service, then compare commercial-intent search demand across adjacent metros — indexed against your current market, with per-capita, CPC, competition and 12-month trend.',
-    features: ['Agent-proposed, frozen keyword baskets', 'Geo-targeted volume (DataForSEO)', 'Adjacency suggestions + home index', 'Ranked table + US bubble map'],
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-      </svg>
-    ),
-  },
-  {
-    id: 'content-enhancement', path: '/content-enhancement', badge: 'AEO', group: 'Optimize',
-    label: 'Content Enhancement', tagline: 'Structure & authority recommendations',
-    description: 'Analyze a live URL or pasted HTML, research the top 10 ranking blogs for the topic, and generate copy-ready upgrades for structure, authority, citations, FAQs, schema, and AI-search readiness.',
-    features: ['URL or pasted HTML input', 'Copy-ready FAQ and answer blocks', 'Citation & expert quote gaps', 'Author byline guidance'],
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M9 12.75h6m-6 3h6m2.25 4.5H6.75A2.25 2.25 0 014.5 18V6A2.25 2.25 0 016.75 3.75h5.379c.597 0 1.17.237 1.591.659l1.871 1.871c.422.422.659.994.659 1.591V18a2.25 2.25 0 01-2.25 2.25z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'article-enhancement', path: '/article-enhancement', badge: 'Enhance', group: 'Optimize',
-    label: 'Enhance Existing Article', tagline: 'Multi-LLM + SERP competitor enhancement',
-    description: 'Crawl a live article URL, run 5 specialized LLM analyses in parallel against SERP competitor data, and generate an enhanced HTML article with all new content visually highlighted.',
-    features: ['5-model LLM fanout (SEO · GEO · Intent · E-E-A-T · UX)', 'SERP competitor crawl & gap analysis', 'Unified enhancement report', 'Enhanced HTML with highlights'],
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
-      </svg>
-    ),
-  },
-  {
-    id: 'article-enhancement-lite', path: '/article-enhancement-lite', badge: 'Verified', group: 'Optimize',
-    label: 'Article Enhancer', tagline: 'Preserves every word; adds only what’s provable',
-    description: 'Enhances an existing article using only its own content plus SEO/AEO best practices — no SERP, competitor, or search-API data — and never inserts statistics, expert quotes, or citations. Every highlighted change is grounded in and verifiable against your original article.',
-    features: ['No SERP / SEMrush / web research', 'Never fabricates stats, quotes, or citations', 'Answer-first, lists & tables from existing content', 'FAQ answerable from the article itself'],
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'on-page-audit', path: '/on-page-audit', badge: 'On-Page', group: 'Optimize',
-    label: 'On-Page SEO Audit', tagline: '23 sections · live data · PageSpeed + CWV',
-    description: 'Enter a URL and primary keywords to run a comprehensive on-page audit covering URL structure, meta, headings, content, schema, Core Web Vitals, canonicals, OG tags, crawlability, and more.',
-    features: ['23 audit sections, ~90 checks', 'PageSpeed Insights (mobile + desktop)', 'Core Web Vitals (LCP, CLS, INP)', 'Top 10 priority action list'],
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'seo-geo-audit', path: '/seo-geo-audit', badge: 'SEO+GEO', group: 'Optimize',
-    label: 'SEO & GEO Audit', tagline: '200+ checks · scored · AI recommendations',
-    description: 'Run a full SEO and Generative Engine Optimization audit on any URL or pasted HTML. 200+ checks across title, meta, headings, content, schema, E-E-A-T, technical, and GEO signals.',
-    features: ['200+ checks across 21 categories', 'CSQAF & GEO readiness score', 'E-E-A-T & content recommendations', 'Instant AI expert analysis'],
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'seo-geo-snapshot', path: '/seo-geo-snapshot', badge: 'Snapshot', group: 'Optimize',
-    label: 'SEO & GEO Snapshot', tagline: 'Score dashboard only · one screen',
-    description: 'Runs the same 200+ check SEO & GEO engine but renders only the Score Dashboard — overall score with its band and points-lost waterfall, nine category bars, GEO answerability, quick wins and keyword coverage. No issue list, no schema panel.',
-    features: ['Same engine as SEO & GEO Audit', 'Overall + 9 category scores', 'GEO answerability & signal tiles', 'Keyword coverage at a glance'],
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M3 3v18h18M8 17V9m4 8V5m4 12v-6" />
-      </svg>
-    ),
-  },
-  {
-    id: 'agent-readiness-audit', path: '/agent-readiness-audit', badge: 'AI Audit', group: 'Optimize',
-    label: 'Agent Readiness Audit', tagline: "Score any site's AI agent readiness in 15s",
-    description: "Run 13 automated checks across discoverability, content negotiation, bot access rules, and protocol support (MCP, OAuth, Agent Skills). Get a 0–100 score with GPT-generated CMO brief.",
-    features: ['robots.txt, sitemap & Link headers', 'MCP server card detection', 'OAuth / OIDC discovery', 'GPT-4o CMO executive brief'],
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'image-alt-audit', path: '/image-alt-audit', badge: 'Images', group: 'Optimize',
-    label: 'Image Alt Tag Audit', tagline: 'Bulk alt tag generation for location pages',
-    description: 'Scrape 100+ location pages, classify every image by type, generate SEO-optimised alt tags and clean filenames, and export a colour-coded Excel workbook.',
-    features: ['Batch scrape 100+ pages', 'GPT-4o vision for hero banners', 'RENAME_CRITICAL flagging', 'Export to 4-sheet .xlsx'],
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'location-page-builder', path: '/location-page-builder', badge: 'Local SEO', group: 'Build',
-    label: 'Location + Service Pages', tagline: 'Composed, approved, dev-ready location pages',
-    description: 'For a Client × Service × Location, produce an approved page package — keywords, competitor analysis, layer-composed content, FAQs, internal links and schema.',
-    features: ['Three-layer composition engine', 'Keyword pipeline (SERP + SEMrush + AI)', 'Approval workflow & audit trail', 'Export to JSON / Markdown / DOCX'],
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-        <path d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'knowledge-base', path: '/kb', badge: 'Knowledge', group: 'Build',
-    label: 'Knowledge Base', tagline: 'Client & industry context management',
-    description: 'Create and maintain knowledge base entries for clients, industries, and best practices. KB context is automatically injected into AI tools when a client is selected.',
-    features: ['Brand & voice guidelines per client', 'Industry compliance rules', 'Client feedback versioning', 'Auto-injected into AI tools'],
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
-      </svg>
-    ),
-  },
-  {
-    id: 'robots-monitor', path: '/robots-monitor', badge: 'Technical SEO', group: 'Monitor',
-    label: 'Robots Monitor', tagline: 'Daily noindex health checks across client domains',
-    description: 'Automatically crawl sitemaps, sample pages by type, and verify noindex signals on production and staging domains. Get Slack alerts the moment a production page goes dark.',
-    features: ['Sitemap discovery + URL sampling', 'X-Robots-Tag & meta robots checks', 'Daily scheduled + manual runs', '90-day run history'],
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
-      </svg>
-    ),
-  },
-  {
-    id: 'gbp-qc-agent', href: 'https://gbp-qc-agent-production.up.railway.app', badge: 'GBP', group: 'GBP',
-    label: 'GBP QC Agent', tagline: 'Quality control & content generation for GBP posts',
-    description: 'Review GBP post content against client brand guidelines, generate location-specific posts from a base template, and export ready-to-publish content for all locations.',
-    features: ['3-stage QC workflow (base → expanded → published)', 'Location content generator for all branches', 'Brand guideline enforcement per client', 'Export to Excel for all locations'],
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" />
-      </svg>
-    ),
-  },
-];
-
-const GROUPS = ['Research', 'Optimize', 'Build', 'Monitor', 'GBP'];
-
-const ArrowRightIcon = () => (
-  <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-    <path d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-  </svg>
-);
-
-const CheckIcon = () => (
-  <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
-    <path d="M4.5 12.75l6 6 9-13.5" />
-  </svg>
-);
-
-function ToolCard({ tool, onClick }) {
-  const [hovered, setHovered] = useState(false);
-  const tag = TAGS[tool.tag || TAG_BY_ID[tool.id]];
-
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        textAlign: 'left',
-        cursor: 'pointer',
-        outline: 'none',
-        background: 'var(--card)',
-        border: `1px solid ${hovered ? 'rgba(99,91,255,0.30)' : 'var(--border)'}`,
-        borderRadius: 'var(--r-lg)',
-        padding: '18px 18px 16px',
-        transition: 'border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease)',
-        boxShadow: hovered ? 'var(--shadow-sm)' : 'none',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 10,
-      }}
-    >
-      {/* Top row: icon tile + badge */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        <div style={{
-          width: 40,
-          height: 40,
-          borderRadius: 'var(--r-md)',
-          background: 'var(--primary-soft)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: 'var(--primary-text)',
-          flexShrink: 0,
-        }}>
-          {tool.icon}
-        </div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          {tag && (
-            <span style={{
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: '0.04em',
-              textTransform: 'uppercase',
-              padding: '2px 7px',
-              borderRadius: 'var(--r-pill)',
-              lineHeight: 1.4,
-              whiteSpace: 'nowrap',
-              background: tag.bg,
-              color: tag.fg,
-            }}>
-              {tag.label}
-            </span>
-          )}
-          <Badge variant="brand">{tool.badge}</Badge>
-        </div>
-      </div>
-
-      {/* Title + tagline */}
-      <div>
-        <div style={{
-          fontSize: 14,
-          fontWeight: 600,
-          color: 'var(--text)',
-          letterSpacing: '-0.01em',
-          marginBottom: 3,
-        }}>
-          {tool.label}
-        </div>
-        <div style={{
-          fontSize: 12,
-          color: 'var(--primary-text)',
-          fontWeight: 500,
-        }}>
-          {tool.tagline}
-        </div>
-      </div>
-
-      {/* Description */}
-      <p style={{
-        fontSize: 12,
-        color: 'var(--text-2)',
-        lineHeight: 1.55,
-        margin: 0,
-      }}>
-        {tool.description}
-      </p>
-
-      {/* Feature list */}
-      <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {tool.features.map((f, i) => (
-          <li key={i} style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            fontSize: 12,
-            color: 'var(--text-2)',
-          }}>
-            <span style={{ color: 'var(--success)', flexShrink: 0 }}>
-              <CheckIcon />
-            </span>
-            {f}
-          </li>
-        ))}
-      </ul>
-
-      {/* CTA */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 5,
-        fontSize: 12,
-        fontWeight: 600,
-        color: hovered ? 'var(--primary)' : 'var(--primary-text)',
-        marginTop: 2,
-        transition: 'color var(--dur-fast) var(--ease)',
-      }}>
-        Open tool
-        <ArrowRightIcon />
-      </div>
-    </button>
-  );
-}
+// ── Home — the project dashboard ────────────────────────────────────────────
+// The home screen leads with one client site's audit profile (PRD §20.1
+// "Overview") instead of a tool grid: what was crawled, what each module found,
+// what has run, what needs attention.
+//
+// It deliberately does NOT carry a tool catalog. The sidebar already lists every
+// module, so a second grid of the same links below the dashboard pushed the
+// evidence off screen and made the page about the toolkit rather than about the
+// client. The catalog's copy still lives in client/src/toolCatalog.js if it is
+// ever wanted for a dedicated launcher page.
+//
+// Every number on this page comes from a stored row. Where a module has no
+// project-scoped evidence, the card says so — see components/home/ModuleCard.jsx
+// for why that matters more than filling the space.
 
 export default function HomePage() {
   const navigate = useNavigate();
 
-  return (
-    <div style={{ padding: '28px 32px 48px' }}>
-      <SectionHeader
-        title="SEO Tools"
-        subtitle="A unified workspace of independently-powered tools for research, optimization, and monitoring."
-      />
+  const [listState, setListState] = useState({ loading: true, error: null, data: null });
+  // Shared with the header's client switcher (lib/activeProject.js), so picking
+  // a client up there changes what this page shows.
+  const [activeProjectId, setActiveProjectId] = useActiveProjectId();
+  const [overview, setOverview] = useState({ loading: false, error: null, data: null });
+  const [showSetup, setShowSetup] = useState(false);
+  const [auditSheet, setAuditSheet] = useState(null);   // null | 'open' | 'running'
+  // Bumped when a backlog item is drafted into a recommendation, so the board
+  // below re-reads rather than appearing to swallow it.
+  // Set when a full audit finishes, so the result is reported where the user
+  // already is instead of by navigating them into the crawler's console.
+  const [auditBanner, setAuditBanner] = useState(null);
+  // The cross-module answer. Owned here because the takeaway at the top of the
+  // page and the panel further down are the same answer.
+  const [insights, setInsights] = useState({ loading: true, error: null, data: null });
 
-      {GROUPS.map(groupName => {
-        const tools = TOOLS.filter(t => t.group === groupName);
-        return (
-          <div key={groupName} style={{ marginBottom: 36 }}>
-            {/* Group eyebrow */}
-            <div style={{
-              fontSize: 11,
-              fontFamily: 'var(--font-mono)',
-              fontWeight: 600,
-              textTransform: 'uppercase',
-              letterSpacing: '0.10em',
-              color: 'var(--text-3)',
-              marginBottom: 12,
-              paddingBottom: 8,
-              borderBottom: '1px solid var(--border)',
-            }}>
-              {groupName}
+  // Takes the project id as an argument rather than closing over activeProject.
+  // It has to: this is declared above the useMemo that computes activeProject, so
+  // referencing it here is a temporal-dead-zone error that throws on every render
+  // and blanks the page. The build compiles it without complaint.
+  const loadInsights = useCallback(async (projectId) => {
+    if (!projectId) return;
+    setInsights((prev) => ({ ...prev, loading: true, error: null }));
+    try {
+      setInsights({ loading: false, error: null, data: await projectsApi.insights(projectId) });
+    } catch (e) {
+      // The dashboard is still useful without the cross-module answer; the panel
+      // below reports the failure and offers a retry.
+      setInsights({ loading: false, error: e, data: null });
+    }
+  }, []);
+  const [auditError, setAuditError] = useState(null);
+  const [auditResults, setAuditResults] = useState(null);   // per-module outcome
+
+  // ── Load the project list ─────────────────────────────────────────────────
+  const loadProjects = useCallback(async () => {
+    setListState((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const data = await projectsApi.list();
+      setListState({ loading: false, error: null, data });
+      return data;
+    } catch (e) {
+      setListState({ loading: false, error: e, data: null });
+      return null;
+    }
+  }, []);
+
+  useEffect(() => { loadProjects(); }, [loadProjects]);
+
+  const projects = listState.data?.projects || [];
+
+  // Resolve the selected project against what actually came back, so a stale id
+  // in localStorage (project deleted, or a different workspace) falls back to
+  // the first available one instead of leaving the page blank.
+  const activeProject = useMemo(() => {
+    if (!projects.length) return null;
+    return projects.find((p) => p.id === activeProjectId) || projects[0];
+  }, [projects, activeProjectId]);
+
+  // Write the resolved id back, so a stale selection is repaired rather than
+  // re-resolved on every load. Guarded, or the write re-enters this effect.
+  useEffect(() => {
+    if (activeProject && activeProject.id !== activeProjectId) {
+      setActiveProjectId(activeProject.id);
+    }
+  }, [activeProject, activeProjectId, setActiveProjectId]);
+
+  // ── Load the selected project's overview ──────────────────────────────────
+  const loadOverview = useCallback(async (projectId, { quiet = false } = {}) => {
+    if (!projectId) return;
+    // A quiet reload keeps what is on screen while it refetches. The crawl
+    // poller below uses it: dropping to a spinner every few seconds would make
+    // the dashboard flash, lose scroll position, and tell the reader less than
+    // the slightly stale numbers it just threw away.
+    if (!quiet) setOverview({ loading: true, error: null, data: null });
+    try {
+      const data = await projectsApi.overview(projectId);
+      setOverview({ loading: false, error: null, data });
+    } catch (e) {
+      // A dropped poll is not a broken dashboard. Only a reload the user asked
+      // for is allowed to replace the page with an error.
+      if (quiet) return;
+      setOverview({ loading: false, error: e, data: null });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeProject?.id) loadOverview(activeProject.id);
+  }, [activeProject?.id, loadOverview]);
+
+  // The cross-module answer, read once per client and shared by the takeaway at
+  // the top of the page and the panel below it.
+  useEffect(() => {
+    if (activeProject?.id) loadInsights(activeProject.id);
+  }, [activeProject?.id, loadInsights]);
+
+  // ── Follow a live crawl ───────────────────────────────────────────────────
+  //
+  // The dashboard is otherwise load-once, which was fine when nothing on it
+  // moved. A crawl changes what every card will say next, so while one is in
+  // flight the page refreshes itself — and stops the moment the crawl reaches a
+  // terminal state, because crawlStatus goes null and this effect tears down. A
+  // dashboard that polls forever is one nobody can leave open.
+  // The shell owns the crawl status and polls for it; the dashboard only needs
+  // to know THAT one is running, so it can re-read its own numbers while the
+  // crawl keeps changing them.
+  const { status: crawlStatus, refresh: refreshCrawl } = useCrawlStatus();
+  const liveCrawlRunId = crawlStatus?.runId || null;
+
+  useEffect(() => {
+    if (!liveCrawlRunId || !activeProject?.id) return undefined;
+    const projectId = activeProject.id;
+    const timer = setInterval(() => { loadOverview(projectId, { quiet: true }); }, CRAWL_POLL_MS);
+    return () => clearInterval(timer);
+    // Keyed on the run id rather than on the status object, which is a new object
+    // on every poll and would restart the interval on each tick.
+  }, [liveCrawlRunId, activeProject?.id, loadOverview]);
+
+  /**
+   * Runs one module against the project and reloads the profile.
+   *
+   * The request is synchronous on the server — these audits take seconds — so
+   * there is nothing to poll. Errors propagate to the card that asked, which is
+   * where the person is looking.
+   */
+  const runModule = useCallback(async (moduleKey) => {
+    if (!activeProject) return;
+    await projectsApi.runModule(activeProject.id, moduleKey);
+    await loadOverview(activeProject.id);
+  }, [activeProject, loadOverview]);
+
+  /**
+   * "Run Full Audit": the connected modules first, then the crawl.
+   *
+   * The modules finish in seconds and their results are stored, so the profile
+   * is already populated by the time the crawl is queued. The crawl is last
+   * because navigating to its run page leaves this screen.
+   *
+   * A module failing does not stop the rest — the server reports each one, and
+   * a partial audit is shown as exactly that rather than as a failure.
+   */
+  async function runFullAudit() {
+    if (!activeProject) return;
+    // Closed before any request goes out.
+    //
+    // This used to switch to a 'running' state and hold the sheet open for the
+    // length of the audit — minutes — over the dashboard the audit was updating.
+    // The crawl bar in the shell reports progress from now on, the module cards
+    // report themselves, and the banner reports the finish. Nothing needs a modal
+    // parked on top of all three.
+    setAuditSheet(null);
+    setAuditError(null);
+    setAuditError(null);
+    setAuditResults(null);
+
+    // The crawl goes first, and the page audits follow it.
+    //
+    // This used to run every module and THEN queue the crawl, which meant SEO &
+    // GEO, On-Page and Agent Readiness audited the pages of the PREVIOUS crawl
+    // and the result was presented as the current audit. Queuing first lets those
+    // three audit pages as this crawl discovers them, so work starts seconds in
+    // rather than after the crawl has finished.
+    //
+    // A failure here is a downgrade, not a stop: without a crawl to follow the
+    // page modules fall back to the last completed crawl, which is the old
+    // behaviour and still useful.
+    // Queued for anyone on the team. This used to be skipped entirely unless you
+    // created the project, because CrawlScope's run endpoint was scoped to the
+    // creator rather than to the workspace — an authorization bug the dashboard
+    // presented to teammates as a product limitation, with the button disabled.
+    // The endpoint is workspace-scoped now, so the branch is gone.
+    let queuedCrawlId = null;
+    try {
+      const { run } = await cs.runProjectNow(activeProject.id);
+      queuedCrawlId = run?.id || null;
+    } catch (e) {
+      console.error('[audit] could not queue a crawl to follow:', e.message);
+    }
+
+    let started = null;
+    try {
+      // 202: the modules were started, not finished. The page audits run for as
+      // long as the crawl keeps producing pages, which no request should be held
+      // open for.
+      started = await projectsApi.runAudit(activeProject.id, null, { crawlRunId: queuedCrawlId });
+      setAuditResults({ started: started.started, running: true, crawlRunId: queuedCrawlId });
+      // Pull the bar into its live cadence now instead of waiting out the shell's
+      // idle interval, so the crawl appears the moment the popup closes.
+      refreshCrawl();
+    } catch (e) {
+      // The sheet is already closed, so a failure has to be reported on the page
+      // rather than back inside a modal the user has stopped looking at.
+      setAuditError(`The audit could not be started: ${e.message}`);
+      return;
+    }
+
+    // Watch the overview until nothing is running. Each module writes a
+    // 'running' row before it begins, so progress is read from stored state
+    // rather than guessed from elapsed time.
+    const deadlineAt = Date.now() + 6 * 60 * 1000;
+    let last = null;
+    while (Date.now() < deadlineAt) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      try {
+        last = await projectsApi.overview(activeProject.id);
+        setOverview({ loading: false, error: null, data: last });
+        const stillRunning = (last.modules || []).some((m) => m.status === 'running');
+        if (!stillRunning) break;
+      } catch {
+        // A failed poll is not a failed audit — the work continues server-side.
+        // Keep polling; the deadline below is the only thing that gives up.
+      }
+    }
+
+    const finished = (last?.modules || []).filter((m) => started.started.includes(m.key));
+    setAuditResults({
+      started: started.started,
+      running: false,
+      results: finished.map((m) => ({
+        moduleKey: m.key,
+        ok: m.status !== 'failed',
+        status: m.status,
+        score: m.scored ? m.score : null,
+        findings: m.evidence?.findingCount ?? 0,
+        error: m.error || null,
+      })),
+      ran: finished.filter((m) => m.status !== 'failed').length,
+      failed: finished.filter((m) => m.status === 'failed').length,
+    });
+
+    // We STAY HERE.
+    //
+    // This used to navigate to /crawl-scope/runs/:id, so the app's flagship
+    // action ended inside one tool's live-progress console — a different visual
+    // language, a different name in the breadcrumb, and no mention of the module
+    // results that had just finished. The one button a client-facing user is most
+    // likely to press was also the one that most undercut the idea that six
+    // audits are one audit.
+    //
+    // The crawl's own progress is still one click away, from the banner below and
+    // from the Tech Audit card, where every other module's detail lives too.
+    setAuditSheet(null);
+    setAuditBanner({
+      crawlRunId: queuedCrawlId,
+      ran: finished.filter((m) => m.status !== 'failed').length,
+      failed: finished.filter((m) => m.status === 'failed').length,
+      total: started.started.length,
+      followingLiveCrawl: Boolean(started.followingLiveCrawl),
+    });
+  }
+
+  // ── Page states ───────────────────────────────────────────────────────────
+
+  if (listState.loading) return <HomeSkeleton />;
+
+  if (listState.error) {
+    const notConfigured = listState.error.code === 'not_configured' || listState.error.status === 503;
+    return (
+      <div style={{ padding: '28px 32px', maxWidth: 720 }}>
+        <Card style={{ padding: 24, gap: 10 }}>
+          <Kicker tone="muted">Projects unavailable</Kicker>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 500 }}>
+            {notConfigured ? 'Supabase is not configured' : 'Could not load projects'}
+          </h2>
+          <Muted size={13}>{listState.error.message}</Muted>
+          {notConfigured && (
+            <Muted size={12}>
+              Projects, crawls and run history are all database-backed. Set SUPABASE_URL and
+              SUPABASE_SERVICE_ROLE_KEY, then reload. Every tool in the sidebar that does not need
+              persistence keeps working in the meantime.
+            </Muted>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            <Btn variant="primary" onClick={loadProjects}>Try again</Btn>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  const canEdit = listState.data?.capabilities?.editProjectSettings === true;
+
+  if (showSetup || !projects.length) {
+    return (
+      <div style={{ padding: '28px 32px 48px', display: 'flex', flexDirection: 'column', gap: 36 }}>
+        {!projects.length && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 720 }}>
+            <Kicker>Start Here</Kicker>
+            <h1 style={{ margin: 0, fontSize: 32, fontWeight: 500, letterSpacing: '-0.02em' }}>
+              No client projects yet
+            </h1>
+            <Muted size={13}>
+              A project is how SEO Studio knows which site it is looking at. Create one and the
+              dashboard fills in as crawls and audits run against it.
+            </Muted>
+          </div>
+        )}
+        <ProjectSetupCard
+          limits={listState.data?.limits}
+          onCreated={async (project) => {
+            setShowSetup(false);
+            setActiveProjectId(project.id);
+            const data = await loadProjects();
+            if (data) loadOverview(project.id);
+          }}
+          onCancel={projects.length ? () => setShowSetup(false) : undefined}
+        />
+      </div>
+    );
+  }
+
+  // ── One loading state, not three ──────────────────────────────────────────
+  //
+  // The page reads the project list, the overview and the cross-module insight.
+  // Each used to render as it landed, so the dashboard assembled itself in front
+  // of the reader: header, spinner, six cards, then a panel that pushed
+  // everything down. Every arrival moved whatever they had started reading.
+  //
+  // Now nothing renders until all three have resolved. "Resolved" includes
+  // failure — a request that errored is finished, and its section says so —
+  // otherwise one broken read would hold the page on a skeleton forever.
+  //
+  // A quiet crawl poll never re-enters this: it leaves the previous data in
+  // place, so `overview.data` stays truthy and the page never flickers back to
+  // the skeleton while a crawl runs.
+  const settled = (s) => Boolean(s.data) || Boolean(s.error);
+  if (activeProject && !(settled(overview) && settled(insights))) {
+    return <HomeSkeleton />;
+  }
+
+  const data = overview.data;
+  const modules = data?.modules || [];
+  const composite = data?.composite;
+
+  const lastRunAt = modules.map((m) => m.updatedAt).filter(Boolean).sort().reverse()[0] || null;
+
+  return (
+    <div
+      style={{
+        padding: '24px 32px 64px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 32,
+        maxWidth: 1520,
+        margin: '0 auto',
+      }}
+    >
+      {/* ── Active client ─────────────────────────────────────────────────── */}
+      <Card elevation="md" style={{ padding: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 20, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minWidth: 280 }}>
+            {/* The client's own mark beside their name, so the page looks like it
+                is about them rather than about the tool. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <SiteFavicon
+                origin={activeProject.primaryDomain?.origin}
+                name={activeProject.name}
+                size={40}
+              />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
+                <h2 style={{ margin: 0, fontSize: 26, fontWeight: 500, letterSpacing: '-0.015em' }}>
+                  {activeProject.name}
+                </h2>
+                {/* Everything that used to be four separate chips, on one quiet
+                    line. None of it is what the reader came for. */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  {activeProject.primaryDomain ? (
+                    <a
+                      href={activeProject.primaryDomain.origin}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      style={{ fontSize: 13, color: 'var(--primary-text)' }}
+                    >
+                      {activeProject.primaryDomain.host}
+                    </a>
+                  ) : (
+                    <Tag tone="warn">Primary domain needs attention</Tag>
+                  )}
+                  {activeProject.countryCode
+                    ? <Muted size={12}>· {countryLabel(activeProject.countryCode)}</Muted>
+                    : <Tag tone="warn">Country not set</Tag>}
+                  <Muted size={12}>
+                    · {activeProject.schedule.enabled ? 'Weekly crawl on' : 'No schedule'}
+                  </Muted>
+                  {activeProject.competitors.length > 0 && (
+                    <Muted size={12}>
+                      · vs {activeProject.competitors.map((c) => c.host).join(', ')}
+                    </Muted>
+                  )}
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => navigate('/projects')}
+                      style={{
+                        background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                        fontSize: 12, color: 'var(--text-3)', fontFamily: 'var(--font-sans)',
+                        textDecoration: 'underline',
+                      }}
+                    >
+                      edit
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
 
-            {/* Tool grid */}
-            <div style={{
+            {activeProject.countryMissing && (
+              <Muted size={12} style={{ color: 'var(--viz-warn)' }}>
+                This project predates the country requirement. Rank and Search Console comparisons
+                need a market before they can run — set it in project settings.
+              </Muted>
+            )}
+
+          </div>
+
+          {/* Both actions on one row rather than stacked, so the header is a band
+              rather than a block. Run Full Audit sits left of Download report: the
+              primary action reads first, and the pair still ends where the stacked
+              column used to. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+            <Btn
+              variant="primary"
+              onClick={() => { setAuditError(null); setAuditSheet('open'); }}
+              title={'Crawls the site, then audits its pages for SEO & GEO, On-Page and Agent '
+                + 'Readiness as the crawl finds them. Hub & Spoke reads Content Architect\'s '
+                + 'latest analysis.'}
+              style={{ fontSize: 15, height: 42, padding: '0 20px' }}
+            >
+              <svg width="16" height="16" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" style={{ display: 'block' }}>
+                <path d="M232.4,114.49,88.32,26.35a16,16,0,0,0-16.2-.3A15.86,15.86,0,0,0,64,39.87V216.13A15.94,15.94,0,0,0,80,232a16.07,16.07,0,0,0,8.36-2.35L232.4,141.51a15.81,15.81,0,0,0,0-27ZM80,215.94V40l143.83,88Z" />
+              </svg>
+              Run Full Audit
+            </Btn>
+            {/* The explanations moved to tooltips. They described the app's own
+                mechanics — which modules run in what order — to a reader who wants
+                to know whether their site is in trouble. */}
+            <Btn
+              variant="secondary"
+              onClick={() => { window.location.href = projectsApi.reportUrl(activeProject.id); }}
+              title="One workbook of everything stored for this project, including what it does not cover."
+              style={{ height: 42, fontSize: 13, padding: '0 16px' }}
+            >
+              Download report
+            </Btn>
+          </div>
+        </div>
+
+        {/* The crawl bar used to sit here. It is in the app shell now, above
+            every screen, so a crawl stays visible when you walk over to another
+            tool — see components/MacWindow.jsx and lib/useCrawlStatus.js. */}
+
+        {/* The answer, at the top, in the reader's words. */}
+        <Takeaway
+          insights={insights.data}
+          loading={insights.loading}
+          onOpen={() => {
+            document.getElementById('do-this-next')?.scrollIntoView({ behavior: 'smooth' });
+          }}
+        />
+      </Card>
+
+      {/* An audit that could not start.
+          It used to be reported inside the confirmation sheet, which is fine
+          while the sheet is open — it now closes the moment Run is pressed, so a
+          failure has nowhere to appear unless it appears here. */}
+      {auditError && (
+        <Card
+          role="alert"
+          style={{
+            padding: '12px 16px', flexDirection: 'row', alignItems: 'center', gap: 12,
+            border: '1px solid color-mix(in srgb, var(--viz-neg) 45%, transparent)',
+            background: 'color-mix(in srgb, var(--viz-neg) 9%, var(--card))',
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {/* Kicker's tone prop only knows 'muted'; anything else renders in
+                the primary colour, which on an error card reads as a success. */}
+            <Kicker style={{ color: 'var(--viz-neg)' }}>Audit not started</Kicker>
+            <span style={{ fontSize: 13.5, color: 'var(--text)' }}>{auditError}</span>
+          </div>
+          <Btn onClick={() => { setAuditError(null); setAuditSheet('open'); }}>Try again</Btn>
+          <Btn onClick={() => setAuditError(null)}>Dismiss</Btn>
+        </Card>
+      )}
+
+      {/* What the full audit did, reported where the user already is. */}
+      {auditBanner && (
+        <Card style={{ padding: '12px 16px', flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Kicker>Full audit complete</Kicker>
+            <span style={{ fontSize: 13.5, color: 'var(--text)' }}>
+              {auditBanner.ran} of {auditBanner.total} module
+              {auditBanner.total === 1 ? '' : 's'} updated
+              {auditBanner.failed ? ` · ${auditBanner.failed} failed` : ''}
+              {auditBanner.crawlRunId ? ' · site crawl running' : ''}
+            </span>
+            <Muted size={11.5}>
+              {auditBanner.followingLiveCrawl
+                ? 'SEO & GEO, On-Page and Agent Readiness are auditing pages as the crawl finds '
+                  + 'them. Their cards show progress, and each page is readable in the report as '
+                  + 'soon as it is done.'
+                : 'No live crawl to follow, so the page audits read the last completed crawl.'}
+            </Muted>
+          </div>
+          <Btn onClick={() => navigate(`/crawl-scope/runs/${auditBanner.crawlRunId}`)}>
+            Watch the crawl
+          </Btn>
+          <Btn onClick={() => setAuditBanner(null)}>Dismiss</Btn>
+        </Card>
+      )}
+
+      {/* ── Audit insights ───────────────────────────────────────────────── */}
+      <section>
+        <SectionHead
+          title={`Audit Insights — ${activeProject.name}`}
+          right={
+            overview.loading ? 'Loading…'
+            : lastRunAt ? `Latest module evidence ${relativeTime(lastRunAt)}`
+            : 'No module has produced evidence for this project yet'
+          }
+        />
+
+        {overview.error && (
+          <Card style={{ padding: 18, gap: 8 }}>
+            <Kicker tone="muted">Overview unavailable</Kicker>
+            <Muted size={13}>{overview.error.message}</Muted>
+            <div><Btn onClick={() => loadOverview(activeProject.id)}>Try again</Btn></div>
+          </Card>
+        )}
+
+        {data && (
+          <div
+            style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-              gap: 12,
-            }}>
-              {tools.map(tool => (
-                <ToolCard key={tool.id} tool={tool} onClick={() => tool.href ? window.open(tool.href, '_blank') : navigate(tool.path)} />
+              gridTemplateColumns: 'minmax(320px, 380px) minmax(0, 1fr)',
+              gap: 16,
+              alignItems: 'stretch',
+            }}
+          >
+            {/* Audit profile */}
+            <Card style={{ padding: 16, gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                <Kicker>Audit Profile</Kicker>
+                <Muted>{modules.length} modules</Muted>
+              </div>
+
+{/* One ring per module, outermost first, coloured by how that module is
+                  doing rather than by which module it is — with six of them,
+                  colour-as-identity would need six arbitrary hues and a key to
+                  decode. The legend names them instead.
+
+                  This replaced a six-axis radar whose labels were four characters
+                  long ("COMP 7", "PAGE 69"). A radar also asks the reader to
+                  compare polygon area against an implied ideal shape, which is a
+                  skill; a ring per row is one question answered once.
+
+                  The rings carry their own "N of 6 scored" footer, which is what
+                  the block that used to sit here said. */}
+              <AuditRadar modules={modules} />
+
+              <FadingRule style={{ marginTop: 4 }} />
+
+              {/* The chart cannot say this and must not be read as saying the
+                  opposite: the polygon's shape is not a statement about balance,
+                  because each axis is a different module's own scale. */}
+              <Muted style={{ lineHeight: 1.45 }}>
+                Each axis is that module’s own score on its own scale. They are not
+                averaged, and the shape is not a measure of balance — the six
+                measure different things.
+              </Muted>
+            </Card>
+
+            {/* Module cards */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(268px, 1fr))',
+                gap: 16,
+              }}
+            >
+              {modules.map((module) => (
+                <ModuleCard key={module.key} module={module} onRun={runModule} />
               ))}
             </div>
           </div>
-        );
-      })}
+        )}
+      </section>
+
+      {/* ── What the six modules say together ────────────────────────────
+          The modules above report what each one found. This reports what they
+          mean read against each other, which no single card can say. */}
+      <InsightsPanel
+        projectId={activeProject.id}
+        projectName={activeProject.name}
+        data={insights.data}
+        loading={insights.loading}
+        error={insights.error}
+        onReload={() => loadInsights(activeProject.id)}
+        // Promoting a backlog item changes the backlog, so the panel re-reads
+        // itself. It used to bump a counter for the recommendations board that
+        // sat below; the board is gone and the backlog is the thing on screen.
+        onChanged={() => loadInsights(activeProject.id)}
+      />
+
+      {/* The page ends here.
+          Activity, Alerts and the Recommendations board used to follow.
+          Three more panels below the answer meant the dashboard kept going
+          long after it had stopped saying anything new: activity repeated
+          the run history the sidebar already reaches, alerts repeated
+          findings the cards carry, and the board repeated the backlog
+          directly above it. */}
+
+      {/* ── Run Full Audit confirmation ─────────────────────────────────── */}
+      {auditSheet && (
+        <RunAuditSheet
+          project={activeProject}
+          modules={modules}
+          busy={auditSheet === 'running'}
+          error={auditError}
+          results={auditResults}
+          onConfirm={runFullAudit}
+          onClose={() => setAuditSheet(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The Run Full Audit sheet. It exists because "Run Full Audit" is a six-module
+ * promise and only one module currently runs against a project — so the button
+ * says what will actually happen before it happens, rather than starting one
+ * crawl and letting the label imply five more.
+ */
+function RunAuditSheet({ project, modules, busy, error, results, onConfirm, onClose }) {
+  // What this actually runs: the modules that can be run against a project.
+  // 'technical' is excluded because the crawl is queued separately, and it is
+  // listed on its own below rather than implied by this list.
+  const runnable = modules.filter((m) => m.runnable);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Run full audit"
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, display: 'grid', placeItems: 'center', padding: 16,
+        background: 'color-mix(in srgb, var(--neutral-900) 55%, transparent)', zIndex: 60,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 'min(520px, 100%)', display: 'flex', flexDirection: 'column', gap: 14,
+          padding: 22, borderRadius: 'var(--r-lg)', background: 'var(--card)',
+          border: '1px solid var(--border)', boxShadow: 'var(--shadow-lg)',
+        }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <Kicker>Run Full Audit</Kicker>
+          <h3 style={{ margin: 0, fontSize: 20, fontWeight: 500 }}>{project.name}</h3>
+          <Muted size={12.5}>
+            {project.primaryDomain?.origin || project.legacyUrl}
+          </Muted>
+        </div>
+
+        <FadingRule />
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <span style={{ fontSize: 12, color: 'var(--text-2)' }}>
+            Runs now, one after another — around {Math.max(1, Math.round(runnable.length * 25 / 60))} minute(s)
+            in total. Results are saved as each one finishes.
+          </span>
+          {runnable.map((m) => {
+            const state = results?.results?.find((r) => r.moduleKey === m.key);
+            return (
+              <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                <span
+                  style={{
+                    width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                    background: state
+                      ? (state.ok ? 'var(--primary)' : 'var(--viz-neg)')
+                      : m.status === 'running' ? 'var(--viz-warn)' : 'var(--neutral-600)',
+                  }}
+                />
+                {m.label}
+                <Muted style={{ marginLeft: 'auto', textAlign: 'right', maxWidth: 240 }}>
+                  {state
+                    ? (state.ok
+                      ? (state.score !== null && state.score !== undefined
+                        ? `scored ${Math.round(state.score)}`
+                        : state.status === 'insufficient_data'
+                          ? 'nothing to measure'
+                          : `${state.findings} finding${state.findings === 1 ? '' : 's'}`)
+                      : (state.error || 'failed'))
+                    : m.status === 'running' ? 'running…' : busy ? 'waiting its turn' : 'ready'}
+                </Muted>
+              </div>
+            );
+          })}
+
+          {/* The crawl is a different kind of job: minutes, not seconds, and it
+              runs on the crawl worker rather than in the request. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginTop: 6 }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: 'var(--neutral-600)' }} />
+            Site crawl
+            <Muted style={{ marginLeft: 'auto' }}>queued for the crawl worker afterwards</Muted>
+          </div>
+        </div>
+
+        {results && !results.running && (
+          <div
+            style={{
+              padding: 10, borderRadius: 'var(--r-md)', fontSize: 12.5,
+              background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-2)',
+            }}
+          >
+            {results.ran} of {results.ran + results.failed} module audits saved to this project.
+          </div>
+        )}
+
+        {error && (
+          <div
+            role="alert"
+            style={{
+              padding: 12, borderRadius: 'var(--r-md)', fontSize: 12.5, lineHeight: 1.5,
+              background: 'color-mix(in srgb, var(--viz-neg) 12%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--viz-neg) 40%, transparent)',
+              color: 'var(--viz-neg)',
+            }}
+          >
+            {error}
+            <div style={{ marginTop: 6, color: 'var(--text-3)' }}>
+              Scheduled crawls are still owner-scoped from the crawler module, so only the person
+              who created this project can start one until that route moves onto the shared
+              workspace check.
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+          <Btn onClick={onClose} disabled={busy}>Cancel</Btn>
+          <Btn variant="primary" onClick={onConfirm} disabled={busy}>
+            {busy ? 'Running audits…' : 'Run audits'}
+          </Btn>
+        </div>
+      </div>
     </div>
   );
 }
