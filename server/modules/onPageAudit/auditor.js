@@ -14,24 +14,17 @@ const pass  = (id, l, e)    => chk(id, l, 'pass',    e);
 const fail  = (id, l, e, r) => chk(id, l, 'fail',    e, r);
 const warn  = (id, l, e, r) => chk(id, l, 'warning', e, r);
 const manual= (id, l, e, r) => chk(id, l, 'manual',  e, r);
-const na    = (id, l, e)    => chk(id, l, 'na',       e || 'Not applicable to this page type');
+const na    = (id, l)       => chk(id, l, 'na',       'Not applicable to this page type');
 
-// ── Target keywords ─────────────────────────────────────────────────────────
-// Keywords are per PAGE, not per site: the page about implants targets a
-// different term from the page about pricing. A page with no keyword assigned is
-// NOT failing the keyword checks — they do not apply to it, which is precisely
-// what 'na' already means here.
-//
-// Deriving one instead (from the slug, the title, the H1) would make every
-// keyword check score the page against a term nobody chose, and the findings
-// would read as real. So the checks that need a keyword stand down, the rest of
-// the audit runs, and the report says which is which.
-const NO_KEYWORD = 'No target keyword is set for this page, so keyword placement was not checked.';
-const naKeyword = (id, label) => chk(id, label, 'na', NO_KEYWORD);
-
-// For remediation text that would otherwise quote the keyword back and print
-// "undefined" when there isn't one.
-const kwOr = (kws) => kws[0] || '[the page\'s target keyword]';
+// ── Optional primary keyword ──────────────────────────────────────────────────
+// The keyword is optional. Without one, checks that exist purely to score keyword
+// placement are marked `na` — they cannot legitimately pass or fail with no target term,
+// and reporting them as failures would invent defects. Recommendation text that would have
+// quoted the keyword falls back to a neutral phrase rather than printing "undefined".
+const hasKws  = (kws) => Array.isArray(kws) && kws.length > 0 && !!kws[0];
+const kwText  = (kws) => (hasKws(kws) ? kws[0] : 'your primary keyword');
+const kwSlug  = (kws) => kwText(kws).toLowerCase().replace(/\s+/g, '-');
+const kwNa    = (id, l) => chk(id, l, 'na', 'No primary keyword supplied — add one to score keyword placement');
 
 function sectionStatus(checks) {
   if (checks.some(c => c.status === 'fail'))    return 'fail';
@@ -136,17 +129,11 @@ function s1(data, kws) {
   const checks = [];
 
   // 1: keyword in URL slug, length
-  //
-  // A compound check. Without a keyword the length half is still measurable, so
-  // it is reported on its own with a label that says the other half was not
-  // checked — rather than dropping a real check along with the keyword one.
-  const kwInSlug = kws.length ? keywordWordMatch(fullPath, kws) : false;
-  if (!kws.length) {
-    checks.push(urlLen > 115
-      ? warn('1', 'URL ≤ 115 chars (keyword placement not checked)', `"${slug}" — ${urlLen} chars (limit: 115). ${NO_KEYWORD}`, 'Shorten the URL path')
-      : pass('1', 'URL ≤ 115 chars (keyword placement not checked)', `"${slug}" — ${urlLen} chars. ${NO_KEYWORD}`));
+  const kwInSlug = keywordWordMatch(fullPath, kws);
+  if (!hasKws(kws)) {
+    checks.push(kwNa('1', 'URL includes target keyword'));
   } else if (!kwInSlug) {
-    checks.push(fail('1', 'URL includes target keyword', `Slug: "${slug}" — no keyword word found`, `Rewrite the URL to include a keyword term. Suggested: /${kws[0].toLowerCase().replace(/\s+/g, '-')}/`));
+    checks.push(fail('1', 'URL includes target keyword', `Slug: "${slug}" — no keyword word found`, `Rewrite the URL to include a keyword term. Suggested: /${kwSlug(kws)}/`));
   } else if (urlLen > 115) {
     checks.push(warn('1', 'URL includes target keyword and is ≤ 115 chars', `"${slug}" contains keyword but URL is ${urlLen} chars (limit: 115)`, 'Shorten the URL path while retaining the keyword'));
   } else {
@@ -203,19 +190,14 @@ function s2(data, kws) {
   // 2.1: exists, not a CMS default
   const defaults = ['home', 'page', 'sample page', 'untitled', 'wordpress', 'drupal', 'just another'];
   if (!raw) {
-    checks.push(fail('2.1', 'Title tag present and not a CMS default', 'No <title> tag found', `Add a <title> tag with the primary keyword. Suggested: "${kwOr(kws)} | [Brand Name]"`));
+    checks.push(fail('2.1', 'Title tag present and not a CMS default', 'No <title> tag found', `Add a <title> tag with the primary keyword. Suggested: "${kwText(kws)} | [Brand Name]"`));
     checks.push(fail('2', 'Title concise and keyword-rich (≤ 60 chars)', 'No <title> tag — cannot evaluate', 'Add a title tag'));
     checks.push(fail('2.2', 'Brand name included', 'No <title> tag', 'Add title tag with brand'));
-    // Keyword placement in a title that does not exist is still a keyword check:
-    // with no keyword set there is nothing to place, and the missing title is
-    // already reported by 2.1 and 2.
-    checks.push(kws.length
-      ? fail('2.3', 'Primary keyword in title', 'No <title> tag', 'Add title tag with keyword')
-      : naKeyword('2.3', 'Primary keyword in title'));
+    checks.push(fail('2.3', 'Primary keyword in title', 'No <title> tag', 'Add title tag with keyword'));
     return sec(2, 'Meta Title', checks);
   }
   if (defaults.some(d => raw.toLowerCase().startsWith(d) || raw.toLowerCase() === d)) {
-    checks.push(fail('2.1', 'Title tag present and not a CMS default', `"${raw}" — appears to be a CMS default`, `Replace with a keyword-optimized title. Suggested: "${kwOr(kws)} | [Brand Name]"`));
+    checks.push(fail('2.1', 'Title tag present and not a CMS default', `"${raw}" — appears to be a CMS default`, `Replace with a keyword-optimized title. Suggested: "${kwText(kws)} | [Brand Name]"`));
   } else {
     checks.push(pass('2.1', 'Title tag present and not a CMS default', `"${raw}"`));
   }
@@ -226,18 +208,15 @@ function s2(data, kws) {
   const fullLen = raw.length;
   const nobrLen = withoutBrand.length;
 
-  // Length is checked either way; the "keyword-rich" half only when there is a
-  // keyword to look for, and the label says so when there isn't.
-  const hasKw = kws.length ? containsKeyword(raw, kws) : false;
-  const titleLabel = kws.length
-    ? 'Title ≤ 60 chars, keyword-rich'
-    : 'Title ≤ 60 chars (keyword placement not checked)';
+  const hasKw = containsKeyword(raw, kws);
   if (fullLen > 70) {
-    checks.push(fail('2', titleLabel, `"${raw}" — ${fullLen} chars (excluding brand: ${nobrLen} chars)`, `Shorten to under 60 characters. Currently ${fullLen} chars. Rewrite as: "${kwOr(kws)} | [Brand]"`));
+    checks.push(fail('2', 'Title ≤ 60 chars, keyword-rich', `"${raw}" — ${fullLen} chars (excluding brand: ${nobrLen} chars)`, `Shorten to under 60 characters. Currently ${fullLen} chars. Rewrite as: "${kwText(kws)} | [Brand]"`));
   } else if (fullLen > 60) {
-    checks.push(warn('2', titleLabel, `"${raw}" — ${fullLen} chars (${nobrLen} without brand) — may truncate in SERPs`, `Aim for ≤ 60 chars to prevent truncation. Current: ${fullLen} chars`));
-  } else if (kws.length && !hasKw) {
-    checks.push(warn('2', titleLabel, `"${raw}" — ${fullLen} chars, but no primary keyword found`, `Add "${kws[0]}" to the title`));
+    checks.push(warn('2', 'Title ≤ 60 chars, keyword-rich', `"${raw}" — ${fullLen} chars (${nobrLen} without brand) — may truncate in SERPs`, `Aim for ≤ 60 chars to prevent truncation. Current: ${fullLen} chars`));
+  } else if (hasKws(kws) && !hasKw) {
+    // Only a defect when a keyword was actually supplied to look for — otherwise this
+    // check judges title length alone.
+    checks.push(warn('2', 'Title ≤ 60 chars, keyword-rich', `"${raw}" — ${fullLen} chars, but no primary keyword found`, `Add "${kwText(kws)}" to the title`));
   } else {
     checks.push(pass('2', 'Title ≤ 60 chars, keyword-rich', `"${raw}" — ${fullLen} chars${nobrLen < fullLen ? ` (${nobrLen} excl. brand)` : ''}`));
   }
@@ -255,14 +234,14 @@ function s2(data, kws) {
   }
 
   // 2.3: keyword in title
-  if (!kws.length) {
-    checks.push(naKeyword('2.3', 'Primary keyword in title'));
+  if (!hasKws(kws)) {
+    checks.push(kwNa('2.3', 'Primary keyword in title'));
   } else if (containsKeyword(raw, kws)) {
-    checks.push(pass('2.3', 'Primary keyword in title', `"${kws[0]}" found in title`));
+    checks.push(pass('2.3', 'Primary keyword in title', `"${kwText(kws)}" found in title`));
   } else if (keywordWordMatch(raw, kws)) {
-    checks.push(warn('2.3', 'Primary keyword in title', `Only partial keyword match found in "${raw}"`, `Include the full keyword "${kws[0]}" in the title`));
+    checks.push(warn('2.3', 'Primary keyword in title', `Only partial keyword match found in "${raw}"`, `Include the full keyword "${kwText(kws)}" in the title`));
   } else {
-    checks.push(fail('2.3', 'Primary keyword in title', `"${kws[0]}" not found in title "${raw}"`, `Add "${kws[0]}" to the title tag`));
+    checks.push(fail('2.3', 'Primary keyword in title', `"${kwText(kws)}" not found in title "${raw}"`, `Add "${kwText(kws)}" to the title tag`));
   }
 
   return sec(2, 'Meta Title', checks);
@@ -277,17 +256,15 @@ function s3(data, kws) {
   const ctaWords = ['schedule', 'call', 'contact', 'book', 'get', 'request', 'sign up', 'learn more', 'find', 'discover', 'explore', 'start', 'try', 'see'];
 
   if (!desc) {
-    checks.push(fail('3', 'Meta description present (≤ 160 chars, CTA, keyword)', 'Meta description tag not found', `Add a meta description containing "${kwOr(kws)}", a CTA, and under 160 characters`));
+    checks.push(fail('3', 'Meta description present (≤ 160 chars, CTA, keyword)', 'Meta description tag not found', `Add a meta description containing "${kwText(kws)}", a CTA, and under 160 characters`));
     checks.push(na('3.1', 'Not auto-generated'));
-    checks.push(kws.length
-      ? na('3.2', 'Keyword in description')
-      : naKeyword('3.2', 'Keyword in description'));
+    checks.push(na('3.2', 'Keyword in description'));
     return sec(3, 'Meta Description', checks);
   }
 
   const len = desc.length;
   const hasCTA = ctaWords.some(w => desc.toLowerCase().includes(w));
-  const hasKw = kws.length ? containsKeyword(desc, kws) : false;
+  const hasKw = containsKeyword(desc, kws);
 
   if (len > 175) {
     checks.push(fail('3', 'Meta description ≤ 160 chars with CTA and keyword', `"${desc.slice(0, 80)}…" — ${len} chars (exceeds 160)`, `Shorten to under 160 characters. Currently ${len} chars.`));
@@ -308,14 +285,14 @@ function s3(data, kws) {
   }
 
   // 3.2: keyword in description
-  if (!kws.length) {
-    checks.push(naKeyword('3.2', 'Primary keyword in description'));
+  if (!hasKws(kws)) {
+    checks.push(kwNa('3.2', 'Primary keyword in description'));
   } else if (containsKeyword(desc, kws)) {
-    checks.push(pass('3.2', 'Primary keyword in description', `"${kws[0]}" found in description`));
+    checks.push(pass('3.2', 'Primary keyword in description', `"${kwText(kws)}" found in description`));
   } else if (keywordWordMatch(desc, kws)) {
-    checks.push(warn('3.2', 'Primary keyword in description', `Only partial match for "${kws[0]}" in description`, `Include the full keyword phrase in the description`));
+    checks.push(warn('3.2', 'Primary keyword in description', `Only partial match for "${kwText(kws)}" in description`, `Include the full keyword phrase in the description`));
   } else {
-    checks.push(fail('3.2', 'Primary keyword in description', `"${kws[0]}" not found in description`, `Add "${kws[0]}" naturally within the first 100 characters of the description`));
+    checks.push(fail('3.2', 'Primary keyword in description', `"${kwText(kws)}" not found in description`, `Add "${kwText(kws)}" naturally within the first 100 characters of the description`));
   }
 
   return sec(3, 'Meta Description', checks);
@@ -337,7 +314,7 @@ function s4(data, kws) {
 
   // 4.1: single H1
   if (h1s.length === 0) {
-    checks.push(fail('4', 'H1 present and addresses main topic', 'No <h1> tag found on the page', `Add a single H1 tag containing "${kwOr(kws)}"`));
+    checks.push(fail('4', 'H1 present and addresses main topic', 'No <h1> tag found on the page', `Add a single H1 tag containing "${kwText(kws)}"`));
     checks.push(fail('4.1', 'Single H1 per page', '0 H1 tags found', 'Add exactly one H1 tag'));
   } else if (h1s.length > 1) {
     checks.push(warn('4', 'H1 present and addresses main topic', `${h1s.length} H1 tags found: ${h1s.map(h => `"${h.text}"`).join(', ')}`, 'Remove duplicate H1 tags — keep only one'));
@@ -345,7 +322,7 @@ function s4(data, kws) {
   } else {
     const vague = ['welcome', 'home', 'services', 'about us', 'contact', 'our services', 'overview'].some(v => h1.toLowerCase() === v);
     if (vague) {
-      checks.push(warn('4', 'H1 present and addresses main topic', `H1: "${h1}" — appears vague or generic`, `Rewrite H1 to specifically describe the page topic, incorporating "${kwOr(kws)}"`));
+      checks.push(warn('4', 'H1 present and addresses main topic', `H1: "${h1}" — appears vague or generic`, `Rewrite H1 to specifically describe the page topic, incorporating "${kwText(kws)}"`));
     } else {
       checks.push(pass('4', 'H1 present and addresses main topic', `H1: "${h1}"`));
     }
@@ -353,16 +330,16 @@ function s4(data, kws) {
   }
 
   // 4.2: keyword in H1
-  if (!kws.length) {
-    checks.push(naKeyword('4.2', 'Primary keyword in H1'));
+  if (!hasKws(kws)) {
+    checks.push(kwNa('4.2', 'Primary keyword in H1'));
   } else if (!h1) {
-    checks.push(fail('4.2', 'Primary keyword in H1', 'No H1 present', `Add H1 containing "${kws[0]}"`));
+    checks.push(fail('4.2', 'Primary keyword in H1', 'No H1 present', `Add H1 containing "${kwText(kws)}"`));
   } else if (containsKeyword(h1, kws)) {
-    checks.push(pass('4.2', 'Primary keyword in H1', `"${kws[0]}" found in H1: "${h1}"`));
+    checks.push(pass('4.2', 'Primary keyword in H1', `"${kwText(kws)}" found in H1: "${h1}"`));
   } else if (keywordWordMatch(h1, kws)) {
-    checks.push(warn('4.2', 'Primary keyword in H1', `Partial keyword match in H1: "${h1}"`, `Include the full keyword phrase "${kws[0]}" in the H1`));
+    checks.push(warn('4.2', 'Primary keyword in H1', `Partial keyword match in H1: "${h1}"`, `Include the full keyword phrase "${kwText(kws)}" in the H1`));
   } else {
-    checks.push(fail('4.2', 'Primary keyword in H1', `"${kws[0]}" not found in H1: "${h1}"`, `Rewrite H1 to include "${kws[0]}"`));
+    checks.push(fail('4.2', 'Primary keyword in H1', `"${kwText(kws)}" not found in H1: "${h1}"`, `Rewrite H1 to include "${kwText(kws)}"`));
   }
 
   // 4.3: hierarchy — no skipped levels
@@ -382,16 +359,16 @@ function s4(data, kws) {
 
   // 4.4: keyword in H2
   const h2s = allH.filter(h => h.level === 2);
-  if (!kws.length) {
-    checks.push(naKeyword('4.4', 'Primary keyword in at least one H2'));
+  if (!hasKws(kws)) {
+    checks.push(kwNa('4.4', 'Primary keyword in at least one H2'));
   } else if (h2s.length === 0) {
     checks.push(warn('4.4', 'Primary keyword in at least one H2', 'No H2 tags found on page', 'Add H2 subheadings that include the primary keyword'));
   } else if (h2s.some(h => containsKeyword(h.text, kws))) {
     checks.push(pass('4.4', 'Primary keyword in at least one H2', `Keyword found in H2: "${h2s.find(h => containsKeyword(h.text, kws))?.text}"`));
   } else if (h2s.some(h => keywordWordMatch(h.text, kws))) {
-    checks.push(warn('4.4', 'Primary keyword in at least one H2', `Partial keyword match in H2s: ${h2s.slice(0, 3).map(h => `"${h.text}"`).join(', ')}`, `Add the full keyword "${kws[0]}" to at least one H2`));
+    checks.push(warn('4.4', 'Primary keyword in at least one H2', `Partial keyword match in H2s: ${h2s.slice(0, 3).map(h => `"${h.text}"`).join(', ')}`, `Add the full keyword "${kwText(kws)}" to at least one H2`));
   } else {
-    checks.push(fail('4.4', 'Primary keyword in at least one H2', `None of ${h2s.length} H2 tags contain "${kws[0]}"`, `Update one H2 to include "${kws[0]}" naturally`));
+    checks.push(fail('4.4', 'Primary keyword in at least one H2', `None of ${h2s.length} H2 tags contain "${kwText(kws)}"`, `Update one H2 to include "${kwText(kws)}" naturally`));
   }
 
   return sec(4, 'Heading Tags', checks);
@@ -402,19 +379,19 @@ function s4(data, kws) {
 function s5(data, kws, pageType, isYMYL) {
   const bodyText = getBodyText(data.html);
   const wordCount = countWords(bodyText);
-  const kwMentions = kws.length ? keywordCount(bodyText, kws) : 0;
+  const kwMentions = keywordCount(bodyText, kws);
   const $ = data.$;
   const checks = [];
 
   // 5: keyword mentions
-  if (!kws.length) {
-    checks.push(naKeyword('5', 'Keywords appear ≥ 5 times in body content'));
+  if (!hasKws(kws)) {
+    checks.push(kwNa('5', 'Keywords appear ≥ 5 times in body content'));
   } else if (kwMentions >= 5) {
-    checks.push(pass('5', 'Keywords appear ≥ 5 times in body content', `${kwMentions} mentions of "${kws[0]}" found in body`));
+    checks.push(pass('5', 'Keywords appear ≥ 5 times in body content', `${kwMentions} mentions of "${kwText(kws)}" found in body`));
   } else if (kwMentions >= 3) {
-    checks.push(warn('5', 'Keywords appear ≥ 5 times in body content', `Only ${kwMentions} mentions found (target: 5+)`, `Increase natural usage of "${kws[0]}" — aim for 5–8 occurrences across the body content`));
+    checks.push(warn('5', 'Keywords appear ≥ 5 times in body content', `Only ${kwMentions} mentions found (target: 5+)`, `Increase natural usage of "${kwText(kws)}" — aim for 5–8 occurrences across the body content`));
   } else {
-    checks.push(fail('5', 'Keywords appear ≥ 5 times in body content', `Only ${kwMentions} mentions found (target: 5+)`, `Significantly increase usage of "${kws[0]}" throughout body content. Currently ${kwMentions} occurrences.`));
+    checks.push(fail('5', 'Keywords appear ≥ 5 times in body content', `Only ${kwMentions} mentions found (target: 5+)`, `Significantly increase usage of "${kwText(kws)}" throughout body content. Currently ${kwMentions} occurrences.`));
   }
 
   // 5.1: word count
@@ -429,13 +406,11 @@ function s5(data, kws, pageType, isYMYL) {
   }
 
   // 5.2: search intent alignment (heuristic)
-  //
-  // Intent is intent FOR a keyword. With none set there is no SERP to compare
-  // the page against, so this stands down rather than asking a reviewer to
-  // check the page against nothing.
-  checks.push(kws.length
-    ? manual('5.2', 'Content matches search intent for primary keyword', `Page type detected: ${pageType}. Primary keyword: "${kws[0]}"`, `Verify that the page type and content match the dominant SERP intent for "${kws[0]}". Check: does Google primarily show informational pages, service pages, or location pages for this keyword?`)
-    : naKeyword('5.2', 'Content matches search intent for primary keyword'));
+  if (!hasKws(kws)) {
+    checks.push(kwNa('5.2', 'Content matches search intent for primary keyword'));
+  } else {
+    checks.push(manual('5.2', 'Content matches search intent for primary keyword', `Page type detected: ${pageType}. Primary keyword: "${kwText(kws)}"`, `Verify that the page type and content match the dominant SERP intent for "${kwText(kws)}". Check: does Google primarily show informational pages, service pages, or location pages for this keyword?`));
+  }
 
   // 5.3: readability
   const paragraphs = $('p').toArray().map(el => $(el).text().trim()).filter(p => p.length > 50);
@@ -683,14 +658,14 @@ function s10(data, kws) {
   const generic = meaningful.filter(i => i.hasAlt && !i.altEmpty && /^(image|img|photo|picture|graphic|icon|logo)$/i.test(i.alt));
 
   if (missing.length > 0) {
-    checks.push(fail('10', 'All meaningful images have descriptive alt text', `${missing.length} image(s) missing alt attribute:\n${missing.slice(0, 5).map(i => i.src).join('\n')}`, `Add descriptive alt text to all meaningful images. Include "${kwOr(kws)}" in alt text where contextually appropriate.`));
+    checks.push(fail('10', 'All meaningful images have descriptive alt text', `${missing.length} image(s) missing alt attribute:\n${missing.slice(0, 5).map(i => i.src).join('\n')}`, `Add descriptive alt text to all meaningful images.${hasKws(kws) ? ` Include "${kwText(kws)}" in alt text where contextually appropriate.` : ''}`));
   } else if (generic.length > 0) {
     checks.push(warn('10', 'All meaningful images have descriptive alt text', `${generic.length} image(s) have generic alt text: ${generic.slice(0, 3).map(i => `"${i.alt}"`).join(', ')}`, 'Replace generic alt text with specific descriptions (2–10 words)'));
   } else if (imgs.length === 0) {
     checks.push(pass('10', 'All meaningful images have descriptive alt text', 'No images found on page'));
   } else {
-    const kwInAlt = kws.length && meaningful.some(i => i.alt && containsKeyword(i.alt, kws));
-    checks.push(pass('10', 'All meaningful images have descriptive alt text', `${meaningful.length} meaningful images — all have alt text.${kws.length ? ` Keyword in alt: ${kwInAlt ? 'yes' : 'no'}` : ''}`));
+    const kwInAlt = meaningful.some(i => i.alt && containsKeyword(i.alt, kws));
+    checks.push(pass('10', 'All meaningful images have descriptive alt text', `${meaningful.length} meaningful images — all have alt text. Keyword in alt: ${kwInAlt ? 'yes' : 'no'}`));
   }
 
   // 10.1: decorative images use alt=""
@@ -1565,26 +1540,19 @@ async function runAudit(url, primaryKeywords, onProgress) {
 }
 
 /**
- * The pass rate this module has always shown on its own report.
+ * The On-Page module's score: the share of automatically-judgeable checks that
+ * passed.
  *
- * `manual` and `na` are excluded from the denominator, and that exclusion is the
- * substance of the methodology rather than a detail:
+ * Kept from unified-app when main's version of this file was taken for its
+ * keyword handling. main's copy exports runAudit alone, so lifting it wholesale
+ * silently removed this — and moduleRunners.auditPageOnPage calls it for the
+ * dashboard's On-Page score. The module would have gone unscored with nothing
+ * saying why.
  *
- *   • `manual` is a check no automated audit can settle — "verify the accuracy of
- *     these clinical claims". Counting it as a failure would punish a page for a
- *     question nobody asked a human yet.
- *   • `na` is a check that does not apply, which now includes every keyword check
- *     on a page with no target keyword. Counting those would score a page down
- *     for a keyword its owner never set.
- *
- * So the number answers: of the checks that could be judged automatically, what
- * share passed. The report has displayed exactly this since before the project
- * layer existed; this is the same arithmetic, moved to where both the report and
- * the project run can read it, so the two can never disagree.
- *
- * @returns {{ score: number|null, counts: object, scored: number, total: number }}
- *   score is null when nothing could be judged — never 0, which would read as a
- *   page that failed everything rather than one nothing applied to.
+ * `manual` and `na` are excluded from the denominator on purpose: a check that
+ * needs a human, or that does not apply to the page, is not a failure. That is
+ * also why main's keyword changes matter here — a check it marks `na` leaves the
+ * denominator rather than counting against the page.
  */
 function passRate(audit) {
   const counts = { pass: 0, fail: 0, warning: 0, manual: 0, na: 0 };
@@ -1605,3 +1573,4 @@ function passRate(audit) {
 }
 
 module.exports = { runAudit, passRate };
+

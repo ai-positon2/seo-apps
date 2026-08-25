@@ -1,13 +1,15 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import { useSeoGeoAudit } from '../hooks/useSeoGeoAudit';
-import { scoreColor } from '../components/seoGeo/primitives';
+import { scoreColor, asText } from '../components/seoGeo/primitives';
 import AuditInputPanel from '../components/seoGeo/AuditInputPanel';
 import ScoreDashboard, { AuditMetaBar } from '../components/seoGeo/ScoreDashboard';
 import ModuleRuns from '../components/ModuleRuns';
 import ProjectReportBar from '../components/project/ProjectReportBar';
 import ReportResolving from '../components/project/ReportResolving';
+import OnPageTabPanel from '../components/onPageAudit/OnPageTabPanel';
+import { useOnPageTab } from '../hooks/useOnPageTab';
 
 const SEV_COLOR = {
   error:   { bg: 'var(--danger-soft)',  text: 'var(--danger)',  border: 'var(--danger)',  label: 'Error' },
@@ -50,12 +52,12 @@ function IssueCard({ issue }) {
       >
         <SeverityBadge severity={issue.severity} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{issue.issue || issue.id}</span>
-          <p style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{issue.current_state}</p>
+          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{asText(issue.issue) || asText(issue.id)}</span>
+          <p style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{asText(issue.current_state)}</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           {issue.effort && (
-            <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 4, background: 'var(--surface)', color: 'var(--text-2)' }}>{issue.effort}</span>
+            <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 4, background: 'var(--surface)', color: 'var(--text-2)' }}>{asText(issue.effort)}</span>
           )}
           <svg style={{ width: 16, height: 16, color: 'var(--text-3)', transition: 'transform 200ms', transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
@@ -67,25 +69,25 @@ function IssueCard({ issue }) {
           {issue.impact && (
             <div>
               <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 12, marginBottom: 4 }}>Impact</p>
-              <p style={{ fontSize: 14, color: 'var(--text)' }}>{issue.impact}</p>
+              <p style={{ fontSize: 14, color: 'var(--text)' }}>{asText(issue.impact)}</p>
             </div>
           )}
           {issue.context_note && (
             <div>
               <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Context Note</p>
-              <p style={{ fontSize: 12, color: 'var(--text-2)', fontStyle: 'italic', borderLeft: '2px solid var(--border)', paddingLeft: 8 }}>{issue.context_note}</p>
+              <p style={{ fontSize: 12, color: 'var(--text-2)', fontStyle: 'italic', borderLeft: '2px solid var(--border)', paddingLeft: 8 }}>{asText(issue.context_note)}</p>
             </div>
           )}
           {issue.fix && (
             <div>
               <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Fix</p>
-              <p style={{ fontSize: 14, color: 'var(--text)', whiteSpace: 'pre-wrap' }}>{issue.fix}</p>
+              <p style={{ fontSize: 14, color: 'var(--text)', whiteSpace: 'pre-wrap' }}>{asText(issue.fix)}</p>
             </div>
           )}
           {issue.code_example && (
             <div>
               <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Code Example</p>
-              <pre style={{ fontSize: 12, background: '#1E293B', color: '#E2E8F0', borderRadius: 8, padding: 12, overflowX: 'auto', whiteSpace: 'pre-wrap', margin: 0 }}>{issue.code_example}</pre>
+              <pre style={{ fontSize: 12, background: '#1E293B', color: '#E2E8F0', borderRadius: 8, padding: 12, overflowX: 'auto', whiteSpace: 'pre-wrap', margin: 0 }}>{asText(issue.code_example)}</pre>
             </div>
           )}
         </div>
@@ -232,9 +234,14 @@ function AllChecksTable({ findings }) {
 }
 
 // ── SchemaDetectedCard ────────────────────────────────────────────────────────
+// Every ai.* value below goes through asText(): the model returns corrected_json_ld as a
+// parsed object often enough that rendering it raw crashed this card on every click.
 function SchemaDetectedCard({ schema }) {
   const [open, setOpen] = useState(false);
-  const hasErrors = schema.validation_errors?.length > 0;
+  const errs = Array.isArray(schema.validation_errors) ? schema.validation_errors : [];
+  const missing = Array.isArray(schema.fields_missing) ? schema.fields_missing : [];
+  const correctedJsonLd = asText(schema.corrected_json_ld);
+  const hasErrors = errs.length > 0;
   const statusColor = schema.status === 'valid' ? 'var(--success)' : schema.status === 'has_errors' ? 'var(--danger)' : 'var(--warning)';
   const statusBg = schema.status === 'valid' ? 'var(--success-soft)' : schema.status === 'has_errors' ? 'var(--danger-soft)' : 'var(--warning-soft)';
   return (
@@ -246,9 +253,9 @@ function SchemaDetectedCard({ schema }) {
         onMouseLeave={e => e.currentTarget.style.background = 'none'}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{schema.type}</span>
-          <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: statusBg, color: statusColor }}>{schema.status?.replace('_', ' ')}</span>
-          {hasErrors && <span style={{ fontSize: 12, color: 'var(--danger)' }}>{schema.validation_errors.length} error(s)</span>}
+          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{asText(schema.type)}</span>
+          <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: statusBg, color: statusColor }}>{asText(schema.status).replace('_', ' ')}</span>
+          {hasErrors && <span style={{ fontSize: 12, color: 'var(--danger)' }}>{errs.length} error(s)</span>}
         </div>
         <svg style={{ width: 16, height: 16, color: 'var(--text-3)', transition: 'transform 200ms', transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/>
@@ -256,31 +263,38 @@ function SchemaDetectedCard({ schema }) {
       </button>
       {open && (
         <div style={{ padding: '0 16px 12px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {schema.fields_missing?.length > 0 && (
+          {missing.length > 0 && (
             <div>
               <p style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 4 }}>Missing fields</p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                {schema.fields_missing.map(f => (
-                  <span key={f} style={{ fontSize: 12, padding: '2px 8px', borderRadius: 4, background: 'var(--warning-soft)', color: 'var(--warning)', border: '1px solid var(--warning)' }}>{f}</span>
+                {missing.map((f, i) => (
+                  <span key={i} style={{ fontSize: 12, padding: '2px 8px', borderRadius: 4, background: 'var(--warning-soft)', color: 'var(--warning)', border: '1px solid var(--warning)' }}>{asText(f)}</span>
                 ))}
               </div>
             </div>
           )}
-          {schema.validation_errors?.length > 0 && (
+          {errs.length > 0 && (
             <div>
               <p style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 4 }}>Validation errors</p>
-              {schema.validation_errors.map((err, i) => (
-                <div key={i} style={{ fontSize: 12, background: 'var(--danger-soft)', color: 'var(--danger)', borderRadius: 4, padding: 8, marginBottom: 4 }}>
-                  <span style={{ fontWeight: 600 }}>{err.field}:</span> {err.error}
-                  {err.fix && <p style={{ marginTop: 4, fontFamily: 'var(--font-mono)' }}>→ {err.fix}</p>}
-                </div>
-              ))}
+              {errs.map((err, i) => {
+                // An entry is normally {field, error, fix} but can arrive as a bare string.
+                const isObj = err && typeof err === 'object';
+                const field = isObj ? asText(err.field) : '';
+                const message = isObj ? asText(err.error) : asText(err);
+                const fix = isObj ? asText(err.fix) : '';
+                return (
+                  <div key={i} style={{ fontSize: 12, background: 'var(--danger-soft)', color: 'var(--danger)', borderRadius: 4, padding: 8, marginBottom: 4 }}>
+                    {field && <span style={{ fontWeight: 600 }}>{field}: </span>}{message}
+                    {fix && <p style={{ marginTop: 4, fontFamily: 'var(--font-mono)', whiteSpace: 'pre-wrap' }}>→ {fix}</p>}
+                  </div>
+                );
+              })}
             </div>
           )}
-          {schema.corrected_json_ld && (
+          {correctedJsonLd && (
             <div>
               <p style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 4 }}>Corrected JSON-LD</p>
-              <pre style={{ fontSize: 12, background: '#1E293B', color: '#E2E8F0', borderRadius: 8, padding: 12, overflowX: 'auto', whiteSpace: 'pre-wrap', maxHeight: 256, margin: 0 }}>{schema.corrected_json_ld}</pre>
+              <pre style={{ fontSize: 12, background: '#1E293B', color: '#E2E8F0', borderRadius: 8, padding: 12, overflowX: 'auto', whiteSpace: 'pre-wrap', maxHeight: 256, margin: 0 }}>{correctedJsonLd}</pre>
             </div>
           )}
         </div>
@@ -293,6 +307,9 @@ function SchemaDetectedCard({ schema }) {
 function SchemaRecommendedCard({ rec }) {
   const [open, setOpen] = useState(false);
   const priorityColor = rec.priority === 'required' ? 'var(--danger)' : rec.priority === 'recommended' ? 'var(--warning)' : 'var(--text-2)';
+  const keyFields = Array.isArray(rec.key_fields) ? rec.key_fields : [];
+  const starter = asText(rec.starter_template);
+  const reason = asText(rec.reason);
   return (
     <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
       <button
@@ -302,8 +319,8 @@ function SchemaRecommendedCard({ rec }) {
         onMouseLeave={e => e.currentTarget.style.background = 'none'}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{rec.type}</span>
-          <span style={{ fontSize: 12, fontWeight: 600, color: priorityColor }}>{rec.priority}</span>
+          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{asText(rec.type)}</span>
+          <span style={{ fontSize: 12, fontWeight: 600, color: priorityColor }}>{asText(rec.priority)}</span>
         </div>
         <svg style={{ width: 16, height: 16, color: 'var(--text-3)', transition: 'transform 200ms', transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/>
@@ -311,21 +328,21 @@ function SchemaRecommendedCard({ rec }) {
       </button>
       {open && (
         <div style={{ padding: '0 16px 12px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {rec.reason && <p style={{ fontSize: 14, color: 'var(--text)' }}>{rec.reason}</p>}
-          {rec.key_fields?.length > 0 && (
+          {reason && <p style={{ fontSize: 14, color: 'var(--text)' }}>{reason}</p>}
+          {keyFields.length > 0 && (
             <div>
               <p style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 4 }}>Key fields to include</p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                {rec.key_fields.map(f => (
-                  <span key={f} style={{ fontSize: 12, padding: '2px 8px', borderRadius: 4, background: 'var(--info-soft)', color: 'var(--info)', border: '1px solid var(--info)' }}>{f}</span>
+                {keyFields.map((f, i) => (
+                  <span key={i} style={{ fontSize: 12, padding: '2px 8px', borderRadius: 4, background: 'var(--info-soft)', color: 'var(--info)', border: '1px solid var(--info)' }}>{asText(f)}</span>
                 ))}
               </div>
             </div>
           )}
-          {rec.starter_template && (
+          {starter && (
             <div>
               <p style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 4 }}>Starter template</p>
-              <pre style={{ fontSize: 12, background: '#1E293B', color: '#E2E8F0', borderRadius: 8, padding: 12, overflowX: 'auto', whiteSpace: 'pre-wrap', maxHeight: 192, margin: 0 }}>{rec.starter_template}</pre>
+              <pre style={{ fontSize: 12, background: '#1E293B', color: '#E2E8F0', borderRadius: 8, padding: 12, overflowX: 'auto', whiteSpace: 'pre-wrap', maxHeight: 192, margin: 0 }}>{starter}</pre>
             </div>
           )}
         </div>
@@ -459,21 +476,21 @@ function downloadReport(findings, ai) {
   const schemaRows = [['Schema Analysis', '']];
   schemaRows.push([''], ['Detected Schemas', '']);
   for (const s of ai?.schema_analysis?.detected ?? []) {
-    schemaRows.push([s.type, s.status]);
-    schemaRows.push(['Fields Present', (s.fields_present || []).join(', ')]);
-    schemaRows.push(['Fields Missing', (s.fields_missing || []).join(', ')]);
+    schemaRows.push([asText(s.type), asText(s.status)]);
+    schemaRows.push(['Fields Present', (s.fields_present || []).map(asText).join(', ')]);
+    schemaRows.push(['Fields Missing', (s.fields_missing || []).map(asText).join(', ')]);
     for (const err of s.validation_errors || []) {
-      schemaRows.push([`Error: ${err.field}`, err.error]);
-      if (err.fix) schemaRows.push(['Fix', err.fix]);
+      schemaRows.push([`Error: ${asText(err && err.field)}`, asText(err && typeof err === 'object' ? err.error : err)]);
+      if (err && err.fix) schemaRows.push(['Fix', asText(err.fix)]);
     }
-    if (s.corrected_json_ld) schemaRows.push(['Corrected JSON-LD', s.corrected_json_ld]);
+    if (s.corrected_json_ld) schemaRows.push(['Corrected JSON-LD', asText(s.corrected_json_ld)]);
     schemaRows.push(['']);
   }
   schemaRows.push(['Recommended Schemas', '']);
   for (const r of ai?.schema_analysis?.recommended ?? []) {
-    schemaRows.push([r.type, r.relevant ? r.priority : 'NOT RELEVANT']);
-    if (r.reason) schemaRows.push(['Reason', r.reason]);
-    if (r.starter_template) schemaRows.push(['Starter Template', r.starter_template]);
+    schemaRows.push([asText(r.type), r.relevant ? asText(r.priority) : 'NOT RELEVANT']);
+    if (r.reason) schemaRows.push(['Reason', asText(r.reason)]);
+    if (r.starter_template) schemaRows.push(['Starter Template', asText(r.starter_template)]);
     schemaRows.push(['']);
   }
 
@@ -570,6 +587,27 @@ export default function SeoGeoAuditPage() {
   });
   const { findings, ai } = ctl;
 
+  // On-Page audit state is held here, not inside the tab panel: the PSI run takes 30-60s and
+  // switching tabs mid-run would otherwise unmount the poller and throw the work away.
+  const auditedUrl = findings?.meta?.input_type === 'url' ? findings?.meta?.url : null;
+  const onPage = useOnPageTab(auditedUrl);
+
+  // The On-Page audit now starts on its own as soon as a URL-based run lands, so the tab is
+  // already populated (or filling) by the time the user opens it. It stays a separate job
+  // rather than part of the SSE run: PageSpeed Insights takes 30-60s for mobile + desktop,
+  // and blocking the main result on it would triple the wait for the scores people came for.
+  useEffect(() => {
+    if (auditedUrl) onPage.autoStart(findings?.meta?.keywords || []);
+  }, [auditedUrl, onPage.autoStart, findings?.meta?.keywords]);
+
+  // Clears the On-Page result explicitly rather than relying on the hook's url-change
+  // effect, which would not fire when the next audit targets the same URL.
+  function handleNewAudit() {
+    onPage.reset();
+    ctl.reset();
+    setActivePanel('dashboard');
+  }
+
   // Group raw checks by category
   const checksByCategory = {};
   if (findings?.checks) {
@@ -624,8 +662,23 @@ export default function SeoGeoAuditPage() {
       {/* Results */}
       {findings && (
         <div>
-          {/* Meta bar */}
-          <AuditMetaBar findings={findings} />
+          {/* Meta bar + new-run control. The audit page had no way back to the input form
+              short of a page reload; the snapshot page has always had one. */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+            <div style={{ flex: 1, minWidth: 0 }}><AuditMetaBar findings={findings} /></div>
+            <button
+              onClick={handleNewAudit}
+              style={{
+                padding: '8px 20px', borderRadius: 8, fontSize: 14, fontWeight: 600,
+                color: '#fff', background: 'var(--primary)', border: 'none',
+                cursor: 'pointer', flexShrink: 0, transition: 'opacity 150ms',
+              }}
+              onMouseEnter={e => e.currentTarget.style.opacity = '0.88'}
+              onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+            >
+              New Audit
+            </button>
+          </div>
 
           {/* Panel tabs */}
           <div style={{ display: 'flex', gap: 4, marginBottom: 16 }}>
@@ -633,6 +686,7 @@ export default function SeoGeoAuditPage() {
               { id: 'dashboard', label: 'Score Dashboard' },
               { id: 'issues',    label: 'Issues' },
               { id: 'geo',       label: 'GEO & Content' },
+              { id: 'onpage',    label: 'On-Page Audit' },
             ].map(p => (
               <button key={p.id} onClick={() => setActivePanel(p.id)} style={{
                 padding: '8px 16px', fontSize: 14, fontWeight: 500, borderRadius: 8, cursor: 'pointer', transition: 'all 150ms',
@@ -787,7 +841,7 @@ export default function SeoGeoAuditPage() {
               {ai?.geo_analysis?.top_geo_fix && (
                 <div style={{ background: 'var(--card)', borderRadius: 'var(--r-lg)', border: '1px solid var(--primary)', padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.07)' }}>
                   <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8, color: 'var(--primary)' }}>Top GEO Fix</p>
-                  <p style={{ fontSize: 14, color: 'var(--text)' }}>{ai.geo_analysis.top_geo_fix}</p>
+                  <p style={{ fontSize: 14, color: 'var(--text)' }}>{asText(ai.geo_analysis.top_geo_fix)}</p>
                 </div>
               )}
 
@@ -845,7 +899,7 @@ export default function SeoGeoAuditPage() {
                     {ai.content_recommendations.faq_recommendation && (
                       <div style={{ background: 'var(--surface)', borderRadius: 8, padding: 12, gridColumn: 'span 2' }}>
                         <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4 }}>FAQ Recommendations</p>
-                        <p style={{ fontSize: 14, color: 'var(--text)', whiteSpace: 'pre-line' }}>{ai.content_recommendations.faq_recommendation}</p>
+                        <p style={{ fontSize: 14, color: 'var(--text)', whiteSpace: 'pre-line' }}>{asText(ai.content_recommendations.faq_recommendation)}</p>
                       </div>
                     )}
                   </div>
@@ -856,10 +910,15 @@ export default function SeoGeoAuditPage() {
               {!ai && (
                 <div style={{ background: 'var(--warning-soft)', border: '1px solid var(--warning)', borderRadius: 'var(--r-lg)', padding: 20, gridColumn: 'span 2' }}>
                   <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--warning)', marginBottom: 4 }}>AI analysis unavailable</p>
-                  <p style={{ fontSize: 14, color: 'var(--warning)' }}>The GPT-4o mini analysis did not complete. Raw check results are available in the Issues tab.</p>
+                  <p style={{ fontSize: 14, color: 'var(--warning)' }}>The AI analysis did not complete. Raw check results are available in the Issues tab.</p>
                 </div>
               )}
             </div>
+          )}
+
+          {/* ── Panel 4: On-Page Audit ── */}
+          {activePanel === 'onpage' && (
+            <OnPageTabPanel ctl={onPage} url={auditedUrl} />
           )}
 
         </div>

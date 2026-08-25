@@ -12,11 +12,13 @@ router.post('/run', async (req, res) => {
   const { url, primaryKeywords } = req.body;
   if (!url) return res.status(400).json({ error: 'url is required' });
 
-  const kws = Array.isArray(primaryKeywords) ? primaryKeywords
+  // primaryKeywords is OPTIONAL. Without it the audit still runs every non-keyword check;
+  // the ~6 checks that score keyword placement report `na` rather than failing, since with no
+  // target term they cannot legitimately pass or fail. See hasKws/kwNa in auditor.js.
+  const kws = (Array.isArray(primaryKeywords) ? primaryKeywords
     : (typeof primaryKeywords === 'string' && primaryKeywords.trim()) ? [primaryKeywords.trim()]
-    : [];
-
-  if (kws.length === 0) return res.status(400).json({ error: 'primaryKeywords is required' });
+    : []
+  ).map(k => String(k).trim()).filter(Boolean);
 
   const jobId = `job_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   jobs.set(jobId, { status: 'running', auditId: null, progress: 'Starting…', error: null });
