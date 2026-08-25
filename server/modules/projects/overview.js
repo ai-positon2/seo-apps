@@ -68,17 +68,6 @@ const MODULES = [
     runnable: true,
   },
   {
-    key: 'on_page',
-    label: 'On-Page',
-    family: 'on_page',
-    toolPath: '/on-page-audit',
-    evidenceSource: 'project_module_runs (module_key = on_page)',
-    // Connected in phase 3: runnable against the project's primary domain, and
-    // its result is stored so this card reads evidence rather than nothing.
-    live: true,
-    runnable: true,
-  },
-  {
     key: 'agent_readiness',
     label: 'Agent Readiness',
     family: 'agentic',

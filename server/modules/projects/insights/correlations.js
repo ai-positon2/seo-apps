@@ -59,7 +59,7 @@ function templateDefects({ backlog, crawl }) {
       insights: [],
       withheld: [withheld(
         'template_defects',
-        ['technical', 'seo_geo', 'on_page', 'agent_readiness'],
+        ['technical', 'seo_geo', 'agent_readiness'],
         crawl
           ? 'No single defect covers enough of the crawled pages to be a template problem.'
           : 'No completed crawl, so there is no page inventory to measure spread against.',
@@ -471,7 +471,7 @@ function worstPages({ backlog }) {
   if (!byPage.size) {
     return {
       insights: [],
-      withheld: [withheld('worst_pages', ['technical', 'seo_geo', 'on_page', 'agent_readiness'],
+      withheld: [withheld('worst_pages', ['technical', 'seo_geo', 'agent_readiness'],
         'No finding names a page, so findings cannot be grouped by page.',
         'Run a crawl and the page audits.')],
     };

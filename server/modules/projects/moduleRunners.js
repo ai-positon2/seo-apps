@@ -22,7 +22,7 @@ const { getSupabase, isSupabaseConfigured } = require('../../services/supabase')
 
 // Modules whose evidence this file can produce. 'technical' is absent because
 // CrawlScope owns its own richer tables and writes evidence there.
-const RUNNABLE = ['on_page', 'seo_geo', 'agent_readiness', 'competitor', 'hub_spoke'];
+const RUNNABLE = ['seo_geo', 'agent_readiness', 'competitor', 'hub_spoke'];
 
 // Modules that spend a third-party metered budget, with the cost per unit of
 // work. Everything else fetches pages and calls free-tier APIs; these bill.
@@ -89,96 +89,6 @@ function targetFor(project, domains = []) {
 // module's own report under payload.native, so a page's report is byte-for-byte
 // what an individual run of that tool produces (PRD §32: service extraction, not
 // a parallel implementation).
-
-/**
- * On-page: 23 sections of pass/fail checks for one url.
- *
- * Scored on the module's OWN pass rate — the share of automatically-judgeable
- * checks that passed, which its report has displayed since long before the
- * project layer existed.
- *
- * This module previously stored no score at all, on the reasoning that a pass
- * percentage would be a methodology invented here and §6.2 forbids that. The
- * reasoning was wrong: §6.2 forbids INVENTING a scale, not reporting one that
- * already exists — the same distinction that lets Hub and Spoke report Content
- * Architect's mean cluster health. The number was already on the report; the card
- * just refused to read it.
- *
- * Keyword checks need a keyword. Given none for this page, the auditor stands
- * those checks down as 'na' and the other ~70 run — it does NOT guess one from
- * the slug or the H1, because every keyword check would then be scored against a
- * term nobody chose.
- */
-async function auditPageOnPage({ url, keywords }) {
-  const { runAudit, passRate } = require('../onPageAudit/auditor');
-
-  const kws = (Array.isArray(keywords) ? keywords : [])
-    .map((k) => String(k || '').trim())
-    .filter(Boolean);
-
-  const audit = await runAudit(url, kws);
-  if (audit.status === 'failed') {
-    throw Object.assign(
-      new Error(audit.errorMessage || `Could not fetch ${url}.`),
-      { status: 502 },
-    );
-  }
-
-  // auditor.js statuses: pass / fail / warning / manual / na. 'pass' and 'na'
-  // are not findings — 'na' is either "not applicable to this page type" or "no
-  // keyword set", both the absence of a finding rather than a weak one.
-  const SEVERITY_BY_STATUS = { fail: 'error', warning: 'warning', manual: 'notice' };
-  const findings = [];
-  let keywordChecksStoodDown = 0;
-
-  for (const section of audit.sections || []) {
-    for (const check of section.checks || []) {
-      // Both wordings on purpose.
-      //
-      // The auditor's stand-down text changed when main's keyword-optional rework
-      // was merged ("No target keyword is set" — "No primary keyword supplied").
-      // Matching only the old one silently counted zero, which would have let the
-      // report imply keyword placement WAS checked on a page that has no keyword.
-      // The old phrasing is kept because runs stored before the merge still carry
-      // it, and this counter reads stored audits as well as fresh ones.
-      const keywordStoodDown = /No target keyword is set|No primary keyword supplied/
-        .test(check.evidence || '');
-      if (check.status === 'na' && keywordStoodDown) {
-        keywordChecksStoodDown += 1;
-      }
-      const severity = SEVERITY_BY_STATUS[check.status];
-      if (!severity) continue;
-      findings.push({
-        ruleId: `onpage-${check.id}`,
-        title: check.label || 'On-page check',
-        severity,
-        category: section.name || null,
-        count: 1,
-        detail: check.evidence || null,
-        recommendation: check.recommendation || null,
-      });
-    }
-  }
-
-  const rate = passRate(audit);
-
-  return {
-    score: rate.score,
-    scoreMax: 100,
-    scoreBasis: rate.score === null ? null : SCORE_BASIS.on_page,
-    band: audit.pageType ? `${audit.pageType}${audit.isYMYL ? ' · YMYL' : ''}` : null,
-    findings,
-    payload: {
-      native: audit,
-      passRate: rate,
-      keywords: kws,
-      pageType: audit.pageType,
-      isYMYL: audit.isYMYL,
-      keywordChecksStoodDown,
-      priorityActions: (audit.priorityActions || []).length,
-    },
-  };
-}
 
 /**
  * SEO & GEO: 200+ rule-based checks plus the module's own AI analysis.
@@ -267,10 +177,6 @@ async function auditPageAgentReadiness({ url }) {
 
 // ── The module runners ──────────────────────────────────────────────────────
 // Thin: the work is per-page, and the driver owns iterating and rolling up.
-
-async function runOnPage({ access, run, project, keywords }) {
-  return runAcrossCrawledPages({ access, moduleKey: 'on_page', run, project, keywords });
-}
 
 async function runSeoGeo({ access, run, project, keywords }) {
   return runAcrossCrawledPages({ access, moduleKey: 'seo_geo', run, project, keywords });
@@ -877,7 +783,6 @@ async function runHubSpoke({ project, domains }) {
 // payload } where payload.native is the module's own report for that page.
 const PAGE_AUDITS = {
   seo_geo: auditPageSeoGeo,
-  on_page: auditPageOnPage,
   agent_readiness: auditPageAgentReadiness,
 };
 
@@ -1077,14 +982,11 @@ function competitorTrafficScore(domains) {
 const SCORE_BASIS = {
   seo_geo: 'the SEO & GEO audit (rule-based bucket scores, weighted composite, capped by blocking issues)',
   agent_readiness: 'the agent readiness audit (weighted HTTP plus on-page checks)',
-  on_page: 'the on-page audit (share of automatically-judgeable checks that passed, '
-    + 'excluding checks needing a human and checks that do not apply to the page)',
   competitor: 'this site\'s estimated monthly organic traffic as a share of the tracked '
     + 'competitor with the most, from SEMrush',
 };
 
 const RUNNERS = {
-  on_page: runOnPage,
   seo_geo: runSeoGeo,
   agent_readiness: runAgentReadiness,
   competitor: runCompetitor,

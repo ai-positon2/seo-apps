@@ -26,7 +26,6 @@ import ImageAltAuditPage from './pages/ImageAltAuditPage';
 import AgentReadinessAuditPage from './pages/AgentReadinessAuditPage';
 import AgentReadinessSummaryPage from './pages/AgentReadinessSummaryPage';
 import SeoGeoAuditPage from './pages/SeoGeoAuditPage';
-import SeoGeoSnapshotPage from './pages/SeoGeoSnapshotPage';
 import ContentEnhancementPage from './pages/ContentEnhancementPage';
 import ArticleEnhancementPage from './pages/ArticleEnhancementPage';
 import ArticleEnhancementLitePage from './pages/ArticleEnhancementLitePage';
@@ -35,7 +34,6 @@ import LocationPageDetailPage from './pages/LocationPageDetailPage';
 import LocationServiceWizardPage from './pages/LocationServiceWizardPage';
 import GentleDentalPagesPage from './pages/GentleDentalPagesPage';
 import RobotsMonitorPage from './pages/RobotsMonitorPage';
-import OnPageAuditPage from './pages/OnPageAuditPage';
 import MarketPotentialPage from './pages/MarketPotentialPage';
 import CompetitorAnalysisDashboardPage from './pages/CompetitorAnalysisDashboardPage';
 import ContentArchitectPage from './pages/ContentArchitectPage';
@@ -99,7 +97,6 @@ export default function App() {
           <Route path="/agent-readiness-audit" element={<AgentReadinessAuditPage />} />
           <Route path="/agent-readiness-audit/summary" element={<AgentReadinessSummaryPage />} />
           <Route path="/seo-geo-audit" element={<SeoGeoAuditPage />} />
-          <Route path="/seo-geo-snapshot" element={<SeoGeoSnapshotPage />} />
           <Route path="/content-enhancement" element={<ContentEnhancementPage />} />
           <Route path="/article-enhancement" element={<ArticleEnhancementPage />} />
           <Route path="/article-enhancement-lite" element={<ArticleEnhancementLitePage />} />
@@ -108,7 +105,6 @@ export default function App() {
           <Route path="/location-page-builder/gentle-dental-pages" element={<GentleDentalPagesPage />} />
           <Route path="/location-page-builder/:id" element={<LocationPageDetailPage />} />
           <Route path="/robots-monitor" element={<RobotsMonitorPage />} />
-          <Route path="/on-page-audit" element={<OnPageAuditPage />} />
           <Route path="/market-potential" element={<MarketPotentialPage />} />
           <Route path="/competitor-analysis" element={<CompetitorAnalysisDashboardPage />} />
           <Route path="/content-architect" element={<ContentArchitectPage />} />

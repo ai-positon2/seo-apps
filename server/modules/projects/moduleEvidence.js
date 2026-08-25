@@ -24,7 +24,7 @@
 const { getSupabase, isSupabaseConfigured } = require('../../services/supabase');
 const auditEvents = require('../../services/auditEvents');
 
-const MODULE_KEYS = ['on_page', 'seo_geo', 'agent_readiness', 'competitor', 'hub_spoke'];
+const MODULE_KEYS = ['seo_geo', 'agent_readiness', 'competitor', 'hub_spoke'];
 const TERMINAL = ['completed', 'failed', 'cancelled', 'insufficient_data'];
 
 // A stored payload holds the module's OWN report, so its page can render exactly
@@ -449,13 +449,12 @@ async function getRun(projectId, runId) {
 // own deadline at the moment it opens. Minutes per page, measured:
 //
 //   seo_geo          ~130s/page (200+ checks plus two Sonnet calls)
-//   on_page          PSI round-trip per page, mobile and desktop
 //   agent_readiness  well-known probes per page plus one Sonnet brief
 //
 // Rounded up generously: the cost of being too lenient is a dead row sitting
 // 'running' for an extra hour, and the cost of being too strict is destroying
 // work in progress and lying about it. Those are not symmetric.
-const MINUTES_PER_PAGE = { seo_geo: 3, on_page: 2, agent_readiness: 2 };
+const MINUTES_PER_PAGE = { seo_geo: 3, agent_readiness: 2 };
 
 // Site-level modules do a fixed amount of work regardless of page count.
 const FLAT_MINUTES = { hub_spoke: 5, competitor: 15 };
@@ -695,7 +694,7 @@ async function salvageInterruptedRun(row) {
 // run has a child row per page holding that page's own report. The parent's
 // score is the mean of theirs.
 
-const PAGE_MODULE_KEYS = ['seo_geo', 'on_page', 'agent_readiness'];
+const PAGE_MODULE_KEYS = ['seo_geo', 'agent_readiness'];
 
 /** Opens a page row before that page is audited. */
 async function startPageRun({

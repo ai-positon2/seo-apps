@@ -69,10 +69,6 @@ export const TOOL_CATALOG = [
     icon: icon('M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z'),
   },
   {
-    id: 'on-page-audit', path: '/on-page-audit', badge: 'On-Page', group: 'Optimize',
-    label: 'On-Page SEO Audit', tagline: '23 sections · live data · PageSpeed + CWV',
-    description: 'Enter a URL and primary keywords to run a comprehensive on-page audit covering URL structure, meta, headings, content, schema, Core Web Vitals, canonicals, OG tags, crawlability, and more.',
-    features: ['23 audit sections, ~90 checks', 'PageSpeed Insights (mobile + desktop)', 'Core Web Vitals (LCP, CLS, INP)', 'Top 10 priority action list'],
     icon: icon('M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z'),
   },
   {
@@ -83,10 +79,6 @@ export const TOOL_CATALOG = [
     icon: icon('M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z'),
   },
   {
-    id: 'seo-geo-snapshot', path: '/seo-geo-snapshot', badge: 'Snapshot', group: 'Optimize',
-    label: 'SEO & GEO Snapshot', tagline: 'Score dashboard only · one screen',
-    description: 'Runs the same 200+ check SEO & GEO engine but renders only the Score Dashboard — overall score with its band and points-lost waterfall, nine category bars, GEO answerability, quick wins and keyword coverage. No issue list, no schema panel.',
-    features: ['Same engine as SEO & GEO Audit', 'Overall + 9 category scores', 'GEO answerability & signal tiles', 'Keyword coverage at a glance'],
     icon: icon('M3 3v18h18M8 17V9m4 8V5m4 12v-6'),
   },
   {

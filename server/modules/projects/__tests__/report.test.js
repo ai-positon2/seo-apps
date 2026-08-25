@@ -102,7 +102,10 @@ async function main() {
 
   await test('a module with findings gets a sheet, sorted worst first', async () => {
     const book = new ExcelJS.Workbook();
-    const evidence = new Map([['on_page', {
+    // seo_geo, not on_page: addFindingsSheets looks the key up in MODULES, and
+    // on_page is no longer one. What this test is about is finding order, so any
+    // live module serves.
+    const evidence = new Map([['seo_geo', {
       terminal: {
         status: 'completed', target_url: 'https://x.com', finished_at: '2026-08-21T10:00:00Z',
         score: null,

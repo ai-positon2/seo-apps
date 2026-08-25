@@ -924,6 +924,13 @@ export default function SeoGeoAuditPage() {
         </div>
       )}
       <ModuleRuns toolId="seo-geo-audit" />
+      {/* On-Page runs surface here too.
+          They used to be listed on the standalone /on-page-audit page, which was
+          removed as a duplicate of the On-Page tab above. The tab still starts
+          real jobs through /api/on-page-audit and those are still tracked, so
+          without this panel they would be recorded and never shown anywhere —
+          which config/__tests__/moduleRuns.test.js exists to catch. */}
+      <ModuleRuns toolId="on-page-audit" />
     </main>
   );
 }

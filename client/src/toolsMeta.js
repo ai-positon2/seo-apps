@@ -26,9 +26,7 @@ export const TOOL_GROUPS = [
     tools: [
       { id: 'article-enhancement',    path: '/article-enhancement',    label: 'Enhance Existing Article', icon: '✍️', tag: 'internal' },
       { id: 'article-enhancement-lite', path: '/article-enhancement-lite', label: 'Article Enhancer', icon: '📝' },
-      { id: 'on-page-audit',          path: '/on-page-audit',          label: 'On-Page SEO Audit',      icon: '🔎', tag: 'soon' },
       { id: 'seo-geo-audit',          path: '/seo-geo-audit',          label: 'SEO & GEO Audit',        icon: '🌐', tag: 'beta' },
-      { id: 'seo-geo-snapshot',       path: '/seo-geo-snapshot',       label: 'SEO & GEO Snapshot',     icon: '📊', tag: 'beta' },
       { id: 'agent-readiness-audit',  path: '/agent-readiness-audit',  label: 'Agent Readiness Audit',  icon: '🤖' },
       { id: 'image-alt-audit',        path: '/image-alt-audit',        label: 'Image Alt Tag Audit',    icon: '🖼️', tag: 'beta' },
     ],

@@ -4,8 +4,8 @@ import { Card } from './primitives';
 //
 // The homepage reads three things: the project list, the overview, and the
 // cross-module insight. They used to render the moment each one landed, so the
-// page assembled itself in front of you — header, then a spinner, then six
-// cards, then a panel that pushed everything down as it arrived. Each arrival
+// page assembled itself in front of you — header, then a spinner, then the
+// module cards, then a panel that pushed everything down as it arrived. Each
 // moved whatever you had started reading.
 //
 // So nothing renders until all three are in, and this holds the space in the
@@ -94,7 +94,7 @@ export default function HomeSkeleton() {
               gap: 16,
             }}
           >
-            {[0, 1, 2, 3, 4, 5].map((i) => (
+            {[0, 1, 2, 3, 4].map((i) => (
               <Card key={i} style={{ padding: 16, gap: 10, minHeight: 172 }}>
                 <Bar w={110} h={11} />
                 <Bar w="80%" h={16} />

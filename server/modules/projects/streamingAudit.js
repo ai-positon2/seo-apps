@@ -431,8 +431,6 @@ async function followCrawl({
 const SCORE_BASIS = {
   seo_geo: 'the SEO & GEO audit (rule-based bucket scores, weighted composite, capped by blocking issues)',
   agent_readiness: 'the agent readiness audit (weighted HTTP plus on-page checks)',
-  on_page: 'the on-page audit (share of automatically-judgeable checks that passed, '
-    + 'excluding checks needing a human and checks that do not apply to the page)',
 };
 
 module.exports = {

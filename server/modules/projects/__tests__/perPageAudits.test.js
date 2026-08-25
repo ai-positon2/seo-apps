@@ -354,10 +354,13 @@ test('errors sort above warnings in the rolled-up list', () => {
 
 section('per-page module set');
 
-test('exactly the three single-url modules audit per page', () => {
+test('exactly the two single-url modules audit per page', () => {
+  // on_page was a third until the standalone /on-page-audit page was removed.
+  // The On-Page report is a tab inside the SEO & GEO Audit now, running ad-hoc
+  // audits through /api/on-page-audit rather than storing project runs.
   assert.deepStrictEqual(
     [...moduleEvidence.PAGE_MODULE_KEYS].sort(),
-    ['agent_readiness', 'on_page', 'seo_geo'],
+    ['agent_readiness', 'seo_geo'],
   );
 });
 
@@ -785,11 +788,19 @@ test('an unknown status is ignored rather than counted', () => {
   assert.strictEqual(r.scored, 1);
 });
 
-test('the score basis names the methodology', () => {
+test('every scoring module names its methodology', () => {
   // The DB refuses a score without one, and "70" with no explanation is a number
   // nobody can argue with or trust.
-  assert.match(moduleRunners.SCORE_BASIS.on_page, /passed/);
-  assert.match(moduleRunners.SCORE_BASIS.on_page, /excluding/);
+  //
+  // This used to assert on_page's basis specifically. Asserting the invariant
+  // across whatever modules score is the better test anyway — it survives a
+  // module being added or removed, which is exactly what just happened.
+  const bases = Object.entries(moduleRunners.SCORE_BASIS);
+  assert.ok(bases.length > 0, 'at least one module must score');
+  for (const [key, basis] of bases) {
+    assert.strictEqual(typeof basis, 'string', `${key} must carry a basis`);
+    assert.ok(basis.length > 20, `${key}'s basis must actually explain something`);
+  }
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

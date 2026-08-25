@@ -1,9 +1,11 @@
 import { useState } from 'react';
 
-// All of the SEO & GEO audit run plumbing: inputs and the SSE reader. Shared
-// by SeoGeoAuditPage (full report) and SeoGeoSnapshotPage (score dashboard
-// only) so both pages provably send the same request body and behave the
-// same way.
+// All of the SEO & GEO audit run plumbing: inputs and the SSE reader.
+//
+// It was shared by SeoGeoAuditPage (full report) and SeoGeoSnapshotPage (score
+// dashboard only) so both provably sent the same request body. The snapshot page
+// has been removed, so SeoGeoAuditPage is the only caller — the hook stays a hook
+// because the run plumbing is worth keeping separable from the page that renders it.
 //
 //   const ctl = useSeoGeoAudit();
 //

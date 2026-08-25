@@ -31,7 +31,7 @@ const MODULE_LABEL = new Map(overview.MODULES.map((m) => [m.key, m.label]));
 // Modules whose evidence is derived from a crawl. A run older than the latest
 // crawl describes a site inventory that has since been replaced, which is worth
 // saying out loud rather than presenting as current.
-const CRAWL_DEPENDENT = ['seo_geo', 'on_page', 'agent_readiness', 'hub_spoke'];
+const CRAWL_DEPENDENT = ['seo_geo', 'agent_readiness', 'hub_spoke'];
 
 // How much of the crawled inventory a defect has to cover before it is a
 // template problem rather than a page problem. Not a score — a classification,

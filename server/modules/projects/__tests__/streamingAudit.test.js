@@ -76,7 +76,7 @@ test('streaming knows the per-page modules and only those', () => {
 test('every scoring module names its basis', () => {
   // The database refuses a score without one. A module that starts scoring and
   // forgets the basis fails at write time, in production, on a real run.
-  for (const key of ['seo_geo', 'on_page', 'agent_readiness', 'competitor']) {
+  for (const key of ['seo_geo', 'agent_readiness', 'competitor']) {
     assert.ok(
       moduleRunners.SCORE_BASIS[key],
       `${key} produces a score and must say what it means`,

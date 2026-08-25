@@ -163,22 +163,22 @@ const readFile = (rel) => require('fs').readFileSync(
 
 test('the runners keep each module’s native result, not a summary of it', () => {
   const source = readFile('../moduleRunners.js');
-  // Three modules render their report from page state, so the whole native
-  // result is stored and handed back to that page.
+  // Two modules render their report from page state, so the whole native
+  // result is stored and handed back to that page. on_page was a third until
+  // the standalone page was removed and it stopped being a project module.
   assert.ok(
     source.includes('native: { findings: result.findings, ai: result.ai || null }'),
     'seo_geo must store its findings AND its ai analysis',
   );
   assert.ok(source.includes('native: result,'), 'agent_readiness must store its whole result');
-  assert.ok(source.includes('native: audit,'), 'on_page must store the auditor’s own report');
 });
 
 test('each per-page audit stores that page’s own report under payload.native', () => {
-  // The three per-page modules audit one url each. What gets stored per page has
+  // The per-page modules audit one url each. What gets stored per page has
   // to be the module’s own report for that url, because the page switcher hands
   // it straight to the report view an individual run renders.
   const source = readFile('../moduleRunners.js');
-  for (const fn of ['auditPageSeoGeo', 'auditPageOnPage', 'auditPageAgentReadiness']) {
+  for (const fn of ['auditPageSeoGeo', 'auditPageAgentReadiness']) {
     assert.ok(source.includes(`async function ${fn}(`), `${fn} must exist`);
   }
   assert.ok(

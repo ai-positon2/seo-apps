@@ -121,7 +121,7 @@ test('a module with no stored run says so and scores nothing', () => {
 
 test('a run in flight reads as running, not as never-run', () => {
   const card = overview.evidenceCard(
-    overview.MODULES.find((m) => m.key === 'on_page'),
+    overview.MODULES.find((m) => m.key === 'seo_geo'),
     { terminal: null, inFlight: { id: 'r1', status: 'running', started_at: '2026-08-21T10:00:00Z' } },
   );
   assert.strictEqual(card.status, 'running');
@@ -151,7 +151,7 @@ test("a scored module reports the module's own score and names its basis", () =>
 
 test('an unscored module shows findings and an em dash, never a zero', () => {
   const card = overview.evidenceCard(
-    overview.MODULES.find((m) => m.key === 'on_page'),
+    overview.MODULES.find((m) => m.key === 'seo_geo'),
     {
       terminal: {
         id: 'r3', status: 'completed', score: null, score_basis: null,
@@ -235,42 +235,16 @@ test('the composite stays null when nothing scored', () => {
 
 console.log('\nOn-page: keywords are per page');
 
-test('the runner and the auditor agree on how a stood-down keyword check reads', () => {
-  // runOnPage reports "N keyword-placement checks were not run" by matching the
-  // auditor's evidence string. If the two drift apart the count silently becomes
-  // zero, and a reader assumes keyword placement WAS checked on a page that has
-  // no keyword — the worst kind of quiet regression.
-  //
-  // This used to pin the literal phrase, which broke the moment main's
-  // keyword-optional rework renamed it ("No target keyword is set" became "No
-  // primary keyword supplied"). Pinning a literal only catches drift on one
-  // side. So the assertion is now the CONTRACT: whatever the auditor emits must
-  // be matched by whatever pattern the runner counts with.
-  const fs = require('fs');
-  const path = require('path');
-  const auditorSource = fs.readFileSync(
-    path.join(__dirname, '../../onPageAudit/auditor.js'), 'utf8',
-  );
-  const runnerSource = fs.readFileSync(
-    path.join(__dirname, '../moduleRunners.js'), 'utf8',
-  );
-
-  // The helper every keyword check stands down through, and the text it emits.
-  const helper = auditorSource.match(/const\s+(?:kwNa|naKeyword)\s*=[^;]*?'na',\s*'([^']+)'/);
-  assert.ok(helper, 'the auditor must stand keyword checks down through a single na helper');
-  const evidence = helper[1];
-
-  const matcher = runnerSource.match(/\/(No [^/]*?)\/\s*$/m)
-    || runnerSource.match(/(\/No target keyword[^/]*\/)/);
-  assert.ok(matcher, 'the runner must count stood-down keyword checks by a pattern');
-  const pattern = new RegExp(matcher[1].replace(/^\//, '').replace(/\/$/, ''));
-
-  assert.ok(
-    pattern.test(evidence),
-    `the runner's pattern ${pattern} does not match the auditor's evidence "${evidence}" `
-    + '— the stood-down keyword count would silently be zero',
-  );
-});
+// The runner-side half of this section went with the on_page module.
+//
+// A test here used to assert that moduleRunners' "N keyword-placement checks
+// were not run" counter matched the auditor's stand-down wording. on_page is no
+// longer a project module, so nothing counts those checks and the contract has
+// no two sides left to agree.
+//
+// The auditor itself stays — it still serves the On-Page tab inside the SEO &
+// GEO Audit through /api/on-page-audit — so the guard below, which tests the
+// auditor alone, is still worth having.
 test('every keyword-dependent check is guarded against an empty keyword list', () => {
   // The auditor crashed on kws[0] when handed no keywords. Every remaining use
   // must sit behind a kws.length guard; this catches a new unguarded one.

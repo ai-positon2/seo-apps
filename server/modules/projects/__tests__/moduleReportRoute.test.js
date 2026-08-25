@@ -116,7 +116,7 @@ test('the module pages show their own report and nothing above it', () => {
     path.join(__dirname, '../../../../client/src/pages/', f), 'utf8',
   );
 
-  for (const f of ['SeoGeoAuditPage.jsx', 'OnPageAuditPage.jsx', 'AgentReadinessAuditPage.jsx']) {
+  for (const f of ['SeoGeoAuditPage.jsx', 'AgentReadinessAuditPage.jsx']) {
     assert.ok(page(f).includes('ProjectReportBar'), `${f} must load the stored run`);
     assert.ok(!page(f).includes('ModuleDetailPanel'), `${f} must not show a summary panel`);
   }
@@ -136,19 +136,14 @@ test('the bar renders nothing when there is no project or no stored run', () => 
     'no project or no detail means nothing rendered');
 });
 
-test('the page switcher stays mounted while the report is open', () => {
-  // On-Page swaps between an input view and a report view. With the bar inside
-  // the input view it unmounted the moment a report opened, so changing page was
-  // impossible after the first one.
-  const page = fs.readFileSync(
-    path.join(__dirname, '../../../../client/src/pages/OnPageAuditPage.jsx'), 'utf8',
-  );
-  const barAt = page.indexOf('<ProjectReportBar');
-  const switchAt = page.indexOf("{view === 'input' &&");
-  assert.ok(barAt > 0 && switchAt > 0, 'both must be present');
-  assert.ok(barAt < switchAt, 'the bar must sit above the view switch, not inside a branch');
-});
-
+// The page-switcher placement test went with OnPageAuditPage.jsx.
+//
+// It asserted that page mounted <ProjectReportBar> ABOVE its input/report view
+// switch, because with the bar inside the input branch it unmounted the moment a
+// report opened and changing page became impossible after the first one. That
+// page has been removed along with the on_page module, and the two pages that
+// remain have no such view switch — the loop above already checks they mount the
+// bar at all.
 test('the competitor dashboard honours the client id the link carries', () => {
   const page = fs.readFileSync(
     path.join(__dirname, '../../../../client/src/pages/CompetitorAnalysisDashboardPage.jsx'), 'utf8',

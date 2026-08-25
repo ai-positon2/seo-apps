@@ -287,7 +287,7 @@ test('the composite is null with nothing scored — never zero (§16.11)', () =>
   assert.notStrictEqual(composite.value, 0);
   assert.strictEqual(composite.status, 'insufficient_data');
   assert.strictEqual(composite.scoredModules, 0);
-  assert.strictEqual(composite.totalModules, 6);
+  assert.strictEqual(composite.totalModules, 5);
 });
 
 test('the composite averages only the modules that really scored', () => {
@@ -301,16 +301,21 @@ test('the composite averages only the modules that really scored', () => {
   assert.strictEqual(composite.status, 'partial');
 });
 
-test('the audit profile covers the six modules the design shows', () => {
+test('the audit profile covers the five modules the design shows', () => {
   assert.deepStrictEqual(
     overview.MODULES.map((m) => m.key),
-    ['technical', 'hub_spoke', 'competitor', 'seo_geo', 'on_page', 'agent_readiness'],
+    ['technical', 'hub_spoke', 'competitor', 'seo_geo', 'agent_readiness'],
   );
-  // All six are wired to durable project-scoped evidence: CrawlScope via
-  // crawl_runs, the other five via project_module_runs (phases 3 and 4).
+  // All five are wired to durable project-scoped evidence: CrawlScope via
+  // crawl_runs, the other four via project_module_runs (phases 3 and 4).
+  //
+  // on_page was a sixth. It was removed with the standalone /on-page-audit page:
+  // the On-Page report now lives as a tab inside the SEO & GEO Audit, which runs
+  // ad-hoc audits through /api/on-page-audit rather than storing project runs.
+  // server/modules/onPageAudit/ is still there and still serves that tab —
   assert.deepStrictEqual(
     overview.MODULES.filter((m) => m.live).map((m) => m.key).sort(),
-    ['agent_readiness', 'competitor', 'hub_spoke', 'on_page', 'seo_geo', 'technical'],
+    ['agent_readiness', 'competitor', 'hub_spoke', 'seo_geo', 'technical'],
   );
   assert.deepStrictEqual(overview.MODULES.filter((m) => !m.live), []);
 
@@ -319,7 +324,7 @@ test('the audit profile covers the six modules the design shows', () => {
   // routing it through the synchronous runModule path would hang the request.
   assert.deepStrictEqual(
     overview.MODULES.filter((m) => m.runnable).map((m) => m.key).sort(),
-    ['agent_readiness', 'competitor', 'hub_spoke', 'on_page', 'seo_geo'],
+    ['agent_readiness', 'competitor', 'hub_spoke', 'seo_geo'],
   );
   assert.strictEqual(
     overview.MODULES.find((m) => m.key === 'technical').runnable,

@@ -1,7 +1,13 @@
-// The On-Page SEO Audit report body, lifted verbatim out of pages/OnPageAuditPage.jsx so the
-// standalone tool and the "On-Page" tab inside the SEO & GEO Audit render the exact same
-// report from one implementation. The standalone page keeps its own shell (header, input
-// form, history, progress screen); only the report itself is shared.
+// The On-Page SEO Audit report body.
+//
+// Rendered by the "On-Page" tab inside the SEO & GEO Audit, which is now the only
+// way into this report. It was extracted from a standalone pages/OnPageAuditPage.jsx
+// so the tab and that page could share one implementation; the page has since been
+// removed as a duplicate of the tab, and this component outlived it.
+//
+// The audit itself still runs server-side through /api/on-page-audit — see
+// hooks/useOnPageTab.js. The project dashboard's On-Page score is a separate path
+// that calls the auditor directly (server/modules/projects/moduleRunners.js).
 import { useState } from 'react';
 
 const STATUS_COLORS = {
