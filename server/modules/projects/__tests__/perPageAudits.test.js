@@ -720,21 +720,44 @@ test('the score matches what the report has always shown', () => {
 });
 
 test('the server and the report compute it identically', () => {
-  // The report page computes this inline. Both formulas are asserted here so a
+  // The report computes this inline, so both formulas are asserted here — a
   // change to one is caught rather than discovered on a client call.
-  const src = require('fs').readFileSync(
-    require('path').join(__dirname, '../../../../client/src/pages/OnPageAuditPage.jsx'), 'utf8',
-  );
-  assert.ok(
-    src.includes('counts.pass + counts.fail + counts.warning'),
-    'the report must still exclude manual and na from the denominator',
-  );
-  assert.ok(
-    src.includes('Math.round((counts.pass / scored) * 100)'),
-    'and still compute the same percentage',
-  );
-});
+  //
+  // This used to read one hardcoded path (pages/OnPageAuditPage.jsx). main's
+  // On-Page tab refactor moved the scorecard into
+  // components/onPageAudit/OnPageReport.jsx and the test broke without anything
+  // actually regressing. Pinning a path tests the file layout, not the
+  // methodology, so it now searches for wherever the formula lives.
+  const fs = require('fs');
+  const path = require('path');
+  const clientSrc = path.join(__dirname, '../../../../client/src');
 
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) return walk(full);
+    return /\.(jsx?|tsx?)$/.test(e.name) ? [full] : [];
+  });
+
+  const carriers = walk(clientSrc).filter((f) => {
+    const src = fs.readFileSync(f, 'utf8');
+    return src.includes('counts.pass + counts.fail + counts.warning');
+  });
+
+  assert.ok(
+    carriers.length > 0,
+    'no client file computes the on-page score — the report must still exclude '
+    + 'manual and na from the denominator',
+  );
+
+  for (const f of carriers) {
+    const src = fs.readFileSync(f, 'utf8');
+    assert.ok(
+      src.includes('Math.round((counts.pass / scored) * 100)'),
+      `${path.relative(clientSrc, f)} counts the same denominator but computes a `
+      + 'different percentage from the server',
+    );
+  }
+});
 test('manual and na are excluded from the denominator', () => {
   // The substance of the methodology. A page whose keyword checks stood down
   // because nobody set a keyword must not be scored down for them.

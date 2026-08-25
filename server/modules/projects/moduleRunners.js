@@ -133,7 +133,17 @@ async function auditPageOnPage({ url, keywords }) {
 
   for (const section of audit.sections || []) {
     for (const check of section.checks || []) {
-      if (check.status === 'na' && /No target keyword is set/.test(check.evidence || '')) {
+      // Both wordings on purpose.
+      //
+      // The auditor's stand-down text changed when main's keyword-optional rework
+      // was merged ("No target keyword is set" — "No primary keyword supplied").
+      // Matching only the old one silently counted zero, which would have let the
+      // report imply keyword placement WAS checked on a page that has no keyword.
+      // The old phrasing is kept because runs stored before the merge still carry
+      // it, and this counter reads stored audits as well as fresh ones.
+      const keywordStoodDown = /No target keyword is set|No primary keyword supplied/
+        .test(check.evidence || '');
+      if (check.status === 'na' && keywordStoodDown) {
         keywordChecksStoodDown += 1;
       }
       const severity = SEVERITY_BY_STATUS[check.status];

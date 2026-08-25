@@ -235,20 +235,42 @@ test('the composite stays null when nothing scored', () => {
 
 console.log('\nOn-page: keywords are per page');
 
-test('the phrase the runner counts stood-down checks by still exists', () => {
-  // runOnPage reports "N keyword-placement checks were not run" by matching this
-  // exact evidence string. If the auditor's wording drifts, the count silently
-  // becomes zero and a reader would assume keyword placement WAS checked on a
-  // page that has no keyword — the worst kind of quiet regression.
+test('the runner and the auditor agree on how a stood-down keyword check reads', () => {
+  // runOnPage reports "N keyword-placement checks were not run" by matching the
+  // auditor's evidence string. If the two drift apart the count silently becomes
+  // zero, and a reader assumes keyword placement WAS checked on a page that has
+  // no keyword — the worst kind of quiet regression.
+  //
+  // This used to pin the literal phrase, which broke the moment main's
+  // keyword-optional rework renamed it ("No target keyword is set" became "No
+  // primary keyword supplied"). Pinning a literal only catches drift on one
+  // side. So the assertion is now the CONTRACT: whatever the auditor emits must
+  // be matched by whatever pattern the runner counts with.
   const fs = require('fs');
   const path = require('path');
   const auditorSource = fs.readFileSync(
     path.join(__dirname, '../../onPageAudit/auditor.js'), 'utf8',
   );
-  assert.match(auditorSource, /No target keyword is set for this page/);
-  assert.match(auditorSource, /const naKeyword =/, 'keyword checks stand down as na, not fail');
-});
+  const runnerSource = fs.readFileSync(
+    path.join(__dirname, '../moduleRunners.js'), 'utf8',
+  );
 
+  // The helper every keyword check stands down through, and the text it emits.
+  const helper = auditorSource.match(/const\s+(?:kwNa|naKeyword)\s*=[^;]*?'na',\s*'([^']+)'/);
+  assert.ok(helper, 'the auditor must stand keyword checks down through a single na helper');
+  const evidence = helper[1];
+
+  const matcher = runnerSource.match(/\/(No [^/]*?)\/\s*$/m)
+    || runnerSource.match(/(\/No target keyword[^/]*\/)/);
+  assert.ok(matcher, 'the runner must count stood-down keyword checks by a pattern');
+  const pattern = new RegExp(matcher[1].replace(/^\//, '').replace(/\/$/, ''));
+
+  assert.ok(
+    pattern.test(evidence),
+    `the runner's pattern ${pattern} does not match the auditor's evidence "${evidence}" `
+    + '— the stood-down keyword count would silently be zero',
+  );
+});
 test('every keyword-dependent check is guarded against an empty keyword list', () => {
   // The auditor crashed on kws[0] when handed no keywords. Every remaining use
   // must sit behind a kws.length guard; this catches a new unguarded one.
