@@ -10,7 +10,7 @@ function AiUnavailableBanner() {
   return (
     <div style={{ background: 'var(--warning-soft)', border: '1px solid var(--warning)', borderRadius: 'var(--r-lg)', padding: 20, marginBottom: 16 }}>
       <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--warning)', marginBottom: 4 }}>AI analysis unavailable</p>
-      <p style={{ fontSize: 14, color: 'var(--warning)' }}>The GPT-4o mini analysis did not complete, so GEO readiness, E-E-A-T, quick wins and the keyword verdict are missing. Scores and GEO answerability are rule-based and remain accurate. Re-run to retry.</p>
+      <p style={{ fontSize: 14, color: 'var(--warning)' }}>The AI analysis did not complete, so GEO readiness, E-E-A-T, quick wins and the keyword verdict are missing. Scores and GEO answerability are rule-based and remain accurate. Re-run to retry.</p>
     </div>
   );
 }

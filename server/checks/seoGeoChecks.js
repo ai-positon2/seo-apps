@@ -768,6 +768,13 @@ function checksF($, rawHtml, intent = 'informational', pageContext = {}, lbFacts
       review_markup: !!(lbFacts.aggregateRating || (lbFacts.reviewNodes || []).length),
       sameas_count: (lbFacts.sameAsUrls || []).length,
       service_area_clear: !!lbFacts.hasAreaServed,
+      // Visible-on-page counterparts of the three tiles above. These let the UI separate
+      // "the fact is absent entirely" from "the fact is on the page but not encoded in
+      // schema" — the second is a markup task, not missing content, and showing both as a
+      // bare "No" is what made a page with a plainly visible address look mis-audited.
+      nap_on_page: !!lbFacts.visibleAddressOnPage,
+      hours_on_page: !!lbFacts.visibleHoursOnPage,
+      reviews_on_page: !!lbFacts.visibleReviewsOnPage,
       named_practitioners: (pageContext.namedPractitioners || []).length,
     }
   };
@@ -1904,7 +1911,10 @@ function calculateScores(checks, intent = 'informational') {
     }
     const score = Math.max(0, Math.min(100, Math.round((num / den) * 100)));
     flat[b.key] = score;
-    breakdown.push({ key:b.key, label:b.label, score, weight:b.weight, checks_scored:relevant.length, statuses:st });
+    // `categories` ships so the client can resolve a bar back to the exact checks that
+    // scored it (for the click-through detail panel) without duplicating SCORE_BUCKETS
+    // client-side, which would silently drift the moment a category is added here.
+    breakdown.push({ key:b.key, label:b.label, score, weight:b.weight, categories:[...b.categories], checks_scored:relevant.length, statuses:st });
   }
   for (const b of SCORE_BUCKETS) if (!(b.key in flat)) flat[b.key] = null;
 
@@ -1987,6 +1997,27 @@ const URL_PAGE_TYPE_PATTERNS = [
   { type: 'landing',   pattern: /\/(lp|landing|campaign)s?\// },
 ];
 
+// Visible-content address/hours detection. Found on a real audit (gentledental.com root-canal page):
+// the address "320 Washington St., Brighton, MA 02135" sits in a plain <div class="title-wrap"> with
+// no itemprop/address class at all, so the old class-only selector missed it — which meant the
+// schema-recommendation engine never suggested adding PostalAddress/OpeningHoursSpecification schema
+// for a page that plainly has this content, just not marked up. Falls back to text-shaped patterns,
+// mirroring how hasPhone already works via a plain regex rather than a class selector.
+const STREET_ADDRESS_RE = /\b\d{1,6}\s+[A-Za-z0-9.'-]+(?:\s+[A-Za-z0-9.'-]+){0,4}\s+(?:St(?:reet)?|Ave(?:nue)?|Rd|Road|Blvd|Boulevard|Dr(?:ive)?|Ln|Lane|Way|Ct|Court|Pl(?:ace)?|Pkwy|Parkway|Cir(?:cle)?|Ter(?:race)?|Hwy|Highway|Sq(?:uare)?)\.?\b/i;
+const STATE_ZIP_RE = /\b[A-Z]{2}\s+\d{5}(-\d{4})?\b/;
+const OPENING_HOURS_TEXT_RE = /opening hours|hours of operation|office hours|business hours|store hours|mon(?:day)?\s*[-–—]\s*fri(?:day)?|\b(?:mon|tue|wed|thu|fri|sat|sun)\w*\b[^.]{0,25}\d{1,2}:\d{2}\s*(?:am|pm)/i;
+
+function detectAddressSignal($) {
+  if ($('[class*="address"], [itemprop="address"]').length > 0) return true;
+  const bodyText = $('body').text();
+  return STREET_ADDRESS_RE.test(bodyText) || STATE_ZIP_RE.test(bodyText);
+}
+
+function detectOpeningHoursSignal($) {
+  if ($('[class*="hours"], [class*="timings"]').length > 0) return true;
+  return OPENING_HOURS_TEXT_RE.test($('body').text());
+}
+
 function detectPageType($, pageUrl, parsedSchemas) {
   let pageType = 'other';
   let confidence = 0.5;
@@ -2005,8 +2036,8 @@ function detectPageType($, pageUrl, parsedSchemas) {
   const hasProduct = schemaTypes.has('Product');
 
   const hasMap = $('iframe[src*="google.com/maps"], iframe[src*="maps.google"]').length > 0;
-  const hasOpeningHours = /opening hours|hours of operation|mon.*fri|monday.*friday/i.test($('body').text());
-  const hasAddress = $('[class*="address"], [itemprop="address"]').length > 0 || /PostalAddress/i.test(JSON.stringify(parsedSchemas));
+  const hasOpeningHours = detectOpeningHoursSignal($);
+  const hasAddress = detectAddressSignal($) || /PostalAddress/i.test(JSON.stringify(parsedSchemas));
   const hasArticleEl = $('article').length > 0;
   const hasAuthorByline = $('[rel="author"], [class*="byline"], [class*="author"]').length > 0;
   const hasTimeEl = $('time[datetime]').length > 0;
@@ -2136,6 +2167,13 @@ function summarizeLocalBusiness(parsedSchemas, detectedElements, $) {
     questionHeadingCount: $ ? $('h2,h3').filter((_, el) => $(el).text().trim().endsWith('?')).length : 0,
     faqSchemaValid: !!faqNode && faqItems.length > 0
       && faqItems.every(i => hasType(i, 'Question') && i.acceptedAnswer),
+    // Distinct from hasAddress/ohsValid/aggregateRating above, which are schema-only: these three flag
+    // when the fact is visible in the page's plain text/DOM even though no schema encodes it, so the
+    // answerability findings below can say "visible but not machine-readable" instead of implying the
+    // content itself is absent.
+    visibleAddressOnPage: !!(detectedElements && detectedElements.hasAddress),
+    visibleHoursOnPage: !!(detectedElements && detectedElements.hasOpeningHours),
+    visibleReviewsOnPage: !!(detectedElements && (detectedElements.hasReviewText || detectedElements.hasStarRating)),
     // Gate for "does this page have any reason to publish local facts at all?" — a SaaS pricing page
     // must not be marked down for having no address. detectedElements.hasAddress is a class-name
     // heuristic and is false on Arlington, so schema presence has to be part of the test.
@@ -2158,22 +2196,31 @@ function computeAnswerability(intent, s) {
 
     if (local) {
       const napPts = (f.hasTelephone && f.addrComplete) ? 2 : (f.hasAddress ? 1 : 0);
+      const napMissingNote = f.visibleAddressOnPage
+        ? ' A plain-text address is visible on the page — it just isn\'t encoded in schema markup, so AI engines and rich results can\'t reliably extract it.'
+        : '';
       parts.push({ key: 'N', label: 'NAP completeness', points: napPts, max: 2, finding:
         napPts === 2 ? 'Telephone and a complete postal address are present in the business schema.'
         : napPts === 1 ? 'An address is present but a subfield or the telephone is missing.'
-        : 'No machine-readable address on the page.' });
+        : `No machine-readable address in schema markup.${napMissingNote}` });
 
       const availPts = (f.ohsValid ? 1 : 0) + (f.hasGeoCoords ? 1 : 0);
+      const hoursMissingNote = (!f.ohsPresent && f.visibleHoursOnPage)
+        ? ' Hours are shown as plain text on the page — add an openingHoursSpecification block to make them machine-readable.'
+        : '';
       parts.push({ key: 'A', label: 'Availability (hours + geo)', points: availPts, max: 2, finding:
-        `Opening hours ${f.ohsValid ? 'are valid' : f.ohsPresent ? 'are present but invalid or empty' : 'are absent'}; geo coordinates ${f.hasGeoCoords ? 'present' : 'absent'}.` });
+        `Opening hours ${f.ohsValid ? 'are valid' : f.ohsPresent ? 'are present but invalid or empty' : 'are absent from schema'}; geo coordinates ${f.hasGeoCoords ? 'present' : 'absent'}.${hoursMissingNote}` });
     }
 
     const ar = f.aggregateRating || {};
     const proofPts = (ar.ratingValue && ar.reviewCount) ? 2 : ((f.aggregateRating || f.reviewNodes.length) ? 1 : 0);
+    const proofMissingNote = (proofPts === 0 && f.visibleReviewsOnPage)
+      ? ' Reviews are visible on the page but not marked up — add AggregateRating/Review schema so they count as GEO proof.'
+      : '';
     parts.push({ key: 'P', label: 'Proof / review markup', points: proofPts, max: 2, finding:
       proofPts === 2 ? 'AggregateRating carries both ratingValue and reviewCount.'
       : proofPts === 1 ? `Partial review markup (${f.reviewNodes.length} Review node(s), aggregateRating ${f.aggregateRating ? 'present' : 'absent'}).`
-      : 'No AggregateRating and no Review markup.' });
+      : `No AggregateRating and no Review markup.${proofMissingNote}` });
 
     const entityPts = (f.sameAsUrls.length >= 3 ? 1 : 0) + ((f.hasSchemaId && f.hasSpecificSubtype) ? 1 : 0);
     parts.push({ key: 'E', label: 'Entity linking', points: entityPts, max: 2, finding:
@@ -2276,8 +2323,8 @@ function getSchemaRecommendations(pageType, pageContext, detectedElements, detec
 function detectPageElements($, rawHtml) {
   return {
     hasPhone: /\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/.test(rawHtml),
-    hasAddress: $('[itemprop="address"], [class*="address"]').length > 0,
-    hasOpeningHours: /opening hours|hours of operation|mon.*-.*fri/i.test($('body').text()),
+    hasAddress: detectAddressSignal($),
+    hasOpeningHours: detectOpeningHoursSignal($),
     hasFAQSection: $('[class*="faq"],[id*="faq"]').length > 0 || $('h2,h3').filter((_, el) => /faq|frequently asked/i.test($(el).text())).length > 0,
     hasVideoEmbed: $('iframe[src*="youtube.com"], iframe[src*="vimeo.com"]').length > 0,
     hasImages: $('img').length > 0,

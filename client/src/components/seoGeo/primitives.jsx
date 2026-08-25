@@ -10,10 +10,63 @@ export const STEPS = [
 ];
 
 export const GEO_BADGE = {
-  ready:      { bg: 'var(--success-soft)', text: 'var(--success)', label: 'GEO Ready' },
-  needs_work: { bg: 'var(--warning-soft)', text: 'var(--warning)', label: 'Needs Work' },
-  not_ready:  { bg: 'var(--danger-soft)',  text: 'var(--danger)',  label: 'Not Ready' },
+  ready:      { bg: 'var(--success-soft)', text: 'var(--success)', label: 'AI-Ready' },
+  needs_work: { bg: 'var(--warning-soft)', text: 'var(--warning)', label: 'Partly AI-Ready' },
+  not_ready:  { bg: 'var(--danger-soft)',  text: 'var(--danger)',  label: 'Not AI-Ready' },
 };
+
+// Derived from the RULE-BASED answerability score rather than ai.summary.geo_readiness.
+// Two reasons: it survives an AI failure (the badge used to vanish with it), and it can
+// never disagree with the rubric card printed directly beneath it — previously the badge
+// came from the model and the panel came from the rule engine, so they could contradict.
+// Thresholds mirror the rubric documented in the GPT prompt: >=7 ready, 4-6 partial, <4 not.
+export function answerabilityVerdict(geo) {
+  const score = geo?.answerability_score ?? geo?.csqaf_score;
+  if (!Number.isFinite(score)) return null;
+  return score >= 7 ? 'ready' : score >= 4 ? 'needs_work' : 'not_ready';
+}
+
+// Only a noindex/meta-refresh page is actually unrankable. The other blocker groups cap
+// the score (canonical conflict, invalid JSON-LD, no H1/viewport) but the page still ranks,
+// so calling every cap "blocked" would trade one false signal for a louder one.
+const HARD_BLOCK_GROUPS = new Set(['noindex', 'meta_refresh']);
+export function capIsHardBlock(cap) {
+  return !!(cap?.applied && (cap.groups || []).some(g => HARD_BLOCK_GROUPS.has(g.id)));
+}
+
+// A segmented meter, deliberately NOT a ring. Track B is a small-integer rubric (5 criteria
+// x 2 points), not a percentage, and drawing it as a second ring next to the /100 ring is a
+// visual claim that the two are the same kind of measurement — the reader then silently
+// rescales 1/10 into "10 out of 100" and reads the two numbers as contradicting each other.
+// One pip per rubric criterion, half-filled when the criterion scored 1 of 2.
+export function PipMeter({ parts }) {
+  if (!Array.isArray(parts) || parts.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', gap: 4 }}>
+      {parts.map(p => {
+        const ratio = p.max > 0 ? p.points / p.max : 0;
+        const color = ratio >= 1 ? 'var(--success)' : ratio > 0 ? 'var(--warning)' : 'var(--danger)';
+        // A zero pip has no fill to draw, so the track itself has to carry the signal —
+        // tinting it danger-soft. Plain --surface is the same colour as the well behind
+        // the meter, which rendered every zeroed criterion as blank space.
+        return (
+          <div key={p.key} title={`${p.key} — ${p.label}: ${p.points}/${p.max}`}
+            style={{ flex: 1, minWidth: 0 }}>
+            <div style={{
+              height: 6, borderRadius: 999, overflow: 'hidden',
+              background: ratio > 0 ? 'var(--border)' : 'var(--danger-soft)',
+            }}>
+              <div style={{ height: '100%', width: `${Math.round(ratio * 100)}%`, background: color, borderRadius: 999 }} />
+            </div>
+            <div style={{ fontSize: 10, fontWeight: 700, color, textAlign: 'center', marginTop: 3, fontFamily: 'var(--font-mono)' }}>
+              {p.key}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export const EEAT_BADGE = {
   strong:   { bg: 'var(--success-soft)', text: 'var(--success)' },
@@ -23,6 +76,19 @@ export const EEAT_BADGE = {
 
 export function scoreColor(score) {
   return score >= 70 ? 'var(--success)' : score >= 45 ? 'var(--warning)' : 'var(--danger)';
+}
+
+// The model's JSON is untrusted in SHAPE as well as in content, and nothing server-side
+// validates it. Observed in real runs: `corrected_json_ld` and `starter_template` come back
+// as parsed JSON-LD OBJECTS rather than strings, and rendering an object as a React child
+// throws "Objects are not valid as a React child", which unmounts the whole card — the
+// schema panels only crashed on click because those fields sit inside the collapsed body.
+// Never interpolate an ai.* value into JSX without passing it through here.
+export function asText(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  try { return JSON.stringify(v, null, 2); } catch { return ''; }
 }
 
 // Canonical bar order + labels. Used only to reconstruct a `breakdown` for runs
@@ -109,16 +175,32 @@ export function StepBar({ steps }) {
 // A bar renders nothing for a nullish score: a bucket with no scored checks is
 // dropped from the model (never awarded 100), and a run persisted before the
 // scoring redesign has no value for the newer bars at all.
-export function ScoreBar({ label, score, checksScored, effectiveWeight }) {
+export function ScoreBar({ label, score, checksScored, effectiveWeight, onClick, active }) {
   if (score === null || score === undefined || Number.isNaN(Number(score))) return null;
   const color = scoreColor(score);
   const meta = [];
   if (Number.isFinite(checksScored)) meta.push(`${checksScored} check${checksScored === 1 ? '' : 's'}`);
   if (Number.isFinite(effectiveWeight)) meta.push(`${Math.round(effectiveWeight * 100)}% of score`);
+  const clickable = typeof onClick === 'function';
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+    <div
+      onClick={onClick}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 12,
+        ...(clickable ? {
+          cursor: 'pointer', borderRadius: 6, padding: '4px 6px', margin: '-4px -6px',
+          background: active ? 'var(--surface)' : 'transparent',
+        } : null),
+      }}
+    >
       <div style={{ width: 132, flexShrink: 0 }}>
-        <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{label}</span>
+        <span style={{ fontSize: 12, color: 'var(--text-2)' }}>
+          {clickable && <span style={{ color: 'var(--text-3)', marginRight: 4 }}>{active ? '▾' : '▸'}</span>}
+          {label}
+        </span>
         {meta.length > 0 && (
           <span style={{ display: 'block', fontSize: 10, color: 'var(--text-3)', marginTop: 1 }}>{meta.join(' · ')}</span>
         )}

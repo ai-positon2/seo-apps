@@ -335,7 +335,22 @@ RULES:
 
 16. Do not recommend adding anything covered by an id in naCheckIds. If you believe an na decision is wrong for this specific page, say so in exactly one sentence inside summary.priority_verdict — do not manufacture an issue object for it.
 
-17. Every issue you emit must reference a check id that appears in the supplied checks array.`;
+17. Every issue you emit must reference a check id that appears in the supplied checks array.
+
+18. detectedElements carries visible-page-content flags (hasAddress, hasOpeningHours, hasPhone,
+    hasReviewText) that are independent of schema markup. When a schema-based fact is missing (e.g. no
+    address in lbFacts/geo) but the matching detectedElements flag is true, the content exists in plain
+    text on the page — it is only the machine-readable markup that is missing. Phrase that issue as
+    "present in page text but not encoded in schema" and word the fix as adding/completing the schema
+    block, never as "add an address" or "add hours" as if the content itself were absent.`;
+
+// Keeps model/vendor identifiers out of user-facing strings. Applied to provider error
+// messages, which commonly echo the model id back to the caller.
+function scrubModelNames(msg) {
+  return String(msg || 'unknown error')
+    .replace(/\bgpt[-\w.]*/gi, 'the analysis model')
+    .replace(/\bopenai\b/gi, 'the AI provider');
+}
 
 async function fetchUrl(url) {
   const resp = await axios.get(url, {
@@ -541,8 +556,11 @@ async function runSeoGeoAudit({
       }
     }
 
-    // ── Step 4: GPT-4o mini analysis ─────────────────────────────────────────
-    emit('step', { id: 'ai', status: 'active', message: 'Sending to GPT-4o mini for expert analysis…' });
+    // ── Step 4: AI analysis ──────────────────────────────────────────────────
+    // User-facing copy deliberately does not name the model or vendor — the provider is an
+    // implementation detail and naming it in the UI dates the product and invites questions
+    // about it. Keep model identifiers in code and logs only.
+    emit('step', { id: 'ai', status: 'active', message: 'Running AI expert analysis…' });
 
     // The old filter — `c.status !== 'pass' || c.severity === 'info'` — was a no-op: makeResult()
     // defaults severity:'info' and pass() never clears it, so all 261 checks satisfied it and
@@ -612,11 +630,18 @@ async function runSeoGeoAudit({
       aiAnalysis = JSON.parse(raw);
       emit('step', { id: 'ai', status: 'done', message: 'AI analysis complete.' });
     } catch (err) {
-      // Logged as well as emitted. `emit` is a no-op for a project run, so an
+      // Both halves of this matter and they came from different branches.
+      //
+      // Logged AS WELL AS emitted: `emit` is a no-op for a project run, so an
       // emit-only failure meant the analysis silently vanished and the stored
       // report came back with ai: null and nothing anywhere saying why.
+      //
+      // Scrubbed on the way out: provider errors routinely quote the model id
+      // back ("The model `gpt-...` does not exist", rate-limit notices), which
+      // should not reach a client-facing step message. The log keeps the full
+      // text, which is the copy worth having when debugging.
       console.error('[seo-geo] AI analysis failed:', err.message);
-      emit('step', { id: 'ai', status: 'error', message: `AI analysis failed: ${err.message}` });
+      emit('step', { id: 'ai', status: 'error', message: `AI analysis failed: ${scrubModelNames(err.message)}` });
     }
 
     // ── Step 5: Hand the result back ─────────────────────────────────────────
