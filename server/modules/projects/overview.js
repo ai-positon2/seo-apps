@@ -68,6 +68,18 @@ const MODULES = [
     runnable: true,
   },
   {
+    key: 'ai_visibility',
+    label: 'AI Visibility',
+    family: 'geo',
+    toolPath: '/ai-visibility',
+    evidenceSource: 'project_module_runs (module_key = ai_visibility) + ai_visibility_captures',
+    // Measures the consumer answer surfaces — what ChatGPT and Google AI Overview
+    // say about this client — rather than the client's own site. The only module
+    // whose evidence is about somebody else's product.
+    live: true,
+    runnable: true,
+  },
+  {
     key: 'agent_readiness',
     label: 'Agent Readiness',
     family: 'agentic',

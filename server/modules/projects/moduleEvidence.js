@@ -24,7 +24,7 @@
 const { getSupabase, isSupabaseConfigured } = require('../../services/supabase');
 const auditEvents = require('../../services/auditEvents');
 
-const MODULE_KEYS = ['seo_geo', 'agent_readiness', 'competitor', 'hub_spoke'];
+const MODULE_KEYS = ['seo_geo', 'agent_readiness', 'competitor', 'hub_spoke', 'ai_visibility'];
 const TERMINAL = ['completed', 'failed', 'cancelled', 'insufficient_data'];
 
 // A stored payload holds the module's OWN report, so its page can render exactly
@@ -457,7 +457,14 @@ async function getRun(projectId, runId) {
 const MINUTES_PER_PAGE = { seo_geo: 3, agent_readiness: 2 };
 
 // Site-level modules do a fixed amount of work regardless of page count.
-const FLAT_MINUTES = { hub_spoke: 5, competitor: 15 };
+//
+// ai_visibility is the outlier at 45 minutes, and it is not padding. Measured
+// live: a single ChatGPT capture through DataForSEO's LLM Scraper took between
+// 24 and 112 seconds, and a default run is 20 prompts across two surfaces. At
+// the slow end that is well over half an hour of legitimate work, and the
+// sweeper killing it would destroy captures already paid for and then report
+// the client as unmeasured — the exact failure this module is built to avoid.
+const FLAT_MINUTES = { hub_spoke: 5, competitor: 15, ai_visibility: 45 };
 
 // Queueing, cold starts, and a slow origin having a bad day.
 const GRACE_MINUTES = 10;

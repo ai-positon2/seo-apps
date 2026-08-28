@@ -10,6 +10,7 @@
 const assert = require('assert');
 const domains = require('../domains');
 const overview = require('../overview');
+const moduleEvidence = require('../moduleEvidence');
 
 let passed = 0, failed = 0;
 function test(name, fn) {
@@ -287,7 +288,7 @@ test('the composite is null with nothing scored — never zero (§16.11)', () =>
   assert.notStrictEqual(composite.value, 0);
   assert.strictEqual(composite.status, 'insufficient_data');
   assert.strictEqual(composite.scoredModules, 0);
-  assert.strictEqual(composite.totalModules, 5);
+  assert.strictEqual(composite.totalModules, 6);
 });
 
 test('the composite averages only the modules that really scored', () => {
@@ -301,13 +302,17 @@ test('the composite averages only the modules that really scored', () => {
   assert.strictEqual(composite.status, 'partial');
 });
 
-test('the audit profile covers the five modules the design shows', () => {
+test('the audit profile covers the six modules the design shows', () => {
   assert.deepStrictEqual(
     overview.MODULES.map((m) => m.key),
-    ['technical', 'hub_spoke', 'competitor', 'seo_geo', 'agent_readiness'],
+    ['technical', 'hub_spoke', 'competitor', 'seo_geo', 'ai_visibility', 'agent_readiness'],
   );
-  // All five are wired to durable project-scoped evidence: CrawlScope via
-  // crawl_runs, the other four via project_module_runs (phases 3 and 4).
+  // All six are wired to durable project-scoped evidence: CrawlScope via
+  // crawl_runs, the other five via project_module_runs.
+  //
+  // ai_visibility took the slot on_page vacated, and is the odd one out: it
+  // measures what ChatGPT and Google AI Overview say about the client rather
+  // than anything on the client's own site.
   //
   // on_page was a sixth. It was removed with the standalone /on-page-audit page:
   // the On-Page report now lives as a tab inside the SEO & GEO Audit, which runs
@@ -315,7 +320,7 @@ test('the audit profile covers the five modules the design shows', () => {
   // server/modules/onPageAudit/ is still there and still serves that tab —
   assert.deepStrictEqual(
     overview.MODULES.filter((m) => m.live).map((m) => m.key).sort(),
-    ['agent_readiness', 'competitor', 'hub_spoke', 'seo_geo', 'technical'],
+    ['agent_readiness', 'ai_visibility', 'competitor', 'hub_spoke', 'seo_geo', 'technical'],
   );
   assert.deepStrictEqual(overview.MODULES.filter((m) => !m.live), []);
 
@@ -324,7 +329,7 @@ test('the audit profile covers the five modules the design shows', () => {
   // routing it through the synchronous runModule path would hang the request.
   assert.deepStrictEqual(
     overview.MODULES.filter((m) => m.runnable).map((m) => m.key).sort(),
-    ['agent_readiness', 'competitor', 'hub_spoke', 'seo_geo'],
+    ['agent_readiness', 'ai_visibility', 'competitor', 'hub_spoke', 'seo_geo'],
   );
   assert.strictEqual(
     overview.MODULES.find((m) => m.key === 'technical').runnable,
@@ -475,6 +480,46 @@ test('every capability a route asks for actually exists', () => {
     unknown,
     [],
     `these routes ask for capabilities that do not exist, so they deny everyone: ${unknown.join(', ')}`,
+  );
+});
+
+
+// ─ Schema drift ─────────────────────────────────────────────────
+
+console.log('');
+console.log('Module keys — JavaScript vs the database');
+
+test('every module key the app can write is allowed by the CHECK constraint', () => {
+  // project_module_runs.module_key carries a closed-vocabulary CHECK. Adding a
+  // module to the JS lists without widening it means startRun is refused by the
+  // database, before any module code runs, and the route answers the generic
+  // "Something went wrong handling that project request" — because a constraint
+  // violation carries no HTTP status for handleError to surface.
+  //
+  // That is exactly how ai_visibility shipped broken: four JS lists updated, the
+  // constraint forgotten. This reads the migrations so the two cannot drift
+  // again without a test failing.
+  const fs = require('fs');
+  const path = require('path');
+  const dir = path.join(__dirname, '../../../../supabase/migrations');
+
+  // The last migration that redefines the constraint wins.
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
+  let allowed = null;
+  for (const file of files) {
+    const sql = fs.readFileSync(path.join(dir, file), 'utf8');
+    const match = [...sql.matchAll(/project_module_runs_module_check[\s\S]*?check \(module_key in \(([^)]*)\)/g)].pop();
+    if (match) {
+      allowed = [...match[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+    }
+  }
+
+  assert.ok(allowed, 'no migration defines project_module_runs_module_check');
+
+  const missing = moduleEvidence.MODULE_KEYS.filter((k) => !allowed.includes(k));
+  assert.deepStrictEqual(
+    missing, [],
+    `these module keys would be rejected by the database: ${missing.join(', ')}`,
   );
 });
 

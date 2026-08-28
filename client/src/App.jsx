@@ -26,6 +26,7 @@ import ImageAltAuditPage from './pages/ImageAltAuditPage';
 import AgentReadinessAuditPage from './pages/AgentReadinessAuditPage';
 import AgentReadinessSummaryPage from './pages/AgentReadinessSummaryPage';
 import SeoGeoAuditPage from './pages/SeoGeoAuditPage';
+import AiVisibilityPage from './pages/AiVisibilityPage';
 import ContentEnhancementPage from './pages/ContentEnhancementPage';
 import ArticleEnhancementPage from './pages/ArticleEnhancementPage';
 import ArticleEnhancementLitePage from './pages/ArticleEnhancementLitePage';
@@ -97,6 +98,7 @@ export default function App() {
           <Route path="/agent-readiness-audit" element={<AgentReadinessAuditPage />} />
           <Route path="/agent-readiness-audit/summary" element={<AgentReadinessSummaryPage />} />
           <Route path="/seo-geo-audit" element={<SeoGeoAuditPage />} />
+          <Route path="/ai-visibility" element={<AiVisibilityPage />} />
           <Route path="/content-enhancement" element={<ContentEnhancementPage />} />
           <Route path="/article-enhancement" element={<ArticleEnhancementPage />} />
           <Route path="/article-enhancement-lite" element={<ArticleEnhancementLitePage />} />

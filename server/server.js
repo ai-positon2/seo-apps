@@ -25,6 +25,7 @@ const articleEnhancementRoutes = require('./routes/articleEnhancement');
 const articleEnhancementLiteRoutes = require('./routes/articleEnhancementLite');
 const locationPageBuilderRoutes = require('./routes/locationPageBuilder');
 const robotsMonitorRoutes = require('./modules/robotsMonitor/routes');
+const aiVisibilityRoutes = require('./modules/aiVisibility/routes');
 const onPageAuditRoutes = require('./modules/onPageAudit/routes');
 const marketPotentialRoutes = require('./modules/marketPotential/routes');
 const competitorAnalysisTrackerRoutes = require('./modules/competitorAnalysis/routes');
@@ -114,6 +115,9 @@ app.use('/api/market-potential',        lpbLimiter, requireAuth, track('market-p
 app.use('/api/competitor-tracker',      lpbLimiter, requireAuth, track('competitor-tracker'), competitorAnalysisTrackerRoutes);
 app.use('/api/content-architect',       lpbLimiter, requireAuth, track('content-architect'), contentArchitectRoutes);
 app.use('/api/crawl-scope',             lpbLimiter, requireAuth, track('crawl-scope'), crawlScopeRoutes);
+// No track() wrapper: this is a project module, so its runs are recorded in
+// project_module_runs by moduleEvidence rather than in the tool-run table.
+app.use('/api/ai-visibility',           lpbLimiter, requireAuth, aiVisibilityRoutes);
 app.use('/api/semrush',                 requireAuth, semrushRoutes);
 app.use('/api/profile',                 requireAuth, profileRoutes);
 app.use('/api/workspaces',              requireAuth, workspaceRoutes);

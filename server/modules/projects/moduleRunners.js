@@ -22,7 +22,7 @@ const { getSupabase, isSupabaseConfigured } = require('../../services/supabase')
 
 // Modules whose evidence this file can produce. 'technical' is absent because
 // CrawlScope owns its own richer tables and writes evidence there.
-const RUNNABLE = ['seo_geo', 'agent_readiness', 'competitor', 'hub_spoke'];
+const RUNNABLE = ['seo_geo', 'agent_readiness', 'competitor', 'hub_spoke', 'ai_visibility'];
 
 // Modules that spend a third-party metered budget, with the cost per unit of
 // work. Everything else fetches pages and calls free-tier APIs; these bill.
@@ -980,17 +980,32 @@ function competitorTrafficScore(domains) {
 }
 
 const SCORE_BASIS = {
+  ai_visibility: 'the share of measured prompts in which an answer engine names the brand, over the prompts that were actually captured',
   seo_geo: 'the SEO & GEO audit (rule-based bucket scores, weighted composite, capped by blocking issues)',
   agent_readiness: 'the agent readiness audit (weighted HTTP plus on-page checks)',
   competitor: 'this site\'s estimated monthly organic traffic as a share of the tracked '
     + 'competitor with the most, from SEMrush',
 };
 
+/**
+ * AI Visibility.
+ *
+ * Lives in its own module because it measures somebody else's product rather
+ * than the client's site. Long-running — each ChatGPT capture is 25-110s and a
+ * 20-prompt run over two surfaces is well over half an hour — so it is a
+ * background job, not something a request should wait on.
+ */
+async function runAiVisibility({ access, run, project }) {
+  const { runAiVisibility: execute } = require('../aiVisibility/run');
+  return execute({ access, project, run });
+}
+
 const RUNNERS = {
   seo_geo: runSeoGeo,
   agent_readiness: runAgentReadiness,
   competitor: runCompetitor,
   hub_spoke: runHubSpoke,
+  ai_visibility: runAiVisibility,
 };
 
 /**
