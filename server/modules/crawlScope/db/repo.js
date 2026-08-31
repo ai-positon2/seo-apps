@@ -355,7 +355,7 @@ async function updateRun(client, id, patch) {
 // Put a run back on the queue. Used when our own shutdown interrupted it, and by the
 // reaper when a worker died holding it. Stale terminal fields from the dead attempt are
 // cleared too, so a queued run doesn't report a duration or carry the old summary.
-async function requeueRun(client, id, { attempts } = {}) {
+async function requeueRun(client, id, { attempts, keepCheckpoint = false } = {}) {
   const patch = {
     status: "queued",
     started_at: null,
@@ -366,8 +366,20 @@ async function requeueRun(client, id, { attempts } = {}) {
     summary: null,
     progress: {},
   };
+  // Cleared unless the caller is deliberately resuming: a queued run holding a
+  // frontier nobody meant to reuse would silently skip most of the site.
+  if (!keepCheckpoint) patch.checkpoint = null;
   if (attempts !== undefined) patch.attempts = attempts;
   return unwrap(await client.from("crawl_runs").update(patch).eq("id", id).select().maybeSingle());
+}
+
+// Just the frontier, never the whole row: a checkpoint for a large crawl is
+// megabytes, and the callers that need it only need to know whether it is usable.
+async function getRunCheckpoint(client, id) {
+  const row = unwrap(
+    await client.from("crawl_runs").select("checkpoint").eq("id", id).maybeSingle(),
+  );
+  return row?.checkpoint || null;
 }
 
 // Runs that claim to be executing but whose worker has stopped stamping heartbeats.
@@ -380,8 +392,10 @@ async function requeueRun(client, id, { attempts } = {}) {
 // (not true) when the column is NULL, so any row written before this column existed — or
 // by a path that cleared it — would be invisible to the reaper permanently. `started_at`
 // is the fallback liveness signal for those.
+// `checkpoint` rides along because the reaper's decision — resume, or restart
+// from the seed and drop the partial rows — depends on whether one exists.
 const STALE_RUN_COLUMNS =
-  "id,owner,project_id,url,status,trigger,attempts,worker_id,heartbeat_at,started_at";
+  "id,owner,project_id,url,status,trigger,attempts,worker_id,heartbeat_at,started_at,checkpoint";
 
 async function staleRuns(client, staleBeforeIso, { limit = 20 } = {}) {
   const executing = (query) => query.in("status", ["running", "paused"]);
@@ -417,25 +431,23 @@ function guardObservedRun(query, run) {
     : guarded.is("heartbeat_at", null);
 }
 
-async function reclaimStaleRun(client, run, attempts) {
-  return firstRow(
-    unwrap(
-      await guardObservedRun(
-        client.from("crawl_runs").update({
-          status: "queued",
-          started_at: null,
-          finished_at: null,
-          heartbeat_at: null,
-          worker_id: null,
-          error: null,
-          summary: null,
-          progress: {},
-          attempts,
-        }),
-        run,
-      ).select(),
-    ),
-  );
+// `keepCheckpoint` decides whether the retry resumes or starts over. The
+// checkpoint is cleared by default so a run reclaimed without one cannot later
+// pick up a stale frontier.
+async function reclaimStaleRun(client, run, attempts, { keepCheckpoint = false } = {}) {
+  const patch = {
+    status: "queued",
+    started_at: null,
+    finished_at: null,
+    heartbeat_at: null,
+    worker_id: null,
+    error: null,
+    summary: null,
+    progress: {},
+    attempts,
+  };
+  if (!keepCheckpoint) patch.checkpoint = null;
+  return firstRow(unwrap(await guardObservedRun(client.from("crawl_runs").update(patch), run).select()));
 }
 
 async function failStaleRun(client, run, attempts, message) {
@@ -495,6 +507,29 @@ async function insertRunLinks(serviceClient, rows) {
     unwrap(await serviceClient.from("crawl_run_links").insert(chunk));
     written += chunk.length;
   }
+  return written;
+}
+
+// Same insert, but the caller hands over the SOURCE edges and a mapper instead
+// of a fully materialized row array. On a large crawl that array is millions of
+// objects, and building it up front doubled the peak just as the crawler was
+// still holding the graph it was copied from. Only one chunk exists at a time
+// here, and each chunk is released before the next is built.
+async function insertRunLinksStreaming(serviceClient, edges, toRow, include = () => true) {
+  let written = 0;
+  let chunk = [];
+  const flush = async () => {
+    if (!chunk.length) return;
+    unwrap(await serviceClient.from("crawl_run_links").insert(chunk));
+    written += chunk.length;
+    chunk = [];
+  };
+  for (const edge of edges) {
+    if (!include(edge)) continue;
+    chunk.push(toRow(edge));
+    if (chunk.length >= LINK_CHUNK) await flush();
+  }
+  await flush();
   return written;
 }
 
@@ -599,12 +634,14 @@ module.exports = {
   claimNextQueuedRun,
   updateRun,
   requeueRun,
+  getRunCheckpoint,
   staleRuns,
   reclaimStaleRun,
   failStaleRun,
   previousCompletedRun,
   insertResults,
   insertRunLinks,
+  insertRunLinksStreaming,
   listRunLinks,
   insertFindings,
   deleteRunResults,

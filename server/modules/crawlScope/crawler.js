@@ -1,5 +1,6 @@
 const { EventEmitter } = require("node:events");
 const crypto = require("node:crypto");
+const zlib = require("node:zlib");
 const cheerio = require("cheerio");
 const { buildFindings } = require("./analyzer");
 const { cssResourceReferences } = require("./css-resource-parser");
@@ -10,8 +11,13 @@ const {
 } = require("./http-redirect");
 const { parseMetaRefresh } = require("./meta-refresh");
 
-const USER_AGENT =
-  "CrawlScope/1.1 (+local technical SEO audit; contact the site owner)";
+// The "+" in a bot User-Agent is the de-facto marker for an info URL an operator
+// can open to identify and allowlist the crawler; prose after it tells a site
+// admin reading their logs nothing. CRAWL_INFO_URL lets a deployment point at its
+// own page without a code change.
+const USER_AGENT_INFO_URL =
+  process.env.CRAWL_INFO_URL || "https://github.com/position2/crawlscope-bot";
+const USER_AGENT = `CrawlScope/1.1 (+${USER_AGENT_INFO_URL})`;
 const SKIP_SCHEMES = /^(mailto:|tel:|javascript:|data:|blob:)/i;
 const ASSET_EXTENSIONS =
   /\.(?:avif|bmp|css|eot|gif|ico|jpe?g|js|json|map|mp3|mp4|ogg|otf|pdf|png|svg|tiff?|ttf|wav|webm|webp|woff2?|xml|zip)(?:$|\?)/i;
@@ -34,8 +40,172 @@ const LINK_SUBRESOURCE_RELS = new Set([
   "stylesheet",
 ]);
 
+// ── URL canonicalization ────────────────────────────────────────────────────
+// Every one of these produces a DIFFERENT string for the SAME page, and each
+// distinct string costs one slot of maxUrls and shows up as duplicate content.
+// A page linked with six campaign tags is one page, not six.
+const TRACKING_PARAMS = new Set([
+  "gclid",
+  "gclsrc",
+  "dclid",
+  "gbraid",
+  "wbraid",
+  "fbclid",
+  "msclkid",
+  "mc_cid",
+  "mc_eid",
+  "igshid",
+  "ttclid",
+  "twclid",
+  "yclid",
+  "_ga",
+  "_gl",
+  "ref",
+  "ref_src",
+  "referrer",
+  "mkt_tok",
+  "hsa_acc",
+  "hsa_cam",
+  "hsa_grp",
+  "hsa_ad",
+  "hsa_src",
+  "hsa_tgt",
+  "hsa_kw",
+  "hsa_mt",
+  "hsa_net",
+  "hsa_ver",
+  "vero_id",
+  "vero_conv",
+  "s_kwcid",
+  "ef_id",
+  "trk",
+  "trkCampaign",
+]);
+
+// Session identifiers rotate per visitor, so leaving them in makes the SAME page
+// look like an unbounded family of new pages and never converges.
+const SESSION_PARAMS = new Set([
+  "jsessionid",
+  "phpsessid",
+  "aspsessionid",
+  "asp.net_sessionid",
+  "sessionid",
+  "session_id",
+  "sid",
+  "zenid",
+  "oscsid",
+  "cfid",
+  "cftoken",
+  "_sid",
+]);
+
+// Path-parameter form of the same thing: /page;jsessionid=ABC123
+const SESSION_PATH_PARAM = /;(?:jsessionid|phpsessid|sid|cfid|cftoken)=[^;/?#]*/gi;
+
+function isDroppableParam(name) {
+  const lower = name.toLowerCase();
+  return (
+    lower.startsWith("utm_") ||
+    lower.startsWith("pk_") ||
+    lower.startsWith("mtm_") ||
+    TRACKING_PARAMS.has(lower) ||
+    SESSION_PARAMS.has(lower)
+  );
+}
+
+function decodeParamName(pair) {
+  const raw = pair.split("=")[0].replace(/\+/g, " ");
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    // A malformed percent-escape is still a parameter name; use it verbatim
+    // rather than losing the whole URL to a decode error.
+    return raw;
+  }
+}
+
 function cleanText(value = "") {
   return String(value).replace(/\s+/g, " ").trim();
+}
+
+// Headings are joined into one field for the report. Unbounded, a page with
+// hundreds of them stored an arbitrarily large string that was then retained for
+// the whole crawl in this.results AND written into crawl_run_results.data.
+const MAX_JOINED_HEADINGS = 25;
+const MAX_JOINED_HEADING_CHARS = 2_000;
+
+function joinHeadings(values) {
+  const joined = values.slice(0, MAX_JOINED_HEADINGS).join(" | ");
+  const suffix =
+    values.length > MAX_JOINED_HEADINGS
+      ? ` | …(+${values.length - MAX_JOINED_HEADINGS} more)`
+      : "";
+  const full = `${joined}${suffix}`;
+  return full.length > MAX_JOINED_HEADING_CHARS
+    ? `${full.slice(0, MAX_JOINED_HEADING_CHARS)}…`
+    : full;
+}
+
+// ── Character encoding ──────────────────────────────────────────────────────
+// Response.text() runs the Fetch spec's "UTF-8 decode" unconditionally — it
+// ignores the charset parameter it was served with. Every windows-1252 or
+// ISO-8859-1 page therefore came back with U+FFFD where its punctuation and
+// accented characters had been, which corrupted the title, meta description,
+// every heading, all anchor text, and the content hash used for duplicate
+// detection. Decoding has to be done from the bytes.
+const LABEL_ALIASES = new Map([
+  ["latin1", "windows-1252"],
+  ["iso-8859-1", "windows-1252"],
+  ["iso8859-1", "windows-1252"],
+  ["us-ascii", "windows-1252"],
+  ["ascii", "windows-1252"],
+  ["utf8", "utf-8"],
+  ["shift-jis", "shift_jis"],
+  ["sjis", "shift_jis"],
+]);
+
+function canonicalCharset(label) {
+  const cleaned = String(label || "").trim().toLowerCase().replace(/^["']|["']$/g, "");
+  if (!cleaned) return "";
+  return LABEL_ALIASES.get(cleaned) || cleaned;
+}
+
+function charsetFromContentType(headerValueRaw) {
+  const match = /charset\s*=\s*("[^"]*"|'[^']*'|[^;\s]+)/i.exec(String(headerValueRaw || ""));
+  return match ? canonicalCharset(match[1]) : "";
+}
+
+// The <meta charset> sniff the HTML spec prescribes: only the first 1024 bytes
+// are examined, decoded as latin-1 so no byte sequence can throw.
+function charsetFromMeta(buffer) {
+  const head = buffer.subarray(0, 1024).toString("latin1");
+  const metaCharset = /<meta[^>]+charset\s*=\s*["']?\s*([a-z0-9_:.-]+)/i.exec(head);
+  if (metaCharset) return canonicalCharset(metaCharset[1]);
+  const httpEquiv =
+    /<meta[^>]+http-equiv\s*=\s*["']?content-type["']?[^>]*content\s*=\s*["']([^"']+)["']/i.exec(head);
+  return httpEquiv ? charsetFromContentType(httpEquiv[1]) : "";
+}
+
+function charsetFromBom(buffer) {
+  if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
+    return "utf-8";
+  }
+  if (buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xfe) return "utf-16le";
+  if (buffer.length >= 2 && buffer[0] === 0xfe && buffer[1] === 0xff) return "utf-16be";
+  return "";
+}
+
+// A leading HTML signature, for responses that arrive with no Content-Type at
+// all. Without this they were stored as unparsed binary assets: no title, no
+// links, no canonical, and excluded from every HTML check in the analyzer.
+function looksLikeHtml(buffer) {
+  const head = buffer.subarray(0, 512).toString("latin1").trimStart().toLowerCase();
+  return (
+    head.startsWith("<!doctype html") ||
+    head.startsWith("<html") ||
+    head.startsWith("<?xml") ||
+    /^<(?:head|body|meta|title|script|div)\b/.test(head)
+  );
 }
 
 function pruneInertTemplates($) {
@@ -79,6 +249,30 @@ function normalizeUrl(input, base) {
       (parsed.protocol === "http:" && parsed.port === "80")
     ) {
       parsed.port = "";
+    }
+    if (SESSION_PATH_PARAM.test(parsed.pathname)) {
+      // Regexes with /g carry lastIndex across calls; reset before reuse.
+      SESSION_PATH_PARAM.lastIndex = 0;
+      parsed.pathname = parsed.pathname.replace(SESSION_PATH_PARAM, "");
+    }
+    SESSION_PATH_PARAM.lastIndex = 0;
+
+    // Pairs are filtered and sorted as RAW strings rather than round-tripped
+    // through URLSearchParams, because URLSearchParams re-serializes in
+    // form-encoded form (a space becomes "+", not "%20") and would change the
+    // bytes actually sent to the origin.
+    const rawQuery = parsed.search.slice(1);
+    if (rawQuery) {
+      const kept = rawQuery
+        .split("&")
+        .filter(Boolean)
+        .filter((pair) => !isDroppableParam(decodeParamName(pair)))
+        .sort();
+      parsed.search = kept.length ? `?${kept.join("&")}` : "";
+    } else {
+      // WHATWG keeps a bare "?" in href, so "/page" and "/page?" would other-
+      // wise dedupe as two separate pages.
+      parsed.search = "";
     }
     return parsed.href;
   } catch {
@@ -476,50 +670,196 @@ function primaryOpenGraphImage($) {
   );
 }
 
+const XML_NAMED_ENTITIES = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+};
+
+// One pass over the input, never over its own output. The old chained
+// .replace() calls resolved "&amp;" first, so "&amp;lt;" decoded to "&lt;" and
+// then to "<" — double-decoding text the publisher escaped on purpose. Numeric
+// references (&#38;, &#x2F;) were not handled at all, so a <loc> containing one
+// either produced the wrong URL or failed normalizeUrl and dropped the page.
 function decodeXml(value = "") {
-  return value
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'");
+  return String(value).replace(
+    /&(?:#x([0-9a-f]+)|#(\d+)|([a-z]+));/gi,
+    (match, hex, decimal, name) => {
+      if (hex !== undefined || decimal !== undefined) {
+        const code = Number.parseInt(hex ?? decimal, hex !== undefined ? 16 : 10);
+        if (!Number.isFinite(code) || code <= 0 || code > 0x10ffff) return match;
+        // Lone surrogates are not scalar values and String.fromCodePoint
+        // accepts them; keep the reference literal rather than emitting one.
+        if (code >= 0xd800 && code <= 0xdfff) return match;
+        return String.fromCodePoint(code);
+      }
+      return XML_NAMED_ENTITIES[name.toLowerCase()] ?? match;
+    },
+  );
 }
 
 function headerValue(headers, name) {
   return headers.get(name) || "";
 }
 
+// RFC 8288 Link header, far enough to read rel=canonical / rel=alternate.
+// Splitting on "," is safe only outside <>, because a URI-Reference may contain
+// one; the scan tracks that rather than assuming it does not.
+function parseLinkHeader(value) {
+  const raw = String(value || "");
+  if (!raw.trim()) return [];
+  const entries = [];
+  let depth = 0;
+  let start = 0;
+  const segments = [];
+  for (let index = 0; index < raw.length; index += 1) {
+    const character = raw[index];
+    if (character === "<") depth += 1;
+    else if (character === ">") depth = Math.max(0, depth - 1);
+    else if (character === "," && depth === 0) {
+      segments.push(raw.slice(start, index));
+      start = index + 1;
+    }
+  }
+  segments.push(raw.slice(start));
+
+  for (const segment of segments) {
+    const match = /<([^>]*)>\s*(.*)$/s.exec(segment.trim());
+    if (!match) continue;
+    const url = match[1].trim();
+    if (!url) continue;
+    const params = match[2];
+    const rel = /;\s*rel\s*=\s*("([^"]*)"|'([^']*)'|[^;,\s]+)/i.exec(params);
+    const hreflang = /;\s*hreflang\s*=\s*("([^"]*)"|'([^']*)'|[^;,\s]+)/i.exec(params);
+    const relValue = rel ? (rel[2] ?? rel[3] ?? rel[1]) : "";
+    entries.push({
+      url,
+      rels: relValue.toLowerCase().split(/\s+/).filter(Boolean),
+      hreflang: hreflang ? (hreflang[2] ?? hreflang[3] ?? hreflang[1]) : "",
+    });
+  }
+  return entries;
+}
+
+// Robots directives, parsed rather than substring-matched.
+//
+// Both X-Robots-Tag and <meta name="robots"> allow a UA prefix
+// ("googlebot: noindex"), and a value may carry several comma-separated
+// directives. Testing the raw string for "noindex" applied another crawler's
+// rule to this one, and made "unavailable_after" invisible. undici joins
+// repeated headers with ", ", which this handles because each group is split on
+// commas anyway.
+function robotsDirectivesFor(value, userAgent = "") {
+  const directives = new Set();
+  const token = robotsProductToken(userAgent);
+  for (const part of String(value || "").split(",")) {
+    const entry = part.trim();
+    if (!entry) continue;
+    const colon = entry.indexOf(":");
+    // "unavailable_after: <date>" is a directive with a value, not a UA prefix.
+    const prefix = colon > 0 ? entry.slice(0, colon).trim().toLowerCase() : "";
+    const isUaScoped =
+      colon > 0 && prefix !== "unavailable_after" && !/\s/.test(prefix);
+    if (isUaScoped) {
+      // Addressed to a named crawler: honour it only when that name is ours.
+      if (prefix !== token && !token.includes(prefix) && !prefix.includes(token)) {
+        continue;
+      }
+      directives.add(entry.slice(colon + 1).trim().toLowerCase());
+      continue;
+    }
+    directives.add(entry.toLowerCase());
+  }
+  // unavailable_after in the past is a noindex as of that moment.
+  for (const directive of directives) {
+    if (!directive.startsWith("unavailable_after")) continue;
+    const when = Date.parse(directive.slice(directive.indexOf(" ") + 1));
+    if (Number.isFinite(when) && when <= Date.now()) directives.add("noindex");
+  }
+  return directives;
+}
+
+// The product token is the first "/"-delimited word of the User-Agent, which is
+// what a robots.txt group name is matched against — not the whole header.
+function robotsProductToken(userAgent = "") {
+  const token = String(userAgent).trim().split(/[\s/]+/)[0] || "";
+  return token.toLowerCase();
+}
+
+// Returns { rules, crawlDelay } for the group that applies to `userAgent`.
+//
+// Group selection follows RFC 9309: the MOST SPECIFIC matching group wins, and
+// only that one group's rules apply. The previous implementation collected every
+// group whose name was a substring of the agent and concatenated all of their
+// rules, so a robots.txt with separate CrawlScope and Crawl groups had both
+// enforced at once.
 function parseRobots(content, userAgent = "crawlscope") {
   const groups = [];
   let agents = [];
   let rules = [];
+  let crawlDelay = null;
 
   const flush = () => {
-    if (agents.length) groups.push({ agents, rules });
+    if (agents.length) groups.push({ agents, rules, crawlDelay });
     agents = [];
     rules = [];
+    crawlDelay = null;
   };
 
-  for (const sourceLine of content.split(/\r?\n/)) {
+  for (const sourceLine of String(content).split(/\r?\n/)) {
     const line = sourceLine.split("#")[0].trim();
     if (!line || !line.includes(":")) continue;
     const separator = line.indexOf(":");
     const key = line.slice(0, separator).trim().toLowerCase();
     const value = line.slice(separator + 1).trim();
     if (key === "user-agent") {
-      if (rules.length) flush();
+      // A user-agent line after any rule line starts a NEW group; consecutive
+      // user-agent lines share one.
+      if (rules.length || crawlDelay !== null) flush();
       agents.push(value.toLowerCase());
     } else if ((key === "allow" || key === "disallow") && agents.length) {
       if (value || key === "allow") rules.push({ type: key, pattern: value });
+    } else if (key === "crawl-delay" && agents.length) {
+      const seconds = Number(value);
+      if (Number.isFinite(seconds) && seconds >= 0) crawlDelay = seconds;
     }
   }
   flush();
 
-  const exact = groups.filter((group) =>
-    group.agents.some((agent) => agent !== "*" && userAgent.includes(agent)),
-  );
-  const wildcard = groups.filter((group) => group.agents.includes("*"));
-  return (exact.length ? exact : wildcard).flatMap((group) => group.rules);
+  const token = robotsProductToken(userAgent) || "crawlscope";
+  let best = null;
+  let bestLength = -1;
+  for (const group of groups) {
+    for (const agent of group.agents) {
+      if (agent === "*") continue;
+      // Either side may be the more specific spelling: robots.txt may name
+      // "crawlscope" while the header is "CrawlScope/1.1", or name a longer
+      // vendor string that contains our token.
+      if (!token.includes(agent) && !agent.includes(token)) continue;
+      if (agent.length > bestLength) {
+        bestLength = agent.length;
+        best = group;
+      }
+    }
+  }
+  if (!best) {
+    // Every wildcard group merged, because a file may legitimately repeat
+    // "User-agent: *" and all of those rules are addressed to us.
+    const wildcard = groups.filter((group) => group.agents.includes("*"));
+    if (wildcard.length) {
+      best = {
+        rules: wildcard.flatMap((group) => group.rules),
+        crawlDelay: wildcard
+          .map((group) => group.crawlDelay)
+          .filter((value) => value !== null)
+          .reduce((a, b) => Math.max(a, b), null),
+      };
+    }
+  }
+  const selected = best || { rules: [], crawlDelay: null };
+  return { rules: selected.rules, crawlDelay: selected.crawlDelay ?? null };
 }
 
 function inspectRobots(content) {
@@ -553,23 +893,59 @@ function inspectRobots(content) {
   return { warnings, sitemapUrls };
 }
 
+// Compiled once per distinct pattern, not once per (pattern, URL) pair. This
+// used to build a fresh RegExp on every rule for every URL: a 200-rule
+// robots.txt across a 50k-URL crawl is ten million compilations, all of them on
+// the crawler's event loop.
+const robotsPatternCache = new Map();
+
+function robotsPattern(pattern) {
+  let compiled = robotsPatternCache.get(pattern);
+  if (compiled === undefined) {
+    const anchored = pattern.endsWith("$");
+    const raw = anchored ? pattern.slice(0, -1) : pattern;
+    const escaped = raw
+      .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+      // Consecutive wildcards collapse to one: "/a**b" and "/a*b" match the
+      // same paths, and ".*.*" is what makes this pattern class backtrack.
+      .replace(/\*+/g, "*")
+      .replace(/\*/g, "[^]*");
+    compiled = new RegExp(`^${escaped}${anchored ? "$" : ""}`);
+    // Bounded so a pathological robots.txt cannot grow this without limit.
+    if (robotsPatternCache.size < 5_000) robotsPatternCache.set(pattern, compiled);
+  }
+  return compiled;
+}
+
 function robotsPatternMatches(path, pattern) {
   if (!pattern) return false;
-  const anchored = pattern.endsWith("$");
-  const raw = anchored ? pattern.slice(0, -1) : pattern;
-  const escaped = raw
-    .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*/g, ".*");
-  return new RegExp(`^${escaped}${anchored ? "$" : ""}`).test(path);
+  return robotsPattern(pattern).test(path);
 }
 
 function isAllowedByRobots(url, rules) {
+  if (!rules?.length) return true;
   const parsed = new URL(url);
   const path = `${parsed.pathname}${parsed.search}`;
-  const matches = rules
-    .filter((rule) => robotsPatternMatches(path, rule.pattern))
-    .sort((a, b) => b.pattern.length - a.pattern.length);
-  return !matches.length || matches[0].type === "allow";
+  let winner = null;
+  for (const rule of rules) {
+    if (!robotsPatternMatches(path, rule.pattern)) continue;
+    if (!winner) {
+      winner = rule;
+      continue;
+    }
+    if (rule.pattern.length > winner.pattern.length) {
+      winner = rule;
+    } else if (
+      rule.pattern.length === winner.pattern.length &&
+      rule.type === "allow"
+    ) {
+      // RFC 9309: at equal specificity the least restrictive rule wins, so an
+      // Allow beats a Disallow. Sorting by length alone left the outcome to
+      // whichever happened to appear first in the file.
+      winner = rule;
+    }
+  }
+  return !winner || winner.type === "allow";
 }
 
 function quickIssues(result) {
@@ -637,7 +1013,14 @@ function emptyResult(job, overrides = {}) {
     status: 0,
     statusText: "",
     contentType: "",
+    contentTypeSniffed: false,
     size: 0,
+    // Transfer size (what crossed the wire, possibly compressed) and decoded
+    // size are separate measurements and no longer share one field.
+    transferSize: 0,
+    decodedSize: 0,
+    bodyTruncated: false,
+    bodyError: "",
     responseTime: 0,
     depth: job.depth || 0,
     title: "",
@@ -661,6 +1044,10 @@ function emptyResult(job, overrides = {}) {
     paginationNext: "",
     paginationPrev: "",
     robots: "",
+    xRobotsTag: "",
+    anchorCount: 0,
+    redirectChain: [],
+    finalUrl: "",
     inlinks: 0,
     outlinks: 0,
     externalLinks: 0,
@@ -714,12 +1101,19 @@ function emptyResult(job, overrides = {}) {
   };
 }
 
+// JSON.parse accepts arbitrarily deep input, so an unbounded walk over its
+// output can exhaust the stack. A RangeError here escapes the per-block try
+// below, and the outer handler in _process would then report a perfectly good
+// 200 page as an unreachable crawl failure.
+const MAX_SCHEMA_DEPTH = 64;
+
 function schemaErrorsFromPage($) {
   const errors = [];
-  const inspectNode = (node) => {
+  const inspectNode = (node, depth = 0) => {
     if (!node || typeof node !== "object") return;
+    if (depth > MAX_SCHEMA_DEPTH) return;
     if (Array.isArray(node)) {
-      node.forEach(inspectNode);
+      for (const item of node) inspectNode(item, depth + 1);
       return;
     }
     const type = Array.isArray(node["@type"]) ? node["@type"] : [node["@type"]];
@@ -751,7 +1145,7 @@ function schemaErrorsFromPage($) {
     if (types.includes("Organization") && !node.name) {
       errors.push("Organization is missing the required name property");
     }
-    if (node["@graph"]) inspectNode(node["@graph"]);
+    if (node["@graph"]) inspectNode(node["@graph"], depth + 1);
   };
 
   documentElements($, 'script[type="application/ld+json" i]').each(
@@ -796,6 +1190,32 @@ class SeoCrawler extends EventEmitter {
       maxRetryDelay: Math.max(1_000, Math.min(Number(options.maxRetryDelay) || 30_000, 120_000)),
       hostBackoffFactor: Math.max(1, Math.min(Number(options.hostBackoffFactor) || 2, 10)),
       maxHostDelay: Math.max(0, Math.min(Number(options.maxHostDelay) || 10_000, 120_000)),
+      // ── Trap control ──────────────────────────────────────────────────────
+      // Nothing here changes what a normal site produces; they exist so a
+      // calendar, a faceted-nav grid, or a mutually-linking pair of infinite
+      // paths cannot consume the whole URL budget before the real site is
+      // reached. Only maxUrls used to bound any of this.
+      maxDepth: Math.max(1, Math.min(Number(options.maxDepth) || 20, 100)),
+      maxUrlsPerTemplate: Math.max(
+        1,
+        Math.min(Number(options.maxUrlsPerTemplate) || 500, 50_000),
+      ),
+      // Reserve part of the budget for link-discovered pages so a sitemap
+      // larger than maxUrls cannot spend all of it before the crawl starts.
+      sitemapBudgetRatio: Math.max(
+        0.1,
+        Math.min(Number(options.sitemapBudgetRatio) || 0.8, 1),
+      ),
+      maxSitemapDocuments: Math.max(
+        1,
+        Math.min(Number(options.maxSitemapDocuments) || 200, 5_000),
+      ),
+      // Edge lists are the crawler's largest allocation on a big site (a 100-
+      // link nav across 50k pages is 5M objects). Bounded and declared, the way
+      // maxUrls truncation already is, rather than growing until the box dies.
+      maxEdges: Math.max(1_000, Math.min(Number(options.maxEdges) || 400_000, 5_000_000)),
+      // Honour Crawl-delay unless the operator explicitly opts out.
+      respectCrawlDelay: options.respectCrawlDelay !== false,
     };
     // Outbound fetch is injected so the transport (direct / proxy / SSRF-guarded)
     // is a hosting concern, not a crawler concern. Defaults to the platform fetch
@@ -809,7 +1229,10 @@ class SeoCrawler extends EventEmitter {
     // "list": fetch exactly the provided URLs and nothing they link to — set by
     // start() when given an array instead of a single URL.
     this.mode = "spider";
+    // A head index instead of Array#shift(): shift() is O(n) per dequeue, so a
+    // 50k-URL frontier costs O(n²) element moves just to drain the queue.
     this.queue = [];
+    this._queueHead = 0;
     this.seen = new Set();
     this.externalSeen = new Set();
     this.results = [];
@@ -817,49 +1240,80 @@ class SeoCrawler extends EventEmitter {
     this.discovery = new Map();
     this.linkEdges = [];
     this.resourceEdges = [];
+    this.edgesTruncated = false;
+    // How many URLs each path-template has contributed, for trap detection.
+    this._templateCounts = new Map();
+    this.trapTemplates = new Set();
     this.sitemapMembership = new Map();
     this.sitemapUrls = [];
     this.active = 0;
     this.paused = false;
     this.stopped = false;
     this.truncated = false;
+    this.depthLimited = false;
     this.startedAt = 0;
     this.robotsRules = [];
+    this.robotsCrawlDelay = null;
     this.robotsStatus = "Not checked";
+    // Set from the seed once it is known, so an http:// link on an https:// site
+    // is crawled as the same page rather than as a second one.
+    this.scheme = "";
+    // Minimal per-host cookie jar. undici's fetch keeps no cookie state, so a
+    // site that sets a session or consent cookie on the first response served
+    // the crawler its interstitial on every subsequent page.
+    this._cookieJar = new Map();
+    this._progressPending = false;
+    // Set by restore() when this run continues an interrupted attempt.
+    this._resumed = false;
+    this._resumedCompleted = 0;
+    this._discoveryDone = false;
     this.siteDiagnostics = {
       robotsWarnings: [],
       robotsUrl: "",
       sitemapConfigIssue: "",
+      sitemapErrors: [],
       httpHomepageIssue: "",
       llmsStatus: "not checked",
       llmsFormatIssue: "",
+      renderingIssue: "",
+      trapTemplates: [],
     };
   }
 
   async start(input) {
     this.startedAt = Date.now();
 
-    if (Array.isArray(input)) {
+    if (this._resumed) {
+      // The frontier came from restore(): robots, sitemaps and site files were
+      // all resolved by the attempt that produced the checkpoint, so re-running
+      // discovery here would only re-fetch them and re-seed URLs already in
+      // `seen`. Straight to draining what is queued.
+      this.emit("log", {
+        level: "info",
+        message: `Resuming crawl: ${this._resumedCompleted} pages already stored, ${this._queueLength()} queued`,
+      });
+      this._emitProgressSoon();
+    } else if (Array.isArray(input)) {
       this._startList(input);
     } else {
       const initial = normalizeUrl(input);
       if (!initial) throw new Error("Enter a valid http:// or https:// URL.");
-      this.startUrl = initial;
-      this.origin = new URL(initial).origin;
-      this.hostname = new URL(initial).hostname;
+      this._anchorSeed(initial);
 
+      // robots.txt is still read up front: the seed itself must not be fetched
+      // before we are allowed to fetch it.
       if (this.options.respectRobots || this.options.discoverSitemaps) {
         await this._loadRobots();
       }
-      await Promise.all([
-        this.options.discoverSitemaps ? this._loadSitemaps() : Promise.resolve(),
-        this._checkSiteFiles(),
-      ]);
 
-      this._enqueueInternal(initial, 0, "", { fromSitemap: false });
-      for (const sitemapUrl of this.sitemapMembership.keys()) {
-        this._enqueueInternal(sitemapUrl, 1, "", { fromSitemap: true });
-      }
+      // Sitemap and site-file discovery is DEFERRED until the seed has answered.
+      // A site that 301s apex -> www (or http -> https, or to a migrated domain)
+      // moves the origin those files belong to: doing this first read sitemap.xml
+      // and llms.txt from the origin the site had just abandoned, while the
+      // redirect target itself fell out of scope, _enqueueInternal dropped it,
+      // and the whole crawl ended after a single result. Deferring costs nothing
+      // — the seed is still fetched exactly once. See _afterSeed.
+      this._enqueueInternal(initial, 0, "", { fromSitemap: false, seed: true });
     }
 
     return new Promise((resolve) => {
@@ -867,6 +1321,169 @@ class SeoCrawler extends EventEmitter {
       this._schedule();
     });
   }
+
+  // ── Resume ────────────────────────────────────────────────────────────────
+  // The frontier is the one piece of a crawl that exists nowhere but memory.
+  // Results are streamed to the database as they are produced, so a run killed
+  // at 95% had 95% of its evidence safely stored — and then threw it away,
+  // because nothing could say which URLs were already done or which were still
+  // queued, and the only safe restart was from the seed.
+  //
+  // Deliberately NOT included: results, linkEdges and resourceEdges. Those are
+  // large, they are already persisted row by row, and copying them into a
+  // checkpoint would make each write proportional to the whole crawl.
+  snapshot() {
+    if (this.mode === "list") return null;
+    return {
+      version: 1,
+      startUrl: this.startUrl,
+      origin: this.origin,
+      hostname: this.hostname,
+      scheme: this.scheme,
+      discoveryDone: Boolean(this._discoveryDone),
+      seen: [...this.seen],
+      externalSeen: [...this.externalSeen],
+      queue: this.queue.slice(this._queueHead),
+      inlinkCounts: [...this.inlinkCounts],
+      discovery: [...this.discovery],
+      templateCounts: [...this._templateCounts],
+      trapTemplates: [...this.trapTemplates],
+      sitemapMembership: [...this.sitemapMembership].map(([url, set]) => [url, [...set]]),
+      sitemapUrls: this.sitemapUrls,
+      robotsRules: this.robotsRules,
+      robotsCrawlDelay: this.robotsCrawlDelay,
+      robotsStatus: this.robotsStatus,
+      siteDiagnostics: this.siteDiagnostics,
+      truncated: this.truncated,
+      depthLimited: this.depthLimited,
+      // Pages already stored by the previous attempt. The resumed run does not
+      // re-fetch them, so this is what its own results array starts short by.
+      completedCount: this.results.length + (this._resumedCompleted || 0),
+    };
+  }
+
+  // Restores a frontier produced by snapshot(). Called before start(), which
+  // then skips seeding and discovery and simply drains what is already queued.
+  restore(checkpoint) {
+    if (!checkpoint || checkpoint.version !== 1) return false;
+    this.mode = "spider";
+    this.startUrl = checkpoint.startUrl;
+    this.origin = checkpoint.origin;
+    this.hostname = checkpoint.hostname;
+    this.scheme = checkpoint.scheme || "";
+    this._discoveryDone = Boolean(checkpoint.discoveryDone);
+    this.seen = new Set(checkpoint.seen || []);
+    this.externalSeen = new Set(checkpoint.externalSeen || []);
+    this.queue = [...(checkpoint.queue || [])];
+    this._queueHead = 0;
+    this.inlinkCounts = new Map(checkpoint.inlinkCounts || []);
+    this.discovery = new Map(checkpoint.discovery || []);
+    this._templateCounts = new Map(checkpoint.templateCounts || []);
+    this.trapTemplates = new Set(checkpoint.trapTemplates || []);
+    this.sitemapMembership = new Map(
+      (checkpoint.sitemapMembership || []).map(([url, list]) => [url, new Set(list)]),
+    );
+    this.sitemapUrls = checkpoint.sitemapUrls || [];
+    this.robotsRules = checkpoint.robotsRules || [];
+    this.robotsCrawlDelay = checkpoint.robotsCrawlDelay ?? null;
+    this.robotsStatus = checkpoint.robotsStatus || "Not checked";
+    this.siteDiagnostics = { ...this.siteDiagnostics, ...(checkpoint.siteDiagnostics || {}) };
+    this.truncated = Boolean(checkpoint.truncated);
+    this.depthLimited = Boolean(checkpoint.depthLimited);
+    this._resumedCompleted = checkpoint.completedCount || 0;
+    this._resumed = true;
+    this._applyCrawlDelay();
+    return true;
+  }
+
+  // Everything that defines "this site" comes from one place, so re-anchoring
+  // after a seed redirect cannot leave half the crawler pointing at the old host.
+  _anchorSeed(url) {
+    const parsed = new URL(url);
+    this.startUrl = url;
+    this.origin = parsed.origin;
+    this.hostname = parsed.hostname;
+    this.scheme = parsed.protocol;
+  }
+
+  // Runs once, after the seed's own response is known.
+  //
+  // A seed that redirects to another host is the single most common way a crawl
+  // used to collapse to one result: the destination was out of scope, so
+  // _enqueueInternal refused it and there was nothing left to crawl. The whole
+  // site definition is re-anchored on where the seed actually lands, and
+  // robots.txt is re-read whenever that changes host, because the old origin's
+  // rules do not govern the new one.
+  //
+  // Site-file discovery (sitemaps, llms.txt, the HTTP->HTTPS check) happens here
+  // rather than in start() so it is always performed against the final origin.
+  async _afterSeed(job, redirectUrl) {
+    if (this._discoveryDone) return;
+    const hops = job.seedHop || 0;
+
+    this._seedChain = this._seedChain || new Set([job.url]);
+
+    if (redirectUrl && hops < 5) {
+      const target = normalizeUrl(redirectUrl);
+      // A chain that revisits an address it has already been through is a
+      // redirect loop. Following it further would re-fetch the same pair up to
+      // the hop cap and delay discovery for no information; the loop itself is
+      // already fully recorded in the results as a redirect finding.
+      if (target && target !== job.url && !this._seedChain.has(target)) {
+        this._seedChain.add(target);
+        const movedHost = new URL(target).hostname !== this.hostname;
+        this._anchorSeed(target);
+        if (movedHost && (this.options.respectRobots || this.options.discoverSitemaps)) {
+          await this._loadRobots();
+        }
+        // Queued directly rather than through _enqueueInternal: this job carries
+        // the hop count that bounds the walk, and _process deliberately does not
+        // enqueue a seed's redirect so the two cannot both queue it.
+        this.seen.add(target);
+        this.queue.push({
+          url: target,
+          depth: job.depth,
+          sourceUrl: job.url,
+          isAsset: false,
+          fromSitemap: false,
+          external: false,
+          seed: true,
+          seedHop: hops + 1,
+        });
+        return;
+      }
+    }
+
+    this._discoveryDone = true;
+    await Promise.all([
+      this.options.discoverSitemaps ? this._loadSitemaps() : Promise.resolve(),
+      this._checkSiteFiles(),
+    ]);
+    this._seedSitemapUrls();
+  }
+
+  // Sitemap URLs are seeded before a single link has been discovered, so without
+  // a reserved share a sitemap larger than maxUrls spent the entire budget and
+  // no link-discovered page was ever fetched.
+  _seedSitemapUrls() {
+    const sitemapBudget = Math.max(
+      1,
+      Math.floor(this.options.maxUrls * this.options.sitemapBudgetRatio),
+    );
+    let seeded = 0;
+    for (const sitemapUrl of this.sitemapMembership.keys()) {
+      if (this.seen.size >= sitemapBudget) {
+        this.truncated = true;
+        break;
+      }
+      if (this._enqueueInternal(sitemapUrl, 1, "", { fromSitemap: true })) seeded += 1;
+    }
+    if (this.sitemapMembership.size > seeded && !this.siteDiagnostics.sitemapConfigIssue) {
+      this.siteDiagnostics.sitemapConfigIssue =
+        `Only ${seeded} of ${this.sitemapMembership.size} sitemap URLs fitted within the crawl budget.`;
+    }
+  }
+
 
   // List mode: fetch and analyze exactly the given URLs. No link-following, no
   // scope restriction (URLs may span any number of domains), and no site-wide
@@ -915,6 +1532,7 @@ class SeoCrawler extends EventEmitter {
   stop() {
     this.stopped = true;
     this.queue = [];
+    this._queueHead = 0;
     this.rootController.abort();
     this.emit("state", { state: "stopping" });
     this._schedule();
@@ -926,15 +1544,75 @@ class SeoCrawler extends EventEmitter {
     const parsed = new URL(url);
     const referenceHost =
       this.mode === "list" && job ? new URL(job.url).hostname : this.hostname;
+    if (!referenceHost) return false;
     if (this.options.includeSubdomains) {
+      // Compare against the registrable root on BOTH sides. Stripping "www."
+      // only from the reference left the apex out of scope whenever the seed
+      // was a www host: "example.com" is neither "www.example.com" nor a
+      // ".example.com" suffix, so the apex of the very site being crawled was
+      // treated as an external domain.
       const root = referenceHost.replace(/^www\./, "");
-      return parsed.hostname === referenceHost || parsed.hostname.endsWith(`.${root}`);
+      return parsed.hostname === root || parsed.hostname.endsWith(`.${root}`);
     }
     return parsed.hostname === referenceHost;
   }
 
+  // http:// and https:// copies of one page are one page. _inScope compares only
+  // the hostname, so without this both spellings enter the frontier, each burns
+  // a slot of maxUrls, and the pair reports itself as duplicate content.
+  _canonicalScheme(url) {
+    if (!this.scheme || this.mode === "list") return url;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === this.scheme) return url;
+      if (parsed.hostname !== this.hostname) return url;
+      parsed.protocol = this.scheme;
+      return parsed.href;
+    } catch {
+      return url;
+    }
+  }
+
+  // A stable identity for "URLs shaped like this one", used to stop calendars
+  // and faceted navigation from generating an unbounded family of pages. Numeric
+  // and hash-like path segments collapse, and only the parameter NAMES count, so
+  // /events/2031/07 and /events/2031/08 share one template.
+  _urlTemplate(url) {
+    try {
+      const parsed = new URL(url);
+      const segments = parsed.pathname.split("/").map((segment) => {
+        if (/^\d+$/.test(segment)) return "#";
+        if (/^[0-9a-f]{8,}$/i.test(segment)) return "#";
+        if (/^[0-9a-f-]{16,}$/i.test(segment)) return "#";
+        return segment;
+      });
+      const keys = [...new Set([...parsed.searchParams.keys()].map((k) => k.toLowerCase()))].sort();
+      return `${parsed.hostname}${segments.join("/")}${keys.length ? `?${keys.join("&")}` : ""}`;
+    } catch {
+      return url;
+    }
+  }
+
+  // A path that keeps repeating the same segment is a self-referencing link
+  // loop (/shop/page/shop/page/shop/page...), which no template counter catches
+  // because every level is a new template.
+  _hasRepeatingPath(url) {
+    try {
+      const segments = new URL(url).pathname.split("/").filter(Boolean);
+      const counts = new Map();
+      for (const segment of segments) {
+        const seen = (counts.get(segment) || 0) + 1;
+        if (seen > 3) return true;
+        counts.set(segment, seen);
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
   _enqueueInternal(url, depth, sourceUrl, metadata = {}) {
-    const normalized = normalizeUrl(url);
+    const normalized = this._canonicalScheme(normalizeUrl(url) || "");
     if (!normalized || !this._inScope(normalized)) return false;
 
     const isAsset = metadata.isAsset ?? ASSET_EXTENSIONS.test(normalized);
@@ -959,6 +1637,26 @@ class SeoCrawler extends EventEmitter {
       this.truncated = true;
       return false;
     }
+    if (depth > this.options.maxDepth) {
+      // Depth had no ceiling at all: deep-page only REPORTED depth > 3 after
+      // the fact, and nothing stopped the descent.
+      this.depthLimited = true;
+      this.truncated = true;
+      return false;
+    }
+    if (!metadata.fromSitemap && this._hasRepeatingPath(normalized)) {
+      this._noteTrap(this._urlTemplate(normalized));
+      return false;
+    }
+    if (!metadata.fromSitemap) {
+      const template = this._urlTemplate(normalized);
+      const count = (this._templateCounts.get(template) || 0) + 1;
+      this._templateCounts.set(template, count);
+      if (count > this.options.maxUrlsPerTemplate) {
+        this._noteTrap(template);
+        return false;
+      }
+    }
     if (!this.options.crawlAssets && isAsset && !metadata.fromSitemap) return false;
 
     this.seen.add(normalized);
@@ -972,9 +1670,25 @@ class SeoCrawler extends EventEmitter {
       isAsset,
       fromSitemap: Boolean(metadata.fromSitemap),
       external: false,
+      seed: Boolean(metadata.seed),
+      seedHop: 0,
     });
-    this.emit("progress", this._progress());
+    this._emitProgressSoon();
     return true;
+  }
+
+  // A suppressed template is reported rather than silently dropped: the pages
+  // behind it really were skipped, and truncated=true tells the analyzer to stop
+  // trusting inlink counts.
+  _noteTrap(template) {
+    this.truncated = true;
+    if (this.trapTemplates.size >= 50 || this.trapTemplates.has(template)) return;
+    this.trapTemplates.add(template);
+    this.siteDiagnostics.trapTemplates = [...this.trapTemplates];
+    this.emit("log", {
+      level: "warning",
+      message: `Crawl trap suppressed: ${template} exceeded ${this.options.maxUrlsPerTemplate} URLs`,
+    });
   }
 
   _enqueueExternal(url, sourceUrl) {
@@ -995,7 +1709,7 @@ class SeoCrawler extends EventEmitter {
       fromSitemap: false,
       external: true,
     });
-    this.emit("progress", this._progress());
+    this._emitProgressSoon();
     return true;
   }
 
@@ -1009,29 +1723,88 @@ class SeoCrawler extends EventEmitter {
         { timeout: this.options.timeout, signal: this.rootController.signal },
       );
       if (response.ok) {
-        const content = await response.text();
-        this.robotsRules = parseRobots(content);
+        const content = await this._readTextBody(response);
+        const parsed = parseRobots(content, this.options.userAgent);
+        this.robotsRules = parsed.rules;
+        this.robotsCrawlDelay = parsed.crawlDelay;
         const inspection = inspectRobots(content);
         this.siteDiagnostics.robotsWarnings = inspection.warnings;
         this.sitemapUrls = inspection.sitemapUrls;
         this.robotsStatus = this.robotsRules.length ? "Respected" : "No crawl rules";
+        this._applyCrawlDelay();
+      } else if (response.status >= 500) {
+        // RFC 9309 §2.3.1.4: a 5xx robots.txt means "unavailable", and an
+        // unavailable robots.txt must be treated as full disallow. Treating it
+        // as "no rules" — which is what an empty robotsRules array does — is how
+        // a crawler hammers a site that is already failing.
+        this._denyAll("robots.txt is unavailable (HTTP 5xx)");
+        this.robotsStatus = `Unavailable (${response.status}) — treating as Disallow: /`;
       } else {
+        // 4xx genuinely means "no robots.txt", which does mean crawl freely.
         this.robotsStatus = `Not found (${response.status})`;
       }
-    } catch {
-      this.robotsStatus = "Unavailable";
+    } catch (error) {
+      this._denyAll("robots.txt could not be fetched");
+      this.robotsStatus = `Unavailable (${cleanText(error.message)}) — treating as Disallow: /`;
     }
+  }
+
+  // The unavailable-robots.txt state, expressed as a rule so every existing
+  // isAllowedByRobots call site enforces it without a second code path.
+  _denyAll(reason) {
+    if (!this.options.respectRobots) return;
+    this.robotsRules = [{ type: "disallow", pattern: "/" }];
+    this.siteDiagnostics.robotsWarnings = [
+      ...(this.siteDiagnostics.robotsWarnings || []),
+      `${reason}; every URL is treated as disallowed.`,
+    ];
+  }
+
+  // Crawl-delay was listed as a recognised robots.txt key and then thrown away:
+  // a site asking for 10 seconds between requests got the crawler's own default
+  // instead. It raises perHostDelay and never lowers it, so an operator's
+  // stricter setting still wins.
+  _applyCrawlDelay() {
+    if (!this.options.respectCrawlDelay) return;
+    if (this.robotsCrawlDelay === null) return;
+    const requested = Math.min(this.robotsCrawlDelay * 1_000, 60_000);
+    if (requested <= this.options.perHostDelay) return;
+    this.options.perHostDelay = requested;
+    for (const state of this._hostState.values()) {
+      state.delayMs = Math.max(state.delayMs, requested);
+    }
+    this.emit("log", {
+      level: "info",
+      message: `robots.txt Crawl-delay: ${this.robotsCrawlDelay}s — spacing requests to ${requested}ms`,
+    });
   }
 
   async _loadSitemaps() {
     const declared = [...this.sitemapUrls];
-    const pending = declared.length
-      ? declared
+    // `pending` used to BE `declared` when robots.txt named a sitemap, and the
+    // shift() below then drained both. By the time the diagnostic ran,
+    // declared.length was always 0 — so a site whose robots.txt declared its
+    // sitemap perfectly correctly was still told "a sitemap was found, but
+    // robots.txt does not declare it". The count has to be taken before the
+    // queue is consumed, and the queue has to be its own array.
+    const declaredCount = declared.length;
+    const pending = declaredCount
+      ? [...declared]
       : [new URL("/sitemap.xml", this.origin).href];
     const visited = new Set();
     let foundAny = false;
 
-    while (pending.length && visited.size < 15 && !this.stopped) {
+    const errors = [];
+    let truncatedTraversal = false;
+
+    while (pending.length && !this.stopped) {
+      if (visited.size >= this.options.maxSitemapDocuments) {
+        // The old limit was 15 DOCUMENTS, index files included, so a site whose
+        // index pointed at 50 child sitemaps silently lost 35 of them and every
+        // URL inside. Now it is a declared truncation at a realistic ceiling.
+        truncatedTraversal = true;
+        break;
+      }
       const sitemapUrl = pending.shift();
       if (!sitemapUrl || visited.has(sitemapUrl)) continue;
       visited.add(sitemapUrl);
@@ -1041,14 +1814,26 @@ class SeoCrawler extends EventEmitter {
           {
             headers: {
               "User-Agent": this.options.userAgent,
-              Accept: "application/xml,text/xml,*/*;q=0.5",
+              // Sitemaps are frequently served as application/gzip.
+              Accept: "application/xml,text/xml,application/gzip;q=0.9,*/*;q=0.5",
             },
           },
           { timeout: this.options.timeout, signal: this.rootController.signal },
         );
-        if (!response.ok) continue;
-        const xml = await response.text();
-        if (!/<(?:urlset|sitemapindex)(?:\s|>)/i.test(xml)) continue;
+        if (!response.ok) {
+          errors.push(`${sitemapUrl}: HTTP ${response.status}`);
+          if (response.body) await response.body.cancel().catch(() => {});
+          continue;
+        }
+        const xml = await this._readSitemapBody(response, sitemapUrl);
+        if (!xml) {
+          errors.push(`${sitemapUrl}: body could not be read`);
+          continue;
+        }
+        if (!/<(?:urlset|sitemapindex)(?:\s|>)/i.test(xml)) {
+          errors.push(`${sitemapUrl}: not a sitemap document`);
+          continue;
+        }
         foundAny = true;
         const locations = [...xml.matchAll(/<loc\b[^>]*>([\s\S]*?)<\/loc>/gi)]
           .map((match) => normalizeUrl(decodeXml(cleanText(match[1])), sitemapUrl))
@@ -1065,17 +1850,49 @@ class SeoCrawler extends EventEmitter {
             this.sitemapMembership.set(location, memberships);
           }
         }
-      } catch {
-        // Sitemap failures are summarized in the configuration finding below.
+      } catch (error) {
+        // A sitemap that timed out is NOT a sitemap that does not exist, and
+        // reporting the two identically told operators their sitemap was
+        // missing when it was merely slow.
+        errors.push(`${sitemapUrl}: ${cleanText(error.message) || error.name}`);
       }
     }
 
-    if (!declared.length) {
+    this.siteDiagnostics.sitemapErrors = errors.slice(0, 20);
+    if (truncatedTraversal) {
+      this.siteDiagnostics.sitemapConfigIssue =
+        `Sitemap traversal stopped at ${this.options.maxSitemapDocuments} documents; ` +
+        `${pending.length} more were not read.`;
+    } else if (!declaredCount) {
       this.siteDiagnostics.sitemapConfigIssue = foundAny
         ? "A sitemap was found, but robots.txt does not declare it."
-        : "No sitemap declaration or accessible default sitemap was detected.";
+        : errors.length
+          ? `No sitemap could be read (${errors[0]}).`
+          : "No sitemap declaration or accessible default sitemap was detected.";
+    } else if (!foundAny && errors.length) {
+      this.siteDiagnostics.sitemapConfigIssue = `Declared sitemaps could not be read (${errors[0]}).`;
     }
     this.siteDiagnostics.sitemaps = [...visited];
+  }
+
+  // Sitemaps are very often served gzipped (sitemap.xml.gz), and Content-Encoding
+  // is usually absent because the gzip is the RESOURCE, not a transfer encoding —
+  // so fetch does not inflate it. response.text() then returned binary, the
+  // "<urlset|<sitemapindex" guard failed, and every URL in that sitemap was
+  // dropped without a word.
+  async _readSitemapBody(response, sitemapUrl) {
+    const { buffer } = await this._readBodyBuffer(response);
+    const isGzip = buffer.length > 2 && buffer[0] === 0x1f && buffer[1] === 0x8b;
+    if (!isGzip) return this._decodeBuffer(buffer, response);
+    try {
+      return zlib.gunzipSync(buffer, { maxOutputLength: MAX_BODY_BYTES }).toString("utf8");
+    } catch (error) {
+      this.emit("log", {
+        level: "warning",
+        message: `${sitemapUrl}: gzip could not be inflated (${cleanText(error.message)})`,
+      });
+      return "";
+    }
   }
 
   async _checkSiteFiles() {
@@ -1096,7 +1913,7 @@ class SeoCrawler extends EventEmitter {
             this.siteDiagnostics.llmsStatus = "unavailable";
             return;
           }
-          const content = await response.text();
+          const content = await this._readTextBody(response);
           this.siteDiagnostics.llmsStatus = "found";
           if (!/^#\s+\S+/m.test(content)) {
             this.siteDiagnostics.llmsFormatIssue =
@@ -1126,7 +1943,7 @@ class SeoCrawler extends EventEmitter {
             }
             let canonical = "";
             if (response.ok && headerValue(response.headers, "content-type").includes("html")) {
-              const body = await response.text();
+              const body = await this._readTextBody(response);
               const page = cheerio.load(body);
               canonical =
                 normalizeUrl(
@@ -1150,13 +1967,53 @@ class SeoCrawler extends EventEmitter {
 
   _progress() {
     return {
-      crawled: this.results.length,
+      // Includes pages a previous attempt already stored, so a resumed run's
+      // progress bar continues rather than restarting at zero.
+      crawled: this.results.length + this._resumedCompleted,
       discovered: this.seen.size + this.externalSeen.size,
-      queued: this.queue.length,
+      queued: this._queueLength(),
       active: this.active,
       maxUrls: this.options.maxUrls + this.options.maxExternalUrls,
       elapsed: Date.now() - this.startedAt,
     };
+  }
+
+  _queueLength() {
+    return this.queue.length - this._queueHead;
+  }
+
+  // Edge lists were the crawler's one genuinely unbounded allocation: a 100-link
+  // navigation across 50,000 pages is five million objects, each holding anchor
+  // text, an accessible name and an element hint, all retained until the crawl
+  // ends because the analyzer needs the complete result set to interpret them.
+  // Now they are capped and the cap is DECLARED, the same way maxUrls truncation
+  // already is, so a partial graph is never mistaken for a complete one.
+  _pushEdge(collection, edge) {
+    if (collection.length >= this.options.maxEdges) {
+      if (!this.edgesTruncated) {
+        this.edgesTruncated = true;
+        this.emit("log", {
+          level: "warning",
+          message: `Link graph capped at ${this.options.maxEdges} edges; later edges are not recorded.`,
+        });
+      }
+      return false;
+    }
+    collection.push(edge);
+    return true;
+  }
+
+  // Discovery emits one of these per enqueued URL, so a page with 500 links used
+  // to build and dispatch 500 progress objects through every listener before the
+  // consumer's own interval check threw them away. Coalescing to one emission per
+  // turn of the event loop keeps the signal and drops the cost.
+  _emitProgressSoon() {
+    if (this._progressPending) return;
+    this._progressPending = true;
+    queueMicrotask(() => {
+      this._progressPending = false;
+      this.emit("progress", this._progress());
+    });
   }
 
   _schedule() {
@@ -1164,9 +2021,19 @@ class SeoCrawler extends EventEmitter {
     while (
       !this.stopped &&
       this.active < this.options.concurrency &&
-      this.queue.length
+      this._queueLength()
     ) {
-      const job = this.queue.shift();
+      // A head index rather than Array#shift(): shift() re-indexes the whole
+      // array on every dequeue, which is O(n²) across a 50k-URL frontier.
+      const job = this.queue[this._queueHead];
+      this.queue[this._queueHead] = undefined; // release the reference
+      this._queueHead += 1;
+      // Reclaim the drained prefix once it dominates the array, so the backing
+      // store tracks the live frontier rather than every URL ever queued.
+      if (this._queueHead > 1_000 && this._queueHead * 2 > this.queue.length) {
+        this.queue = this.queue.slice(this._queueHead);
+        this._queueHead = 0;
+      }
       this.active += 1;
       this._process(job)
         .catch((error) => this.emit("log", { level: "error", message: error.message }))
@@ -1177,7 +2044,7 @@ class SeoCrawler extends EventEmitter {
         });
     }
 
-    if ((this.stopped || this.queue.length === 0) && this.active === 0 && this.resolve) {
+    if ((this.stopped || this._queueLength() === 0) && this.active === 0 && this.resolve) {
       const baseResults = this.results.map((item) => {
         const discovery = this.discovery.get(item.url) || {};
         return {
@@ -1206,6 +2073,11 @@ class SeoCrawler extends EventEmitter {
       const payload = {
         stopped: this.stopped,
         truncated: this.truncated,
+        // Distinguishes the three reasons a crawl can be partial, which
+        // `truncated` alone flattened into one bit.
+        depthLimited: this.depthLimited,
+        edgesTruncated: this.edgesTruncated,
+        trapTemplates: [...this.trapTemplates],
         results: analysis.results,
         findings: analysis.findings,
         // The internal link graph. Already collected for the findings pass, and
@@ -1232,6 +2104,67 @@ class SeoCrawler extends EventEmitter {
     } catch {
       return "";
     }
+  }
+
+  // Reads a body with a REAL byte ceiling.
+  //
+  // MAX_BODY_BYTES used to be compared against Content-Length and nothing else,
+  // so any chunked response — which carries no Content-Length — was buffered
+  // whole by response.text(). A single large or endless stream took the worker
+  // out with it. Reading through the stream bounds it whatever the headers said,
+  // and it also bounds a small gzip that inflates to something enormous, because
+  // undici has already decompressed by the time these chunks arrive.
+  async _readBodyBuffer(response, limit = MAX_BODY_BYTES) {
+    if (!response.body) return { buffer: Buffer.alloc(0), truncated: false, bytes: 0 };
+    const reader = response.body.getReader();
+    const chunks = [];
+    let bytes = 0;
+    let truncated = false;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+        if (bytes + chunk.length > limit) {
+          // Keep only what fits. `bytes` counts RETAINED bytes, so the reported
+          // size can never exceed the cap it was supposed to enforce.
+          const room = limit - bytes;
+          if (room > 0) chunks.push(chunk.subarray(0, room));
+          bytes += room;
+          truncated = true;
+          break;
+        }
+        bytes += chunk.length;
+        chunks.push(chunk);
+      }
+    } finally {
+      try {
+        await reader.cancel();
+      } catch {
+        // The stream is already closed when the read loop ended naturally.
+      }
+    }
+    return { buffer: Buffer.concat(chunks), truncated, bytes };
+  }
+
+  _decodeBuffer(buffer, response) {
+    const declared =
+      charsetFromBom(buffer) ||
+      charsetFromContentType(headerValue(response.headers, "content-type")) ||
+      charsetFromMeta(buffer) ||
+      "utf-8";
+    try {
+      return new TextDecoder(declared).decode(buffer);
+    } catch {
+      // An unknown or unsupported label falls back to UTF-8 rather than losing
+      // the page, which is what the old unconditional behaviour did anyway.
+      return new TextDecoder("utf-8").decode(buffer);
+    }
+  }
+
+  async _readTextBody(response, limit = MAX_BODY_BYTES) {
+    const { buffer } = await this._readBodyBuffer(response, limit);
+    return this._decodeBuffer(buffer, response);
   }
 
   // Resolves after `ms`, or rejects if the crawl is stopped mid-wait.
@@ -1272,7 +2205,48 @@ class SeoCrawler extends EventEmitter {
     const state = this._hostState.get(host) || { nextAt: 0, delayMs: 0 };
     const base = Math.max(state.delayMs, this.options.retryBaseDelay);
     state.delayMs = Math.min(base * this.options.hostBackoffFactor, this.options.maxHostDelay);
+    // Push the reservation line out too. Raising delayMs alone only affected
+    // slots booked AFTER the penalty: every request already holding a slot from
+    // before it kept firing at the old cadence, so the host went on being hit at
+    // full rate throughout its own backoff — exactly while it was asking us to
+    // stop.
+    state.nextAt = Math.max(state.nextAt, Date.now() + state.delayMs);
     this._hostState.set(host, state);
+  }
+
+  // ── Cookies ───────────────────────────────────────────────────────────────
+  // Deliberately minimal: one name=value store per host, no path or expiry
+  // modelling. It exists because undici's fetch keeps no cookie state at all, so
+  // a site that hands out a session or consent cookie on the first response used
+  // to serve the crawler its interstitial on every single page — the audit then
+  // measured the interstitial, not the site.
+  _rememberCookies(url, response) {
+    const raw =
+      typeof response.headers.getSetCookie === "function"
+        ? response.headers.getSetCookie()
+        : [response.headers.get("set-cookie")].filter(Boolean);
+    if (!raw.length) return;
+    const host = this._hostOf(url);
+    if (!host) return;
+    const jar = this._cookieJar.get(host) || new Map();
+    for (const entry of raw) {
+      const [pair] = String(entry).split(";");
+      const separator = pair.indexOf("=");
+      if (separator <= 0) continue;
+      const name = pair.slice(0, separator).trim();
+      const value = pair.slice(separator + 1).trim();
+      if (!name) continue;
+      // Bounded so a host that sets a new cookie per response cannot grow this.
+      if (!jar.has(name) && jar.size >= 50) continue;
+      jar.set(name, value);
+    }
+    if (jar.size) this._cookieJar.set(host, jar);
+  }
+
+  _cookieHeader(url) {
+    const jar = this._cookieJar.get(this._hostOf(url));
+    if (!jar?.size) return "";
+    return [...jar].map(([name, value]) => `${name}=${value}`).join("; ");
   }
 
   _retryAfterMs(response, attempt) {
@@ -1300,8 +2274,45 @@ class SeoCrawler extends EventEmitter {
     return AbortSignal.any(signals);
   }
 
+  // Whether a thrown fetch failure is worth another attempt. A reset connection,
+  // a keep-alive socket the origin closed under us, or a momentary DNS failure
+  // all say "try again"; an abort, an SSRF refusal, or a bad URL do not.
+  _isRetriableTransportError(error) {
+    if (!error) return false;
+    if (error.name === "AbortError" || error.name === "SsrfError") return false;
+    // A per-attempt timeout IS retriable: the next attempt gets a fresh window.
+    if (error.name === "TimeoutError") return true;
+    const codes = new Set([
+      "ECONNRESET",
+      "ECONNREFUSED",
+      "ECONNABORTED",
+      "EPIPE",
+      "ETIMEDOUT",
+      "EHOSTUNREACH",
+      "ENETUNREACH",
+      "ENETRESET",
+      "EAI_AGAIN",
+      "UND_ERR_SOCKET",
+      "UND_ERR_CONNECT_TIMEOUT",
+      "UND_ERR_HEADERS_TIMEOUT",
+      "UND_ERR_BODY_TIMEOUT",
+      "UND_ERR_RESPONSE_STATUS_CODE",
+    ]);
+    // Depth-bounded rather than following `cause` to the end: an error chain can
+    // be cyclic, and this must never be the thing that hangs the crawl.
+    let cause = error;
+    for (let depth = 0; cause && depth < 8; depth += 1, cause = cause.cause) {
+      if (codes.has(cause.code)) return true;
+      if (/socket hang up|other side closed|terminated/i.test(cause.message || "")) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   // Single outbound request point: per-host throttle, injected transport, then
-  // bounded retry with Retry-After / exponential backoff on 429 and 503.
+  // bounded retry with Retry-After / exponential backoff on 429 and 503, and on
+  // transport failures.
   async _politeFetch(url, init = {}, { timeout, signal } = {}) {
     const host = this._hostOf(url);
     let attempt = 0;
@@ -1309,7 +2320,39 @@ class SeoCrawler extends EventEmitter {
       if (this.stopped) throw new DOMException("Aborted", "AbortError");
       await this._throttleHost(host, signal);
       const attemptSignal = this._attemptSignal(timeout, signal);
-      const response = await this._fetch(url, { ...init, signal: attemptSignal });
+
+      const cookie = this._cookieHeader(url);
+      const headers = cookie ? { ...(init.headers || {}), Cookie: cookie } : init.headers;
+
+      let response;
+      try {
+        response = await this._fetch(url, { ...init, headers, signal: attemptSignal });
+      } catch (error) {
+        // maxRetries advertised a retry budget that only ever covered two status
+        // codes. A transport-level throw — socket hang up, connection reset,
+        // transient DNS failure — escaped this loop on the first occurrence, and
+        // the page was permanently recorded as an unreachable crawl failure.
+        if (
+          attempt < this.options.maxRetries &&
+          !this.stopped &&
+          this._isRetriableTransportError(error)
+        ) {
+          const wait = Math.min(
+            this.options.retryBaseDelay * 2 ** attempt,
+            this.options.maxRetryDelay,
+          );
+          this.emit("log", {
+            level: "warning",
+            message: `${host} ${error.name}: ${cleanText(error.message)}; retrying in ${wait}ms (retry ${attempt + 1}/${this.options.maxRetries})`,
+          });
+          await this._delay(wait, signal);
+          attempt += 1;
+          continue;
+        }
+        throw error;
+      }
+
+      this._rememberCookies(url, response);
       const retriable = response.status === 429 || response.status === 503;
       if (retriable && attempt < this.options.maxRetries && !this.stopped) {
         const wait = this._retryAfterMs(response, attempt);
@@ -1354,6 +2397,10 @@ class SeoCrawler extends EventEmitter {
       });
       this.results.push(blocked);
       this.emit("result", blocked);
+      // A seed the rules forbid still leaves robots.txt-declared sitemaps
+      // readable, and skipping discovery here would silently reduce the crawl to
+      // this one blocked row.
+      if (job.seed && this.mode !== "list") await this._afterSeed(job, "");
       return;
     }
 
@@ -1364,6 +2411,13 @@ class SeoCrawler extends EventEmitter {
       const response = await this._politeFetch(
         job.url,
         {
+          // An external URL is only ever status-checked, so a GET made the
+          // origin render a whole page whose body was then thrown away — and
+          // cancelling that body destroys the keep-alive socket instead of
+          // returning it to the pool. HEAD costs the origin nothing and keeps
+          // the connection reusable; the GET fallback covers the servers that
+          // answer 405/501 to HEAD.
+          method: job.external ? "HEAD" : "GET",
           redirect: "manual",
           headers: {
             "User-Agent": this.options.userAgent,
@@ -1376,38 +2430,111 @@ class SeoCrawler extends EventEmitter {
         { timeout: this.options.timeout, signal: this.rootController.signal },
       );
 
+      const usable =
+        job.external && (response.status === 405 || response.status === 501)
+          ? await this._politeFetch(
+              job.url,
+              {
+                redirect: "manual",
+                headers: {
+                  "User-Agent": this.options.userAgent,
+                  Accept: "*/*",
+                  "Accept-Language": "en-US,en;q=0.8",
+                },
+              },
+              { timeout: this.options.timeout, signal: this.rootController.signal },
+            )
+          : response;
+      if (usable !== response && response.body) {
+        await response.body.cancel().catch(() => {});
+      }
+
       const responseTime = Math.round(performance.now() - started);
-      const contentType = headerValue(response.headers, "content-type")
-        .split(";")[0]
-        .trim()
-        .toLowerCase();
+      const contentTypeHeader = headerValue(usable.headers, "content-type");
+      let contentType = contentTypeHeader.split(";")[0].trim().toLowerCase();
       const redirectLocation = classifyRedirectLocation({
-        status: response.status,
-        headerPresent: response.headers.has("location"),
-        rawValue: response.headers.get("location") ?? "",
+        status: usable.status,
+        headerPresent: usable.headers.has("location"),
+        rawValue: usable.headers.get("location") ?? "",
         responseUrl: job.url,
       });
       const redirectUrl =
         redirectLocation.kind === "valid" ? redirectLocation.url : "";
-      const contentLength = Number(headerValue(response.headers, "content-length")) || 0;
-      const canRead =
+      const contentLength = Number(headerValue(usable.headers, "content-length")) || 0;
+      // Content-Length is advisory: it is absent on every chunked response and
+      // describes the COMPRESSED transfer when the body is encoded. It decides
+      // nothing now except whether an obviously oversized body is worth opening.
+      const wantsBody =
         !job.external &&
-        (!contentLength || contentLength <= MAX_BODY_BYTES) &&
-        (contentType.includes("html") || TEXT_ASSET.test(contentType));
+        (contentType === "" ||
+          contentType.includes("html") ||
+          TEXT_ASSET.test(contentType));
       let body = "";
-      if (canRead) body = await response.text();
-      else if (response.body) await response.body.cancel();
+      let bodyBytes = 0;
+      let bodyTruncated = false;
+      let sniffedHtml = false;
+      let bodyError = "";
+      if (wantsBody) {
+        try {
+          const read = await this._readBodyBuffer(usable);
+          bodyBytes = read.bytes;
+          bodyTruncated = read.truncated;
+          if (contentType === "" && looksLikeHtml(read.buffer)) {
+            // A response with no Content-Type used to fail every branch: body
+            // discarded, HTML parsing skipped, and isAsset forced true, so the
+            // page was stored with no title, no links and no canonical, and was
+            // dropped from every HTML check downstream.
+            contentType = "text/html";
+            sniffedHtml = true;
+          }
+          body =
+            contentType.includes("html") || TEXT_ASSET.test(contentType)
+              ? this._decodeBuffer(read.buffer, usable)
+              : "";
+        } catch (error) {
+          // The headers already told us the real status. Letting a mid-body
+          // reset fall through to the outer handler threw that away and filed a
+          // live 200 page as an unreachable crawl failure.
+          if (this.stopped && error.name === "AbortError") throw error;
+          bodyError = cleanText(error.message) || error.name;
+          bodyTruncated = true;
+        }
+      } else if (usable.body) {
+        await usable.body.cancel().catch(() => {});
+      }
 
-      result = this._extract({
-        job,
-        response,
-        body,
-        contentType,
-        contentLength,
-        responseTime,
-        redirectUrl,
-        redirectLocation,
-      });
+      try {
+        result = this._extract({
+          job,
+          response: usable,
+          body,
+          contentType,
+          contentLength,
+          bodyBytes,
+          bodyTruncated,
+          bodyError,
+          sniffedHtml,
+          responseTime,
+          redirectUrl,
+          redirectLocation,
+        });
+      } catch (error) {
+        // Extraction is parsing, not fetching. A throw in here is a defect in
+        // our own analysis of a page that was served perfectly well, so it is
+        // recorded against the real status rather than as a network failure.
+        this.emit("log", {
+          level: "error",
+          message: `${job.url}: extraction failed (${cleanText(error.message)})`,
+        });
+        result = emptyResult(job, {
+          status: usable.status,
+          statusText: usable.statusText,
+          contentType,
+          responseTime,
+          indexabilityReason: `Extraction failed: ${cleanText(error.message)}`,
+        });
+        result.issues = quickIssues(result);
+      }
 
       const declarativeRefresh = declarativeRefreshFromResult(result);
       if (
@@ -1431,9 +2558,35 @@ class SeoCrawler extends EventEmitter {
         redirectUrl !== job.url &&
         !job.external &&
         this.mode !== "list" &&
+        // A seed's redirect belongs to _afterSeed, which has to re-anchor the
+        // crawl on it first. Enqueueing it here as well would queue a same-host
+        // hop twice — once in scope now, once as the seed continuation.
+        !job.seed &&
         this._inScope(redirectUrl)
       ) {
-        this._enqueueInternal(redirectUrl, job.depth + 1, job.url);
+        // Redirect hops share the SOURCE's depth rather than descending. A hop
+        // is the same page at a different address, so charging it a level pushed
+        // real pages past the depth ceiling and inflated every deep-page report.
+        this._enqueueInternal(redirectUrl, job.depth, job.url);
+      }
+
+      // The chain the crawler actually walked, recorded on the row that started
+      // it. The analyzer previously had to rebuild this by joining results on
+      // URL, which silently produced a shorter chain whenever an intermediate
+      // hop fell outside the crawl's scope and so was never fetched.
+      if (redirectUrl) {
+        result.redirectChain = [job.url, redirectUrl];
+        result.finalUrl = redirectUrl;
+      } else {
+        result.finalUrl = job.url;
+      }
+
+      // Re-anchor on where the seed actually landed, then run site-file
+      // discovery against that origin. Awaited inside _process so the scheduler
+      // still counts this slot as active and cannot decide the crawl is finished
+      // while discovery is outstanding.
+      if (job.seed && !job.external && this.mode !== "list") {
+        await this._afterSeed(job, redirectUrl);
       }
     } catch (error) {
       const aborted = error.name === "AbortError" || error.name === "TimeoutError";
@@ -1447,6 +2600,13 @@ class SeoCrawler extends EventEmitter {
         indexabilityReason: timedOut ? "Request timed out" : "Fetch failed",
       });
       result.issues = quickIssues(result);
+
+      // An unreachable seed must not also cost the site its sitemap discovery:
+      // robots.txt may still name sitemaps that are perfectly readable, and the
+      // audit is more useful with them than without.
+      if (job.seed && !job.external && this.mode !== "list" && !this.stopped) {
+        await this._afterSeed(job, "").catch(() => {});
+      }
     }
 
     this.results.push(result);
@@ -1459,6 +2619,10 @@ class SeoCrawler extends EventEmitter {
     body,
     contentType,
     contentLength,
+    bodyBytes = 0,
+    bodyTruncated = false,
+    bodyError = "",
+    sniffedHtml = false,
     responseTime,
     redirectUrl,
     redirectLocation,
@@ -1482,22 +2646,48 @@ class SeoCrawler extends EventEmitter {
       refreshHeaderValue
         ? parseMetaRefresh(refreshHeaderValue, job.url, job.url)
         : null;
+    // X-Robots-Tag is read here, before the non-HTML early return, and kept
+    // separate from the meta tag. Two things were wrong before: it was only
+    // consulted when <meta name="robots"> was ABSENT, so a page carrying both
+    // reported itself indexable while the header said noindex; and it lived
+    // inside the HTML-only branch, so a PDF or an image served with
+    // X-Robots-Tag: noindex was always reported Indexable.
+    const xRobotsTag = headerValue(response.headers, "x-robots-tag");
+    const headerDirectives = robotsDirectivesFor(xRobotsTag, this.options.userAgent);
+    const headerNonIndexable =
+      headerDirectives.has("noindex") || headerDirectives.has("none");
+
     const base = emptyResult(job, {
       status: response.status,
       statusText: response.statusText,
       contentType,
-      size: contentLength || Buffer.byteLength(body),
+      contentTypeSniffed: sniffedHtml,
+      // Two different measurements that used to share one field: `size` was the
+      // COMPRESSED transfer size when Content-Length was present and the
+      // decoded size when it was not, so the column mixed units, and every
+      // binary asset on a chunked response reported 0.
+      size: bodyBytes || contentLength || Buffer.byteLength(body),
+      transferSize: contentLength || 0,
+      decodedSize: bodyBytes || Buffer.byteLength(body),
+      bodyTruncated: Boolean(bodyTruncated),
+      bodyError,
       responseTime,
       isAsset,
+      xRobotsTag,
       indexability: job.external
         ? "External"
-        : response.status >= 200 && response.status < 300
-          ? "Indexable"
-          : "Non-indexable",
-      indexabilityReason:
-        job.external || (response.status >= 200 && response.status < 300)
-          ? ""
-          : `HTTP status ${response.status}`,
+        : headerNonIndexable
+          ? "Non-indexable"
+          : response.status >= 200 && response.status < 300
+            ? "Indexable"
+            : "Non-indexable",
+      indexabilityReason: job.external
+        ? ""
+        : headerNonIndexable
+          ? "X-Robots-Tag contains noindex"
+          : response.status >= 200 && response.status < 300
+            ? ""
+            : `HTTP status ${response.status}`,
       inlinks: this.inlinkCounts.get(job.url) || 0,
       redirectUrl,
       locationHeaderRaw: redirectLocation.raw,
@@ -1528,7 +2718,7 @@ class SeoCrawler extends EventEmitter {
     });
 
     const trackResource = (edge) => {
-      this.resourceEdges.push(edge);
+      this._pushEdge(this.resourceEdges, edge);
       if (!edge.targetUrl) return;
       if (
         this.mode !== "list" &&
@@ -1633,56 +2823,118 @@ class SeoCrawler extends EventEmitter {
         .first()
         .attr("content") || "",
     );
-    const robots = cleanText(
-      documentElements($, 'meta[name="robots" i]').first().attr("content") ||
-        headerValue(response.headers, "x-robots-tag"),
+    // Every robots directive that applies to this page, from BOTH sources. The
+    // header is no longer a fallback for a missing meta tag: a page can carry
+    // both, and when it does they combine rather than one hiding the other.
+    const metaRobotsRaw = cleanText(
+      documentElements($, 'meta[name="robots" i]').first().attr("content") || "",
     );
-    const canonical =
-      normalizeUrl(
-        documentElements($, 'link[rel~="canonical" i]')
-          .first()
-          .attr("href") || "",
-        documentBase.url,
-      ) || "";
-    const hreflangs = documentElements(
+    // Google honours a <meta name="googlebot"> alongside the generic one.
+    const metaAgentRobotsRaw = cleanText(
+      documentElements($, 'meta[name="googlebot" i]').first().attr("content") || "",
+    );
+    const robots = [metaRobotsRaw, metaAgentRobotsRaw, xRobotsTag]
+      .filter(Boolean)
+      .join(", ");
+
+    // Canonical and hreflang can also arrive in the HTTP Link header, which was
+    // never read — a header-declared canonical was reported as missing.
+    const linkHeader = parseLinkHeader(headerValue(response.headers, "link"));
+
+    // `new URL("", base)` resolves to the BASE, so normalizeUrl("") returns the
+    // page's own address rather than nothing. Every one of these fields was
+    // therefore self-referencing whenever its <link> was absent — which is why
+    // an absent rel=next used to read as "next page: this page". The presence of
+    // the attribute has to be tested before its value is resolved.
+    const declaredHref = (selector) => {
+      const href = documentElements($, selector).first().attr("href");
+      return typeof href === "string" ? href.trim() : "";
+    };
+    const headerUrl = (...rels) => {
+      const entry = linkHeader.find((item) => rels.some((rel) => item.rels.includes(rel)));
+      return entry ? normalizeUrl(entry.url, job.url) || "" : "";
+    };
+    const resolveLink = (selector, ...rels) => {
+      const href = declaredHref(selector);
+      if (href) return normalizeUrl(href, documentBase.url) || "";
+      return headerUrl(...rels);
+    };
+
+    // Canonical keeps its long-standing "absent means self-referencing"
+    // reading, which the analyzer's canonical rules are all written against.
+    const canonicalDeclared = declaredHref('link[rel~="canonical" i]');
+    const canonical = canonicalDeclared
+      ? normalizeUrl(canonicalDeclared, documentBase.url) || ""
+      : headerUrl("canonical") || documentBase.url;
+
+    const hreflangEntries = documentElements(
       $,
       'link[rel~="alternate" i][hreflang]',
     )
-      .map((_, element) => ({
-        lang: ($(element).attr("hreflang") || "").trim().toLowerCase(),
-        url:
-          normalizeUrl(
-            $(element).attr("href") || "",
-            documentBase.url,
-          ) || "",
-      }))
-      .get()
-      .filter((entry) => entry.lang && entry.url);
-    const paginationNext =
-      normalizeUrl(
-        documentElements($, 'link[rel~="next" i]')
-          .first()
-          .attr("href") || "",
-        documentBase.url,
-      ) || "";
-    const paginationPrev =
-      normalizeUrl(
-        documentElements(
-          $,
-          'link[rel~="prev" i], link[rel~="previous" i]',
-        )
-          .first()
-          .attr("href") || "",
-        documentBase.url,
-      ) || "";
-    const h1Values = $("h1")
-      .map((_, element) => cleanText($(element).text()))
-      .get()
-      .filter(Boolean);
-    const h2Values = $("h2")
-      .map((_, element) => cleanText($(element).text()))
-      .get()
-      .filter(Boolean);
+      .map((_, element) => {
+        const href = String($(element).attr("href") || "").trim();
+        return {
+          lang: ($(element).attr("hreflang") || "").trim().toLowerCase(),
+          url: href ? normalizeUrl(href, documentBase.url) || "" : "",
+        };
+      })
+      .get();
+    for (const entry of linkHeader) {
+      if (!entry.rels.includes("alternate") || !entry.hreflang) continue;
+      hreflangEntries.push({
+        lang: entry.hreflang.toLowerCase(),
+        url: normalizeUrl(entry.url, job.url) || "",
+      });
+    }
+    const hreflangSeen = new Set();
+    const hreflangs = hreflangEntries.filter((entry) => {
+      if (!entry.lang || !entry.url) return false;
+      const key = `${entry.lang}|${entry.url}`;
+      if (hreflangSeen.has(key)) return false;
+      hreflangSeen.add(key);
+      return true;
+    });
+
+    const paginationNext = resolveLink('link[rel~="next" i]', "next");
+    const paginationPrev = resolveLink(
+      'link[rel~="prev" i], link[rel~="previous" i]',
+      "prev",
+      "previous",
+    );
+
+    // Pagination, canonical and hreflang targets were parsed and then dropped on
+    // the floor. rel=next in particular is how a great many archives expose page
+    // 2 onwards without a visible anchor, so those pages were never crawled at
+    // all and the audit reported one page of an eighty-page archive.
+    if (this.mode !== "list" && !job.external) {
+      for (const discovered of [paginationNext, paginationPrev, canonical]) {
+        if (!discovered || discovered === job.url) continue;
+        if (!this._inScope(discovered, job)) continue;
+        this._enqueueInternal(discovered, job.depth + 1, "");
+      }
+      for (const entry of hreflangs) {
+        if (entry.url === job.url) continue;
+        if (!this._inScope(entry.url, job)) continue;
+        this._enqueueInternal(entry.url, job.depth + 1, "");
+      }
+    }
+
+    // One traversal for every heading-derived field: h1Count, h2Count, the
+    // joined h1/h2 strings and the hierarchy check used to run three separate
+    // selector passes over the same document. Raw $ rather than
+    // documentElements, deliberately — pruneInertTemplates has already removed
+    // the inert templates, and what remains inside a <template shadowrootmode>
+    // is attached as a live shadow tree, so it IS rendered page content.
+    const headingElements = $("h1,h2,h3,h4,h5,h6").toArray();
+    const headingCount = (tag) =>
+      headingElements.filter((element) => element.tagName.toLowerCase() === tag).length;
+    const headingTexts = (tag) =>
+      headingElements
+        .filter((element) => element.tagName.toLowerCase() === tag)
+        .map((element) => cleanText($(element).text()))
+        .filter(Boolean);
+    const h1Values = headingTexts("h1");
+    const h2Values = headingTexts("h2");
     const bodyClone = $("body").clone();
     bodyClone.find("base, link, meta, script, style, noscript, svg, title").remove();
     // Cheerio's `.text()` concatenates adjacent elements without a separator
@@ -1698,12 +2950,10 @@ class SeoCrawler extends EventEmitter {
     const words = visibleText ? visibleText.split(/\s+/).length : 0;
     const links = new Set();
     let externalLinks = 0;
-    const headings = $("h1,h2,h3,h4,h5,h6")
-      .map((_, element) => ({
-        level: Number(element.tagName.slice(1)),
-        text: cleanText($(element).text()),
-      }))
-      .get();
+    const headings = headingElements.map((element) => ({
+      level: Number(element.tagName.slice(1)),
+      text: cleanText($(element).text()),
+    }));
     const headingHierarchyIssues = headings
       .slice(1)
       .map((heading, index) => {
@@ -1718,38 +2968,57 @@ class SeoCrawler extends EventEmitter {
       })
       .filter(Boolean);
     const headingHierarchyIssue = headingHierarchyIssues.length > 0;
-    const labelledTextById = new Map();
-    $("[id]").each((_, element) => {
-      const id = ($(element).attr("id") || "").trim();
-      if (id) labelledTextById.set(id, cleanText($(element).text()));
-    });
-    const resolveLabelledBy = (value) =>
-      cleanText(
-        String(value || "")
-          .split(/\s+/)
-          .filter(Boolean)
-          .map((id) => labelledTextById.get(id) || "")
-          .join(" "),
-      );
+    // Built on first use, not on every page. This walked EVERY element carrying
+    // an id and called .text() on each one — a full extra traversal with heavy
+    // string building — to serve aria-labelledby, which most pages never use.
+    let labelledTextById = null;
+    const resolveLabelledBy = (value) => {
+      const ids = String(value || "").split(/\s+/).filter(Boolean);
+      if (!ids.length) return "";
+      if (!labelledTextById) {
+        labelledTextById = new Map();
+        $("[id]").each((_, element) => {
+          const id = ($(element).attr("id") || "").trim();
+          if (id && !labelledTextById.has(id)) {
+            labelledTextById.set(id, cleanText($(element).text()));
+          }
+        });
+      }
+      return cleanText(ids.map((id) => labelledTextById.get(id) || "").join(" "));
+    };
     const isHiddenFromAccessibilityTree = (element) =>
       $(element).closest('[aria-hidden="true"], [hidden]').length > 0;
 
-    $("a[href]").each((_, element) => {
+    // <area href> is a real navigable link — an image map is how some sites
+    // still build their primary navigation — and it was never extracted, so
+    // everything reachable only through one was invisible to discovery.
+    let anchorCount = 0;
+    $("a[href], area[href]").each((_, element) => {
       const link = $(element);
       const href = (link.attr("href") || "").trim();
       if (!href || SKIP_SCHEMES.test(href)) return;
       const normalized = normalizeUrl(href, documentBase.url);
       if (!normalized) return;
+      anchorCount += 1;
       const internal = this._inScope(normalized, job);
       const rel = (link.attr("rel") || "").toLowerCase();
       const relTokens = rel.split(/[\s,]+/).filter(Boolean);
-      const textClone = link.clone();
-      textClone
-        .find(
-          '[aria-hidden="true"], [hidden], script, style, svg title, svg desc',
-        )
-        .remove();
-      const anchorText = cleanText(textClone.text());
+      // Cloning every anchor duplicated its whole subtree once per link, which
+      // on a 500-link page is 500 subtree copies purely to strip a few nodes.
+      // Only the anchors that actually contain something to strip are cloned.
+      const strippable = link.find(
+        '[aria-hidden="true"], [hidden], script, style, svg title, svg desc',
+      );
+      let anchorText;
+      if (strippable.length) {
+        const textClone = link.clone();
+        textClone
+          .find('[aria-hidden="true"], [hidden], script, style, svg title, svg desc')
+          .remove();
+        anchorText = cleanText(textClone.text());
+      } else {
+        anchorText = cleanText(link.text());
+      }
       const descendantAriaLabel = link
         .find("[aria-label]")
         .filter((_, child) => !isHiddenFromAccessibilityTree(child))
@@ -1792,7 +3061,7 @@ class SeoCrawler extends EventEmitter {
           ? "SVG/icon link without an accessible label"
           : "Empty or CSS-only link without an accessible label";
       links.add(normalized);
-      this.linkEdges.push({
+      this._pushEdge(this.linkEdges, {
         sourceUrl: job.url,
         targetUrl: normalized,
         internal,
@@ -1968,10 +3237,10 @@ class SeoCrawler extends EventEmitter {
       metaDescription,
       metaLength: metaDescription.length,
       viewport,
-      h1Count: $("h1").length,
-      h1: h1Values.join(" | "),
-      h2Count: $("h2").length,
-      h2: h2Values.join(" | "),
+      h1Count: headingCount("h1"),
+      h1: joinHeadings(h1Values),
+      h2Count: headingCount("h2"),
+      h2: joinHeadings(h2Values),
       words,
       textHtmlRatio: body.length ? visibleText.length / body.length : 0,
       headingHierarchyIssue,
@@ -2019,9 +3288,36 @@ class SeoCrawler extends EventEmitter {
       metaRefreshTargetRaw: metaRefresh?.targetRaw || "",
       metaRefreshUrl: metaRefresh?.url || "",
       metaRefreshIsReload: Boolean(metaRefresh?.isReload),
+      anchorCount,
     });
     base.issues = quickIssues(base);
+    this._noteRenderingGap(job, base, anchorCount);
     return base;
+  }
+
+  // This crawler parses served HTML; it does not execute JavaScript. On a
+  // client-rendered site that means the seed comes back as a shell with no
+  // anchors and no text, the crawl ends at one page, and — because nothing was
+  // broken — the audit reads as CLEAN. An empty result set and a healthy site
+  // looked identical. Now the shape is named.
+  _noteRenderingGap(job, result, anchorCount) {
+    if (this.mode === "list" || job.external) return;
+    if (job.url !== this.startUrl) return;
+    if (result.status < 200 || result.status >= 300) return;
+    if (anchorCount > 0) return;
+    if (this.siteDiagnostics.renderingIssue) return;
+    this.siteDiagnostics.renderingIssue =
+      result.words < 50
+        ? "The entry page returned no links and almost no text. This is the signature of a " +
+          "client-rendered (JavaScript) site: CrawlScope reads served HTML and does not " +
+          "execute JavaScript, so its content and internal links were not visible to this crawl."
+        : "The entry page returned readable text but no crawlable links, so no further page " +
+          "could be discovered from it. Navigation rendered by JavaScript is not visible to " +
+          "this crawl.";
+    this.emit("log", {
+      level: "warning",
+      message: this.siteDiagnostics.renderingIssue,
+    });
   }
 }
 
@@ -2030,4 +3326,9 @@ module.exports = {
   normalizeUrl,
   parseRobots,
   isAllowedByRobots,
+  // Exported for tests. Underscore-prefixed because they are implementation
+  // detail, not part of the module's contract with the rest of the app.
+  __decodeXml: decodeXml,
+  __parseLinkHeader: parseLinkHeader,
+  __robotsDirectivesFor: robotsDirectivesFor,
 };

@@ -1430,6 +1430,28 @@ function buildFindings({
       detail: siteDiagnostics.sitemapConfigIssue,
     });
   }
+  // A declared sitemap that could not be read is a different problem from having
+  // no sitemap, and the crawler used to report both the same way — so a site
+  // whose sitemap merely timed out was told it did not have one.
+  if (siteDiagnostics.sitemapErrors?.length) {
+    add("sitemap-unreadable", { url: siteDiagnostics.robotsUrl || startUrl }, {
+      detail: siteDiagnostics.sitemapErrors.join("; "),
+      detectedValue: siteDiagnostics.sitemapErrors.join("; "),
+    });
+  }
+  // Without this the audit of a client-rendered site reads as clean: one page,
+  // no links, nothing broken. The absence of findings WAS the finding.
+  if (siteDiagnostics.renderingIssue) {
+    add("javascript-rendered-site", { url: startUrl }, {
+      detail: siteDiagnostics.renderingIssue,
+    });
+  }
+  for (const template of siteDiagnostics.trapTemplates || []) {
+    add("crawl-trap", { url: startUrl }, {
+      detail: `URLs matching ${template} were generated past the per-pattern limit and were not crawled.`,
+      detectedValue: template,
+    });
+  }
   if (siteDiagnostics.httpHomepageIssue) {
     add("http-homepage", { url: startUrl }, {
       detail: siteDiagnostics.httpHomepageIssue,

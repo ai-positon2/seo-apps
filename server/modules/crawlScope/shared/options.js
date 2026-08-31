@@ -20,6 +20,12 @@ function ceilings() {
     concurrency: intCeiling("MAX_CONCURRENCY_CEILING", 8),
     timeout: intCeiling("TIMEOUT_CEILING_MS", 30_000),
     perHostDelay: intCeiling("PER_HOST_DELAY_MS", 250),
+    // Trap-control ceilings. A crawl used to be bounded by maxUrls alone, which
+    // a calendar or a faceted-nav grid will happily consume in full before the
+    // real site is reached.
+    maxDepth: intCeiling("MAX_DEPTH_CEILING", 20),
+    maxUrlsPerTemplate: intCeiling("MAX_URLS_PER_TEMPLATE", 500),
+    maxEdges: intCeiling("MAX_EDGES_CEILING", 400_000),
   };
 }
 
@@ -119,6 +125,19 @@ function parseCrawlRequest(body = {}, overrides = {}) {
     crawlAssets: raw.crawlAssets !== false,
     checkExternalLinks: raw.checkExternalLinks !== false,
     discoverSitemaps: raw.discoverSitemaps !== false,
+    // Trap control. Like perHostDelay these are monotonic against the operator's
+    // ceiling: a caller may ask for a tighter bound, never a looser one.
+    maxDepth: clampInt(1, cap.maxDepth)(
+      Math.min(raw.maxDepth ?? cap.maxDepth, overrides.maxDepth ?? Number.POSITIVE_INFINITY),
+    ),
+    maxUrlsPerTemplate: clampInt(1, cap.maxUrlsPerTemplate)(
+      Math.min(
+        raw.maxUrlsPerTemplate ?? cap.maxUrlsPerTemplate,
+        overrides.maxUrlsPerTemplate ?? Number.POSITIVE_INFINITY,
+      ),
+    ),
+    maxEdges: clampInt(1_000, cap.maxEdges)(raw.maxEdges ?? cap.maxEdges),
+    respectCrawlDelay: raw.respectCrawlDelay !== false,
   };
   if (listUrls) options.urls = listUrls;
 

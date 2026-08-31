@@ -58,7 +58,8 @@ test("builds a formatted, editable multi-sheet Excel audit", async () => {
   await workbook.xlsx.load(buffer);
   assert.ok(workbook.getWorksheet("SUMMARY"));
   assert.ok(workbook.getWorksheet("Issue Catalog"));
-  assert.equal(workbook.getWorksheet("Issue Catalog").rowCount, 93);
+  // One header row plus the 95 catalog entries.
+  assert.equal(workbook.getWorksheet("Issue Catalog").rowCount, 96);
 
   const detail = workbook.worksheets.find(
     (sheet) => sheet.getCell("A1").value === "Pages returning 4XX errors",

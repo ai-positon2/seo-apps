@@ -108,7 +108,12 @@ function NewCrawl({ onStarted }) {
 
       {showSettings && (
         <div style={{ marginTop: 18, paddingTop: 18, borderTop: '1px solid var(--border)' }}>
-          <CrawlOptionsForm options={options} onChange={setOptions} disabled={mode === 'list'} />
+          {/* Was `disabled={mode === 'list'}`, which greyed out every setting.
+              Only maxUrls and sitemap discovery are actually inert for a list —
+              politeness, timeout, robots and asset crawling all still apply, and
+              a list spanning many hosts is exactly when someone wants to reach
+              for the per-host delay. */}
+          <CrawlOptionsForm options={options} onChange={setOptions} mode={mode} />
           {mode === 'list' && (
             <p style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 10 }}>
               In list mode the crawl visits exactly the URLs above, so the discovery limits don't apply.

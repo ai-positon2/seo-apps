@@ -12,9 +12,18 @@ const { createFetch } = require("../net/egress");
 const { parseCrawlRequest } = require("../shared/options");
 const repo = require("../db/repo");
 
-const RESULT_BATCH = 25;
+// 25 rows per insert meant ~2,000 round trips for a 50,000-page crawl, and
+// because the flush was never awaited several could be in flight against the
+// same table at once. 250 is comfortably inside PostgREST's request limit for
+// rows this size.
+const RESULT_BATCH = Number(process.env.RUN_RESULT_BATCH) || 250;
 const PROGRESS_INTERVAL_MS = 1_000;
 const HEARTBEAT_MS = Number(process.env.RUN_HEARTBEAT_MS) || 30_000;
+// A failed result insert is page data that will never exist anywhere else, so it
+// is retried before it is allowed to count as lost.
+const RESULT_FLUSH_ATTEMPTS = 3;
+// How long a run may sit paused before it stops being treated as alive.
+const MAX_PAUSE_MS = Number(process.env.RUN_MAX_PAUSE_MS) || 30 * 60_000;
 
 function aggregateFindings(findings, owner, runId) {
   const map = new Map();
@@ -55,6 +64,9 @@ class RunManager {
     this.serviceClientFactory = deps.serviceClient;
     this.optionOverrides = deps.optionOverrides || {};
     this.crawlers = new Map();
+    // The in-flight execute() promises, so shutdown() can wait for them rather
+    // than stopping the crawlers and hoping the cleanup lands before exit.
+    this.executions = new Set();
   }
 
   isActive(runId) {
@@ -82,13 +94,53 @@ class RunManager {
     return true;
   }
 
-  async shutdown() {
+  // Stops every crawler AND waits for the executions to unwind.
+  //
+  // This used to call stop() and return immediately, so startLoops' 8-second
+  // exit timer raced runOne's cleanup: a container could exit part-way through
+  // deleteRunResults/requeueRun, leaving the run stuck in 'running' with a
+  // half-written result set until the reaper's ten-minute stale window found it.
+  // Now the caller can actually await the drain.
+  async shutdown({ timeoutMs = 20_000 } = {}) {
     for (const crawler of this.crawlers.values()) crawler.stop();
+    const pending = [...this.executions];
+    if (!pending.length) return;
+    let timer;
+    const deadline = new Promise((resolve) => {
+      timer = setTimeout(resolve, timeoutMs);
+      timer.unref?.();
+    });
+    try {
+      await Promise.race([
+        Promise.allSettled(pending),
+        deadline.then(() => {
+          console.warn(
+            `[crawlScope] ${pending.length} run(s) did not finish unwinding within ${timeoutMs}ms`,
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   // Executes a `runs` row to completion, streaming progress/results to Supabase.
   // Returns the completion summary so the caller (worker) can send an email.
-  async execute(run) {
+  //
+  // The tracking wrapper is separate from the body so shutdown() has a handle on
+  // every execution in flight, whatever it is doing when the signal arrives.
+  execute(run) {
+    const execution = this._execute(run);
+    this.executions.add(execution);
+    // Attached with catch so registering never turns a rejection the caller does
+    // handle into an unhandled one; the caller still receives `execution`.
+    execution
+      .catch(() => {})
+      .finally(() => this.executions.delete(execution));
+    return execution;
+  }
+
+  async _execute(run) {
     const db = this.serviceClientFactory();
     // List-mode runs store the real URLs in options.urls and a display label
     // ("List crawl (N URLs)") in run.url — re-derive the request body accordingly.
@@ -106,6 +158,29 @@ class RunManager {
     });
 
     const crawler = new SeoCrawler({ ...options, fetch: fetchImpl });
+
+    // A reclaimed run carries the frontier its previous attempt reached, so it
+    // continues from there instead of re-crawling the site from the seed. The
+    // rows that attempt already stored are kept (the reaper no longer deletes
+    // them), and `seen` covers them, so nothing is fetched or written twice.
+    let resumed = false;
+    if (run.checkpoint && !Array.isArray(run.options?.urls)) {
+      try {
+        resumed = crawler.restore(run.checkpoint);
+        if (resumed) {
+          console.log(
+            `[crawlScope] run ${run.id} resuming from checkpoint ` +
+              `(${run.checkpoint.completedCount || 0} pages already stored)`,
+          );
+        }
+      } catch (error) {
+        // A checkpoint that cannot be read is not worth failing a run over;
+        // the crawl simply starts from the seed, which is the old behaviour.
+        console.error(`[crawlScope] run ${run.id} checkpoint unusable:`, error.message);
+        resumed = false;
+      }
+    }
+
     this.crawlers.set(run.id, crawler);
 
     // Claim the run immediately so a worker polling the queue won't also pick it up.
@@ -118,20 +193,76 @@ class RunManager {
     // Liveness on its own timer rather than piggybacking the progress writes above: a
     // legitimately paused run emits no progress events, and the reaper must not mistake
     // that for a dead worker. One small UPDATE per interval per active run.
+    //
+    // A pause is NOT indefinite, though. The heartbeat kept stamping while a run
+    // sat paused, so staleRuns could never reclaim it: it held its crawler, its
+    // undici dispatcher and its unflushed result buffer for as long as the
+    // process lived, and nothing would ever move it to a terminal status. Past
+    // MAX_PAUSE_MS the heartbeat stops, which lets the reaper treat it like any
+    // other run whose owner stopped responding.
+    let pausedSince = 0;
     const heartbeat = setInterval(() => {
-      repo
-        .updateRun(db, run.id, { heartbeat_at: new Date().toISOString() })
-        .catch(() => {});
+      if (crawler.paused) {
+        if (!pausedSince) pausedSince = Date.now();
+        if (Date.now() - pausedSince > MAX_PAUSE_MS) {
+          console.warn(
+            `[crawlScope] run ${run.id} paused for over ${Math.round(MAX_PAUSE_MS / 60_000)}m; ` +
+              "no longer heart-beating so the reaper can reclaim it",
+          );
+          return;
+        }
+      } else {
+        pausedSince = 0;
+      }
+      // The frontier rides along with the heartbeat rather than on its own
+      // timer: it is the same UPDATE, and a checkpoint is only useful at the
+      // moments the run is proving it is still alive.
+      const patch = { heartbeat_at: new Date().toISOString() };
+      try {
+        const checkpoint = crawler.snapshot();
+        if (checkpoint) patch.checkpoint = checkpoint;
+      } catch (error) {
+        console.error(`[crawlScope] run ${run.id} checkpoint failed:`, error.message);
+      }
+      repo.updateRun(db, run.id, patch).catch(() => {});
     }, HEARTBEAT_MS);
     heartbeat.unref();
 
     let buffer = [];
     let lastProgressAt = 0;
-    const flush = async () => {
-      if (!buffer.length) return;
+    // Flushes are chained rather than fired in parallel: two concurrent inserts
+    // against the same run have no ordering, and an unawaited one could still be
+    // running when execute() writes the terminal status.
+    let flushChain = Promise.resolve();
+    let lostRows = 0;
+
+    const writeRows = async (rows) => {
+      let lastError;
+      for (let attempt = 0; attempt < RESULT_FLUSH_ATTEMPTS; attempt += 1) {
+        try {
+          await repo.insertResults(db, rows);
+          return;
+        } catch (error) {
+          lastError = error;
+          await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
+        }
+      }
+      // Previously `flush().catch(() => {})` swallowed this entirely: 25 crawled
+      // pages vanished from crawl_run_results and the run still reported itself
+      // completed, so the report was quietly missing pages nobody could name.
+      lostRows += rows.length;
+      console.error(
+        `[crawlScope] run ${run.id}: ${rows.length} result rows could not be stored:`,
+        lastError?.message || lastError,
+      );
+    };
+
+    const flush = () => {
+      if (!buffer.length) return flushChain;
       const rows = buffer;
       buffer = [];
-      await repo.insertResults(db, rows);
+      flushChain = flushChain.then(() => writeRows(rows));
+      return flushChain;
     };
 
     crawler.on("result", (result) => {
@@ -145,7 +276,7 @@ class RunManager {
         depth: result.depth ?? null,
         data: result,
       });
-      if (buffer.length >= RESULT_BATCH) flush().catch(() => {});
+      if (buffer.length >= RESULT_BATCH) flush();
     });
 
     crawler.on("progress", (progress) => {
@@ -185,18 +316,22 @@ class RunManager {
       // the loss is visible instead of silent.
       try {
         const edges = Array.isArray(summary.linkEdges) ? summary.linkEdges : [];
-        const rows = edges
-          .filter((edge) => edge.internal && edge.sourceUrl && edge.targetUrl)
-          .map((edge) => ({
-            run_id: run.id,
-            project_id: run.project_id || null,
-            from_url: edge.sourceUrl,
-            to_url: edge.targetUrl,
-            anchor: edge.anchorText ? String(edge.anchorText).slice(0, 500) : null,
-            rel: edge.rel ? String(edge.rel).slice(0, 200) : null,
-            nofollow: Boolean(edge.nofollow),
-          }));
-        const written = await repo.insertRunLinks(db, rows);
+        // Generated and inserted in chunks rather than materialized whole. A
+        // 50,000-page crawl produces millions of edges, and building the entire
+        // row array with one .map() allocated a second complete copy of the link
+        // graph at exactly the moment the crawler was still holding the first.
+        const toRow = (edge) => ({
+          run_id: run.id,
+          project_id: run.project_id || null,
+          from_url: edge.sourceUrl,
+          to_url: edge.targetUrl,
+          anchor: edge.anchorText ? String(edge.anchorText).slice(0, 500) : null,
+          rel: edge.rel ? String(edge.rel).slice(0, 200) : null,
+          nofollow: Boolean(edge.nofollow),
+        });
+        const written = await repo.insertRunLinksStreaming(db, edges, toRow, (edge) =>
+          Boolean(edge.internal && edge.sourceUrl && edge.targetUrl),
+        );
         if (written) console.log(`[crawlScope] stored ${written} internal link edges for run ${run.id}`);
       } catch (error) {
         console.error(`[crawlScope] link graph not stored for run ${run.id}:`, error.message);
@@ -209,6 +344,13 @@ class RunManager {
         robotsStatus: summary.robotsStatus,
         elapsed: summary.elapsed,
         resultCount: Array.isArray(summary.results) ? summary.results.length : 0,
+        // Why a crawl was partial, carried through to the report instead of
+        // being flattened into a single "truncated" bit nobody could act on.
+        truncated: Boolean(summary.truncated),
+        depthLimited: Boolean(summary.depthLimited),
+        edgesTruncated: Boolean(summary.edgesTruncated),
+        trapTemplates: summary.trapTemplates || [],
+        lostResultRows: lostRows,
       };
       await repo.updateRun(db, run.id, {
         status: summary.stopped ? "stopped" : "completed",
@@ -216,6 +358,14 @@ class RunManager {
         site_diagnostics: summary.siteDiagnostics || null,
         progress: crawler._progress ? crawler._progress() : {},
         finished_at: new Date().toISOString(),
+        // The frontier is spent. Leaving it behind would let a later reclaim of
+        // this row resume a run that has already reported.
+        checkpoint: null,
+        // A crawl that finished but could not store some of its pages is not a
+        // clean crawl, and the UI reads `error` to say so.
+        ...(lostRows
+          ? { error: `${lostRows} crawled pages could not be stored; the report is incomplete.` }
+          : {}),
       });
 
       // The project's page inventory follows its crawl. Done here, at the moment
@@ -245,6 +395,7 @@ class RunManager {
         status: "failed",
         error: String(error?.message || error),
         finished_at: new Date().toISOString(),
+        checkpoint: null,
       });
       throw error;
     } finally {

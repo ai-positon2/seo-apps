@@ -86,7 +86,9 @@ test("crawls internal HTML, follows redirects, respects robots, and finds duplic
   assert.equal(summary.stopped, false);
   assert.equal(summary.results.length, 6);
   assert.equal(summary.robotsStatus, "Respected");
-  assert.equal(summary.catalog.length, 92);
+  // 95 = the 92 original checks plus javascript-rendered-site, crawl-trap and
+  // sitemap-unreadable, which name three ways a crawl can come back thin.
+  assert.equal(summary.catalog.length, 95);
   assert.ok(
     summary.findings.some((finding) => finding.ruleId === "broken-internal-links"),
   );

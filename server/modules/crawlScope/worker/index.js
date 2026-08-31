@@ -29,6 +29,9 @@ const SCHEDULE_MAX_DUE = Number(process.env.SCHEDULE_MAX_DUE) || 50;
 const WORKER_CONCURRENCY = Math.max(1, Number(process.env.WORKER_CONCURRENCY) || 2);
 const RUN_STALE_MS = Number(process.env.RUN_STALE_MS) || 600_000;
 const RUN_MAX_ATTEMPTS = Number(process.env.RUN_MAX_ATTEMPTS) || 2;
+// How long shutdown waits for in-flight runs to requeue themselves cleanly.
+// Must stay inside the platform's stop grace window.
+const SHUTDOWN_DRAIN_MS = Number(process.env.WORKER_SHUTDOWN_DRAIN_MS) || 15_000;
 
 // 'initial' covers both the first crawl of a new project and on-demand "run now".
 // Both are worker-executed so they get the same emailed report as a scheduled crawl.
@@ -189,12 +192,19 @@ async function reapStaleRuns(db) {
         }
         continue;
       }
-      const requeued = await repo.reclaimStaleRun(db, run, attempts);
+      // A run with a usable frontier resumes from it; the rows its dead attempt
+      // already stored are the pages it no longer has to fetch, and `seen`
+      // covers them so nothing is written twice. Without a checkpoint the retry
+      // still has to start from the seed, and then the partial rows MUST go —
+      // otherwise the retry appends a second full set and the report
+      // double-counts every page.
+      const resumable = Boolean(run.checkpoint?.version);
+      const requeued = await repo.reclaimStaleRun(db, run, attempts, { keepCheckpoint: resumable });
       if (requeued) {
-        // The dead attempt's partial rows would otherwise be appended to on retry.
-        await repo.deleteRunResults(db, run.id);
+        if (!resumable) await repo.deleteRunResults(db, run.id);
         console.warn(
-          `reclaimed run ${run.id} -> queued (attempt ${attempts}, worker ${run.worker_id})`,
+          `reclaimed run ${run.id} -> queued (attempt ${attempts}, worker ${run.worker_id}` +
+            `${resumable ? `, resuming from ${run.checkpoint.completedCount || 0} pages` : ", from seed"})`,
         );
       }
     } catch (error) {
@@ -326,11 +336,25 @@ async function runOne(manager, db, state, run, slot) {
   if (result?.summary?.stopped && !state.running) {
     console.warn(`[slot ${slot}] run ${run.id} stopped by shutdown; requeueing`);
     try {
-      // Clear the partial rows first. execute() only ever inserts, so retrying without
-      // this appends a second full set of results and findings for the same run and the
-      // report double-counts every page.
-      await repo.deleteRunResults(db, run.id);
-      await repo.requeueRun(db, run.id, { attempts: (run.attempts || 0) + 1 });
+      // A redeploy is the most common way a long crawl dies, so this is the path
+      // that most needs to resume rather than restart. The checkpoint written by
+      // the heartbeat is left in place and the stored rows are kept: the next
+      // container picks up where this one stopped.
+      //
+      // Without a checkpoint the partial rows MUST be cleared first — execute()
+      // only ever inserts, so a restart would append a second full set of
+      // results and findings and the report would double-count every page.
+      const checkpoint = await repo.getRunCheckpoint(db, run.id);
+      const resumable = Boolean(checkpoint?.version);
+      if (!resumable) await repo.deleteRunResults(db, run.id);
+      await repo.requeueRun(db, run.id, {
+        attempts: (run.attempts || 0) + 1,
+        keepCheckpoint: resumable,
+      });
+      console.warn(
+        `[slot ${slot}] run ${run.id} requeued ` +
+          `${resumable ? `to resume from ${checkpoint.completedCount || 0} pages` : "to restart from the seed"}`,
+      );
     } catch (error) {
       console.error(`requeue failed for run ${run.id}:`, error.message);
     }
@@ -420,8 +444,15 @@ function startLoops({ manageProcess = false } = {}) {
     console.log("[crawlScope] Shutting down worker…");
     state.running = false;
     for (const wake of [...state.wakeups]) wake();
-    await manager.shutdown();
-    if (manageProcess) setTimeout(() => process.exit(0), 8_000).unref();
+    // manager.shutdown() now waits for each run to unwind — requeueing its
+    // partial rows and clearing them — instead of returning the moment the
+    // crawlers were told to stop. Previously the 8-second exit timer below
+    // raced that cleanup and could cut it off mid-write, stranding the run in
+    // 'running' with a half-written result set for a full stale window.
+    await manager.shutdown({ timeoutMs: SHUTDOWN_DRAIN_MS });
+    // Only after the drain do the loops get their chance to exit cleanly; the
+    // timer is the backstop for a loop that is wedged, not the normal path.
+    if (manageProcess) setTimeout(() => process.exit(0), 5_000).unref();
   };
 
   if (manageProcess) {

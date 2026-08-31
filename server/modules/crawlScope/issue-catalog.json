@@ -918,5 +918,35 @@
     "priority": "Good to have",
     "severity": "notice",
     "detection": "Connected data required"
+  },
+  {
+    "id": "javascript-rendered-site",
+    "title": "Page content and links require JavaScript",
+    "description": "The entry page returned no crawlable links in its served HTML. CrawlScope reads the HTML a server sends and does not execute JavaScript, so a client-rendered site's content and internal navigation are invisible to this crawl — and so, in the same way, to any crawler that does not render. An audit of such a site reports very few pages not because the site is small but because nothing else could be discovered.",
+    "recommendation": "Serve the primary content and internal navigation in the initial HTML response using server-side rendering, static generation, or dynamic rendering for crawlers. Verify with 'view source' rather than the browser inspector: the links must be present in the source, not only in the rendered DOM.",
+    "category": "Technical",
+    "priority": "High Priority",
+    "severity": "error",
+    "detection": "Automatic"
+  },
+  {
+    "id": "crawl-trap",
+    "title": "Crawl trap generating unbounded URLs",
+    "description": "One URL pattern produced more distinct URLs than any real page inventory would. This is the signature of a calendar, a faceted-navigation grid, or a self-referencing link loop generating an effectively infinite URL space. Crawlers spend their budget on these instead of on real pages, and the duplicate URLs dilute the signals of the pages that matter.",
+    "recommendation": "Stop the pattern from being crawled: add a Disallow rule for it in robots.txt, mark the generated links rel=\"nofollow\", or canonicalise every variant onto a single URL. For faceted navigation, expose only the filter combinations that are meant to rank.",
+    "category": "Technical",
+    "priority": "High Priority",
+    "severity": "error",
+    "detection": "Automatic"
+  },
+  {
+    "id": "sitemap-unreadable",
+    "title": "A declared sitemap could not be read",
+    "description": "robots.txt names a sitemap that did not return usable XML — it failed, timed out, returned a non-200 status, or returned something that is not a sitemap. Every URL that sitemap was meant to advertise is undiscoverable through it, and this is distinct from having no sitemap at all: the site believes it has one.",
+    "recommendation": "Open each declared sitemap URL directly and confirm it returns 200 with a valid <urlset> or <sitemapindex> document. If it is served gzipped, confirm the .gz is a valid gzip stream. Correct or remove the declaration in robots.txt so it does not point at a broken file.",
+    "category": "Technical",
+    "priority": "High Priority",
+    "severity": "error",
+    "detection": "Automatic"
   }
 ]

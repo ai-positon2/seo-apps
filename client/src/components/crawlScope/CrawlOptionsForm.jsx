@@ -30,8 +30,23 @@ const TOGGLES = [
     helper: 'Follow outbound links far enough to get a status.' },
 ];
 
-export default function CrawlOptionsForm({ options, onChange, disabled = false }) {
+// Settings the crawler ignores in list mode, and why.
+//
+// A control that silently does nothing is worse than one that is absent: it
+// invites someone to set "Max URLs 50" over a 300-URL list and believe they
+// have capped it. The server pins maxUrls to the list length, and the crawler
+// skips sitemap discovery entirely (`this.mode !== "list"`), so both are shown
+// as inert rather than editable.
+const INERT_IN_LIST_MODE = {
+  maxUrls: 'Set by the list — every URL you give is fetched.',
+  discoverSitemaps: 'Not used — a list has no single site to read a sitemap from.',
+};
+
+export default function CrawlOptionsForm({
+  options, onChange, disabled = false, mode = 'spider',
+}) {
   const set = (key, value) => onChange({ ...options, [key]: value });
+  const inert = (key) => (mode === 'list' ? INERT_IN_LIST_MODE[key] : null);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -40,12 +55,12 @@ export default function CrawlOptionsForm({ options, onChange, disabled = false }
           <Field
             key={f.key}
             label={f.label}
-            helper={f.helper}
+            helper={inert(f.key) || f.helper}
             type="number"
             min={f.min}
             max={f.max}
             step={f.step}
-            disabled={disabled}
+            disabled={disabled || Boolean(inert(f.key))}
             value={options[f.key]}
             onChange={(e) => set(f.key, Number(e.target.value))}
           />
@@ -59,19 +74,20 @@ export default function CrawlOptionsForm({ options, onChange, disabled = false }
             style={{
               display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 12px',
               border: '1px solid var(--border)', borderRadius: 'var(--r-md)',
-              cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1,
+              cursor: disabled || inert(t.key) ? 'default' : 'pointer',
+              opacity: disabled || inert(t.key) ? 0.6 : 1,
             }}
           >
             <input
               type="checkbox"
-              disabled={disabled}
+              disabled={disabled || Boolean(inert(t.key))}
               checked={Boolean(options[t.key])}
               onChange={(e) => set(t.key, e.target.checked)}
               style={{ marginTop: 2 }}
             />
             <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{t.label}</span>
-              <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{t.helper}</span>
+              <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{inert(t.key) || t.helper}</span>
             </span>
           </label>
         ))}

@@ -1,5 +1,12 @@
 // Create / edit a scheduled crawl project.
 //
+// Two shapes of project, and the difference is what gets sent, not a flag:
+// spider mode sends `url` and the crawler follows links from it; list mode
+// sends `urls` and the crawler fetches exactly those, following nothing. The
+// server picks the mode from the presence of the array (parseCrawlRequest),
+// and in list mode it REPLACES `url` with a display label — "List crawl (12
+// URLs)" — because there is no single site to name.
+//
 // The form sends dayOfWeek + hour rather than a cron string: the server builds
 // the expression and picks the MINUTE itself, deliberately, so projects spread
 // across the hour instead of every one firing on :00. That is why there is no
@@ -13,8 +20,10 @@ import { DAY_NAMES, TIMEZONES, hour12Label, parseWeeklyCron, DEFAULT_OPTIONS } f
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 
 export default function ProjectForm({ open, project, onClose, onSave }) {
+  const [mode, setMode] = useState('spider');
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
+  const [urlList, setUrlList] = useState('');
   const [dayOfWeek, setDayOfWeek] = useState(0);
   const [hour, setHour] = useState(22);
   const [timezone, setTimezone] = useState('America/Chicago');
@@ -27,8 +36,13 @@ export default function ProjectForm({ open, project, onClose, onSave }) {
   useEffect(() => {
     if (!open) return;
     const parsed = parseWeeklyCron(project?.cron);
+    // A saved list project carries its URLs in options.urls; `url` is only the
+    // label the server generated, so it must not be shown as an editable site.
+    const savedList = Array.isArray(project?.options?.urls) ? project.options.urls : null;
+    setMode(savedList?.length ? 'list' : 'spider');
     setName(project?.name || '');
-    setUrl(project?.url || '');
+    setUrl(savedList?.length ? '' : (project?.url || ''));
+    setUrlList(savedList?.length ? savedList.join('\n') : '');
     setDayOfWeek(parsed?.dayOfWeek ?? 0);
     setHour(parsed?.hour ?? 22);
     setTimezone(project?.timezone || 'America/Chicago');
@@ -38,13 +52,22 @@ export default function ProjectForm({ open, project, onClose, onSave }) {
     setError('');
   }, [open, project]);
 
+  // Split on whitespace or commas, the two ways a list actually arrives —
+  // pasted from a spreadsheet column, or from a comma-joined export.
+  const listUrls = urlList.split(/[\s,]+/).map((u) => u.trim()).filter(Boolean);
+
+  const ready = mode === 'spider' ? Boolean(url.trim()) : listUrls.length > 0;
+
   async function submit() {
     setSaving(true);
     setError('');
     try {
       await onSave({
         name: name.trim() || undefined,
-        url: url.trim(),
+        // Exactly one of these. Sending both would be ambiguous, and the server
+        // resolves that ambiguity in favour of the list — better to be explicit
+        // here than to rely on a precedence rule nobody reading this can see.
+        ...(mode === 'list' ? { urls: listUrls } : { url: url.trim() }),
         dayOfWeek,
         hour,
         timezone,
@@ -71,7 +94,7 @@ export default function ProjectForm({ open, project, onClose, onSave }) {
           <span style={{ fontSize: 12, color: 'var(--danger)' }}>{error}</span>
           <div style={{ display: 'flex', gap: 8 }}>
             <Button variant="secondary" onClick={onClose}>Cancel</Button>
-            <Button onClick={submit} loading={saving} disabled={!url.trim()}>
+            <Button onClick={submit} loading={saving} disabled={!ready}>
               {project ? 'Save changes' : 'Create and crawl now'}
             </Button>
           </div>
@@ -79,21 +102,85 @@ export default function ProjectForm({ open, project, onClose, onSave }) {
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
-          <Field
-            label="Site URL"
-            required
-            placeholder="https://example.com"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            helper="The crawl starts here and follows internal links."
-          />
-          <Field
-            label="Project name"
-            placeholder="Optional — defaults to the host"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
+        <div>
+          <div style={{
+            fontSize: 11, fontWeight: 700, letterSpacing: '0.04em',
+            textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 8,
+          }}
+          >
+            What to crawl
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+            {[
+              // Same wording as the one-off crawl form on this page. Two names
+              // for one concept is how a user ends up believing they are two
+              // different features.
+              ['spider', 'Crawl a site', 'Starts at one URL and follows internal links.'],
+              ['list', 'Audit a URL list', 'Fetches exactly the URLs given. Follows nothing.'],
+            ].map(([id, label, blurb]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setMode(id)}
+                aria-pressed={mode === id}
+                style={{
+                  flex: '1 1 220px',
+                  textAlign: 'left',
+                  padding: '10px 12px',
+                  borderRadius: 'var(--r-md)',
+                  cursor: 'pointer',
+                  border: `1px solid ${mode === id ? 'var(--primary)' : 'var(--border)'}`,
+                  background: mode === id ? 'var(--primary-soft)' : 'transparent',
+                  color: 'var(--text)',
+                }}
+              >
+                <div style={{
+                  fontSize: 13, fontWeight: 600,
+                  color: mode === id ? 'var(--primary-text)' : 'var(--text)',
+                }}
+                >
+                  {label}
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 2 }}>{blurb}</div>
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+            {mode === 'spider' ? (
+              <Field
+                label="Site URL"
+                required
+                placeholder="https://example.com"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                helper="The crawl starts here and follows internal links."
+              />
+            ) : (
+              <Field
+                label="URLs to crawl"
+                required
+                as="textarea"
+                rows={6}
+                placeholder={'https://example.com/pricing\nhttps://example.com/about\nhttps://other-site.com/page'}
+                value={urlList}
+                onChange={(e) => setUrlList(e.target.value)}
+                helper={listUrls.length
+                  ? `${listUrls.length} URL${listUrls.length === 1 ? '' : 's'}. `
+                    + 'They may span different sites — nothing is followed, so scope does not apply.'
+                  : 'One per line, or comma separated. They may span different sites.'}
+              />
+            )}
+            <Field
+              label="Project name"
+              placeholder={mode === 'list' ? 'Optional — recommended for a list' : 'Optional — defaults to the host'}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              helper={mode === 'list'
+                ? 'A list has no single site to name it after, so it is worth setting one.'
+                : undefined}
+            />
+          </div>
         </div>
 
         <div>
@@ -138,7 +225,7 @@ export default function ProjectForm({ open, project, onClose, onSave }) {
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 8 }}>
             Crawl settings
           </div>
-          <CrawlOptionsForm options={options} onChange={setOptions} />
+          <CrawlOptionsForm options={options} onChange={setOptions} mode={mode} />
         </div>
       </div>
     </Modal>
