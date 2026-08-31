@@ -76,6 +76,37 @@ test('a surface that ran and found no AI answer IS measured', async () => {
 
 // ── Coverage ────────────────────────────────────────────────────────────────
 
+section('an empty answer: absence on a SERP, failure on a chat engine');
+
+test('an empty answer from a CHAT surface is a failure, never an absence', async () => {
+  const undo = withSurface('x:chat', async () => ({
+    engine: 'fake', provider: 'test', surfaceLabel: 'Fake chat', access: 'scraped',
+    answerText: '', citations: [], webQueries: [], capturedAt: new Date().toISOString(), raw: {},
+  }));
+  SURFACES['x:chat'].ALWAYS_ANSWERS = true;
+  const row = await capture.measure({ surfaceId: 'x:chat', prompt: 'best dentist', brand: BRAND });
+  undo();
+
+  assert.strictEqual(row.status, 'failed');
+  assert.strictEqual(row.mentioned, null,
+    'measured against real rate limiting: six consecutive empty Gemini captures, which as '
+    + 'false would be six absences the engine never asserted');
+  assert.match(row.failureReason, /empty answer/);
+});
+
+test('an empty answer from a SERP surface IS a measured absence', async () => {
+  const undo = withSurface('x:serp', async () => ({
+    engine: 'fake', provider: 'test', surfaceLabel: 'Fake SERP', access: 'scraped',
+    answerText: '', citations: [], webQueries: [], capturedAt: new Date().toISOString(), raw: {},
+  }));
+  const row = await capture.measure({ surfaceId: 'x:serp', prompt: 'best dentist', brand: BRAND });
+  undo();
+
+  assert.strictEqual(row.status, 'no_answer');
+  assert.strictEqual(row.mentioned, false,
+    'plenty of queries genuinely have no AI Overview — there is nothing to be named in');
+});
+
 section('coverage counts what was measured, not what was attempted');
 
 test('failures are excluded from the measured count and named', () => {

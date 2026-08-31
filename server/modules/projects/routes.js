@@ -782,26 +782,44 @@ router.get('/:projectId/audit-events', async (req, res) => {
 
 // POST /api/projects/:projectId/modules/:moduleKey/run
 //
-// Runs ONE module and waits for it. A single module is tens of seconds at worst
-// (measured: seo_geo ~2-4s, agent_readiness ~45-55s, on_page ~20-40s), which one
-// request can carry. Running all of them in one request cannot — see the audit
-// route below.
+// Runs ONE module and (for most modules) waits for it. A single module is
+// tens of seconds at worst (measured: seo_geo ~2-4s, agent_readiness
+// ~45-55s, on_page ~20-40s), which one request can carry. Running all of
+// them in one request cannot — see the audit route below.
+//
+// ai_visibility is the one exception: its own runner documents 25-110s PER
+// capture, run serially (10-35 minutes for a full set) — nothing this route
+// can hold open. A real run against a client with approved prompts was
+// confirmed to fail exactly this way: it does the real work and then dies
+// trying to answer a request whose connection a proxy already gave up on
+// (this repo's dev Vite proxy times out at 120s; a production load balancer
+// usually sooner), which reads as "Something went wrong" even though the
+// measurement itself succeeded. Detached, like the audit route below.
 //
 // The evidence row is opened before the work starts, so a request that dies
 // mid-flight still leaves a run the sweeper can fail honestly.
+const DETACHED_MODULES = ['ai_visibility'];
+
 router.post('/:projectId/modules/:moduleKey/run', async (req, res) => {
   if (!requireConfigured(res)) return;
   try {
     const access = await projectAccess.requireProject(req, req.params.projectId, 'startRun');
     const domains = await store.listDomains(req.params.projectId);
+    const detached = DETACHED_MODULES.includes(req.params.moduleKey);
     const run = await moduleRunners.runModule({
       access,
       moduleKey: req.params.moduleKey,
       domains,
       trigger: 'manual',
       keywords: req.body?.keywords || null,
+      detached,
     });
-    res.status(201).json({ run });
+    res.status(detached ? 202 : 201).json({
+      run,
+      ...(detached ? {
+        poll: `/api/projects/${req.params.projectId}/modules/${req.params.moduleKey}/runs?limit=1`,
+      } : {}),
+    });
   } catch (e) { handleError(res, e, 'runModule'); }
 });
 

@@ -39,6 +39,34 @@ const CONCURRENCY = 4;
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
   + '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
+/**
+ * Would following this URL reach our own network?
+ *
+ * A redirect target is chosen by whoever controls the page being cited, so
+ * without this a citation could steer this server at its own private range or
+ * at cloud metadata. Hostname-only: the DNS layer can still resolve a public
+ * name to a private address, so this is a cheap first cut rather than a
+ * complete defence — but it stops the direct forms outright.
+ */
+function isPrivateAddress(url) {
+  let host;
+  try { host = new URL(url).hostname.toLowerCase(); } catch { return true; }
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal')) return true;
+  if (host === '[::1]' || host === '::1') return true;
+
+  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!v4) return false;
+  const [a, b] = v4.slice(1).map(Number);
+  if ([a, b].some((n) => !Number.isFinite(n) || n > 255)) return true;
+  return a === 10
+    || a === 127
+    || a === 0
+    || (a === 192 && b === 168)
+    || (a === 172 && b >= 16 && b <= 31)
+    || (a === 169 && b === 254)   // link-local, and cloud metadata at 169.254.169.254
+    || (a === 100 && b >= 64 && b <= 127); // carrier-grade NAT
+}
+
 /** Is this a Google redirector rather than a real source? */
 function isGoogleRedirect(url) {
   try {
@@ -61,12 +89,23 @@ async function resolveOne(url) {
   for (let hop = 0; hop < MAX_HOPS; hop += 1) {
     let response;
     try {
-      response = await fetch(current, {
-        method: 'GET',
+      // HEAD first — only the Location header is ever read, and a GET pulls a
+      // body from a third-party host for nothing. But HEAD is optional in
+      // practice: plenty of redirectors answer 405 or 501, and taking that at
+      // face value would leave the citation permanently unresolved, which reads
+      // downstream as "we do not know what this source is".
+      const send = (method) => fetch(current, {
+        method,
         redirect: 'manual',
         signal: AbortSignal.timeout(HOP_TIMEOUT_MS),
         headers: { 'User-Agent': USER_AGENT },
       });
+
+      response = await send('HEAD');
+      if (response.status === 405 || response.status === 501
+        || (!response.headers.get('location') && response.status >= 400)) {
+        response = await send('GET');
+      }
     } catch {
       return null;
     }
@@ -79,6 +118,10 @@ async function resolveOne(url) {
     } catch {
       return null;
     }
+
+    // A redirect target is chosen by a third party. Following one into a
+    // private range would let a citation steer this server at its own network.
+    if (isPrivateAddress(current)) return null;
 
     // Landed somewhere that is not the redirector — that is the source.
     if (!isGoogleRedirect(current)) return current;
@@ -134,6 +177,7 @@ async function resolveCitations(citations) {
 }
 
 module.exports = {
+  isPrivateAddress,
   isGoogleRedirect,
   resolveOne,
   resolveCitations,

@@ -68,4 +68,16 @@ async function capture(prompt) {
   };
 }
 
-module.exports = { capture, ENGINE, PROVIDER, LABEL, PATH };
+// A conversation ALWAYS produces a reply. An empty answer from a chat
+// engine is a failure to READ it — a throttle, a layout change — never the
+// engine saying nothing. Measured: six consecutive empty Gemini captures
+// under rate limiting, which would otherwise have been stored as six
+// absences. A SERP surface is different and does not set this: plenty of
+// queries genuinely have no AI Overview.
+const ALWAYS_ANSWERS = true;
+
+const ACCESS = 'api';
+
+module.exports = {
+  capture, ENGINE, PROVIDER, LABEL, ACCESS, ALWAYS_ANSWERS, PATH,
+};

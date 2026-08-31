@@ -995,9 +995,16 @@ const SCORE_BASIS = {
  * 20-prompt run over two surfaces is well over half an hour — so it is a
  * background job, not something a request should wait on.
  */
-async function runAiVisibility({ access, run, project }) {
+async function runAiVisibility({
+  access, run, project, domains,
+}) {
   const { runAiVisibility: execute } = require('../aiVisibility/run');
-  return execute({ access, project, run });
+  const { projectView } = require('./store');
+  // aiVisibility/run.js is written against projectView (camelCase primaryDomain,
+  // competitors, countryCode) — runModule only hands runners the raw crawl_projects
+  // row plus domains separately, so the view has to be built here or brand.domain
+  // and competitors silently resolve to nothing every single run.
+  return execute({ access, project: projectView(project, domains), run });
 }
 
 const RUNNERS = {
@@ -1020,8 +1027,16 @@ const RUNNERS = {
  * @param {string} input.moduleKey
  * @param {Array}  input.domains    project_domains rows for the project
  * @param {string} [input.trigger]
+ * @param {boolean} [input.detached]  return the OPEN run row immediately and
+ *   let the module keep working in the background — for a module whose own
+ *   runner documents it can take minutes (ai_visibility: 25-110s PER capture,
+ *   serially), holding the caller's request open until completion is exactly
+ *   what a reverse proxy's own timeout exists to kill. Every other module
+ *   finishes in seconds and is unaffected — this is opt-in per call.
  */
-async function runModule({ access, moduleKey, domains, trigger = 'manual', keywords = null }) {
+async function runModule({
+  access, moduleKey, domains, trigger = 'manual', keywords = null, detached = false,
+}) {
   if (!RUNNABLE.includes(moduleKey)) {
     throw invalid(
       `${moduleKey} cannot be run from here. Runnable modules: ${RUNNABLE.join(', ')}.`,
@@ -1066,25 +1081,34 @@ async function runModule({ access, moduleKey, domains, trigger = 'manual', keywo
     pageBudget,
   });
 
-  try {
-    const result = await RUNNERS[moduleKey]({
-      access, run, target, project, domains, keywords: requestKeywords,
-    });
-    return await moduleEvidence.completeRun({
-      access,
-      runId: run.id,
-      status: result.status || 'completed',
-      score: result.score ?? null,
-      scoreMax: result.scoreMax ?? 100,
-      scoreBasis: result.scoreBasis ?? null,
-      band: result.band ?? null,
-      findings: result.findings || [],
-      payload: result.note ? { ...(result.payload || {}), note: result.note } : result.payload,
-    });
-  } catch (error) {
-    await moduleEvidence.failRun({ access, runId: run.id, error });
-    throw error;
+  const finish = async () => {
+    try {
+      const result = await RUNNERS[moduleKey]({
+        access, run, target, project, domains, keywords: requestKeywords,
+      });
+      return await moduleEvidence.completeRun({
+        access,
+        runId: run.id,
+        status: result.status || 'completed',
+        score: result.score ?? null,
+        scoreMax: result.scoreMax ?? 100,
+        scoreBasis: result.scoreBasis ?? null,
+        band: result.band ?? null,
+        findings: result.findings || [],
+        payload: result.note ? { ...(result.payload || {}), note: result.note } : result.payload,
+      });
+    } catch (error) {
+      await moduleEvidence.failRun({ access, runId: run.id, error });
+      throw error;
+    }
+  };
+
+  if (detached) {
+    finish().catch((e) => console.error(`[moduleRunners.runModule] ${moduleKey} failed to close cleanly:`, e.message));
+    return run; // still 'running' — the caller polls moduleEvidence/the overview for completion
   }
+
+  return finish();
 }
 
 /**

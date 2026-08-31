@@ -162,5 +162,107 @@ test('the summary reports coverage and spend', () => {
   assert.strictEqual(s.score, 50);
 });
 
+// ── groupByPrompt ────────────────────────────────────────────────────────────
+
+section('groupByPrompt — one block per prompt, not per capture');
+
+const PROMPTS = [
+  { id: 'p1', text: 'best dentist boston', slot: 'category_commercial', intent: 'commercial', topicLabel: 'General' },
+  { id: 'p2', text: 'invisalign cost boston', slot: 'cost_pricing', intent: 'commercial', topicLabel: 'Invisalign', topicKind: 'page', targetUrl: 'https://x.com/invisalign' },
+  { id: 'p3', text: 'best invisalign provider boston', slot: 'category_commercial', intent: 'commercial', topicLabel: 'Invisalign', topicKind: 'page', targetUrl: 'https://x.com/invisalign' },
+];
+
+test('a prompt measured on two surfaces appears once, with two surfaces listed', () => {
+  const rows = [
+    row({ promptId: 'p1', prompt: 'best dentist boston', surfaceLabel: 'ChatGPT', mentioned: true }),
+    row({ promptId: 'p1', prompt: 'best dentist boston', surfaceLabel: 'Google AI Overview', mentioned: false }),
+  ];
+  const grouped = scoring.groupByPrompt(rows, PROMPTS);
+  const p1 = grouped.filter((g) => g.promptId === 'p1');
+  assert.strictEqual(p1.length, 1, 'must not appear twice');
+  assert.strictEqual(p1[0].surfaces.length, 2);
+  // Named on one surface, absent on the other -> NAMED overall.
+  assert.strictEqual(p1[0].mentionedOnAnySurface, true);
+});
+
+test('an approved prompt with zero captures this run still appears, with surfaces: []', () => {
+  const rows = [row({ promptId: 'p1', prompt: 'best dentist boston', mentioned: true })];
+  const grouped = scoring.groupByPrompt(rows, PROMPTS);
+  const p2 = grouped.find((g) => g.promptId === 'p2');
+  assert.ok(p2, 'p2 was approved but not measured this run, and must still show up');
+  assert.deepStrictEqual(p2.surfaces, []);
+  assert.strictEqual(p2.mentionedOnAnySurface, null);
+});
+
+test('a capture with no prompt_id groups by its own text rather than vanishing', () => {
+  const rows = [row({ promptId: null, prompt: 'an orphaned question' })];
+  const grouped = scoring.groupByPrompt(rows, []);
+  const orphan = grouped.find((g) => g.text === 'an orphaned question');
+  assert.ok(orphan);
+  assert.strictEqual(orphan.orphaned, true);
+  assert.strictEqual(orphan.promptId, null);
+});
+
+test('measured and named nowhere is false, not null — a real absence', () => {
+  const rows = [row({ promptId: 'p1', prompt: 'best dentist boston', mentioned: false })];
+  const grouped = scoring.groupByPrompt(rows, PROMPTS);
+  assert.strictEqual(grouped.find((g) => g.promptId === 'p1').mentionedOnAnySurface, false);
+});
+
+// ── groupByTopic + topicFindings ─────────────────────────────────────────────
+
+section('groupByTopic — the axis that turns a percentage into a page');
+
+test('prompts with no topicLabel fold into Uncategorised rather than each getting a row', () => {
+  const untopicked = { id: 'p4', text: 'a hand-added question with no topic assigned' };
+  const grouped = scoring.groupByPrompt(
+    [row({ promptId: 'p4', prompt: untopicked.text, mentioned: true })],
+    [untopicked],
+  );
+  const topics = scoring.groupByTopic(grouped);
+  const uncategorised = topics.find((t) => t.topic === 'Uncategorised');
+  assert.ok(uncategorised);
+  assert.strictEqual(uncategorised.prompts.some((p) => p.promptId === 'p4'), true);
+});
+
+test('a page-backed topic that names a competitor on every measured prompt is flagged invisible', () => {
+  const rows = [
+    row({
+      promptId: 'p2', prompt: 'invisalign cost boston', mentioned: false,
+      competitorsMentioned: ['Aspen Dental'],
+    }),
+    row({
+      promptId: 'p3', prompt: 'best invisalign provider boston', mentioned: false,
+      competitorsMentioned: ['Aspen Dental'],
+    }),
+  ];
+  const grouped = scoring.groupByPrompt(rows, PROMPTS);
+  const topics = scoring.groupByTopic(grouped);
+  const invisalign = topics.find((t) => t.topic === 'Invisalign');
+  assert.strictEqual(invisalign.namedCount, 0);
+  assert.strictEqual(invisalign.measuredCount, 2);
+  assert.deepStrictEqual(invisalign.competitorsNamed, ['Aspen Dental']);
+
+  const flags = scoring.topicFindings(topics);
+  assert.strictEqual(flags.length, 1);
+  assert.strictEqual(flags[0].ruleId, 'aiv-topic-invisible');
+  assert.strictEqual(flags[0].detail.topics[0].targetUrl, 'https://x.com/invisalign');
+});
+
+test('a topic with no target_url is never flagged invisible — there is no page to point at', () => {
+  const rows = [row({ promptId: 'p1', prompt: 'best dentist boston', mentioned: false, competitorsMentioned: ['Aspen Dental'] })];
+  const topics = scoring.groupByTopic(scoring.groupByPrompt(rows, PROMPTS));
+  assert.strictEqual(scoring.topicFindings(topics).length, 0);
+});
+
+test('a topic that names the brand is never flagged invisible', () => {
+  const rows = [
+    row({ promptId: 'p2', prompt: 'invisalign cost boston', mentioned: true }),
+    row({ promptId: 'p3', prompt: 'best invisalign provider boston', mentioned: false, competitorsMentioned: ['Aspen Dental'] }),
+  ];
+  const topics = scoring.groupByTopic(scoring.groupByPrompt(rows, PROMPTS));
+  assert.strictEqual(scoring.topicFindings(topics).length, 0);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

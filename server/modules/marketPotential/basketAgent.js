@@ -14,11 +14,9 @@
 // Uses OpenAI when OPENAI_API_KEY is set; otherwise a deterministic heuristic.
 
 const { hasOpenAI, chat } = require('./openaiClient');
+const { INFORMATIONAL_RE, NEAR_ME_RE } = require('../../services/intentVocabulary');
 
 const VALID_TAGS = ['commercial-local', 'commercial-cost', 'commercial-general'];
-
-const INFORMATIONAL_RE = /^(what|how|why|when|who|is|are|does|can)\b|guide|meaning|definition|symptoms?\b/i;
-const NEAR_ME_RE = /\bnear\s?me\b|\bnearby\b|\bin my area\b|\baround me\b/i;
 
 function sanitizeTerms(raw, service) {
   const seen = new Set();

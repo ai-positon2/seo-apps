@@ -159,14 +159,37 @@ export default function HomePage() {
   /**
    * Runs one module against the project and reloads the profile.
    *
-   * The request is synchronous on the server — these audits take seconds — so
-   * there is nothing to poll. Errors propagate to the card that asked, which is
-   * where the person is looking.
+   * Most modules are synchronous on the server — they take seconds — so there
+   * is nothing to poll. ai_visibility is the exception: a real measurement run
+   * is 25-110s PER capture, serially, which can be many minutes for a full
+   * prompt set. The server hands that one back still 'running' rather than
+   * holding the request open (no proxy would survive that wait), so this
+   * polls the overview until it finishes — otherwise the card would just sit
+   * on "running" until the next manual reload. Errors propagate to the card
+   * that asked, which is where the person is looking.
    */
   const runModule = useCallback(async (moduleKey) => {
     if (!activeProject) return;
-    await projectsApi.runModule(activeProject.id, moduleKey);
-    await loadOverview(activeProject.id);
+    const projectId = activeProject.id;
+    const { run } = await projectsApi.runModule(projectId, moduleKey);
+    await loadOverview(projectId);
+
+    if (run?.status !== 'running') return;
+    const deadlineAt = Date.now() + 40 * 60 * 1000;
+    while (Date.now() < deadlineAt) {
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((resolve) => setTimeout(resolve, 8000));
+      let data;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        data = await projectsApi.overview(projectId);
+      } catch {
+        continue; // a dropped poll is not a failed run — keep trying
+      }
+      setOverview({ loading: false, error: null, data });
+      const stillRunning = (data.modules || []).some((m) => m.key === moduleKey && m.status === 'running');
+      if (!stillRunning) break;
+    }
   }, [activeProject, loadOverview]);
 
   /**

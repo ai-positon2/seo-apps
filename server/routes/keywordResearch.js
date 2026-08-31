@@ -5,6 +5,7 @@ const OpenAI = require('openai');
 const { searchGoogle } = require('../services/googleSearch');
 const { getUrlKeywords } = require('../services/semrush');
 const { loadKBContext } = require('../services/kbLoader');
+const { getConversionIntentScore } = require('../services/intentVocabulary');
 
 // In-memory session store (token → params, expires in 2 min)
 const sessions = new Map();
@@ -64,13 +65,6 @@ function getIntentAlignmentScore(titleSnippet, seedKeyword) {
   const text = titleSnippet.toLowerCase();
   const matches = seedWords.filter(w => text.includes(w));
   return seedWords.length > 0 ? matches.length / seedWords.length : 0;
-}
-
-function getConversionIntentScore(titleSnippet) {
-  const CONVERSION_WORDS = ['cost', 'price', 'pricing', 'book', 'schedule', 'appointment', 'quote', 'free', 'cheap', 'affordable', 'near me', 'local', 'best'];
-  const text = titleSnippet.toLowerCase();
-  const matches = CONVERSION_WORDS.filter(w => text.includes(w));
-  return Math.min(1.0, matches.length / 2);
 }
 
 function scoreUrl(urlObj, bestPosition, seedKeyword) {

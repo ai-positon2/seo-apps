@@ -265,8 +265,71 @@ async function listCrawledPages(projectId, { limit = null, workspaceId = null } 
   };
 }
 
+/**
+ * Crawled pages with their on-page text signals, in the same audit order
+ * `listCrawledPages` uses — one file keeps knowing the `crawl_run_results.data`
+ * shape, so a caller does not have to learn that the crawler stores `words`
+ * rather than `wordCount`, or that `h1`/`h2` are pipe-joined strings.
+ *
+ * Unlike `listCrawledPages`, `limit` here has NOTHING to do with
+ * `maxPagesPerModuleAudit` — that budget governs a per-page AUDIT run, and
+ * reading page titles for prompt grounding is a different, much cheaper
+ * operation. Pass `limit` explicitly, or the default below applies; there is
+ * no admin-limit fallback to silently narrow it to 10.
+ *
+ * @param {string} projectId
+ * @param {object} [opts]
+ * @param {number} [opts.limit]
+ * @returns {Promise<Array<{url, title, h1, h2, metaDescription, wordCount, depth, inlinks}>>}
+ */
+async function listPageContent(projectId, { limit = 60 } = {}) {
+  if (!isSupabaseConfigured()) throw notConfigured();
+
+  const crawl = await latestCompletedCrawl(projectId);
+  if (!crawl) return [];
+
+  const [rows, inbound] = await Promise.all([
+    fetchAll(
+      () => getSupabase()
+        .from('crawl_run_results')
+        .select('url, status, data')
+        .eq('run_id', crawl.id)
+        .eq('data->>scope', 'Internal')
+        .order('id', { ascending: true }),
+      'pageContent',
+    ),
+    inboundCounts(crawl.id),
+  ]);
+
+  const usable = rows.filter((r) => {
+    const d = r.data || {};
+    if (!(d.url || r.url)) return false;
+    if (d.isAsset) return false;
+    const status = Number(d.status ?? r.status);
+    if (Number.isFinite(status) && (status < 200 || status >= 300)) return false;
+    return true;
+  });
+
+  return auditOrder(usable, inbound).slice(0, limit).map((r) => {
+    const d = r.data || {};
+    const url = d.url || r.url;
+    const depth = Number(d.depth);
+    return {
+      url,
+      title: d.title || null,
+      h1: d.h1 || null,
+      h2: d.h2 || null,
+      metaDescription: d.metaDescription || null,
+      wordCount: Number.isFinite(Number(d.words)) ? Number(d.words) : null,
+      depth: Number.isFinite(depth) ? depth : null,
+      inlinks: inbound.size ? (inbound.get(canonicalKey(url)) || 0) : (Number(d.inlinks) || 0),
+    };
+  });
+}
+
 module.exports = {
   listCrawledPages,
+  listPageContent,
   latestCompletedCrawl,
   auditOrder,
   inboundCounts,

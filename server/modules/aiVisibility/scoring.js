@@ -204,6 +204,137 @@ function summarise(rows, { name, domain } = {}) {
   };
 }
 
+/**
+ * Captures grouped one row per PROMPT rather than one row per capture.
+ *
+ * The UI used to iterate captures directly, so a prompt measured on two
+ * surfaces (ChatGPT and Google AI Overview) rendered as two separate blocks,
+ * and a prompt with zero captures this run (over budget, or approved after
+ * the run started) did not render at all. This is the fix: group first, and
+ * every group carries a per-surface breakdown rather than merging surfaces
+ * together, because "named by ChatGPT, absent from Google AI Overview" is a
+ * real distinction 0016's own header argues for.
+ *
+ * @param {Array}  rows     capture rows from capture.measure / store.capturesForRun
+ * @param {Array} [prompts] promptView rows — supplies metadata AND ensures an
+ *                          approved-but-unmeasured prompt still appears, with
+ *                          `surfaces: []`, rather than silently vanishing.
+ */
+function groupByPrompt(rows, prompts = []) {
+  const promptById = new Map((prompts || []).map((p) => [p.id, p]));
+  const groups = new Map();
+
+  const groupFor = (promptId, fallbackText) => {
+    const key = promptId || `text:${fallbackText}`;
+    if (!groups.has(key)) {
+      const p = promptId ? promptById.get(promptId) : null;
+      groups.set(key, {
+        promptId: promptId || null,
+        text: p?.text || fallbackText,
+        slot: p?.slot ?? null,
+        intent: p?.intent ?? null,
+        source: p?.source ?? null,
+        sourceRef: p?.sourceRef ?? null,
+        topicKind: p?.topicKind ?? null,
+        topicLabel: p?.topicLabel ?? null,
+        targetUrl: p?.targetUrl ?? null,
+        demandVolume: p?.demandVolume ?? null,
+        rationale: p?.rationale ?? null,
+        status: p?.status ?? null,
+        // A capture whose prompt_id is null — the prompt was deleted since,
+        // or captured before prompts were tracked at all. Grouped by its raw
+        // text rather than dropped, so the evidence stays visible.
+        orphaned: !promptId,
+        surfaces: [],
+      });
+    }
+    return groups.get(key);
+  };
+
+  for (const row of rows || []) {
+    groupFor(row.promptId, row.prompt).surfaces.push(row);
+  }
+  // An approved prompt this run never got to (over budget, or approved after
+  // the run started) still belongs on the report — with an empty surface
+  // list, which is what tells the reader "not measured this run" rather than
+  // "measured and absent".
+  for (const p of prompts || []) {
+    groupFor(p.id, p.text);
+  }
+
+  return [...groups.values()].map((g) => ({
+    ...g,
+    mentionedOnAnySurface: g.surfaces.length === 0
+      ? null
+      : g.surfaces.some((s) => s.mentioned === true)
+        ? true
+        : g.surfaces.some((s) => s.mentioned === false) ? false : null,
+  }));
+}
+
+/**
+ * groupByPrompt's output, grouped again by topic — the axis that turns "50%"
+ * into "which page". Prompts with no topicLabel (every prompt written before
+ * generation carried one, or one added by hand without picking one) fold
+ * into 'Uncategorised' rather than each becoming its own one-prompt group,
+ * which would make the matrix noise instead of signal.
+ */
+function groupByTopic(promptGroups) {
+  const topics = new Map();
+
+  for (const g of promptGroups || []) {
+    const label = g.topicLabel || 'Uncategorised';
+    if (!topics.has(label)) {
+      topics.set(label, {
+        topic: label,
+        kind: g.topicKind || null,
+        targetUrl: g.targetUrl || null,
+        prompts: [],
+        namedCount: 0,
+        measuredCount: 0,
+        competitorsNamed: new Set(),
+      });
+    }
+    const t = topics.get(label);
+    t.prompts.push(g);
+    if (g.mentionedOnAnySurface !== null) t.measuredCount += 1;
+    if (g.mentionedOnAnySurface === true) t.namedCount += 1;
+    for (const surface of g.surfaces || []) {
+      for (const name of surface.competitorsMentioned || []) t.competitorsNamed.add(name);
+    }
+  }
+
+  return [...topics.values()]
+    .map((t) => ({ ...t, competitorsNamed: [...t.competitorsNamed] }))
+    .sort((a, b) => b.measuredCount - a.measuredCount || a.topic.localeCompare(b.topic));
+}
+
+/**
+ * The finding a page-backed topic report exists to produce: a page is live,
+ * the engine measured questions about it, and it named a competitor instead
+ * of the brand on every single one. Kept separate from `findings()` because
+ * it needs topic-grouped data (prompts joined to captures), which `findings`
+ * — deliberately capture-only — does not have.
+ */
+function topicFindings(topics) {
+  const invisible = (topics || []).filter(
+    (t) => t.targetUrl && t.measuredCount > 0 && t.namedCount === 0 && t.competitorsNamed.length > 0,
+  );
+  if (!invisible.length) return [];
+  return [{
+    ruleId: 'aiv-topic-invisible',
+    title: `${invisible.length} page(s) exist for topics where a competitor gets named instead`,
+    severity: SEVERITY.error,
+    category: 'AI Visibility',
+    count: invisible.length,
+    detail: {
+      topics: invisible.map((t) => ({
+        topic: t.topic, targetUrl: t.targetUrl, competitorsNamed: t.competitorsNamed,
+      })),
+    },
+  }];
+}
+
 module.exports = {
   SEVERITY,
   measuredRows,
@@ -213,4 +344,7 @@ module.exports = {
   citedDomains,
   findings,
   summarise,
+  groupByPrompt,
+  groupByTopic,
+  topicFindings,
 };

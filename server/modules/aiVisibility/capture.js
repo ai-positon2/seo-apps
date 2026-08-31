@@ -15,7 +15,8 @@
 // counts as NOT MEASURED, and the run reports its coverage. This is the same
 // §16.11 discipline `siteHealth` and `aggregatePages` already follow.
 
-const { surfaceFor } = require('./surfaces');
+const { surfaceFor, needsProxy } = require('./surfaces');
+const proxyPool = require('./captureEngines/proxyPool');
 
 // An answer shorter than this is a refusal, an error page, or a truncated
 // stream — not something to scan for a brand name. Measured against real
@@ -158,7 +159,22 @@ function validate(capture) {
  * @param {Array}  [input.competitors]
  * @returns {Promise<object>} a capture row, always
  */
-async function measure({ surfaceId, prompt, brand, competitors = [] }) {
+/**
+ * The answer's shape, from wherever the surface recorded it.
+ *
+ * `features` is not in the surface contract, so adapters put it in `raw`. This
+ * accepts both rather than silently returning nothing for every surface that
+ * follows the existing convention.
+ */
+function featuresOf(captured) {
+  if (Array.isArray(captured?.features)) return captured.features;
+  if (Array.isArray(captured?.raw?.features)) return captured.raw.features;
+  return [];
+}
+
+async function measure({
+  surfaceId, prompt, brand, competitors = [], country = null, sessionKey = null,
+}) {
   const surface = surfaceFor(surfaceId);
 
   const base = {
@@ -166,6 +182,11 @@ async function measure({ surfaceId, prompt, brand, competitors = [] }) {
     prompt,
     engine: surface?.ENGINE || null,
     provider: surface?.PROVIDER || null,
+    // HOW the answer was obtained, which is a different claim from WHO served
+    // it. store.js defaulted this to 'scraped' for every row because nothing
+    // ever set it, so a vendor-API capture would have described itself as
+    // self-hosted — a provenance claim no reader could check.
+    access: surface?.ACCESS || null,
     surfaceLabel: surface?.LABEL || surfaceId,
     capturedAt: new Date().toISOString(),
     // Null until proven otherwise. Every early return below leaves these null,
@@ -177,18 +198,101 @@ async function measure({ surfaceId, prompt, brand, competitors = [] }) {
     citations: [],
     answerText: null,
     taskCost: null,
+    features: [],
   };
 
   if (!surface) {
     return { ...base, status: STATUS.FAILED, failureReason: `no surface registered for "${surfaceId}"` };
   }
 
+  // ── Proxy ───────────────────────────────────────────────────────────────
+  //
+  // A surface on the NEEDS_PROXY list does not run without one. Phase 0
+  // measured that Google's refusal was a LOCALE MISMATCH, not fingerprinting —
+  // so an exit IP in the wrong country does not fail loudly, it succeeds and
+  // returns a differently-localised answer that we would record as a US
+  // measurement. Refusing is the only honest option: a missing capture is
+  // recoverable, a wrong one that looks right is not.
+  let lease = { proxy: null };
+  if (needsProxy(surfaceId)) {
+    lease = proxyPool.getPool().lease({
+      engine: surface.ENGINE, country, sessionKey,
+    });
+    if (!lease.proxy) {
+      return {
+        ...base,
+        status: STATUS.FAILED,
+        failureReason: `no proxy available (${lease.reason})`
+          + (lease.retryInMs ? `, retry in ${Math.ceil(lease.retryInMs / 1000)}s` : ''),
+      };
+    }
+  }
+
+  const proxyOpts = lease.proxy
+    ? {
+      proxyUrl: lease.proxy.url,
+      proxyAuth: lease.proxy.username
+        ? { username: lease.proxy.username, password: lease.proxy.password }
+        : null,
+    }
+    : {};
+
+  // How many times the surface was asked. A chat surface that answers with
+  // nothing was not read, so one more attempt is warranted — and recording the
+  // attempt count is what finally settles whether these failures are a
+  // server-side limit (a retry fails too) or a read problem (a retry works).
+  //
+  // Bounded at one extra attempt, and only on the empty-answer path: this can
+  // never turn a real absence into a mention, because an empty answer from a
+  // chat surface is already classified as not-measured rather than absent.
+  const MAX_ATTEMPTS = surface.ALWAYS_ANSWERS ? 2 : 1;
+  let attempts = 0;
+  let recoveredOnRetry = false;
+
   let captured;
   try {
-    captured = await surface.capture(prompt);
+    /* eslint-disable no-await-in-loop */
+    for (let i = 0; i < MAX_ATTEMPTS; i += 1) {
+      attempts += 1;
+      captured = await surface.capture(prompt, proxyOpts);
+      const got = typeof captured?.answerText === 'string' ? captured.answerText.trim() : '';
+      // A stream that stopped after 12 characters was read no more successfully
+      // than one that produced nothing; both are a read failure and both are
+      // worth one more attempt. Only empty was retried before.
+      if (got.length >= MIN_ANSWER_CHARS) break;
+      if (!surface.ALWAYS_ANSWERS) break;
+    }
+    /* eslint-enable no-await-in-loop */
+
+    const finalText = typeof captured?.answerText === 'string' ? captured.answerText.trim() : '';
+    // "Recovered" has to mean the retry produced a USABLE answer. Any text at
+    // all was enough before, so a retry that came back with the same 12
+    // characters — still short enough to fail validation below — reported
+    // itself as a recovery, corrupting the one signal that distinguishes a
+    // read problem from a server-side limit.
+    recoveredOnRetry = attempts > 1 && finalText.length >= MIN_ANSWER_CHARS;
+    // A wall burns the address immediately rather than counting toward the
+    // failure threshold — one more request confirms nothing and deepens it.
+    if (lease.proxy) {
+      proxyPool.getPool().release(lease.proxy, {
+        ok: !captured?.blocked,
+        blocked: Boolean(captured?.blocked),
+      });
+    }
   } catch (e) {
+    if (lease.proxy) {
+      proxyPool.getPool().release(lease.proxy, {
+        ok: false,
+        blocked: /sorry|captcha|blocked|429|forbidden/i.test(e.message || ''),
+      });
+    }
     // A provider failure. The brand's presence is unknown, not absent.
-    return { ...base, status: STATUS.FAILED, failureReason: e.message };
+    return {
+      ...base,
+      status: STATUS.FAILED,
+      failureReason: e.message,
+      raw: { attempts, failureCode: e.code || null },
+    };
   }
 
   const invalid = validate(captured);
@@ -198,14 +302,57 @@ async function measure({ surfaceId, prompt, brand, competitors = [] }) {
       status: STATUS.FAILED,
       failureReason: invalid,
       taskCost: captured.taskCost ?? null,
+      // Carried, like every other failure path. This one dropped `raw`, so a
+      // truncated answer — the failure most in need of diagnosis — arrived with
+      // no record of whether the question was even submitted.
+      raw: { ...(captured.raw || {}), attempts, recoveredOnRetry },
     };
   }
 
   const answerText = typeof captured.answerText === 'string' ? captured.answerText.trim() : '';
 
-  // A surface that ran fine and produced no answer is a real, common result —
-  // plenty of queries have no AI Overview. It is measured, and the brand is
-  // genuinely not mentioned, because there is nothing to be mentioned in.
+  // An empty answer means two completely different things depending on the
+  // surface, and conflating them fabricates absences.
+  //
+  // On a SERP surface it is a real, common result: plenty of queries have no AI
+  // Overview at all, and the brand is genuinely not mentioned because there is
+  // nothing to be mentioned in. That is a MEASURED absence.
+  //
+  // On a chat surface it is not. A conversation always produces a reply, so an
+  // empty one means we failed to read it. Measured against Gemini: six
+  // consecutive empty captures under rate limiting, arriving in normal time
+  // with no error — indistinguishable from a real answer except for being
+  // blank. Recording those as `mentioned: false` would have stored six
+  // absences the engine never asserted.
+  if (!answerText && surface.ALWAYS_ANSWERS) {
+    // State the observation and the evidence, never a cause.
+    //
+    // This message used to end "most likely rate limited". That was a guess
+    // written before there was any data, and because it travelled on every
+    // failed row it was read as a finding: it sent a real investigation after
+    // proxies and IP rotation. The actual cause was that the question was
+    // never submitted and a still page was mistaken for a finished answer.
+    // Whatever the next cause turns out to be, the row should carry what was
+    // seen and let someone read it.
+    const seen = [
+      captured.raw?.submitted === false ? 'the question was never submitted' : null,
+      captured.raw?.submitted === true && captured.raw?.sawAnswer === false
+        ? 'the question was submitted but no answer ever appeared' : null,
+      captured.raw?.settleTimedOut === true ? 'gave up waiting' : null,
+      attempts > 1 ? `retried ${attempts - 1}x` : null,
+    ].filter(Boolean).join('; ');
+
+    return {
+      ...base,
+      status: STATUS.FAILED,
+      failureReason: 'the engine returned an empty answer, which a chat surface '
+        + 'never legitimately does'
+        + (seen ? ` — ${seen}` : ''),
+      taskCost: captured.taskCost ?? null,
+      raw: { ...(captured.raw || {}), attempts, recoveredOnRetry },
+    };
+  }
+
   if (!answerText) {
     return {
       ...base,
@@ -241,10 +388,21 @@ async function measure({ surfaceId, prompt, brand, competitors = [] }) {
     prominence: prominenceOf(answerText, names),
     competitorsMentioned: competitorsNamed(answerText, competitors),
     webQueries: captured.webQueries || [],
+    // What the engine actually did to answer — web_search, map, prose.
+    //
+    // Read from BOTH places on purpose. Every current adapter tucks this inside
+    // `raw` alongside its own debugging fields, because `features` was never in
+    // the documented surface contract — so a first fix that only read
+    // `captured.features` found nothing and the column stayed empty.
+    // Top level is where it belongs and is preferred; `raw` is where it is.
+    features: featuresOf(captured),
     modelVersion: captured.modelVersion || null,
     taskCost: captured.taskCost ?? null,
     failureReason: null,
-    raw: captured.raw,
+    // attempts/recoveredOnRetry travel on SUCCESS as well as failure. A retry
+    // that worked is the row that answers whether these failures were ever a
+    // server-side limit — a limit would refuse the retry too.
+    raw: { ...(captured.raw || {}), attempts, recoveredOnRetry },
   };
 }
 

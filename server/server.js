@@ -58,6 +58,12 @@ app.use(cookieParser());
 // General rate limit: 20 requests per minute.
 // Skips routers that have their own (higher) limiter, so the call-heavy
 // Location Page Builder + KB editor aren't throttled by the global cap.
+//
+// A router missing from this list keeps its own limiter but is ALSO capped at
+// 20/min here, and the global cap wins — which is what happened to
+// /api/ai-visibility: it was mounted with lpbLimiter (300/min) and silently
+// throttled to 20 anyway. Adding a router below without adding it here gives it
+// a limit it does not actually get.
 const limiter = rateLimit({
   windowMs: 60 * 1000,
   max: 20,
@@ -66,7 +72,7 @@ const limiter = rateLimit({
   message: { error: 'Too many requests. Please wait a moment and try again.' },
   skip: (req) => {
     const u = req.originalUrl || req.url || '';
-    return u.startsWith('/api/location-page-builder') || u.startsWith('/api/kb') || u.startsWith('/api/modules') || u.startsWith('/api/audit') || u.startsWith('/api/market-potential') || u.startsWith('/api/competitor-tracker') || u.startsWith('/api/content-architect') || u.startsWith('/api/crawl-scope') || u.startsWith('/api/runs') || u.startsWith('/api/projects') || u.startsWith('/api/admin');
+    return u.startsWith('/api/location-page-builder') || u.startsWith('/api/kb') || u.startsWith('/api/modules') || u.startsWith('/api/audit') || u.startsWith('/api/market-potential') || u.startsWith('/api/competitor-tracker') || u.startsWith('/api/content-architect') || u.startsWith('/api/crawl-scope') || u.startsWith('/api/ai-visibility') || u.startsWith('/api/runs') || u.startsWith('/api/projects') || u.startsWith('/api/admin');
   },
 });
 
@@ -263,6 +269,36 @@ if (CRAWLSCOPE_WORKER === 'in-process') {
   }
 } else {
   console.log(`[crawlScope] Worker not started in this process (CRAWLSCOPE_WORKER=${CRAWLSCOPE_WORKER}).`);
+}
+
+// ── Module run worker (queue + scheduler + reaper) ───────────────────────────
+// The same three loops CrawlScope runs, over `project_module_runs` (0019).
+// AI Visibility is the reason it exists: ~2,800 captures a day cannot be done
+// serially in one process, and headless Chrome must not share a dyno with
+// request handling.
+//
+//   in-process (default) — fine for development and low volume.
+//   external             — set MODULE_WORKER=external and run
+//     `npm run module-worker --prefix server` as its own service. Claiming is
+//     a compare-and-swap, so replicas are safe.
+//   off                  — nothing scheduled fires; the API still serves
+//     stored runs and manual ones.
+const MODULE_WORKER = (process.env.MODULE_WORKER || 'in-process').toLowerCase();
+let moduleWorkerHandle = null;
+if (MODULE_WORKER === 'in-process') {
+  if (require('./services/supabase').isSupabaseConfigured()) {
+    try {
+      moduleWorkerHandle = require('./services/moduleWorker').startLoops({
+        executors: require('./services/moduleExecutors'),
+      });
+    } catch (err) {
+      console.error('[moduleWorker] Failed to start:', err.message);
+    }
+  } else {
+    console.log('[moduleWorker] Not started — SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set.');
+  }
+} else {
+  console.log(`[moduleWorker] Not started in this process (MODULE_WORKER=${MODULE_WORKER}).`);
 }
 
 // ── Stale run sweeper ────────────────────────────────────────────────────────

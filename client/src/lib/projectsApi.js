@@ -110,8 +110,11 @@ export const projectsApi = {
     req(`${BASE}/${projectId}/audit-events?limit=${limit}`),
 
   // ── Module runs (phase 3) ─────────────────────────────────────────────────
-  // These are synchronous on the server: the audits take seconds, so the
-  // response carries the stored run and there is nothing to poll.
+  // Most of these are synchronous on the server: the audits take seconds, so
+  // the response carries the completed run. ai_visibility is detached instead
+  // — a real measurement run can take many minutes — and comes back with the
+  // run still `status: 'running'` plus a `poll` hint; the caller (see
+  // HomePage's runModule) polls the overview until it finishes.
 
   /** Runs one module against the project's primary domain. */
   runModule: (projectId, moduleKey) =>

@@ -68,4 +68,8 @@ async function capture(prompt) {
   };
 }
 
-module.exports = { capture, ENGINE, PROVIDER, LABEL, PATH };
+const ACCESS = 'api';
+
+module.exports = {
+  capture, ENGINE, PROVIDER, LABEL, ACCESS, PATH,
+};

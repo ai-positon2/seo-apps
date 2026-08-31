@@ -51,6 +51,10 @@ const DEFAULT_LIMITS = {
   // is worth the wait; the audit always reports how many of the crawled pages it
   // covered, so a budget can never be mistaken for the whole site.
   maxPagesPerModuleAudit:   10,
+  // How many prompts one AI Visibility question set may hold. Each ChatGPT
+  // capture is 25-110s and costs real money, so this is the knob that bounds a
+  // single generation/measurement run's spend, not a content-quality setting.
+  maxPromptsPerVisibilityRun: 20,
 };
 
 // How to combine two values for the same key.
@@ -80,6 +84,7 @@ const DIRECTION = {
   workspacePurgeGraceDays:  'specific',
   // A ceiling: the lower of two policies restricts more.
   maxPagesPerModuleAudit:   'min',
+  maxPromptsPerVisibilityRun: 'min',
 };
 
 const LIMIT_KEYS = Object.keys(DEFAULT_LIMITS);

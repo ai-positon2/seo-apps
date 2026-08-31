@@ -56,6 +56,17 @@ const ACTIONS = {
   RECOMMENDATION_APPROVED: 'recommendation.approved',
   RECOMMENDATION_REJECTED: 'recommendation.rejected',
   RECOMMENDATION_SHIPPED:  'recommendation.shipped',
+  // AI Visibility prompt review. Generated is fire-and-forget like most of this
+  // log; approved/rejected are written with { strict: true } — same reasoning
+  // as recommendations above, applied to money: approving a prompt is what
+  // releases spend on measuring it, and a silently dropped audit row would
+  // leave nobody answerable for that spend.
+  AI_VISIBILITY_PROMPT_GENERATED: 'ai_visibility_prompt.generated',
+  AI_VISIBILITY_PROMPT_APPROVED:  'ai_visibility_prompt.approved',
+  AI_VISIBILITY_PROMPT_REJECTED:  'ai_visibility_prompt.rejected',
+  AI_VISIBILITY_PROMPT_EDITED:    'ai_visibility_prompt.edited',
+  AI_VISIBILITY_PROMPT_RETIRED:   'ai_visibility_prompt.retired',
+  AI_VISIBILITY_PROMPT_RESTORED:  'ai_visibility_prompt.restored',
 };
 
 // Keeps a stray page of HTML or a whole crawl summary out of the audit trail —

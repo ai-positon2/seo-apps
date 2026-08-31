@@ -110,7 +110,15 @@ export function Button({
     fontFamily: 'var(--font-sans)',
     borderRadius: 'var(--r-md)',
     cursor: isDisabled ? 'not-allowed' : 'pointer',
-    opacity: isDisabled ? 0.4 : 1,
+    // Disabled used to be opacity 0.4 over the variant's own fill. On a solid
+    // primary in dark theme that produced a smudge the same value as the card
+    // behind it — the control read as ABSENT rather than unavailable, and a
+    // form whose only action is invisible looks broken.
+    //
+    // A disabled button is still an affordance: it has to be legible, so the
+    // reader knows what will become available and why nothing is happening.
+    // So it drops the variant fill for a neutral surface and stays readable.
+    opacity: isDisabled ? 0.75 : 1,
     outline: 'none',
     transition: `background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), opacity var(--dur-fast) var(--ease)`,
     userSelect: 'none',
@@ -119,6 +127,15 @@ export function Button({
     ...v.base,
     ...(hovered && !isDisabled ? v.hover : {}),
     ...(pressed && !isDisabled ? v.active : {}),
+    // After the variant, so it wins over a solid fill. `loading` keeps the
+    // variant's own look — a button mid-request should still read as the
+    // button you pressed, not as one that has become unavailable.
+    ...(disabled && !loading ? {
+      background: 'var(--surface-2, var(--surface))',
+      color: 'var(--text-3)',
+      border: '1px solid var(--border)',
+      boxShadow: 'none',
+    } : {}),
     ...extraStyle,
   };
 

@@ -24,7 +24,16 @@
 const { getSupabase, isSupabaseConfigured } = require('../../services/supabase');
 const auditEvents = require('../../services/auditEvents');
 
-const MODULE_KEYS = ['seo_geo', 'agent_readiness', 'competitor', 'hub_spoke', 'ai_visibility'];
+// 'ai_visibility_prompts' is not a module with a card and a score — it is the
+// prompt-set GENERATION job (server/modules/aiVisibility/generate.js), which
+// spends money over minutes just like a module run and reuses this table's
+// start/complete/fail machinery for exactly that reason. It is deliberately
+// absent from moduleRunners.RUNNABLE / DEFAULT_AUDIT_MODULES / overview.MODULES
+// — the only door to it is the aiVisibility router, not the generic
+// POST /api/projects/:id/modules/:key/run route (which only requires
+// 'startRun', a capability contributors hold; generation needs
+// 'editProjectSettings').
+const MODULE_KEYS = ['seo_geo', 'agent_readiness', 'competitor', 'hub_spoke', 'ai_visibility', 'ai_visibility_prompts'];
 const TERMINAL = ['completed', 'failed', 'cancelled', 'insufficient_data'];
 
 // A stored payload holds the module's OWN report, so its page can render exactly
@@ -464,7 +473,9 @@ const MINUTES_PER_PAGE = { seo_geo: 3, agent_readiness: 2 };
 // the slow end that is well over half an hour of legitimate work, and the
 // sweeper killing it would destroy captures already paid for and then report
 // the client as unmeasured — the exact failure this module is built to avoid.
-const FLAT_MINUTES = { hub_spoke: 5, competitor: 15, ai_visibility: 45 };
+const FLAT_MINUTES = {
+  hub_spoke: 5, competitor: 15, ai_visibility: 45, ai_visibility_prompts: 10,
+};
 
 // Queueing, cold starts, and a slow origin having a bad day.
 const GRACE_MINUTES = 10;

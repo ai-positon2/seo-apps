@@ -19,6 +19,9 @@ export function DataTable({
   stickyHeader = false,
   emptyText = 'No data',
   onRowClick,
+  // Without this a dense table squeezes its columns instead of scrolling, and
+  // the wrapper's overflow-x never engages.
+  minWidth,
   style: extraStyle,
 }) {
   const [sortKey, setSortKey] = useState(null);
@@ -65,7 +68,10 @@ export function DataTable({
           <span style={{
             fontSize: 13,
             fontWeight: 600,
-            color: '#FFFFFF',
+            // Was hardcoded #FFFFFF over --nav-bg-top, which is near-white in
+            // light theme — the title was invisible. The token pairs with the
+            // banner background in both themes (--text inverts with it).
+            color: 'var(--text)',
             letterSpacing: '-0.01em',
           }}>
             {title}
@@ -94,6 +100,7 @@ export function DataTable({
       <div style={{ overflowX: 'auto' }}>
         <table style={{
           width: '100%',
+          minWidth,
           borderCollapse: 'collapse',
           fontSize: 13,
         }}>
