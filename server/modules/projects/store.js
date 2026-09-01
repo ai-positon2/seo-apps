@@ -105,6 +105,11 @@ function projectView(project, domains = []) {
     siteVerifiedAt: project.site_verified_at,
     robotsOverride: Boolean(project.robots_override),
     settings: project.settings || {},
+    // Set at creation (Project Setup's "Find competitors for me" toggle). Read
+    // by moduleRunners.runCompetitor: when true and no competitor is tracked
+    // yet, that run discovers and self-confirms candidates instead of reporting
+    // insufficient_data. Left alone once any competitor exists — see there.
+    autoFindCompetitors: Boolean(project.settings?.autoFindCompetitors),
     // The pages this project targets, each with its OWN keywords. Keywords are
     // per page, not per site: the implants page targets a different term from
     // the pricing page. Kept in settings rather than a table of its own — it is
@@ -254,7 +259,7 @@ async function getProject(projectRow) {
  * which the UI shows as needing a domain rather than as broken. The reverse
  * order would leave an orphaned domain row pointing at nothing.
  */
-async function createProject({ access, name, primaryDomain, country, competitors = [], schedule = {}, recipients = [], crawlOptions = {} }) {
+async function createProject({ access, name, primaryDomain, country, competitors = [], schedule = {}, recipients = [], crawlOptions = {}, autoFindCompetitors = false }) {
   if (!isSupabaseConfigured()) throw notConfigured();
 
   const primary = domainsLib.normalizeOrigin(primaryDomain);
@@ -318,6 +323,11 @@ async function createProject({ access, name, primaryDomain, country, competitors
         ? cron.nextRun(cronExpr, new Date(), timezone)?.toISOString() || null
         : null,
       lifecycle_status: 'active',
+      // "Find competitors for me" from setup. Deliberately not acted on here —
+      // it only fires later, from the Competitor Research run itself (see
+      // moduleRunners.runCompetitor), so choosing this at setup never spends a
+      // metered SEMrush budget before anyone asked to run anything.
+      settings: autoFindCompetitors ? { autoFindCompetitors: true } : {},
     })
     .select('*')
     .single();
@@ -344,6 +354,7 @@ async function createProject({ access, name, primaryDomain, country, competitors
       primaryDomain: primary.normalizedOrigin,
       countryCode,
       competitors: competitorDomains.map((d) => d.normalizedOrigin),
+      autoFindCompetitors: Boolean(autoFindCompetitors),
     },
     source: 'api.projects',
   });
@@ -517,8 +528,18 @@ async function updateProject({ access, patch }) {
   return getProject(data);
 }
 
-/** Adds a competitor domain (PRD §3.2.1 — competitors are user-approved). */
-async function addCompetitor({ access, domain, status = 'active' }) {
+/**
+ * Adds a competitor domain (PRD §3.2.1 — competitors are user-approved).
+ *
+ * `source` defaults to 'user_entered' — a human typed it in. The auto-discovery
+ * path in moduleRunners.runCompetitor passes 'accepted' instead: a candidate
+ * SEMrush + AI surfaced and that this project's setup toggle authorized adding
+ * without a review step, as opposed to one a human is still expected to look
+ * at (project_domains_source_check already allows both, plus 'suggested' for
+ * a not-yet-accepted candidate — unused today because nothing here holds one
+ * for review instead of accepting it immediately).
+ */
+async function addCompetitor({ access, domain, status = 'active', source = 'user_entered' }) {
   if (!isSupabaseConfigured()) throw notConfigured();
   const project = access.project;
 
@@ -537,7 +558,7 @@ async function addCompetitor({ access, domain, status = 'active' }) {
   const { data, error } = await getSupabase()
     .from('project_domains')
     .insert({
-      ...domainRow(project, access, normalized, 'competitor', 'user_entered'),
+      ...domainRow(project, access, normalized, 'competitor', source),
       status,
     })
     .select('*')
@@ -564,7 +585,10 @@ async function addCompetitor({ access, domain, status = 'active' }) {
     actorRole: access.role,
     entityType: 'project_domain',
     entityId: data.id,
-    newState: { role: 'competitor', origin: normalized.normalizedOrigin, status },
+    // domainSource: this domain's own provenance (user_entered/accepted/...).
+    // Distinct from `source` below, which names the API surface that logged
+    // the event — the two happen to share a name, not a meaning.
+    newState: { role: 'competitor', origin: normalized.normalizedOrigin, status, domainSource: source },
     source: 'api.projects',
   });
 

@@ -54,6 +54,7 @@ export default function ProjectSetupCard({ limits, onCreated, onCancel }) {
   const [primaryDomain, setPrimaryDomain] = useState('');
   const [country, setCountry] = useState('US');
   const [competitorText, setCompetitorText] = useState('');
+  const [autoFindCompetitors, setAutoFindCompetitors] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   // Set when the server reports the domain is already tracked in this
@@ -67,16 +68,18 @@ export default function ProjectSetupCard({ limits, onCreated, onCancel }) {
     setError(null);
     setBusy(true);
     try {
-      const competitors = competitorText
-        .split(/[\n,]/)
-        .map((s) => s.trim())
-        .filter(Boolean);
+      // The toggle and the typed list are not mutually exclusive: whatever is
+      // typed here is sent either way, and the server only auto-discovers
+      // more competitors if this list is still empty when Competitor
+      // Research is first run (server/modules/projects/moduleRunners.js).
+      const competitors = competitorText.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
 
       const result = await projectsApi.create({
         name: name.trim() || undefined,
         primaryDomain: primaryDomain.trim(),
         country,
         competitors,
+        autoFindCompetitors,
         confirmDuplicate: Boolean(duplicate),
       });
 
@@ -143,17 +146,43 @@ export default function ProjectSetupCard({ limits, onCreated, onCancel }) {
           </select>
         </Field>
 
-        <Field
-          label="Competitor domains"
-          hint="Optional, and editable later. One per line or comma separated. Competitors are used for competitive evidence only — their sites are never crawled."
-        >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <span style={{ fontSize: 12, color: 'var(--text-2)' }}>Competitor domains</span>
+
+          <label
+            style={{
+              display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 12px',
+              border: '1px solid var(--border)', borderRadius: 'var(--r-md)', cursor: 'pointer',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={autoFindCompetitors}
+              onChange={(e) => setAutoFindCompetitors(e.target.checked)}
+              style={{ marginTop: 2 }}
+            />
+            <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Find competitors for me</span>
+              <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                SEMrush + AI pick them once you start the Competitor Research analysis, not now — nothing runs at
+                setup. They&rsquo;re added and tracked automatically, no extra confirmation, and you can edit the
+                list anytime afterward.
+              </span>
+            </span>
+          </label>
+
           <textarea
             style={{ ...inputStyle, minHeight: 76, resize: 'vertical' }}
             value={competitorText}
             onChange={(e) => setCompetitorText(e.target.value)}
             placeholder={'aspendental.com\nsmiledirectclub.com'}
           />
-        </Field>
+          <Muted size={11}>
+            {autoFindCompetitors
+              ? 'Optional, and editable later. SEMrush + AI only fill this in once you start Competitor Research and it’s still empty — anything you type here now is kept as-is.'
+              : 'Optional, and editable later. One per line or comma separated. Competitors are used for competitive evidence only — their sites are never crawled.'}
+          </Muted>
+        </div>
 
         {/* Crawl policy, stated before anything runs (PRD §20.2). */}
         <div

@@ -57,9 +57,12 @@ export default function ProjectsPage() {
   async function mutate(fn, successText) {
     setBanner(null);
     try {
-      await fn();
+      const result = await fn();
       await load();
-      if (successText) setBanner({ tone: 'accent', text: successText });
+      // successText may depend on what the server actually did (e.g. discovery
+      // — added N vs. proposed vs. found none — isn't known until it returns).
+      const text = typeof successText === 'function' ? successText(result) : successText;
+      if (text) setBanner({ tone: 'accent', text });
     } catch (e) {
       setBanner({ tone: 'neg', text: e.message });
     }
@@ -179,6 +182,7 @@ function ProjectDetail({ project, capabilities, onMutate, onOpenDashboard }) {
   const [name, setName] = useState(project.name);
   const [country, setCountry] = useState(project.countryCode || '');
   const [competitor, setCompetitor] = useState('');
+  const [discovering, setDiscovering] = useState(false);
   const [reason, setReason] = useState('');
   // One row per targeted page. Keywords are per page, so this is a list of
   // { url, keywords } rather than a single field — the implants page and the
@@ -422,6 +426,28 @@ function ProjectDetail({ project, capabilities, onMutate, onOpenDashboard }) {
                 {proposeOnly ? 'Propose competitor' : 'Add competitor'}
               </Btn>
               {proposeOnly && <Muted>Your role can propose; an approver applies it.</Muted>}
+            </div>
+          )}
+
+          {canManageCompetitors && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Btn
+                disabled={discovering}
+                onClick={async () => {
+                  setDiscovering(true);
+                  await onMutate(
+                    () => projectsApi.discoverCompetitors(project.id),
+                    (result) => result.message,
+                  );
+                  setDiscovering(false);
+                }}
+              >
+                {discovering ? 'Finding…' : 'Find competitors with AI'}
+              </Btn>
+              <Muted>
+                SEMrush + AI suggest domains for this site and add them the same way a typed-in
+                competitor is added{proposeOnly ? ' (proposed, pending approval)' : ''}.
+              </Muted>
             </div>
           )}
         </div>

@@ -239,8 +239,12 @@ export default function ModuleDetailPanel({ moduleKey, onOpenReport }) {
               >
                 {running ? 'Running…' : lastRun ? 'Re-run' : 'Run'}
                 {/* A metered module states its price on the button itself, not in
-                    a tooltip nobody opens. */}
-                {cost ? ` · ${cost.estimate.toLocaleString('en-US')} ${cost.unit}` : ''}
+                    a tooltip nobody opens. "up to" when this run would find its
+                    own competitors first (assumesAutoDiscovery) — the ceiling is
+                    real, but discovery may add fewer, or none. */}
+                {cost
+                  ? ` · ${cost.assumesAutoDiscovery ? 'up to ' : ''}${cost.estimate.toLocaleString('en-US')} ${cost.unit}`
+                  : ''}
               </Button>
             ) : null}
           </div>

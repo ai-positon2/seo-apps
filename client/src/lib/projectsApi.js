@@ -85,6 +85,9 @@ export const projectsApi = {
       method: 'POST', body: JSON.stringify({ domain }),
     }),
 
+  discoverCompetitors: (projectId) =>
+    req(`${BASE}/${projectId}/domains/competitors/discover`, { method: 'POST' }),
+
   setPrimaryDomain: (projectId, domain, reason) =>
     req(`${BASE}/${projectId}/domains/primary`, {
       method: 'POST', body: JSON.stringify({ domain, reason }),

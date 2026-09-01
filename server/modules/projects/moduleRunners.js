@@ -204,9 +204,146 @@ async function runAgentReadiness({ access, run, project, keywords }) {
 // is excluded from the default "Run Full Audit" set — see routes.js — and run
 // deliberately instead. A button people click repeatedly must not quietly spend
 // a metered budget.
-async function runCompetitor({ project, domains }) {
-  const competitors = (domains || []).filter((d) => d.role === 'competitor' && d.status === 'active');
+/**
+ * Runs the same SEMrush + AI discovery "Find Competitors For Me" offers on the
+ * standalone Competitor Research screen (competitorAnalysis/discovery.js), but
+ * unattended: the top candidates are persisted as tracked competitors
+ * directly, with no review step, instead of held for a human to confirm.
+ * Called two ways: automatically inside runCompetitor (only when a project
+ * with the setup toggle on still has zero tracked competitors), and on demand
+ * from the Domains panel's "Find competitors with AI" button regardless of
+ * that toggle or how many competitors already exist — see
+ * routes.js POST /:projectId/domains/competitors/discover.
+ *
+ * `existingCompetitors` (hosts already tracked or proposed) is passed through
+ * to discovery so it never re-suggests one already on the project — without
+ * it, a re-suggested duplicate silently fails to add and the caller sees
+ * nothing happen.
+ *
+ * Still routed through the same manageCompetitors capability the manual
+ * add-competitor route enforces (§7.2) — a contributor's auto-discovered picks
+ * land as 'proposed', same as if they had typed the domains in by hand, rather
+ * than auto-discovery quietly granting rights a manual entry would not have had.
+ */
+async function autoDiscoverCompetitors({ access, project, primary, existingCompetitors = [] }) {
+  const verdict = access.can('manageCompetitors');
+  if (!verdict) {
+    return {
+      competitors: [],
+      reason: 'not_authorized',
+      note: 'Your role cannot add competitors, so none were found automatically. ',
+    };
+  }
+
+  const { hasSemrushKey } = require('../competitorAnalysis/provider');
+  if (!hasSemrushKey()) {
+    return {
+      competitors: [],
+      reason: 'no_semrush_key',
+      note: 'SEMRUSH_API_KEY is not configured, so no competitors could be found automatically. Add them manually instead. ',
+    };
+  }
+
+  const { discoverCompetitorsForClient, DEFAULT_DISCOVERY_LIMIT } = require('../competitorAnalysis/discovery');
+  const store = require('./store');
+  const hostOf = (d) => d?.host || d?.normalized_origin;
+
+  const pseudoClient = {
+    name: project.name || hostOf(primary) || project.url,
+    domain: hostOf(primary) || project.url,
+    country: project.country_code,
+    // Told about every domain already tracked or proposed on this project —
+    // not just active ones — so discovery excludes them from its suggestions
+    // (discovery.js) instead of re-suggesting one that then fails to add as a
+    // duplicate. Harmless to pass [] when called with zero tracked
+    // competitors (runCompetitor's case), but wrong once this also runs
+    // on-demand from the Domains panel against a project that already has some.
+    competitors: existingCompetitors.map((host) => ({ domain: host })),
+  };
+
+  let discovery;
+  try {
+    discovery = await discoverCompetitorsForClient(pseudoClient, { limit: DEFAULT_DISCOVERY_LIMIT });
+  } catch (e) {
+    return {
+      competitors: [],
+      reason: 'discovery_failed',
+      note: `Auto-discovery found no competitors: ${e.message} `,
+    };
+  }
+
+  // 'accepted': this candidate was suggested by discovery AND accepted, just
+  // accepted by the setup toggle rather than by a person reviewing it — the
+  // distinction project_domains_source_check exists to preserve.
+  const status = verdict === 'propose' ? 'proposed' : 'active';
+  const added = [];
+  for (const candidate of discovery.candidates) {
+    try {
+      added.push(await store.addCompetitor({ access, domain: candidate.domain, status, source: 'accepted' }));
+    } catch (e) {
+      // One candidate failing to save (a duplicate, a transient DB error) is
+      // not a reason to discard the others.
+      console.warn(`[competitor] auto-discovery could not add ${candidate.domain}: ${e.message}`);
+    }
+  }
+
+  if (!added.length) {
+    return {
+      competitors: [],
+      reason: 'discovery_found_none',
+      note: 'Auto-discovery found candidates, but none could be added (likely already tracked). ',
+    };
+  }
+
+  if (status === 'proposed') {
+    // Proposed, not active: nothing for THIS run to compare against yet, same
+    // as if a contributor had typed these domains in by hand — an approver or
+    // administrator still has to accept them (§7.2).
+    return {
+      competitors: [],
+      reason: 'competitors_pending_approval',
+      note: `Auto-discovery proposed ${added.length} competitor(s) — ${added.map((d) => d.host).join(', ')} — `
+        + 'on this project. An approver or administrator has to accept them before a comparison can run. ',
+    };
+  }
+
+  return {
+    competitors: added,
+    note: `Auto-discovered and added ${added.length} competitor${added.length === 1 ? '' : 's'} for this comparison — `
+      + `${added.map((d) => d.host).join(', ')}. Edit them anytime in project settings. `,
+  };
+}
+
+async function runCompetitor({ access, project, domains }) {
+  let competitors = (domains || []).filter((d) => d.role === 'competitor' && d.status === 'active');
   const primary = (domains || []).find((d) => d.role === 'primary' && d.status === 'active');
+
+  // "Find competitors for me" from Project Setup does not run at setup time —
+  // it runs HERE, the first time this metered comparison is actually started,
+  // which is what keeps a toggle flipped at setup from spending a SEMrush
+  // budget before anyone asked to run anything (same reasoning as this module
+  // being excluded from "Run Full Audit" below). Gated on the project still
+  // having zero active competitors: once any exist — auto-discovered or typed
+  // in — this never overrides what the analyst has since curated.
+  let autoDiscoveryNote = '';
+  if (!competitors.length && project.settings?.autoFindCompetitors) {
+    const knownCompetitors = (domains || [])
+      .filter((d) => d.role === 'competitor')
+      .map((d) => d.host || d.normalized_origin)
+      .filter(Boolean);
+    const discovered = await autoDiscoverCompetitors({ access, project, primary, existingCompetitors: knownCompetitors });
+    if (!discovered.competitors.length) {
+      return {
+        status: 'insufficient_data',
+        score: null,
+        findings: [],
+        payload: { competitorCount: 0, reason: discovered.reason },
+        note: discovered.note,
+      };
+    }
+    competitors = discovered.competitors;
+    autoDiscoveryNote = discovered.note;
+  }
 
   if (!competitors.length) {
     return {
@@ -452,7 +589,8 @@ async function runCompetitor({ project, domains }) {
       trafficShare: trafficScore,
     },
     note:
-      (clientRecord ? '' : 'The comparison ran but could not be mirrored into the competitor module, so its own dashboard will not show it. ')
+      autoDiscoveryNote
+      + (clientRecord ? '' : 'The comparison ran but could not be mirrored into the competitor module, so its own dashboard will not show it. ')
       + `Compared against ${competitors.length} competitor(s) in ${project.country_code} `
       + `(SEMrush "${database}" database) using `
       + `${snapshot.usedUnits} SEMrush units. Keyword gap computed by the competitor module's own `
@@ -1142,4 +1280,5 @@ module.exports = {
   RUNNERS,
   targetFor,
   runModule,
+  autoDiscoverCompetitors,
 };

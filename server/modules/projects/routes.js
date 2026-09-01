@@ -148,7 +148,7 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   if (!requireConfigured(res)) return;
   try {
-    const { name, primaryDomain, country, competitors, schedule, recipients, crawlOptions } = req.body || {};
+    const { name, primaryDomain, country, competitors, schedule, recipients, crawlOptions, autoFindCompetitors } = req.body || {};
 
     if (!primaryDomain) {
       return res.status(400).json({ error: 'A primary domain is required.', field: 'primaryDomain' });
@@ -186,6 +186,7 @@ router.post('/', async (req, res) => {
 
     const project = await store.createProject({
       access, name, primaryDomain, country, competitors, schedule, recipients, crawlOptions,
+      autoFindCompetitors: Boolean(autoFindCompetitors),
     });
     res.status(201).json({ project });
   } catch (e) { handleError(res, e, 'create'); }
@@ -273,6 +274,44 @@ router.post('/:projectId/domains/competitors', async (req, res) => {
         : undefined,
     });
   } catch (e) { handleError(res, e, 'addCompetitor'); }
+});
+
+// POST /api/projects/:projectId/domains/competitors/discover
+// "Find competitors for me", available after setup too — not just as the
+// Project Setup toggle. Runs the same SEMrush + AI discovery
+// moduleRunners.runCompetitor falls back to automatically, but on demand and
+// regardless of the project's autoFindCompetitors setting or current
+// competitor count, so a project that already has one or two tracked can
+// still ask for more suggestions. Same capability gate and propose/accept
+// split as manual add (§7.2) — a contributor's picks land as 'proposed'.
+//
+// THIS COSTS SEMRUSH UNITS (unitCosts.js: estimateDiscoveryCost), so it is
+// its own explicit action, never bundled into a page load or another mutation.
+router.post('/:projectId/domains/competitors/discover', async (req, res) => {
+  if (!requireConfigured(res)) return;
+  try {
+    const access = await projectAccess.requireProject(req, req.params.projectId);
+    const verdict = access.can('manageCompetitors');
+    if (!verdict) {
+      return res.status(403).json({ error: 'Your role cannot add competitor domains.' });
+    }
+
+    const rows = await store.listDomains(access.project.id);
+    const primary = rows.find((d) => d.role === 'primary' && d.status === 'active');
+    const existingCompetitors = rows
+      .filter((d) => d.role === 'competitor')
+      .map((d) => d.host || d.normalized_origin)
+      .filter(Boolean);
+
+    const discovered = await moduleRunners.autoDiscoverCompetitors({
+      access, project: access.project, primary, existingCompetitors,
+    });
+    res.status(discovered.competitors.length ? 201 : 200).json({
+      competitors: discovered.competitors,
+      proposed: discovered.reason === 'competitors_pending_approval',
+      message: discovered.note,
+    });
+  } catch (e) { handleError(res, e, 'discoverCompetitors'); }
 });
 
 router.post('/:projectId/domains/primary', async (req, res) => {
