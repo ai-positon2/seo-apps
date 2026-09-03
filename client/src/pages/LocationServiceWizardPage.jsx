@@ -308,11 +308,19 @@ const labelStyle = { display: 'block', fontSize: '0.75rem', fontWeight: 600, col
 // deterministic and lets the selected state stay visible regardless of focus.
 function PickerList({ groups, selectedId, onSelect, emptyMessage }) {
   return (
-    <div style={{ height: '12rem', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--r-md,6px)', background: 'var(--surface)' }}>
+    <div style={{ height: '22rem', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--r-md,6px)', background: 'var(--surface)' }}>
       {groups.map(([label, items]) => (
         <div key={label}>
-          <div style={{ padding: '0.25rem 0.625rem', fontSize: '0.6875rem', fontWeight: 700, color: 'var(--text-3)', background: 'var(--surface)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-            {label}
+          <div style={{
+            position: 'sticky', top: 0, zIndex: 1,
+            display: 'flex', justifyContent: 'space-between', gap: '0.5rem',
+            padding: '0.25rem 0.625rem', fontSize: '0.6875rem', fontWeight: 700,
+            color: 'var(--text-3)', background: 'var(--surface)',
+            borderBottom: '1px solid var(--border)',
+            textTransform: 'uppercase', letterSpacing: '0.03em',
+          }}>
+            <span>{label}</span>
+            <span style={{ fontWeight: 400 }}>{items.length}</span>
           </div>
           {items.map(item => {
             const active = item.id === selectedId;

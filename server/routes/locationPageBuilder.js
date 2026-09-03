@@ -56,6 +56,10 @@ router.post('/seed-gentle-dental', async (req, res) => {
 
 router.get('/clients', wrap(async (req, res) => res.json(await store.list('clients'))));
 router.get('/clients/:id', wrap(async (req, res) => {
+  // Reference data changes the moment the service list is re-synced, and a
+  // browser-cached copy makes a completed sync look like it did nothing —
+  // which is indistinguishable, from the wizard, from the seed having failed.
+  res.setHeader('Cache-Control', 'no-store');
   const client = await store.get('clients', req.params.id);
   if (!client) return res.status(404).json({ error: 'Client not found.' });
   const [services, locations, providers] = await Promise.all([
