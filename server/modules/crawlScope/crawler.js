@@ -10,6 +10,7 @@ const {
   isRedirectStatus,
 } = require("./http-redirect");
 const { parseMetaRefresh } = require("./meta-refresh");
+const integrationCatalog = require("./integration-catalog.json");
 
 // The "+" in a bot User-Agent is the de-facto marker for an info URL an operator
 // can open to identify and allowlist the crawler; prose after it tells a site
@@ -236,6 +237,79 @@ function isInTemplateContents(element) {
 
 function documentElements($, selector) {
   return $(selector).filter((_, element) => !isInTemplateContents(element));
+}
+
+// The hard guard `buildFindings` is invoked behind — issue-catalog.json's
+// `requiresCompleteGraph` checks (broken-internal-links, the duplicate-*
+// checks, orphan-page, canonical-*, etc.) are only correct evaluated against
+// the WHOLE crawl, and today that's true only because this crawler's single
+// call site (below, in `_schedule()`) happens to sit behind the right `if`.
+// This makes that a throw, not a convention: exported and unit-testable on
+// its own (see crawler.test.js's phase-ordering test) so a future refactor
+// that loosens the call site's condition fails loudly instead of quietly
+// starting to evaluate cross-page checks against a partial result set.
+function assertGraphReady({ queueLength, active, stopped }) {
+  if (!stopped && queueLength !== 0) {
+    throw new Error(
+      `Refusing to evaluate requiresCompleteGraph checks: ${queueLength} URL(s) still queued and the crawl was not stopped.`,
+    );
+  }
+  if (active !== 0) {
+    throw new Error(
+      `Refusing to evaluate requiresCompleteGraph checks: ${active} fetch(es) still in flight.`,
+    );
+  }
+}
+
+// Third-party tag/integration detection — a static signature match against
+// integration-catalog.json, not real execution: this crawler parses served
+// HTML, it doesn't run JavaScript, so "when it fires" is scoped honestly to
+// what's actually visible here — placement (head/body) and loading strategy
+// (async/defer/sync) — not a claim about runtime timing.
+//
+// A vendor's tag manager or analytics snippet is usually INLINE (GTM's and
+// Universal Analytics' classic embed snippets both are), so both external
+// `src` and inline script bodies are checked against the catalog, plus
+// `iframe[src]` for the handful of vendors (YouTube, Google Maps) that
+// embed via an iframe rather than a script. One entry per distinct vendor
+// per page — the first matching element decides its recorded location/
+// loading, later matches for an already-found vendor are skipped.
+function detectIntegrations($, catalog) {
+  const found = new Map(); // vendor id -> {id, location, loading}
+
+  const consider = (haystack, kind, element) => {
+    if (!haystack) return;
+    for (const vendor of catalog) {
+      if (found.has(vendor.id)) continue;
+      const patterns = kind === "src" ? vendor.srcPatterns : vendor.inlinePatterns;
+      if (!patterns?.length) continue;
+      if (!patterns.some((pattern) => haystack.includes(pattern))) continue;
+      const location = $(element).closest("head").length ? "head" : "body";
+      // async/defer only mean anything for an externally-sourced script; an
+      // inline script always runs synchronously as the parser reaches it,
+      // and an iframe has no such attribute to read — both fall through to
+      // "sync" here, which is accurate for both cases.
+      const loading =
+        kind === "src" && $(element).is("[async]")
+          ? "async"
+          : kind === "src" && $(element).is("[defer]")
+            ? "defer"
+            : "sync";
+      found.set(vendor.id, { id: vendor.id, location, loading });
+    }
+  };
+
+  documentElements($, "script").each((_, element) => {
+    const src = $(element).attr("src");
+    if (src) consider(src, "src", element);
+    else consider($(element).html(), "inline", element);
+  });
+
+  documentElements($, "iframe[src]").each((_, element) => {
+    consider($(element).attr("src"), "src", element);
+  });
+
+  return [...found.values()];
 }
 
 function normalizeUrl(input, base) {
@@ -954,8 +1028,15 @@ function quickIssues(result) {
     issues.push({ id, label, severity, category });
   if (result.status >= 500) add("server-error", "Server error (5xx)", "error", "Technical");
   else if (result.status >= 400) add("page-4xx", "Page returns a 4XX error", "error", "Technical");
-  else if (isRedirectStatus(result.status))
-    add("redirect", "Redirect response", "warning", "Indexability");
+  // Matches analyzer.js's post-crawl split exactly (permanent-redirect for
+  // 301/308, temporary-redirect for 302/303/307) rather than a generic
+  // "redirect" id with no catalog entry — that used to leave the live-crawl
+  // card with no category or description, and relabel itself the moment the
+  // crawl finished and findings replaced it with the real id.
+  else if ([301, 308].includes(result.status))
+    add("permanent-redirect", "Permanent redirects", "warning", "Indexability");
+  else if ([302, 303, 307].includes(result.status))
+    add("temporary-redirect", "Temporary redirects", "warning", "Indexability");
   else if (!result.status)
     add("crawl-failure", "Page cannot be crawled", "error", "Technical");
   if (result.redirectLocationIssue) {
@@ -1077,6 +1158,7 @@ function emptyResult(job, overrides = {}) {
     ogUrlRaw: "",
     ogUrl: "",
     schemaErrors: [],
+    schemaTypes: [],
     baseHrefRaw: "",
     documentBaseUrl: "",
     documentBaseFallbackReason: "",
@@ -1096,6 +1178,10 @@ function emptyResult(job, overrides = {}) {
     metaRefreshTargetRaw: "",
     metaRefreshUrl: "",
     metaRefreshIsReload: false,
+    // One entry per distinct vendor detected on this page (never repeated
+    // per script instance) — see detectIntegrations() below. Empty on every
+    // non-HTML/external/redirect result, same as issues.
+    integrations: [],
     issues: [],
     ...overrides,
   };
@@ -1107,8 +1193,14 @@ function emptyResult(job, overrides = {}) {
 // 200 page as an unreachable crawl failure.
 const MAX_SCHEMA_DEPTH = 64;
 
+// Returns both the validation errors (as before) and the distinct @type
+// values seen across every JSON-LD block on the page — the same walk was
+// already collecting `types` per node and discarding it. Page categorization
+// (analyzer.js#categorizePage) wants that list too: a page whose schema says
+// Product or Article is a far stronger signal than a URL path guess.
 function schemaErrorsFromPage($) {
   const errors = [];
+  const allTypes = new Set();
   const inspectNode = (node, depth = 0) => {
     if (!node || typeof node !== "object") return;
     if (depth > MAX_SCHEMA_DEPTH) return;
@@ -1118,6 +1210,7 @@ function schemaErrorsFromPage($) {
     }
     const type = Array.isArray(node["@type"]) ? node["@type"] : [node["@type"]];
     const types = type.filter(Boolean).map(String);
+    for (const t of types) allTypes.add(t);
     if (types.some((item) => /LocalBusiness|Dentist/i.test(item))) {
       if (!node.name) errors.push(`${types[0]} is missing the required name property`);
       if (!node.address) errors.push(`${types[0]} is missing the required address property`);
@@ -1161,14 +1254,14 @@ function schemaErrorsFromPage($) {
       }
     },
   );
-  return [...new Set(errors)].slice(0, 20);
+  return { errors: [...new Set(errors)].slice(0, 20), types: [...allTypes].slice(0, 20) };
 }
 
 class SeoCrawler extends EventEmitter {
   constructor(options = {}) {
     super();
     this.options = {
-      maxUrls: Math.max(1, Math.min(Number(options.maxUrls) || 500, 50_000)),
+      maxUrls: Math.max(1, Math.min(Number(options.maxUrls) || 10_000, 50_000)),
       maxExternalUrls: Math.max(
         0,
         Math.min(Number(options.maxExternalUrls) || 150, 2_000),
@@ -2060,6 +2153,11 @@ class SeoCrawler extends EventEmitter {
       const membership = Object.fromEntries(
         [...this.sitemapMembership].map(([url, sitemaps]) => [url, [...sitemaps]]),
       );
+      assertGraphReady({
+        queueLength: this._queueLength(),
+        active: this.active,
+        stopped: this.stopped,
+      });
       const analysis = buildFindings({
         results: baseResults,
         linkEdges: this.linkEdges,
@@ -2080,6 +2178,9 @@ class SeoCrawler extends EventEmitter {
         trapTemplates: [...this.trapTemplates],
         results: analysis.results,
         findings: analysis.findings,
+        mediaLibrary: analysis.mediaLibrary,
+        integrations: analysis.integrations,
+        rootCauseGroups: analysis.rootCauseGroups,
         // The internal link graph. Already collected for the findings pass, and
         // now carried out so it can be stored: hub-and-spoke clustering is a
         // question about edges, and crawl_run_results only keeps counts. Not
@@ -2634,9 +2735,21 @@ class SeoCrawler extends EventEmitter {
       cacheControl.includes("immutable") ||
       (maxAge && Number(maxAge[1]) > 0) ||
       (Number.isFinite(expires) && expires > Date.now());
+    // A redirect response's Content-Type is frequently blank or meaningless —
+    // the final destination hasn't been fetched yet, so there's nothing to
+    // sniff. Falling back to "no text/html content-type => must be an asset"
+    // on a 3xx response misclassifies ordinary internal navigation links
+    // (tracking redirects, "goto" links) as resources: they pollute the
+    // isAsset-bounded crawl budget and can surface as false "media" once
+    // fetched to a real destination. Only trust the content-type fallback for
+    // a response that actually served real content — job.isAsset (set at
+    // discovery time from the URL's own extension/element context, see
+    // `_enqueueInternal`) is still authoritative regardless of status.
     const isAsset =
       job.isAsset ||
-      (!contentType.includes("text/html") && !contentType.includes("xhtml"));
+      (!isRedirectStatus(response.status) &&
+        !contentType.includes("text/html") &&
+        !contentType.includes("xhtml"));
     const refreshHeaderValue = headerValue(response.headers, "refresh");
     const refreshHeader =
       !job.external &&
@@ -3204,6 +3317,8 @@ class SeoCrawler extends EventEmitter {
     const lowerRobots = robots.toLowerCase();
     const nonIndexableDirective =
       lowerRobots.includes("noindex") || lowerRobots.includes("none");
+    const schemaInfo = schemaErrorsFromPage($);
+    const integrations = detectIntegrations($, integrationCatalog);
     const openGraph = Object.fromEntries(
       OPEN_GRAPH_PROPERTIES.map((property) => [
         property,
@@ -3275,7 +3390,9 @@ class SeoCrawler extends EventEmitter {
       openGraphDescriptionMissing: !openGraph["og:description"],
       ogUrlRaw: openGraph["og:url"],
       ogUrl,
-      schemaErrors: schemaErrorsFromPage($),
+      schemaErrors: schemaInfo.errors,
+      schemaTypes: schemaInfo.types,
+      integrations,
       baseHrefRaw: documentBase.raw,
       documentBaseUrl: documentBase.url,
       documentBaseFallbackReason: documentBase.fallbackReason,
@@ -3331,4 +3448,5 @@ module.exports = {
   __decodeXml: decodeXml,
   __parseLinkHeader: parseLinkHeader,
   __robotsDirectivesFor: robotsDirectivesFor,
+  __assertGraphReady: assertGraphReady,
 };

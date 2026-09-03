@@ -1,5 +1,6 @@
 const crypto = require("node:crypto");
 const catalog = require("./issue-catalog.json");
+const integrationCatalog = require("./integration-catalog.json");
 const {
   isRedirectStatus,
   redirectLocationIssueDetail,
@@ -38,15 +39,6 @@ const MAX_REDIRECT_TRACE_HOPS = 100;
 // "x-default" value. Values are lowercased before this check runs.
 const HREFLANG_CODE = /^(x-default|[a-z]{2,3}(-[a-z]{2})?)$/;
 
-function truncateAtWord(text, maxLen) {
-  const value = String(text || "").trim();
-  if (value.length <= maxLen) return value;
-  const slice = value.slice(0, maxLen);
-  const lastSpace = slice.lastIndexOf(" ");
-  const base = lastSpace > maxLen * 0.6 ? slice.slice(0, lastSpace) : slice;
-  return `${base.trim().replace(/[,;:.\-–—]+$/, "")}…`;
-}
-
 // Titles commonly carry a "Page Name | Brand" or "Page Name - Brand" suffix.
 // Trimming to the primary segment first keeps the brand off the chopping
 // block, so a long title shrinks by dropping boilerplate before it starts
@@ -73,16 +65,32 @@ function humanizeUrlSlug(url) {
   }
 }
 
+// A title over 60 characters gets one real rewrite attempt: trim to the
+// segment before a "Page Name | Brand" / "Page Name - Brand" separator, but
+// only when that segment is itself a plausible title (30-60 chars) — a short
+// segment (e.g. just the brand) silently drops the page's value proposition,
+// and there's no way to invent the rest of a title. When there's no usable
+// separator, word-truncating the current title with an ellipsis isn't a
+// rewrite at all, just the same title cut short — so this returns a plain
+// note instead of dressing up a truncation as a recommendation.
 function suggestTitle(title) {
   const trimmed = String(title || "").trim();
   if (!trimmed) return "";
   if (trimmed.length <= 60) return trimmed;
   const primary = primaryTitleSegment(trimmed);
-  return primary.length <= 60 ? primary : truncateAtWord(primary, 60);
+  if (primary.length >= 30 && primary.length <= 60) return primary;
+  return `Needs a manual rewrite — current title is ${trimmed.length} characters (target 50-60). Keep the primary topic and brand; don't just shorten this one.`;
 }
 
+// Only fall back to the title when it actually has a "Page Name | Brand"-style
+// separator to trim to. A title with no separator is usually one long
+// sentence or a sitewide tagline, not a page-specific label — using it
+// verbatim as an H1 recommendation just reproduces whatever the title says,
+// including a tagline that has nothing to do with this one page. The URL
+// slug is a safer generic fallback for that case.
 function suggestH1(result) {
-  const fromTitle = primaryTitleSegment(result.title);
+  const title = String(result.title || "").trim();
+  const fromTitle = /[|–—-]/.test(title) ? primaryTitleSegment(title) : "";
   if (fromTitle) return fromTitle;
   const fromSlug = humanizeUrlSlug(result.url);
   return fromSlug || "Add a descriptive H1 naming this page's topic.";
@@ -91,20 +99,28 @@ function suggestH1(result) {
 // There is no editorial content model to draw real copy from, so a "too
 // short"/"missing" description gets a mechanical starter draft built from the
 // title/URL — meant to be edited, not published as-is. It still saves a
-// reviewer from starting on a blank page for hundreds of rows.
+// reviewer from starting on a blank page for hundreds of rows. The missing
+// case deliberately does NOT pad every row out to 150-160 characters with a
+// fixed trailing sentence: that boilerplate is identical on every page it
+// fires on, and a report flagging duplicate content should not manufacture
+// its own near-duplicate descriptions to fill a length target.
 function suggestMetaDescription(result) {
   const topic = primaryTitleSegment(result.title) || humanizeUrlSlug(result.url) || "This page";
   const existing = String(result.metaDescription || "").trim();
   if (existing) {
-    return truncateAtWord(
-      `${existing} Learn more about ${topic.toLowerCase()} — explore the details on this page.`,
-      160,
-    );
+    if (existing.length >= 150 && existing.length <= 160) return existing;
+    if (existing.length < 150) {
+      // Real, existing page copy — safe to extend rather than replace, but
+      // only if the extension actually lands in range. Truncating the
+      // extension itself would be the exact same truncation-as-rewrite
+      // problem this function exists to avoid, just one step removed.
+      const extended = `${existing} Learn more about ${topic} on this page.`;
+      if (extended.length <= 160) return extended;
+      return `Needs a manual rewrite — current description is ${existing.length} characters (target 150-160). Current text: "${existing}"`;
+    }
+    return `Needs a manual rewrite — current description is ${existing.length} characters (target 150-160). Current text: "${existing}"`;
   }
-  return truncateAtWord(
-    `${topic} — find key details, services, and next steps on this page.`,
-    160,
-  );
+  return `Needs original copy (150-160 characters) about ${topic}. Write it specific to this page — a generic "find key details on this page" filler repeated across rows reads as duplicate content.`;
 }
 
 function sitemapIncorrectUrlRecommendation({
@@ -131,12 +147,264 @@ function sitemapIncorrectUrlRecommendation({
   return `Remove this non-indexable URL from the sitemap (${result.indexabilityReason || "not the preferred canonical version"}), or resolve the underlying indexability issue first.`;
 }
 
+// ── Page categorization ──────────────────────────────────────────────────
+// A heuristic label (Home, Product, Blog/Article, ...), not a ranking factor
+// and not a finding — just enough structure to group pages meaningfully in
+// the UI/report instead of one flat list. No LLM call: this runs on every
+// page of every crawl, so it has to be free and instant, and pattern +
+// schema signals get the common cases right without one.
+//
+// Checked in order, first match wins:
+//   1. Depth 0 / root path is unambiguous — always Home.
+//   2. Schema.org @type is the strongest content signal available (the page
+//      told us what it is), checked before any URL guessing.
+//   3. URL path patterns — ordered specific-to-generic so e.g. a blog post
+//      about product reviews at /blog/product-review-x doesn't get claimed
+//      by a broader pattern checked first.
+//   4. Title/H1 text, only as a last resort — the weakest signal, since a
+//      page can mention "review" without being one.
+const CATEGORY_SCHEMA_TYPES = [
+  { types: ["Product"], category: "Product" },
+  { types: ["FAQPage"], category: "FAQ" },
+  { types: ["Article", "BlogPosting", "NewsArticle"], category: "Blog / Article" },
+  { types: ["JobPosting"], category: "Careers" },
+  { types: ["Course"], category: "Training" },
+  { types: ["Review", "AggregateRating"], category: "Review" },
+  { types: ["Event"], category: "Event" },
+  { types: ["ItemList", "CollectionPage"], category: "Category / Listing" },
+];
+
+// [pattern, category] — pattern tested against the URL's pathname, lowercased.
+const CATEGORY_URL_PATTERNS = [
+  [/\/(products?|shop|store|catalog\/[^/]+)(\/|$)/, "Product"],
+  [/\/(blog|articles?|news|post)(\/|$)/, "Blog / Article"],
+  [/\breview[s]?(\/|$|-)/, "Review"],
+  [/\/(training|courses?|certifications?|academy)(\/|$)/, "Training"],
+  [/\/(guides?|resources?|how-to|tutorials?|learn)(\/|$)/, "Guide / Resource"],
+  [/\/faqs?(\/|$)/, "FAQ"],
+  [/\/(case-stud(y|ies)|testimonials?)(\/|$)/, "Case Study"],
+  [/\/(webinars?)(\/|$)/, "Webinar"],
+  [/\/(events?)(\/|$)/, "Event"],
+  [/\/(pricing|plans?)(\/|$)/, "Pricing"],
+  [/\/(careers?|jobs?)(\/|$)/, "Careers"],
+  [/\/(about([-_]?us)?|company|our-team|team)(\/|$)/, "About"],
+  [/\/contact([-_]?us)?(\/|$)/, "Contact"],
+  [/\/(login|sign-?in|account|portal|dashboard|my-account)(\/|$)/, "Account / Portal"],
+  [/\/(privacy|terms|legal|cookies?)(\/|$)/, "Legal"],
+  [/\/(category|categories|collections?)(\/|$)/, "Category / Listing"],
+];
+
+const CATEGORY_TEXT_PATTERNS = [
+  [/\breview(s|ed)?\b/i, "Review"],
+  [/\bfaq\b/i, "FAQ"],
+  [/\bpricing\b/i, "Pricing"],
+  [/\bcareers?\b|\bjobs?\b/i, "Careers"],
+];
+
+function categorizePage(result) {
+  if (!result.url) return "";
+  if (result.depth === 0) return "Home";
+
+  let pathname = "";
+  try {
+    pathname = new URL(result.url).pathname.toLowerCase();
+  } catch {
+    pathname = "";
+  }
+  if (pathname === "/" || pathname === "") return "Home";
+
+  const schemaTypes = new Set((result.schemaTypes || []).map(String));
+  for (const rule of CATEGORY_SCHEMA_TYPES) {
+    if (rule.types.some((t) => schemaTypes.has(t))) return rule.category;
+  }
+
+  for (const [pattern, category] of CATEGORY_URL_PATTERNS) {
+    if (pattern.test(pathname)) return category;
+  }
+
+  const text = `${result.title || ""} ${result.h1 || ""}`;
+  for (const [pattern, category] of CATEGORY_TEXT_PATTERNS) {
+    if (pattern.test(text)) return category;
+  }
+
+  return "Other";
+}
+
 function findingId(ruleId, url = "", targetUrl = "", detail = "") {
   return crypto
     .createHash("sha1")
     .update(`${ruleId}|${url}|${targetUrl}|${detail}`)
     .digest("hex")
     .slice(0, 16);
+}
+
+// A page×check matrix can represent "this page has this problem," but it
+// cannot represent "one shared nav/footer link is broken, and every page
+// happens to carry it" without either double-counting (once per page) or —
+// what this fixes — presenting one root cause as N separate findings. A
+// broken link to a robots-disallowed /search box in a shared header was
+// reported as 149 individual "broken" findings on brushandfloss.com; it is
+// one broken link.
+//
+// Signature = ruleId + whatever actually distinguishes the evidence
+// (targetUrl for a link-shaped finding, detectedValue otherwise — e.g. the
+// same missing OG property recurring with no target at all). Findings
+// sharing BOTH, on enough distinct pages, are re-tagged scope='template' in
+// place — not merged into one row — so the existing scope-aware machinery
+// (siteScopedGroups client-side, the site-band section in report-writer.js,
+// the reconciliation strip's occurrence math) already excludes them from
+// page-level tier counts and the occurrence total exactly the way a
+// scope='site' finding already does, with zero new code on that side.
+//
+// Deliberately conservative: needs BOTH an absolute floor (5) AND a majority
+// of the crawl's own HTML pages, so a handful of coincidentally-identical
+// findings on a small crawl isn't mislabeled "template" on thin evidence —
+// a real shared-template defect shows up almost everywhere, not on a
+// scattered few.
+function collapseTemplateFindings(findings, htmlPageCount) {
+  const threshold = Math.max(5, Math.ceil(htmlPageCount * 0.5));
+  if (!Number.isFinite(threshold) || threshold < 1) return;
+
+  const groups = new Map(); // "ruleId|signature" -> finding[]
+  for (const finding of findings) {
+    if (finding.scope !== "page") continue; // only page-scope findings can collapse
+    const signature = finding.targetUrl || finding.detectedValue || "";
+    const key = `${finding.ruleId}|${signature}`;
+    const list = groups.get(key) || [];
+    list.push(finding);
+    groups.set(key, list);
+  }
+
+  for (const group of groups.values()) {
+    const distinctPages = new Set(group.map((finding) => finding.url)).size;
+    if (distinctPages < threshold) continue;
+    for (const finding of group) finding.scope = "template";
+  }
+}
+
+// ── Root-cause rollup ────────────────────────────────────────────────────
+// collapseTemplateFindings (above) answers one question — "does this rule's
+// findings belong in the page-level TOTAL, or the site-band section?" — a
+// threshold-gated, whole-rule-or-nothing retag the existing TOTAL/reconcili-
+// ation-strip math depends on. This answers a different one — "how many
+// DISTINCT root causes does this rule's findings actually represent?" —
+// and is never threshold-gated: a rule can produce one group covering every
+// row (119 links to the same redirected URL) or dozens of one-row groups
+// (44 broken external links to 43 different domains, correctly NOT
+// collapsed). It runs after collapseTemplateFindings so scope is already
+// final on every finding; a group's own scope is just whatever its members
+// already carry; they always agree, since group membership is keyed on
+// ruleId + evidence signature and collapseTemplateFindings retags scope per
+// (ruleId, signature) too.
+function normalizeLinkLabel(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+// Per check-family evidence key, per issue-catalog.json's `evidenceFamily`
+// field. A rule with no `evidenceFamily` set (the overwhelming majority —
+// this is opt-in, added rule by rule as each is verified against real
+// export data) falls through to the default: targetUrl, then detectedValue,
+// then the finding's own url — always something instance-specific, never a
+// shared blank, so an unclassified rule can never accidentally collapse
+// unrelated findings into one group.
+function evidenceSignature(finding, definition) {
+  switch (definition?.evidenceFamily) {
+    case "link-target":
+    case "resource-target":
+      return finding.targetUrl || finding.url;
+    // The finding fires on the page itself (e.g. a permanent redirect is a
+    // property of the URL that redirects, not a link pointing at it) — the
+    // page's own URL is the evidence, and doubles as the join key Part 2's
+    // redirect-target-overlap rule uses against link-target findings.
+    case "self-url":
+      return finding.url;
+    case "schema-message":
+      return finding.detail || finding.detectedValue || finding.url;
+    case "missing-property":
+      return finding.evidenceKey || finding.detectedValue || finding.url;
+    // "Read More" linking to 50 different articles must not collapse into
+    // one group (the destinations are unrelated); "Read More" and "read
+    // more" and "LEARN MORE" pointing at the SAME destination must. The key
+    // is label-normalized-then-target, not either alone.
+    case "link-label":
+      return `${normalizeLinkLabel(finding.detectedValue)}|${finding.targetUrl || finding.url}`;
+    // No rule produces a templateId/selector yet — falls through to the
+    // same per-instance-unique default an unclassified rule gets, so
+    // declaring this family ahead of a real producer is a documented no-op,
+    // not a silent miscollapse.
+    case "template-local":
+      return finding.targetUrl || finding.detectedValue || finding.url;
+    // Server/config checks: every finding under this ruleId is one group —
+    // there is exactly one server to fix, however many pages it's slow on.
+    case "config":
+      return "";
+    default:
+      return finding.targetUrl || finding.detectedValue || finding.url;
+  }
+}
+
+// A group's fix type falls out of what grouping already proved, rather
+// than guessing from a shared-value ratio the way report-writer.js's
+// per-detail-sheet assessFixType still does for the (coarser, ruleId-only)
+// Excel tabs: every member of a root-cause group already shares an
+// identical evidence signature by construction, so a group spanning more
+// than one page IS a confirmed shared cause, not an inferred one.
+function groupFixType(members, definition) {
+  if (members[0]?.scope === "template") return "Template";
+  if (definition?.scope === "site") return "Site";
+  if (definition?.evidenceFamily === "config") return "Config";
+  const affectedPages = new Set(members.map((finding) => finding.url)).size;
+  if (members.length > 1 && affectedPages > 1) return "Template";
+  return "Page";
+}
+
+function buildRootCauseGroups(findings) {
+  const groups = new Map(); // groupId -> finding[]
+  for (const finding of findings) {
+    const definition = catalogById.get(finding.ruleId);
+    const signature = evidenceSignature(finding, definition);
+    const groupId = crypto
+      .createHash("sha1")
+      .update(`${finding.ruleId}|${signature}`)
+      .digest("hex")
+      .slice(0, 16);
+    finding.rootCauseGroupId = groupId;
+    const list = groups.get(groupId) || [];
+    list.push(finding);
+    groups.set(groupId, list);
+  }
+
+  const result = [];
+  for (const [groupId, members] of groups) {
+    for (const finding of members) finding.groupMemberCount = members.length;
+    const sample = members[0];
+    const definition = catalogById.get(sample.ruleId);
+    result.push({
+      groupId,
+      ruleId: sample.ruleId,
+      title: definition?.title || sample.title,
+      category: definition?.category || sample.category,
+      priority: definition?.priority || sample.priority,
+      // Falls back the same way add() itself does — real findings always
+      // carry an explicit scope, but a hand-built fixture (tests, or any
+      // future caller that skips add()) might not.
+      scope: sample.scope || definition?.scope || "page",
+      recommendation: sample.recommendation,
+      memberCount: members.length,
+      affectedPageCount: new Set(members.map((finding) => finding.url)).size,
+      uniqueTargetCount: new Set(members.map((finding) => finding.targetUrl || finding.url)).size,
+      fixType: groupFixType(members, definition),
+      sampleFinding: sample,
+    });
+  }
+  // Biggest lever first — a group resolving hundreds of occurrences with
+  // one fix belongs above one resolving a handful, independent of severity
+  // (Part 3 adds a real severity sort on top of this once it ships).
+  result.sort((a, b) => b.memberCount - a.memberCount);
+  return result;
 }
 
 function isNonDescriptiveLinkLabel(value) {
@@ -573,6 +841,143 @@ function isReciprocalHreflangGroup(group) {
   });
 }
 
+// ── Media library ────────────────────────────────────────────────────────
+// Every image/video/audio/PDF the crawl found actually referenced on a page,
+// with its measured size (the crawler already fetched it — this is a real
+// Content-Length, not an estimate) and which pages use it. Deliberately NOT
+// "the site's full media library": a crawler only ever knows about files it
+// found linked from somewhere, so a file sitting unreferenced in an uploads
+// folder doesn't exist as far as this can tell. That's a real limitation,
+// not an oversight — a true "what's unused" answer needs an independent
+// inventory (a media sitemap, a CMS's media API) this doesn't have.
+const MEDIA_CONTENT_TYPE_MAP = [
+  [/^image\//, "Image"],
+  [/^video\//, "Video"],
+  [/^audio\//, "Audio"],
+  [/^application\/pdf/, "Document"],
+  // A downloadable file linked from the site — a calendar invite, an office
+  // doc, an archive — is exactly as much "media library" material as a PDF:
+  // something a visitor downloads, not a page they browse. Previously only
+  // PDFs were recognized; everything else with a real, linked file quietly
+  // vanished from the library even when it was fetched successfully.
+  [/^text\/calendar/, "Document"],
+  [/^application\/(msword|vnd\.openxmlformats-officedocument|vnd\.ms-excel|vnd\.ms-powerpoint)/, "Document"],
+  [/^application\/(zip|x-zip-compressed)/, "Document"],
+];
+const MEDIA_EXTENSION_MAP = [
+  [/\.(avif|bmp|gif|ico|jpe?g|png|svg|tiff?|webp)(\?|$)/i, "Image"],
+  [/\.(mp4|webm|ogv?)(\?|$)/i, "Video"],
+  [/\.(mp3|wav)(\?|$)/i, "Audio"],
+  [/\.pdf(\?|$)/i, "Document"],
+  [/\.ics(\?|$)/i, "Document"],
+  [/\.(docx?|xlsx?|pptx?|zip)(\?|$)/i, "Document"],
+];
+
+// Content-type is checked first (authoritative when the server sends one);
+// the URL extension is only a fallback for a response with no/garbage
+// Content-Type. Returns null for anything that isn't media in the ordinary
+// sense — css/js/fonts/json are assets too, but nobody calls a stylesheet
+// part of "the media library".
+function mediaTypeFor(result) {
+  const contentType = (result.contentType || "").toLowerCase();
+  for (const [pattern, type] of MEDIA_CONTENT_TYPE_MAP) {
+    if (pattern.test(contentType)) return type;
+  }
+  for (const [pattern, type] of MEDIA_EXTENSION_MAP) {
+    if (pattern.test(result.url)) return type;
+  }
+  return null;
+}
+
+function buildMediaLibrary(results, resourceEdges) {
+  const usedBy = new Map(); // asset url -> Set(page url)
+  for (const edge of resourceEdges) {
+    if (!edge.targetUrl) continue;
+    const set = usedBy.get(edge.targetUrl) || new Set();
+    if (edge.sourceUrl) set.add(edge.sourceUrl);
+    usedBy.set(edge.targetUrl, set);
+  }
+
+  const items = [];
+  for (const result of results) {
+    // External used to be excluded outright, on the theory that only your
+    // own site's files belong in "your media library." But a page routinely
+    // links to a genuine document it doesn't host itself — a compliance PDF
+    // on a sibling subdomain, a spec sheet on a partner's CDN — and that was
+    // silently vanishing instead of showing up labeled. It's kept and
+    // labeled (`isExternal`) rather than hidden, so the reader judges
+    // relevance instead of the tool guessing it away.
+    if (!result.isAsset || result.status !== 200) continue;
+    const type = mediaTypeFor(result);
+    if (!type) continue;
+    const sources = usedBy.get(result.url) || new Set();
+    items.push({
+      url: result.url,
+      type,
+      contentType: result.contentType || "",
+      size: result.size || 0,
+      isExternal: result.scope === "External",
+      usedByCount: sources.size,
+      // Capped, not the full list: a widely-reused hero image or icon can be
+      // referenced from every page on the site, and this is a summary for
+      // the UI, not the edge list itself (that's linkEdges/resourceEdges).
+      usedBy: [...sources].slice(0, 20),
+    });
+  }
+  items.sort((a, b) => b.size - a.size);
+
+  const byType = {};
+  let totalBytes = 0;
+  for (const item of items) {
+    byType[item.type] = (byType[item.type] || 0) + 1;
+    totalBytes += item.size;
+  }
+
+  return { items, byType, totalBytes, count: items.length };
+}
+
+const integrationCatalogById = new Map(
+  integrationCatalog.map((vendor) => [vendor.id, vendor]),
+);
+
+// Site-wide rollup of crawler.js's detectIntegrations() output — one loop
+// over every (internal, HTML) page's already-deduped `result.integrations`,
+// mirroring buildMediaLibrary's shape: a capped, pre-aggregated list the UI
+// reads as-is, not raw per-page detections. `totalPages` is the % denominator
+// the adoption chart divides pageCount by.
+function buildIntegrations(results) {
+  const totals = new Map(); // vendor id -> aggregate row
+  for (const result of results) {
+    for (const integration of result.integrations || []) {
+      const vendor = integrationCatalogById.get(integration.id);
+      // A stale id from a crawl run before a catalog entry was renamed or
+      // removed — skip rather than surface a row with no name/category.
+      if (!vendor) continue;
+      const entry = totals.get(vendor.id) || {
+        id: vendor.id,
+        name: vendor.name,
+        category: vendor.category,
+        status: vendor.status,
+        pageCount: 0,
+        headCount: 0,
+        bodyCount: 0,
+        loadingCounts: { async: 0, defer: 0, sync: 0 },
+      };
+      entry.pageCount += 1;
+      if (integration.location === "head") entry.headCount += 1;
+      else entry.bodyCount += 1;
+      if (entry.loadingCounts[integration.loading] !== undefined) {
+        entry.loadingCounts[integration.loading] += 1;
+      }
+      totals.set(vendor.id, entry);
+    }
+  }
+  return {
+    totalPages: results.length,
+    items: [...totals.values()].sort((a, b) => b.pageCount - a.pageCount),
+  };
+}
+
 function buildFindings({
   results,
   linkEdges = [],
@@ -642,6 +1047,12 @@ function buildFindings({
       severity: definition.severity,
       priority: definition.priority,
       category: definition.category,
+      // 'site' | 'template' | 'page' | 'resource' — a page×check matrix can't
+      // represent a whole-site finding (sitemap/robots config, HSTS, llms.txt)
+      // without either double-counting it per host or dropping it. Defaults
+      // to 'page' for the ~86 catalog entries that genuinely are about one
+      // page; only the handful of real exceptions carry an explicit value.
+      scope: definition.scope || "page",
       detection: definition.detection,
       url,
       targetUrl,
@@ -649,6 +1060,11 @@ function buildFindings({
       statusCode: extra.statusCode ?? source.status ?? 0,
       detectedValue: extra.detectedValue ?? "",
       recommendedValue: extra.recommendedValue ?? "",
+      // Raw evidence for root-cause grouping's "missing-property" family —
+      // separate from detectedValue because that column is a display
+      // string (bulleted, human-facing) that isn't safe to re-parse as a
+      // grouping key. Empty for every other rule.
+      evidenceKey: extra.evidenceKey ?? "",
       reviewStatus: "Needs review",
       reviewerNotes: "",
       automated: definition.detection === "Automatic",
@@ -741,9 +1157,10 @@ function buildFindings({
       add("sitemap-missing-indexable", result);
     }
 
-    if (hasNoindex && hasNofollow) add("noindex-nofollow", result);
-    else if (hasNoindex) add("noindex", result);
-    else if (hasNofollow) add("nofollow-page", result);
+    const robotsDirective = result.robots || (hasNoindex && hasNofollow ? "noindex, nofollow" : hasNoindex ? "noindex" : "nofollow");
+    if (hasNoindex && hasNofollow) add("noindex-nofollow", result, { detectedValue: robotsDirective });
+    else if (hasNoindex) add("noindex", result, { detectedValue: robotsDirective });
+    else if (hasNofollow) add("nofollow-page", result, { detectedValue: robotsDirective });
 
     if (
       !crawlTruncated &&
@@ -768,8 +1185,9 @@ function buildFindings({
       add("deep-page", result, { detectedValue: result.depth });
     }
 
-    if ([301, 308].includes(result.status)) add("permanent-redirect", result);
-    if ([302, 303, 307].includes(result.status)) add("temporary-redirect", result);
+    const redirectDetectedValue = result.redirectUrl ? `${result.status} -> ${result.redirectUrl}` : `HTTP ${result.status}`;
+    if ([301, 308].includes(result.status)) add("permanent-redirect", result, { detectedValue: redirectDetectedValue });
+    if ([302, 303, 307].includes(result.status)) add("temporary-redirect", result, { detectedValue: redirectDetectedValue });
     if (result.redirectLocationIssue) {
       add("redirect-location-invalid", result, {
         detail: redirectLocationIssueDetail(result),
@@ -857,6 +1275,17 @@ function buildFindings({
           detectedValue: `<base href="${raw}">; ${result.documentBaseFallbackReason}`,
         });
       }
+      // Previously only caught by crawler.js's live quickIssues() pass, which
+      // never gets re-run once findings replace it after the crawl completes
+      // — a page missing its <title> silently lost this finding entirely at
+      // that point, rather than just losing its category/description.
+      if (!result.title) {
+        // Same URL-slug fallback suggestH1 uses — there's no existing title
+        // to trim, so this is a starting point to hand-refine, not a
+        // finished recommendation.
+        const slugTitle = humanizeUrlSlug(result.url);
+        add("title-missing", result, slugTitle ? { recommendedValue: slugTitle } : {});
+      }
       if (result.titleCount > 1) {
         add("title-multiple", result, { detectedValue: result.titleCount });
       }
@@ -875,7 +1304,7 @@ function buildFindings({
         add("meta-long", result, {
           detail: `${result.metaLength} characters`,
           detectedValue: result.metaDescription,
-          recommendedValue: truncateAtWord(result.metaDescription, 155),
+          recommendedValue: `Needs a manual rewrite — current description is ${result.metaLength} characters (target 150-160). Trim to the most important sentence rather than cutting mid-sentence.`,
         });
       } else if (result.metaLength < 70) {
         add("meta-short", result, {
@@ -884,7 +1313,11 @@ function buildFindings({
           recommendedValue: suggestMetaDescription(result),
         });
       }
-      if (!result.h1Count) {
+      // A deliberately noindexed page won't appear in search results, so its
+      // content quality — H1, word count, text-to-HTML ratio, Open Graph tags
+      // — has no SEO consequence. Flagging it here is just noise on top of
+      // the noindex finding itself, which is the one thing worth reviewing.
+      if (!hasNoindex && !result.h1Count) {
         add("h1-missing", result, { recommendedValue: suggestH1(result) });
       } else if (result.h1Count > 1) {
         add("h1-multiple", result, { detectedValue: result.h1Count });
@@ -899,7 +1332,7 @@ function buildFindings({
         result.title &&
         result.h1.split("|")[0].trim().toLowerCase() === result.title.trim().toLowerCase()
       ) {
-        add("h1-title-duplicate", result);
+        add("h1-title-duplicate", result, { detectedValue: `Title and H1 both read "${result.title.trim()}"` });
       }
       for (const issue of result.headingHierarchyIssues || []) {
         add("heading-hierarchy-skipped", result, {
@@ -913,6 +1346,7 @@ function buildFindings({
       // Requiring low word count too means this only fires when the page is
       // actually thin, not just framework-heavy.
       if (
+        !hasNoindex &&
         result.textHtmlRatio > 0 &&
         result.textHtmlRatio <= 0.1 &&
         result.words > 0 &&
@@ -922,15 +1356,21 @@ function buildFindings({
           detectedValue: Number(result.textHtmlRatio.toFixed(3)),
         });
       }
-      if (result.words > 0 && result.words < 200) {
-        add("low-word-count", result, { detectedValue: result.words });
+      if (!hasNoindex && result.words > 0 && result.words < 200) {
+        add("low-word-count", result, { detectedValue: `${result.words} words` });
       }
       const openGraphMissing = result.openGraphMissing || [];
       const openGraphInvalidUrls = result.openGraphInvalidUrls || [];
-      if (openGraphMissing.length) {
+      if (!hasNoindex && openGraphMissing.length) {
         add("open-graph-incomplete", result, {
           detail: `Missing required properties: ${openGraphMissing.join(", ")}`,
           detectedValue: openGraphMissing.map((property) => `• ${property}`).join("\n"),
+          // Root-cause grouping's "missing-property" family needs the raw,
+          // sorted set — the bullet-joined detectedValue above is for
+          // display and isn't safe to re-parse (order isn't guaranteed
+          // stable across every caller, and the "• " prefix would leak
+          // into the signature).
+          evidenceKey: [...openGraphMissing].sort().join(","),
         });
       }
       for (const invalid of openGraphInvalidUrls) {
@@ -973,9 +1413,14 @@ function buildFindings({
         });
       }
       if (result.responseTime > 1000) {
+        // No `detail` here on purpose: this rule's own Excel sheet drops the
+        // "Target / Related URL" column entirely (report-writer.js) rather
+        // than carry a stray value in a column headed for a different kind
+        // of URL. Raw milliseconds — matching the crawl-time "Time" column
+        // in the UI — not seconds rounded to 2 decimals, which silently
+        // dropped precision; the report's own numFmt handles display.
         add("slow-page", result, {
-          detail: `${result.responseTime} ms`,
-          detectedValue: Math.round(result.responseTime) / 1000,
+          detectedValue: Math.round(result.responseTime),
         });
       }
     }
@@ -992,7 +1437,7 @@ function buildFindings({
         result.size > 200 * 1024
       ) {
         add("image-oversized", result, {
-          detectedValue: result.size,
+          detectedValue: `${(result.size / 1024).toFixed(1)} KB`,
         });
       }
     }
@@ -1210,7 +1655,16 @@ function buildFindings({
         target && redirectTerminalFailures.get(target.url);
       const targetTerminalSuitability =
         target && redirectTerminalSuitabilityIssues.get(target.url);
-      if (target && (target.status >= 400 || !target.status)) {
+      // A target the crawler declined to fetch out of its own robots.txt
+      // compliance is not a dead link — the crawler chose not to check it,
+      // the same way it wouldn't fetch a genuinely disallowed page. That's
+      // already its own, milder finding (`robots-blocked`/`blocked-resource`,
+      // fired once per target above, not once per linking page); folding it
+      // into "broken" here mislabeled a polite no-fetch as a defect and, on a
+      // shared nav/footer link, inflated one blocked URL into a finding on
+      // every single page that links to it.
+      const targetRobotsBlocked = target?.statusText === "Blocked by robots.txt";
+      if (target && !targetRobotsBlocked && (target.status >= 400 || !target.status)) {
         add("broken-internal-links", source, {
           targetUrl: edge.targetUrl,
           statusCode: target.status,
@@ -1225,51 +1679,64 @@ function buildFindings({
       }
       const targetRedirect = redirectDestination(target);
       if (targetTrace?.loop) {
+        const evidence = `Redirect loop: ${targetTrace.path.join(" -> ")}`;
         add("link-to-redirect", source, {
           targetUrl: edge.targetUrl,
           statusCode: target.status,
-          detail: `Redirect loop: ${targetTrace.path.join(" -> ")}`,
+          detail: evidence,
+          detectedValue: evidence,
         });
       } else if (targetTrace?.limitReached) {
+        const evidence = `Exceeds Fetch's ${MAX_FETCH_REDIRECTS}-redirect limit: ${redirectLimitEvidence(targetTrace)}`;
         add("link-to-redirect", source, {
           targetUrl: edge.targetUrl,
           statusCode: target.status,
-          detail: `Exceeds Fetch's ${MAX_FETCH_REDIRECTS}-redirect limit: ${redirectLimitEvidence(targetTrace)}`,
+          detail: evidence,
+          detectedValue: evidence,
         });
       } else if (targetTerminalSuitability) {
+        const evidence = `Link target's ${targetTerminalSuitability.relationshipDetail}. Path: ${targetTerminalSuitability.pathEvidence}`;
         add("link-to-redirect", source, {
           targetUrl: edge.targetUrl,
           statusCode: target.status,
-          detail: `Link target's ${targetTerminalSuitability.relationshipDetail}. Path: ${targetTerminalSuitability.pathEvidence}`,
+          detail: evidence,
+          detectedValue: evidence,
         });
       } else if (
         !targetTerminalFailure &&
         target &&
         isRedirectStatus(target.status)
       ) {
+        const evidence = target.redirectLocationIssue
+          ? redirectLocationIssueDetail(target)
+          : `Target redirects (${target.status}) to ${target.redirectUrl}`;
         add("link-to-redirect", source, {
           targetUrl: edge.targetUrl,
           statusCode: target.status,
-          detail: target.redirectLocationIssue
-            ? redirectLocationIssueDetail(target)
-            : target.redirectUrl,
+          detail: evidence,
+          detectedValue: evidence,
         });
       } else if (!targetTerminalFailure && targetRedirect) {
         const targetRefresh = declarativeRefresh(target);
+        const evidence = `${declarativeRefreshLabel(targetRefresh)} to ${targetRedirect}`;
         add("link-to-redirect", source, {
           targetUrl: edge.targetUrl,
           statusCode: target.status,
-          detail: `${declarativeRefreshLabel(targetRefresh)} to ${targetRedirect}`,
+          detail: evidence,
+          detectedValue: evidence,
         });
       }
       if (isNofollow) {
         add("internal-nofollow-link", source, {
           targetUrl: edge.targetUrl,
-          detectedValue: edge.anchorText,
+          // An icon-only or image link legitimately has no anchor text — show
+          // the rel value instead of leaving the reviewer looking at a blank
+          // cell with no way to tell what was actually detected.
+          detectedValue: edge.anchorText || `(no visible link text) rel="${[...relTokens].join(" ") || "nofollow"}"`,
         });
       }
-      const statuses = incomingFollow.get(edge.targetUrl) || new Set();
-      statuses.add(isNofollow ? "nofollow" : "dofollow");
+      const statuses = incomingFollow.get(edge.targetUrl) || { nofollowFrom: new Set(), dofollowFrom: new Set() };
+      (isNofollow ? statuses.nofollowFrom : statuses.dofollowFrom).add(edge.sourceUrl);
       incomingFollow.set(edge.targetUrl, statuses);
     } else {
       const policy = externalNofollowBySource.get(edge.sourceUrl) || {
@@ -1369,8 +1836,12 @@ function buildFindings({
   }
 
   for (const [url, statuses] of incomingFollow) {
-    if (statuses.has("nofollow") && statuses.has("dofollow")) {
-      add("mixed-incoming-follow", resultByUrl.get(url) || { url });
+    if (statuses.nofollowFrom.size && statuses.dofollowFrom.size) {
+      const nofollowExample = [...statuses.nofollowFrom][0];
+      const dofollowExample = [...statuses.dofollowFrom][0];
+      add("mixed-incoming-follow", resultByUrl.get(url) || { url }, {
+        detectedValue: `${statuses.nofollowFrom.size} nofollow link(s) (e.g. from ${nofollowExample}), ${statuses.dofollowFrom.size} dofollow link(s) (e.g. from ${dofollowExample})`,
+      });
     }
   }
 
@@ -1426,8 +1897,16 @@ function buildFindings({
     });
   }
   if (siteDiagnostics.sitemapConfigIssue) {
+    // The catalog's own recommendation text is a generic "yoursite.com"
+    // placeholder (it has to be — the catalog is shared across every crawl);
+    // override it here with the actual crawled domain so the report tells
+    // someone what to paste, not what to search-and-replace first.
+    const sitemapUrl = new URL("/sitemap.xml", startUrl).href;
     add("sitemap-robots-config", { url: siteDiagnostics.robotsUrl || startUrl }, {
       detail: siteDiagnostics.sitemapConfigIssue,
+      recommendation:
+        `Add a "Sitemap: ${sitemapUrl}" line to robots.txt pointing at the live sitemap, ` +
+        "and confirm the sitemap itself returns a 200 response.",
     });
   }
   // A declared sitemap that could not be read is a different problem from having
@@ -1465,13 +1944,35 @@ function buildFindings({
     });
   }
 
-  const root = resultByUrl.get(startUrl);
-  if (
-    root?.url.startsWith("https:") &&
-    !root.strictTransportSecurity
-  ) {
-    add("hsts-missing", root);
+  // Checked by hostname, not just the seed URL: the catalog entry for this
+  // rule promises "some subdomains do not instruct browsers to use HTTPS
+  // automatically," but a root-only check can never actually see a
+  // subdomain — it would only ever fire (or not) for whatever host the crawl
+  // started on. One representative 200-status HTTPS response per distinct
+  // hostname is enough to know whether that host sends the header.
+  const hstsCheckedHosts = new Map();
+  for (const result of internalResults) {
+    if (!result.url.startsWith("https:") || result.status !== 200) continue;
+    let host;
+    try {
+      host = new URL(result.url).hostname;
+    } catch {
+      continue;
+    }
+    if (!hstsCheckedHosts.has(host)) hstsCheckedHosts.set(host, result);
   }
+  for (const [host, sample] of hstsCheckedHosts) {
+    if (!sample.strictTransportSecurity) {
+      add("hsts-missing", sample, { detectedValue: `${host} — checked via ${sample.url}` });
+    }
+  }
+
+  // Every check above has finished adding findings — collapse before this
+  // point sees them once, not per rule, and before enrichedResults'
+  // per-page .issues lists get built (a template-tagged finding is excluded
+  // from those the same way a site-scoped one already is).
+  collapseTemplateFindings(findings, htmlResults.length);
+  const rootCauseGroups = buildRootCauseGroups(findings);
 
   const findingsByUrl = new Map();
   for (const finding of findings) {
@@ -1481,6 +1982,7 @@ function buildFindings({
   }
   const enrichedResults = results.map((result) => ({
     ...result,
+    pageCategory: categorizePage(result),
     issues: (findingsByUrl.get(result.url) || []).map((finding) => ({
       id: finding.ruleId,
       label: finding.title,
@@ -1489,7 +1991,28 @@ function buildFindings({
     })),
   }));
 
-  return { findings, results: enrichedResults, catalog };
+  return {
+    findings,
+    results: enrichedResults,
+    catalog,
+    mediaLibrary: buildMediaLibrary(results, resourceEdges),
+    // Internal HTML pages only — the same universe every other page-level
+    // metric in this build uses (see healthMetrics's own htmlResults filter
+    // client-side), so "N of M pages" reads consistently everywhere.
+    integrations: buildIntegrations(htmlResults),
+    // One row per distinct root cause, not per occurrence — see
+    // buildRootCauseGroups above. Every finding also carries its own
+    // rootCauseGroupId/groupMemberCount for anything that needs to go the
+    // other direction (which group does this one row belong to).
+    rootCauseGroups,
+  };
 }
 
-module.exports = { buildFindings, catalog };
+module.exports = {
+  buildFindings,
+  catalog,
+  evidenceSignature,
+  groupFixType,
+  buildRootCauseGroups,
+  categorizePage,
+};

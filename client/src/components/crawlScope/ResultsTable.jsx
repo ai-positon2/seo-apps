@@ -2,17 +2,24 @@
 //
 // Hand-rolled rather than using the shared <DataTable>, because the column set
 // changes per tab, several cells are custom renders (status badge, priority
-// badge, redirect-or-why-not), and rows open a drawer on click. Sorting is not
-// offered here for the same reason the desktop app didn't: the row order is
-// crawl-discovery order, which is itself information.
+// badge, redirect-or-why-not), and rows open a drawer on click. Discovery
+// order is the default and stays the default for the same reason the desktop
+// app never sorted rows — it's itself information — but "Sort by slowest" is
+// offered as an explicit, off-by-default override for the one column where
+// people actually want a ranked view.
 
 import { useMemo, useState } from 'react';
 import { Badge, Button, EmptyState } from '../../ui';
 import {
-  COLUMN_SETS, TABLE_TABS, QUICK_FILTERS, PAGE_SIZE,
+  COLUMN_SETS, TABLE_TABS, QUICK_FILTERS, PAGE_SIZE, PAGE_SIZE_OPTIONS,
   filterResults, formatBytes, severityVariant, statusVariant, topSeverity,
   declarativeRefreshSummary, redirectLocationIssueSummary,
 } from './crawlHelpers';
+
+// Mirrors analyzer.js's own "slow-page" check (result.responseTime > 1000) —
+// this is the check's real threshold, not an arbitrary display choice.
+const SLOW_PAGE_THRESHOLD_MS = 1000;
+const APPROACHING_SLOW_MS = 600;
 
 function Cell({ colKey, result }) {
   switch (colKey) {
@@ -36,8 +43,14 @@ function Cell({ colKey, result }) {
       );
     case 'size':
       return formatBytes(result.size);
-    case 'responseTime':
-      return result.responseTime ? `${result.responseTime} ms` : '—';
+    case 'responseTime': {
+      if (!result.responseTime) return <span style={{ color: 'var(--text-3)' }}>—</span>;
+      const ms = result.responseTime;
+      const color = ms > SLOW_PAGE_THRESHOLD_MS
+        ? 'var(--danger)'
+        : ms >= APPROACHING_SLOW_MS ? 'var(--warning)' : undefined;
+      return <span style={color ? { color, fontWeight: 600 } : undefined}>{ms.toLocaleString()} ms</span>;
+    }
     case 'declarativeRefresh': {
       const value = declarativeRefreshSummary(result);
       return value ? <span title={value}>{value}</span> : <span style={{ color: 'var(--text-3)' }}>—</span>;
@@ -59,19 +72,54 @@ function Cell({ colKey, result }) {
 export default function ResultsTable({ results, issueFilter, onClearIssueFilter, onRowClick, onExportCsv }) {
   const [tab, setTab] = useState('all');
   const [filter, setFilter] = useState('');
+  const [category, setCategory] = useState('');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
+  // How many rows show at once — a long crawl otherwise turns "Pages on this
+  // site" into a page-length scroll of its own.
+  const [pageSize, setPageSize] = useState(PAGE_SIZE);
+  // Of 150 rows, most were theme .js files and images — this table now
+  // defaults to the audit universe (HTML pages) rather than everything the
+  // crawler fetched, with a one-click way back to the unfiltered set.
+  const [htmlOnly, setHtmlOnly] = useState(true);
+  // Off by default — see the file header comment on why discovery order
+  // stays the default everywhere else.
+  const [sortSlowest, setSortSlowest] = useState(false);
 
-  const filtered = useMemo(
-    () => filterResults(results, { tab, issueFilter, filter, query }),
-    [results, tab, issueFilter, filter, query],
+  const assetCount = useMemo(
+    () => results.filter((r) => !r.contentType?.includes('text/html')).length,
+    [results],
+  );
+  const scoped = useMemo(
+    () => (htmlOnly ? results.filter((r) => r.contentType?.includes('text/html')) : results),
+    [results, htmlOnly],
   );
 
-  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const current = Math.min(page, pages);
-  const start = (current - 1) * PAGE_SIZE;
-  const pageRows = filtered.slice(start, start + PAGE_SIZE);
+  // Built from whatever categories are actually present, not a fixed list —
+  // the categorizer's output vocabulary can grow, and a hardcoded dropdown
+  // would silently go stale against it.
+  const categoryOptions = useMemo(() => {
+    const set = new Set(results.map((r) => r.pageCategory).filter(Boolean));
+    return [...set].sort();
+  }, [results]);
+
+  const filtered = useMemo(
+    () => filterResults(scoped, { tab, issueFilter, filter, category, query }),
+    [scoped, tab, issueFilter, filter, category, query],
+  );
+
   const columns = COLUMN_SETS[tab];
+  const hasTimeColumn = columns.some(([key]) => key === 'responseTime');
+
+  const sorted = useMemo(() => {
+    if (!sortSlowest || !hasTimeColumn) return filtered;
+    return [...filtered].sort((a, b) => (b.responseTime || 0) - (a.responseTime || 0));
+  }, [filtered, sortSlowest, hasTimeColumn]);
+
+  const pages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const current = Math.min(page, pages);
+  const start = (current - 1) * pageSize;
+  const pageRows = sorted.slice(start, start + pageSize);
 
   // Any filter change invalidates the page number.
   const reset = (fn) => (value) => { fn(value); setPage(1); };
@@ -123,6 +171,57 @@ export default function ResultsTable({ results, issueFilter, onClearIssueFilter,
         >
           {QUICK_FILTERS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
         </select>
+        {categoryOptions.length > 0 && (
+          <select
+            value={category}
+            onChange={(e) => reset(setCategory)(e.target.value)}
+            style={{
+              height: 34, padding: '0 8px', fontSize: 13, background: 'var(--surface)',
+              color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)',
+            }}
+          >
+            <option value="">All categories</option>
+            {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        )}
+        {assetCount > 0 && (
+          <button
+            type="button"
+            onClick={() => reset(setHtmlOnly)(!htmlOnly)}
+            title={htmlOnly
+              ? `${assetCount} non-HTML file${assetCount === 1 ? '' : 's'} (images, scripts, stylesheets, etc.) are hidden.`
+              : 'Showing every content type the crawl fetched.'}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, height: 34, padding: '0 12px',
+              fontSize: 12.5, fontWeight: 500, borderRadius: 'var(--r-md)', cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              background: htmlOnly ? 'var(--warning-soft)' : 'var(--surface)',
+              color: htmlOnly ? 'var(--warning)' : 'var(--text-2)',
+              border: `1px solid ${htmlOnly ? 'transparent' : 'var(--border)'}`,
+            }}
+          >
+            {htmlOnly
+              ? `${assetCount} non-HTML file${assetCount === 1 ? '' : 's'} hidden — show`
+              : 'Show HTML only'}
+          </button>
+        )}
+        {hasTimeColumn && (
+          <button
+            type="button"
+            onClick={() => reset(setSortSlowest)(!sortSlowest)}
+            title="Rows are normally in crawl-discovery order, which is itself information — this temporarily overrides that to rank by response time instead."
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, height: 34, padding: '0 12px',
+              fontSize: 12.5, fontWeight: 500, borderRadius: 'var(--r-md)', cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              background: sortSlowest ? 'var(--primary-soft)' : 'var(--surface)',
+              color: sortSlowest ? 'var(--primary-text, var(--primary))' : 'var(--text-2)',
+              border: `1px solid ${sortSlowest ? 'var(--primary)' : 'var(--border)'}`,
+            }}
+          >
+            {sortSlowest ? '✓ Sorted by slowest' : 'Sort by slowest'}
+          </button>
+        )}
         <Button variant="secondary" size="sm" onClick={onExportCsv}>Export CSV</Button>
       </div>
 
@@ -141,13 +240,16 @@ export default function ResultsTable({ results, issueFilter, onClearIssueFilter,
               {columns.map(([key, label, width, align]) => (
                 <th
                   key={key}
+                  title={key === 'responseTime'
+                    ? `The Slow pages check flags anything over ${SLOW_PAGE_THRESHOLD_MS.toLocaleString()} ms.`
+                    : undefined}
                   style={{
                     width, padding: '9px 10px', textAlign: align === 'numeric' ? 'right' : 'left',
                     fontSize: 11, fontWeight: 700, letterSpacing: '0.03em', textTransform: 'uppercase',
                     color: 'var(--text-3)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap',
                   }}
                 >
-                  {label}
+                  {key === 'responseTime' ? `${label} (>1s slow)` : label}
                 </th>
               ))}
             </tr>
@@ -186,14 +288,29 @@ export default function ResultsTable({ results, issueFilter, onClearIssueFilter,
       {/* Footer */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
-          {filtered.length
-            ? `Showing ${start + 1}–${Math.min(start + PAGE_SIZE, filtered.length)} of ${filtered.length.toLocaleString()} URLs`
+          {sorted.length
+            ? `Showing ${start + 1}–${Math.min(start + pageSize, sorted.length)} of ${sorted.length.toLocaleString()} URLs`
             : 'Showing 0 URLs'}
         </span>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <Button variant="secondary" size="sm" disabled={current <= 1} onClick={() => setPage(current - 1)}>Previous</Button>
-          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Page {current} of {pages}</span>
-          <Button variant="secondary" size="sm" disabled={current >= pages} onClick={() => setPage(current + 1)}>Next</Button>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-3)' }}>
+            Rows per page
+            <select
+              value={pageSize}
+              onChange={(e) => reset(setPageSize)(Number(e.target.value))}
+              style={{
+                height: 30, padding: '0 6px', fontSize: 12, background: 'var(--surface)',
+                color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)',
+              }}
+            >
+              {PAGE_SIZE_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <Button variant="secondary" size="sm" disabled={current <= 1} onClick={() => setPage(current - 1)}>Previous</Button>
+            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Page {current} of {pages}</span>
+            <Button variant="secondary" size="sm" disabled={current >= pages} onClick={() => setPage(current + 1)}>Next</Button>
+          </div>
         </div>
       </div>
     </div>

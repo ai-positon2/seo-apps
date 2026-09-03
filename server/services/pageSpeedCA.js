@@ -27,7 +27,49 @@ function sleep(ms) {
 }
 
 function emptyStrategy() {
-  return { score: null, lcp: 'N/A', cls: 'N/A', ttfb: 'N/A', fcp: 'N/A', inp: 'N/A', fixes: [] };
+  return {
+    score: null, lcp: 'N/A', cls: 'N/A', ttfb: 'N/A', fcp: 'N/A', inp: 'N/A', fixes: [],
+    lcpMs: null, ttfbMs: null, ttfbShareOfLcp: null, field: null,
+  };
+}
+
+// "TTFB as a share of load time" (using LCP as the load-time proxy — the
+// nearest thing PSI reports to it): if the server itself is most of the
+// budget, no front-end technique has room left to matter. >=0.6 is the
+// stated threshold this is modeled on — server/hosting work is the honest
+// recommendation past that point, not a longer list of front-end fixes.
+function ttfbShareOf(ttfbMs, lcpMs) {
+  if (typeof ttfbMs !== 'number' || typeof lcpMs !== 'number' || lcpMs <= 0) return null;
+  return Math.round((ttfbMs / lcpMs) * 100) / 100;
+}
+
+// CrUX field data (real users) vs. Lighthouse's lab run (one synthetic
+// visit): the two disagree often, and field is the one that counts. PSI
+// returns page-level field data in `loadingExperience` when the URL has
+// enough real-user traffic for CrUX to report on, and always returns
+// origin-level data in `originLoadingExperience` as a fallback — worth
+// keeping distinct from page-level, not silently blended, so the UI can say
+// which one it's actually showing.
+const FIELD_METRIC_KEYS = {
+  lcp: 'LARGEST_CONTENTFUL_PAINT_MS',
+  cls: 'CUMULATIVE_LAYOUT_SHIFT_SCORE',
+  inp: 'INTERACTION_TO_NEXT_PAINT',
+  fcp: 'FIRST_CONTENTFUL_PAINT_MS',
+  ttfb: 'EXPERIMENTAL_TIME_TO_FIRST_BYTE',
+};
+function extractFieldData(pageExperience, originExperience) {
+  const source = pageExperience?.metrics ? pageExperience : originExperience;
+  if (!source?.metrics) return null;
+  const metrics = {};
+  for (const [short, key] of Object.entries(FIELD_METRIC_KEYS)) {
+    const m = source.metrics[key];
+    if (m?.category) metrics[short] = m.category; // 'FAST' | 'AVERAGE' | 'SLOW'
+  }
+  return {
+    overall: source.overall_category || null,
+    scope: source === pageExperience ? 'page' : 'origin',
+    metrics,
+  };
 }
 
 // Lighthouse descriptions ship with markdown links, e.g.
@@ -55,6 +97,10 @@ function extractFixes(lighthouseResult) {
       title: a.title,
       description: stripMarkdownLinks(a.description),
       savingsMs: typeof a.details?.overallSavingsMs === 'number' ? Math.round(a.details.overallSavingsMs) : null,
+      // Byte savings (image-format/sizing audits report this; render-blocking
+      // /unused-code audits report ms instead, sometimes both) — additive
+      // field, existing consumers that only read savingsMs are unaffected.
+      savingsBytes: typeof a.details?.overallSavingsBytes === 'number' ? Math.round(a.details.overallSavingsBytes) : null,
       _score: a.score,
     }))
     .sort((a, b) => {
@@ -98,6 +144,10 @@ async function runPageSpeedOnce(url, strategy) {
   const lhr = res.data.lighthouseResult || {};
   const cats = lhr.categories || {};
   const audits = lhr.audits || {};
+  const lcpMs = typeof audits['largest-contentful-paint']?.numericValue === 'number'
+    ? Math.round(audits['largest-contentful-paint'].numericValue) : null;
+  const ttfbMs = typeof audits['server-response-time']?.numericValue === 'number'
+    ? Math.round(audits['server-response-time'].numericValue) : null;
 
   return {
     score: Math.round((cats.performance?.score ?? 0) * 100),
@@ -108,6 +158,11 @@ async function runPageSpeedOnce(url, strategy) {
     inp: audits['interaction-to-next-paint']?.displayValue || 'N/A',
     coreWebVitalsPassed: res.data.loadingExperience?.overall_category === 'FAST',
     fixes: extractFixes(lhr),
+    // Additive — existing consumers reading only the fields above are unaffected.
+    lcpMs,
+    ttfbMs,
+    ttfbShareOfLcp: ttfbShareOf(ttfbMs, lcpMs),
+    field: extractFieldData(res.data.loadingExperience, res.data.originLoadingExperience),
   };
 }
 
@@ -188,4 +243,4 @@ function scoreColor(score) {
   return '#D3342E';
 }
 
-module.exports = { getPageSpeedForAllDomains, scoreColor };
+module.exports = { getPageSpeedForAllDomains, scoreColor, ttfbShareOf, extractFieldData };

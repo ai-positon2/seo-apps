@@ -11,6 +11,84 @@ const { SeoCrawler } = require("../crawler");
 const { createFetch } = require("../net/egress");
 const { parseCrawlRequest } = require("../shared/options");
 const repo = require("../db/repo");
+const { getPageSpeedForAllDomains } = require("../../../services/pageSpeedCA");
+const { createGate } = require("../shared/gate");
+
+// Default is "every eligible page" — PSI runs in the background and doesn't
+// block the crawl, so the cost of checking more pages is time, not risk to
+// the run itself. Still overridable for an operator who wants a hard ceiling
+// on a very large site.
+const AUTO_PAGESPEED_SAMPLE_SIZE =
+  Number(process.env.CRAWLSCOPE_AUTO_PAGESPEED_SAMPLE_SIZE) || Infinity;
+
+// Process-wide, not per-crawl: several crawls can finish within moments of
+// each other, and each wants to PSI-check every one of its pages. Without
+// this they'd all fire at once and multiply against the same shared PSI
+// quota. Gated to 1 full-site sample running at a time; everything else
+// queues — see shared/gate.js.
+const pageSpeedGate = createGate(1);
+
+// Picks pages to PSI-check, template first: one representative page per
+// pageCategory (analyzer.js) before filling remaining budget by inlinks. A
+// product page and a blog post have entirely different performance
+// profiles, so ranking purely by inlinks can spend the whole sample on one
+// template (usually whichever one the nav links to most) before a
+// differently-shaped page is ever measured — and if the sample is capped or
+// interrupted partway, template-first means every template still has at
+// least one data point instead of zero. Excludes assets and non-200s: PSI
+// needs a real, live HTML page to audit, not an image or a redirect stub.
+function pickPageSpeedSample(summary, size) {
+  const candidates = (summary.results || []).filter(
+    (r) => !r.isAsset && r.scope !== "External" && r.status === 200 &&
+      r.contentType?.includes("text/html"),
+  );
+  const seed = candidates.find((r) => r.depth === 0);
+
+  const byCategory = new Map();
+  for (const r of candidates) {
+    const list = byCategory.get(r.pageCategory) || [];
+    list.push(r);
+    byCategory.set(r.pageCategory, list);
+  }
+  for (const list of byCategory.values()) {
+    list.sort((a, b) => (b.inlinks || 0) - (a.inlinks || 0));
+  }
+
+  const picked = [];
+  const pickedUrls = new Set();
+  const take = (r) => {
+    if (!r || pickedUrls.has(r.url)) return;
+    picked.push(r.url);
+    pickedUrls.add(r.url);
+  };
+
+  take(seed);
+  for (const list of byCategory.values()) {
+    if (picked.length >= size) break;
+    take(list[0]);
+  }
+  const byInlinks = [...candidates].sort((a, b) => (b.inlinks || 0) - (a.inlinks || 0));
+  for (const r of byInlinks) {
+    if (picked.length >= size) break;
+    take(r);
+  }
+  return picked;
+}
+
+async function samplePageSpeed(db, run, summary) {
+  const urls = pickPageSpeedSample(summary, AUTO_PAGESPEED_SAMPLE_SIZE);
+  if (!urls.length) return;
+  await pageSpeedGate(async () => {
+    const results = await getPageSpeedForAllDomains(urls);
+    for (const result of results) {
+      await repo.updateResultPagespeed(db, run.id, result.domain, {
+        ...result,
+        checkedAt: new Date().toISOString(),
+        auto: true,
+      });
+    }
+  });
+}
 
 // 25 rows per insert meant ~2,000 round trips for a 50,000-page crawl, and
 // because the flush was never awaited several could be in flight against the
@@ -337,10 +415,34 @@ class RunManager {
         console.error(`[crawlScope] link graph not stored for run ${run.id}:`, error.message);
       }
 
+      // V10.0: categorizePage() (analyzer.js) already computed pageCategory
+      // into summary.results — but summary.results is never persisted (see
+      // migration 0022's own header for the full trace), so the Category
+      // column has read "—" since it shipped. Patch it onto the rows the UI
+      // actually reads (crawl_run_results), and — for a saved project —
+      // upsert into page_category so a manual correction survives the NEXT
+      // crawl instead of being wiped with everything else in
+      // crawl_run_results. Same non-fatal treatment as the link graph above:
+      // losing this costs one crawl's category display, not the run.
+      try {
+        const htmlPages = (Array.isArray(summary.results) ? summary.results : []).filter(
+          (r) => r.contentType?.includes("text/html") && r.scope !== "External" && r.pageCategory,
+        );
+        const patches = htmlPages.map((r) => ({ url: r.url, category: r.pageCategory }));
+        await repo.patchResultCategories(db, run.id, patches);
+        if (run.project_id) {
+          await repo.upsertPageCategories(db, run.project_id, patches);
+        }
+      } catch (error) {
+        console.error(`[crawlScope] page categories not stored for run ${run.id}:`, error.message);
+      }
+
       const counts = severityCounts(findings);
       const rolled = {
         findings,
         counts,
+        mediaLibrary: summary.mediaLibrary || null,
+        integrations: summary.integrations || null,
         robotsStatus: summary.robotsStatus,
         elapsed: summary.elapsed,
         resultCount: Array.isArray(summary.results) ? summary.results.length : 0,
@@ -387,6 +489,24 @@ class RunManager {
         }
       }
 
+      // Auto-sample PageSpeed for a handful of key pages. Opt-in
+      // (CRAWLSCOPE_AUTO_PAGESPEED=true): PSI is slow and quota-limited, so
+      // this firing by default the moment the feature ships would silently
+      // multiply every completed crawl's PSI spend without anyone deciding
+      // that should happen. Fire-and-forget, not awaited — a 5-page sample
+      // through services/pageSpeedCA.js's batching/backoff can take minutes,
+      // and this run is already reported "completed"; nothing downstream of
+      // completion should wait on it. Consequence worth knowing: the
+      // worker's emailed report is built from this function's return value
+      // immediately after, so an auto-sampled PSI result generally will NOT
+      // be in that email — it lands in crawl_run_results (and so the UI)
+      // whenever the sample finishes, independent of completion/email timing.
+      if (process.env.CRAWLSCOPE_AUTO_PAGESPEED === "true" && !summary.stopped) {
+        samplePageSpeed(db, run, summary).catch((e) => {
+          console.error(`[crawl ${run.id}] PageSpeed sample failed:`, e.message);
+        });
+      }
+
       return { run, summary, counts };
     } catch (error) {
       finalized = true;
@@ -410,4 +530,4 @@ class RunManager {
   }
 }
 
-module.exports = { RunManager, aggregateFindings, severityCounts };
+module.exports = { RunManager, aggregateFindings, severityCounts, pickPageSpeedSample };

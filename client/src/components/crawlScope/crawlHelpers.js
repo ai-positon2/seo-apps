@@ -4,7 +4,10 @@
 // desktop app produced — the health score in particular is a published figure
 // and must not drift because it was reimplemented.
 
-export const PAGE_SIZE = 100;
+export const PAGE_SIZE = 25;
+// User-selectable "rows per page" for the results table — PAGE_SIZE stays the
+// default so nothing else that imports it needs to change.
+export const PAGE_SIZE_OPTIONS = [25, 50, 100, 200, 500];
 
 const HTTP_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
@@ -97,10 +100,11 @@ export function declarativeRefreshSummary(result) {
 export const COLUMN_SETS = {
   all: [
     ['status', 'Status', '70px'],
-    ['url', 'URL', '34%'],
-    ['contentType', 'Content type', '120px'],
-    ['title', 'Page title', '24%'],
-    ['indexability', 'Indexability', '100px'],
+    ['url', 'URL', '30%'],
+    ['pageCategory', 'Category', '110px'],
+    ['contentType', 'Content type', '110px'],
+    ['title', 'Page title', '20%'],
+    ['indexability', 'Indexability', '95px'],
     ['depth', 'Depth', '55px', 'numeric'],
     ['responseTime', 'Time', '65px', 'numeric'],
     ['issues', 'Issues', '60px', 'numeric'],
@@ -124,7 +128,8 @@ export const COLUMN_SETS = {
     ['responseTime', 'Time', '65px', 'numeric'],
   ],
   metadata: [
-    ['url', 'URL', '28%'],
+    ['url', 'URL', '24%'],
+    ['pageCategory', 'Category', '110px'],
     ['title', 'Page title', '22%'],
     ['titleLength', 'Title len.', '65px', 'numeric'],
     ['metaDescription', 'Meta description', '28%'],
@@ -164,7 +169,7 @@ export const QUICK_FILTERS = [
 ];
 
 // ── Filtering ───────────────────────────────────────────────────────────────
-export function filterResults(results, { tab = 'all', issueFilter = '', filter = '', query = '' } = {}) {
+export function filterResults(results, { tab = 'all', issueFilter = '', filter = '', category = '', query = '' } = {}) {
   let values = results;
 
   if (tab === 'issues') {
@@ -175,6 +180,10 @@ export function filterResults(results, { tab = 'all', issueFilter = '', filter =
 
   if (issueFilter) {
     values = values.filter((item) => (item.issues || []).some((issue) => issue.id === issueFilter));
+  }
+
+  if (category) {
+    values = values.filter((item) => item.pageCategory === category);
   }
 
   if (filter === 'errors') {
@@ -231,7 +240,15 @@ export function filterResults(results, { tab = 'all', issueFilter = '', filter =
 export function healthMetrics(results, findings = []) {
   const internalResults = results.filter((item) => item.scope !== 'External');
   const htmlResults = internalResults.filter((item) => item.contentType?.includes('text/html'));
-  const activeFindings = findings.filter((f) => !DISMISSED.includes(f.reviewStatus));
+  // `finding.scope` ('page' | 'site' | 'resource' | 'template') is unrelated to
+  // a crawl result's own `.scope` ('Internal' | 'External') just above — only
+  // page-scoped findings belong in a page-level tally. A site-wide
+  // misconfiguration (sitemap/robots, HSTS, llms.txt) or a resource file's
+  // issue must never inflate Errors/Warnings/Notices here; siteScopedGroups()
+  // is where those are counted instead.
+  const activeFindings = findings.filter(
+    (f) => !DISMISSED.includes(f.reviewStatus) && (f.scope || 'page') === 'page',
+  );
   const useFindings = findings.length > 0;
 
   const countBySeverity = (severity) =>
@@ -286,6 +303,21 @@ export function healthMetrics(results, findings = []) {
   };
 }
 
+// Structured version of the same weighted breakdown, for an always-visible
+// panel rather than a hover-only tooltip — a score with a hidden formula
+// isn't credible to a client. Lists every tier, even ones contributing zero,
+// so the panel reads as the whole formula, not just the parts that hurt.
+export function healthScoreBreakdown(metrics) {
+  if (!metrics || metrics.health === null) return [];
+  const denominator = Math.max(metrics.htmlCount, 1);
+  const contribution = (pages, weight) => Math.round((pages / denominator) * weight);
+  return [
+    { label: 'Errors', pages: metrics.affectedErrorPages, weight: 45, points: contribution(metrics.affectedErrorPages, 45) },
+    { label: 'Warnings', pages: metrics.affectedWarningPages, weight: 22, points: contribution(metrics.affectedWarningPages, 22) },
+    { label: 'Notices', pages: metrics.affectedNoticePages, weight: 8, points: contribution(metrics.affectedNoticePages, 8) },
+  ];
+}
+
 // Plain-language breakdown so a health score is never an unexplained number.
 // Points lost mirror the weights above exactly.
 export function healthScoreExplanation(metrics) {
@@ -334,9 +366,530 @@ export function issueGroups(results, findings = []) {
   });
 }
 
+// A page×check matrix can't represent a whole-site finding without either
+// double-counting it per host or dropping it — this is issueGroups()'s
+// counterpart for the ~12 catalog entries that carry a non-'page' scope
+// (site/template/resource), read directly from `findings` rather than from
+// any one page's `.issues`, since these aren't really about one page. Each
+// finding already carries its own `reviewStatus`, so dismissal-checking here
+// is a direct field check rather than issueGroups()'s composite-key lookup.
+export function siteScopedGroups(findings = []) {
+  const map = new Map();
+  for (const f of findings) {
+    if (DISMISSED.includes(f.reviewStatus)) continue;
+    const scope = f.scope || 'page';
+    if (scope === 'page') continue;
+    const existing = map.get(f.ruleId) || {
+      id: f.ruleId,
+      label: f.title,
+      severity: f.severity,
+      scope,
+      urls: [],
+    };
+    existing.urls.push(f.url);
+    map.set(f.ruleId, existing);
+  }
+  return [...map.values()].sort((a, b) => {
+    const bySeverity = SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity);
+    return bySeverity !== 0 ? bySeverity : b.urls.length - a.urls.length;
+  });
+}
+
+// ── SEO snapshot (Passed Checks / On-Page Issues / Quick Wins / Indexability
+//    Risks — the SWOT quadrants, in SEO-native language) ─────────────────────
+// A quadrant read of a single run's own findings — there is no second crawl or
+// competitor data here, so this is deliberately scoped to what one run's
+// catalog coverage actually supports, not a trend or a rival comparison:
+//   Passed Checks       — catalog checks that came back clean.
+//   On-Page Issues      — confirmed on-page/content problems (Metadata,
+//                         Content, Links, Accessibility & Social, Performance).
+//   Indexability Risks  — problems that risk whether pages can be crawled or
+//                         indexed at all (Indexability, Technical) — the ones
+//                         that can get worse, not just the ones that already
+//                         fired.
+//   Quick Wins          — the catalog's own "Low Priority" tier: notice-
+//                         severity items, i.e. quick, non-urgent wins.
+// Severity partitions Indexability Risks/On-Page Issues from Quick Wins
+// (notice vs. error/warning) and category partitions Indexability Risks from
+// On-Page Issues, so a given issue id can only ever land in exactly one
+// quadrant.
+const RISK_CATEGORIES = new Set(['Indexability', 'Technical']);
+
+function snapshotItem(group, catalogById) {
+  const meta = catalogById.get(group.id);
+  return {
+    id: group.id,
+    label: group.label,
+    detail: meta?.description || '',
+    severity: group.severity,
+    count: group.urls.length,
+  };
+}
+
+export function buildSeoSnapshot(pages, groups, catalog) {
+  const catalogById = new Map(catalog.map((c) => [c.id, c]));
+
+  // Strengths: how much of the catalog's automatic coverage came back clean.
+  const flaggedIds = new Set(groups.map((g) => g.id));
+  const automaticChecks = catalog.filter((c) => c.detection === 'Automatic');
+  const passedCount = automaticChecks.filter((c) => !flaggedIds.has(c.id)).length;
+
+  const categoryTotals = new Map();
+  for (const c of automaticChecks) categoryTotals.set(c.category, (categoryTotals.get(c.category) || 0) + 1);
+  const flaggedCategories = new Set(
+    groups.map((g) => catalogById.get(g.id)?.category).filter(Boolean),
+  );
+  const cleanCategories = [...categoryTotals.entries()]
+    .filter(([category]) => !flaggedCategories.has(category))
+    .sort((a, b) => b[1] - a[1]);
+
+  const htmlPages = pages.filter((p) => p.contentType?.includes('text/html'));
+  const indexableCount = htmlPages.filter((p) => p.indexability === 'Indexable').length;
+  const indexableRatio = htmlPages.length ? indexableCount / htmlPages.length : null;
+
+  const strengths = [];
+  if (automaticChecks.length) {
+    strengths.push({
+      id: 'checks-clean',
+      label: `${passedCount} of ${automaticChecks.length} checks clean`,
+      detail: 'No findings across these automatic checks this run.',
+    });
+  }
+  for (const [category, count] of cleanCategories.slice(0, 3)) {
+    strengths.push({
+      id: `category-${category}`,
+      label: `${category}: ${count}/${count} checks clean`,
+      detail: `Every automatic ${category.toLowerCase()} check passed.`,
+    });
+  }
+  if (indexableRatio !== null && indexableRatio >= 0.9) {
+    strengths.push({
+      id: 'indexable-ratio',
+      label: `${indexableCount} of ${htmlPages.length} HTML pages indexable`,
+      detail: 'Most pages are eligible to appear in search results.',
+    });
+  }
+
+  // groups is already sorted severity-first then by affected-page count
+  // (issueGroups), and filtering preserves that order.
+  const threatGroups = groups.filter(
+    (g) => g.severity !== 'notice' && RISK_CATEGORIES.has(catalogById.get(g.id)?.category),
+  );
+  const weaknessGroups = groups.filter(
+    (g) => g.severity !== 'notice' && !RISK_CATEGORIES.has(catalogById.get(g.id)?.category),
+  );
+  const opportunityGroups = groups.filter((g) => g.severity === 'notice');
+
+  return {
+    strengths: strengths.slice(0, 4),
+    weaknesses: weaknessGroups.slice(0, 3).map((g) => snapshotItem(g, catalogById)),
+    threats: threatGroups.slice(0, 3).map((g) => snapshotItem(g, catalogById)),
+    opportunities: opportunityGroups.slice(0, 3).map((g) => snapshotItem(g, catalogById)),
+  };
+}
+
+// ── Issue overview grouping ─────────────────────────────────────────────────
+// Organizes issueGroups()'s flat list into the catalog's own category
+// sections (Technical, Indexability, Metadata, ...) — reusing the category
+// each card already shows as its eyebrow label, just using it to group
+// instead of only to label. A group whose id has no catalog match (shouldn't
+// happen post-fix, but a live crawl can still be mid-flight) falls into an
+// "Other" section rather than silently vanishing.
+export function groupsByCategory(groups, catalogById) {
+  const sections = new Map();
+  for (const g of groups) {
+    const category = catalogById.get(g.id)?.category || "Other";
+    const list = sections.get(category) || [];
+    list.push(g);
+    sections.set(category, list);
+  }
+  return [...sections.entries()]
+    .map(([category, items]) => ({
+      category,
+      items,
+      affectedPages: new Set(items.flatMap((g) => g.urls)).size,
+      worstSeverity: SEVERITY_ORDER.find((s) => items.some((g) => g.severity === s)) || "info",
+    }))
+    .sort((a, b) => {
+      const bySeverity = SEVERITY_ORDER.indexOf(a.worstSeverity) - SEVERITY_ORDER.indexOf(b.worstSeverity);
+      return bySeverity !== 0 ? bySeverity : b.affectedPages - a.affectedPages;
+    });
+}
+
+// ── Effective issues & count hierarchy ──────────────────────────────────────
+// A crawled page's embedded `.issues` is `quickIssues()` output from crawl time
+// (crawler.js) — a small synchronous rule set evaluated per-page as it's fetched.
+// The full picture — analyzer.js's whole rule catalog, with detectedValue/
+// recommendedValue — only exists in `findings`, fetched once after the crawl
+// completes, and is never written back onto the stored per-page rows. Left
+// alone, that means "Issues found" cards, this table's Issues column, and the
+// SEO snapshot quadrants all show the SMALLER crawl-time set forever, while
+// "Issue review" and the Excel export show the full one — two different
+// detection passes presented as if they were one number.
+//
+// This re-derives every page's `.issues` from `findings` once findings exist,
+// so everything downstream reads the same, authoritative set. Dismissed
+// findings (False positive / Resolved) are excluded here too, matching
+// `issueGroups`'s existing dismissal semantics — a page you've already
+// resolved shouldn't still show a live issue badge for it.
+export function withEffectiveIssues(results, findings = []) {
+  if (!findings.length) return results;
+  const dismissed = new Set(
+    findings.filter((f) => DISMISSED.includes(f.reviewStatus)).map((f) => `${f.ruleId}|${f.url}`),
+  );
+  const byUrl = new Map();
+  for (const f of findings) {
+    if (dismissed.has(`${f.ruleId}|${f.url}`)) continue;
+    // Site/template/resource-scoped findings don't belong on any one page's
+    // issue list — the URL they're attached to (robots.txt, llms.txt, a
+    // representative host, a specific asset) is where the check happened to
+    // run, not "this page has this problem." They live in
+    // siteScopedGroups()'s own section instead.
+    if ((f.scope || 'page') !== 'page') continue;
+    const list = byUrl.get(f.url) || [];
+    list.push({ id: f.ruleId, label: f.title, severity: f.severity, category: f.category });
+    byUrl.set(f.url, list);
+  }
+  return results.map((r) => ({ ...r, issues: byUrl.get(r.url) || [] }));
+}
+
+// One coherent count hierarchy instead of several numbers that look related
+// but are actually different units of different things:
+//   URLs fetched (all content types, incl. external)
+//     └─ HTML pages (the audit universe)
+//          └─ page findings + site findings + resource findings
+//               └─ occurrences (page findings only — see below)
+//                    └─ issue types / root-cause groups (distinct checks that fired)
+// In this codebase issue types and root-cause groups are currently the same
+// number — nothing here consolidates several related rule ids into one fix
+// action yet, so the hierarchy is honestly four tiers, not five.
+//
+// `occurrences` (page-level) is computed TWO independent ways — once per
+// issue type (summing each group's affected-URL list) and once per page
+// (summing each page's own issue count) — and asserted equal. They're built
+// from the same underlying data via different code paths, so this is a real
+// invariant, not a tautology: `reconciled` goes false, loudly, if a future
+// edit ever lets them drift apart. Site/resource/template occurrences are
+// counted separately (from siteScopedGroups()) and are NEVER added into this
+// page-level total — a site-wide finding isn't one more "page finding."
+export function buildCountHierarchy(results, effectivePages, metrics, groups, siteGroups = []) {
+  const occurrencesByCheck = groups.reduce((sum, g) => sum + g.urls.length, 0);
+  const occurrencesByPage = effectivePages.reduce((sum, p) => sum + (p.issues || []).length, 0);
+  const byScope = (scope) =>
+    siteGroups.filter((g) => g.scope === scope).reduce((sum, g) => sum + g.urls.length, 0);
+  return {
+    urlsFetched: results.length,
+    htmlPages: metrics.htmlCount,
+    siteOccurrences: byScope('site'),
+    resourceOccurrences: byScope('resource'),
+    templateOccurrences: byScope('template'),
+    occurrences: occurrencesByCheck,
+    occurrencesByCheck,
+    occurrencesByPage,
+    issueTypes: groups.length,
+    rootCauseGroups: groups.length,
+    reconciled: occurrencesByCheck === occurrencesByPage,
+  };
+}
+
+// ── Backlog (issues carried across scheduled runs) ─────────────────────────
+// How long a still-open issue has been sitting there, and whether it's
+// getting better or worse — only meaningful for a scheduled project with
+// real crawl history, so this is built from a bounded window of *previous*
+// runs' findings (fetched by the page, not by this module) rather than from
+// anything stored per-run today. `crawl_runs.summary.counts` (see
+// worker/index.js) only carries severity totals, not a per-check breakdown,
+// so there is no cheap server-side shortcut here — this walks the findings
+// arrays the existing /runs/:id/findings endpoint already returns.
+export const BACKLOG_HISTORY_WINDOW = 6;
+
+function ruleCounts(findings = []) {
+  const map = new Map();
+  for (const f of findings) {
+    if (DISMISSED.includes(f.reviewStatus)) continue;
+    const existing = map.get(f.ruleId) || { id: f.ruleId, label: f.title, severity: f.severity, count: 0 };
+    existing.count += 1;
+    map.set(f.ruleId, existing);
+  }
+  return map;
+}
+
+// `historyRuns`: [{ id, finishedAt, findings }], strictly before the current
+// run, ordered newest-first — as many as the caller fetched (bounded by
+// BACKLOG_HISTORY_WINDOW). A rule only counts as "backlog" once it has shown
+// up in the current run AND at least the one immediately before it; a rule
+// that only ever appeared once is new, not a backlog. `openEnded` on an item
+// means the streak ran to the edge of the fetched window while still
+// present — the issue may be older than `runsPresent` says, just not
+// verifiably so from what was fetched.
+export function buildBacklog(currentFindings, historyRuns = []) {
+  if (!historyRuns.length) return { items: [], windowRuns: 0 };
+  const current = ruleCounts(currentFindings);
+  const history = historyRuns.map((r) => ({ ...r, counts: ruleCounts(r.findings) }));
+
+  const items = [];
+  for (const [ruleId, cur] of current) {
+    let runsPresent = 1; // the current run
+    let firstSeenAt = null;
+    let openEnded = true;
+    for (const h of history) {
+      const prevCount = h.counts.get(ruleId)?.count || 0;
+      if (prevCount <= 0) { openEnded = false; break; }
+      runsPresent += 1;
+      firstSeenAt = h.finishedAt;
+    }
+    if (runsPresent < 2) continue; // first appearance this run — not backlog yet
+    const previousCount = history[0]?.counts.get(ruleId)?.count || 0;
+    const changePercent = previousCount > 0
+      ? Math.round(((cur.count - previousCount) / previousCount) * 100)
+      : null;
+    items.push({
+      id: ruleId,
+      label: cur.label,
+      severity: cur.severity,
+      count: cur.count,
+      previousCount,
+      changePercent,
+      runsPresent,
+      firstSeenAt: firstSeenAt || history[0]?.finishedAt || null,
+      openEnded,
+    });
+  }
+
+  items.sort((a, b) => {
+    if (b.runsPresent !== a.runsPresent) return b.runsPresent - a.runsPresent;
+    return SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity);
+  });
+  return { items, windowRuns: historyRuns.length };
+}
+
+// ── Summary text builders (copyable) ────────────────────────────────────────
+// Deterministic, data-only recaps of everything else on the page — never a
+// generated narrative, so each is exactly as trustworthy as the numbers it's
+// built from and never drifts from them. Each is a fixed number of lines
+// regardless of site size (a handful of overview facts + a bounded top-N
+// list), so none of them can balloon on a large crawl.
+function hostOf(url) {
+  try { return new URL(url || '').hostname; } catch { return url || 'this site'; }
+}
+
+// Page-scope and site-scope issues, unified into one priority-ordered list —
+// the same severity-then-affected-count ordering issueGroups/siteScopedGroups
+// already use individually, just interleaved so "what to fix first" reads as
+// one list instead of two.
+function combinedPriorityGroups(groups = [], siteGroups = []) {
+  return [...groups, ...siteGroups].sort((a, b) => {
+    const bySeverity = SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity);
+    return bySeverity !== 0 ? bySeverity : b.urls.length - a.urls.length;
+  });
+}
+
+// A deterministic, data-only recap of everything else on the page, not a
+// generated narrative — so it's exactly as trustworthy as the numbers it's
+// built from, and never drifts from them. It's a fixed number of bullet
+// lines regardless of site size, so it stays comfortably under a 1000-word
+// ceiling for any crawl this app produces.
+export function buildExecutiveSummaryText({ run, metrics, counts, seoSnapshot, groups = [], backlog }) {
+  if (!metrics || !counts) return '';
+  const host = hostOf(run?.url);
+  const when = run?.finished_at || run?.started_at || run?.created_at;
+  const lines = [];
+
+  lines.push(`SEO CRAWL SUMMARY — ${host}`);
+  if (when) lines.push(`Crawled ${new Date(when).toLocaleString()}`);
+  lines.push('');
+
+  lines.push('OVERVIEW');
+  lines.push(`- Site health: ${metrics.health ?? '—'}/100 (${metrics.errors} error, ${metrics.warnings} warning, ${metrics.notices} notice findings)`);
+  const indexablePct = counts.htmlPages ? Math.round((metrics.indexable / counts.htmlPages) * 100) : 0;
+  lines.push(`- ${counts.htmlPages} pages audited; ${metrics.indexable} indexable (${indexablePct}%)`);
+  lines.push(`- ${counts.occurrences} page-level issue occurrences across ${counts.issueTypes} distinct checks`);
+  const nonPageTotal = counts.siteOccurrences + counts.resourceOccurrences + counts.templateOccurrences;
+  if (nonPageTotal > 0) {
+    lines.push(`- ${counts.siteOccurrences} site-wide, ${counts.resourceOccurrences} resource, ${counts.templateOccurrences} template-level finding(s) — tracked separately, not in the counts above`);
+  }
+  lines.push('');
+
+  const topIssues = [...groups].sort((a, b) => b.urls.length - a.urls.length).slice(0, 5);
+  if (topIssues.length) {
+    lines.push('TOP ISSUES');
+    for (const g of topIssues) {
+      lines.push(`- ${g.label} — ${g.urls.length} page${g.urls.length === 1 ? '' : 's'} (${g.severity})`);
+    }
+    lines.push('');
+  }
+
+  if (seoSnapshot) {
+    lines.push('SEO SNAPSHOT');
+    lines.push(`- ${seoSnapshot.strengths[0]?.label || 'Passed checks not available'}`);
+    lines.push(`- On-page issues flagged: ${seoSnapshot.weaknesses.length}`);
+    lines.push(`- Quick wins queued: ${seoSnapshot.opportunities.length}`);
+    lines.push(`- Indexability risks: ${seoSnapshot.threats.length}`);
+    lines.push('');
+  }
+
+  if (backlog?.items?.length) {
+    const oldest = backlog.items[0];
+    lines.push('BACKLOG');
+    lines.push(`- ${backlog.items.length} issue(s) carried over from a previous crawl`);
+    lines.push(`- Longest-standing: ${oldest.label}, open ${oldest.runsPresent}${oldest.openEnded ? '+' : ''} crawls in a row`);
+    lines.push('');
+  }
+
+  if (topIssues.length) {
+    lines.push('SUGGESTED NEXT STEPS');
+    for (const g of topIssues.slice(0, 3)) {
+      lines.push(`- Fix "${g.label}" — affects ${g.urls.length} page${g.urls.length === 1 ? '' : 's'}`);
+    }
+  }
+
+  while (lines.length && lines[lines.length - 1] === '') lines.pop();
+  return lines.join('\n');
+}
+
+// "Email to dev" — plain text, paste-ready for an email body: a Subject:
+// line to split off by hand, the two links a recipient actually needs (the
+// dashboard and the Excel download), then the same overview/backlog facts as
+// the on-screen summary, then a prioritized fix list instead of just the top
+// 3. Tone follows the scheduled-crawl email (worker/email.js) — terse and
+// data-first, no "Dear team," greeting or sign-off invented for it.
+export function buildEmailShareText({
+  run, id, metrics, counts, backlog, groups = [], siteGroups = [], email,
+}) {
+  if (!metrics || !counts) return '';
+  const host = hostOf(run?.url);
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const dashboardUrl = id ? `${origin}/crawl-scope/runs/${id}` : '';
+  const excelUrl = id ? `${origin}/api/crawl-scope/runs/${id}/report.xlsx` : '';
+  const lines = [];
+
+  lines.push(`Subject: CrawlScope audit — ${host}: ${metrics.errors} errors, ${metrics.warnings} warnings`);
+  lines.push('');
+  if (dashboardUrl) lines.push(`Dashboard report: ${dashboardUrl}`);
+  if (excelUrl) {
+    // Worth saying once: this is a cookie-gated app link, not a public one —
+    // the one destination here where a reader might otherwise assume it just
+    // opens for anyone.
+    lines.push(`Excel audit download: ${excelUrl}`);
+    lines.push('  (opens for anyone signed in to SEO Studio — not a public link)');
+  }
+  lines.push('');
+
+  lines.push('OVERVIEW');
+  lines.push(`- Site health: ${metrics.health ?? '—'}/100 (${metrics.errors} error, ${metrics.warnings} warning, ${metrics.notices} notice findings)`);
+  const indexablePct = counts.htmlPages ? Math.round((metrics.indexable / counts.htmlPages) * 100) : 0;
+  lines.push(`- ${counts.htmlPages} pages audited; ${metrics.indexable} indexable (${indexablePct}%)`);
+  lines.push(`- ${counts.occurrences} page-level issue occurrences across ${counts.issueTypes} distinct checks`);
+  const nonPageTotal = counts.siteOccurrences + counts.resourceOccurrences + counts.templateOccurrences;
+  if (nonPageTotal > 0) {
+    lines.push(`- ${counts.siteOccurrences} site-wide, ${counts.resourceOccurrences} resource, ${counts.templateOccurrences} template-level finding(s) — tracked separately, not in the counts above`);
+  }
+  lines.push('');
+
+  if (backlog?.items?.length) {
+    const oldest = backlog.items[0];
+    lines.push('BACKLOG');
+    lines.push(`- ${backlog.items.length} issue(s) carried over from a previous crawl`);
+    lines.push(`- Longest-standing: "${oldest.label}", open ${oldest.runsPresent}${oldest.openEnded ? '+' : ''} crawls in a row`);
+    lines.push('');
+  }
+
+  const priority = combinedPriorityGroups(groups, siteGroups).slice(0, 8);
+  if (priority.length) {
+    lines.push('STEPS TO TAKE, BY PRIORITY');
+    priority.forEach((g, i) => {
+      lines.push(`${i + 1}. "${g.label}" — ${g.severity}, ${g.urls.length} page${g.urls.length === 1 ? '' : 's'}`);
+    });
+    lines.push('');
+  }
+
+  if (email) lines.push(`Prepared by ${email} via SEO Studio CrawlScope`);
+
+  while (lines.length && lines[lines.length - 1] === '') lines.pop();
+  return lines.join('\n');
+}
+
+// "Message for a channel" — the same plain, structured style as the on-screen
+// quick summary (ALL-CAPS section headers, "- " bullets, no emoji, no chat
+// markdown) just shorter: a condensed version of buildExecutiveSummaryText
+// for a channel post rather than a different voice entirely.
+export function buildChannelShareText({
+  run, id, metrics, counts, backlog, groups = [], siteGroups = [],
+}) {
+  if (!metrics || !counts) return '';
+  const host = hostOf(run?.url);
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const dashboardUrl = id ? `${origin}/crawl-scope/runs/${id}` : '';
+  const lines = [];
+
+  lines.push(`CrawlScope — ${host}`);
+  lines.push(`Health: ${metrics.health ?? '—'}/100 (${metrics.errors} errors, ${metrics.warnings} warnings, ${metrics.notices} notices)`);
+  lines.push(`${counts.htmlPages} pages audited, ${metrics.indexable} indexable`);
+  lines.push('');
+
+  const top = combinedPriorityGroups(groups, siteGroups).slice(0, 5);
+  if (top.length) {
+    lines.push('TOP ISSUES');
+    for (const g of top) {
+      lines.push(`- ${g.label} — ${g.urls.length} page${g.urls.length === 1 ? '' : 's'} (${g.severity})`);
+    }
+    lines.push('');
+  }
+
+  if (backlog?.items?.length) {
+    const oldest = backlog.items[0];
+    lines.push('BACKLOG');
+    lines.push(`- ${backlog.items.length} issue${backlog.items.length === 1 ? '' : 's'} recurring, oldest since ${oldest.runsPresent}${oldest.openEnded ? '+' : ''} crawls ago`);
+    lines.push('');
+  }
+  if (dashboardUrl) lines.push(`Full report: ${dashboardUrl}`);
+
+  while (lines.length && lines[lines.length - 1] === '') lines.pop();
+  return lines.join('\n');
+}
+
+// "Task table" — tab-separated, not markdown: pasted into Excel/Sheets/
+// Notion this becomes real, editable columns (including a blank Owner column
+// to assign), where a markdown pipe table would paste as literal `| ... |`
+// text with no columns at all. Every outstanding issue group, not just a
+// top-N — these are root-cause groups, capped at the size of the catalog, so
+// even a large site produces a manageable row count, and a task list that
+// silently dropped items past #8 would be a worse task list than a long one.
+function tsvEscape(value) {
+  // A tab or newline inside a field would corrupt the row/column structure
+  // on paste, so it's collapsed to a single space rather than preserved.
+  return String(value ?? '').replace(/[\t\r\n]+/g, ' ').trim();
+}
+
+export function buildTaskTableTsv({ groups = [], siteGroups = [], backlog }) {
+  const all = combinedPriorityGroups(groups, siteGroups);
+  const header = ['Issue', 'Severity', 'Scope', 'Pages affected', 'Age (crawls)', 'Change vs last crawl', 'Owner'];
+  // Header alone on a clean crawl (no open issues) rather than nothing —
+  // pasting an empty tracker shell is still useful, and it means the button
+  // always does something when clicked instead of silently no-op-ing.
+  if (!all.length) return header.join('\t');
+  const ageByRule = new Map((backlog?.items || []).map((item) => [item.id, item]));
+  const rows = all.map((g) => {
+    const b = ageByRule.get(g.id);
+    const age = b ? `${b.runsPresent}${b.openEnded ? '+' : ''}` : '—';
+    const change = b ? (b.changePercent === null ? '—' : `${b.changePercent > 0 ? '+' : ''}${b.changePercent}%`) : '—';
+    return [
+      tsvEscape(g.label),
+      g.severity,
+      g.scope || 'page',
+      String(g.urls.length),
+      age,
+      change,
+      '', // Owner — left blank for manual assignment once pasted
+    ].join('\t');
+  });
+  return [header.join('\t'), ...rows].join('\n');
+}
+
 // ── CSV export ──────────────────────────────────────────────────────────────
 const CSV_COLUMNS = [
   ['url', 'URL'],
+  ['pageCategory', 'Category'],
   ['status', 'Status'],
   ['statusText', 'Status text'],
   ['contentType', 'Content type'],
@@ -394,6 +947,35 @@ export const TIMEZONES = [
   { id: 'Asia/Kolkata', label: 'India (Asia/Kolkata)' },
   { id: 'UTC', label: 'UTC' },
 ];
+
+// The day-of-week + hour a given instant falls on, read in a specific IANA
+// timezone — `Date#getDay`/`getHours` only ever answer for the browser's own
+// zone, which is wrong here: a schedule's day/hour picker is local to the
+// timezone the project itself picks, not to whoever happens to be filling
+// out the form. Used to default a new project's schedule to the day/time its
+// first report was (or, with no run yet, will be) generated — see
+// ProjectForm.jsx.
+export function dayAndHourInTimezone(instant, timezone) {
+  const date = instant instanceof Date ? instant : new Date(instant);
+  if (Number.isNaN(date.getTime())) return { dayOfWeek: 0, hour: 0 };
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone || 'UTC',
+      weekday: 'short',
+      hour: 'numeric',
+      hourCycle: 'h23',
+    }).formatToParts(date);
+    const weekday = parts.find((p) => p.type === 'weekday')?.value || '';
+    const hour = Number(parts.find((p) => p.type === 'hour')?.value);
+    const dayOfWeek = DAY_NAMES.findIndex((d) => d.startsWith(weekday));
+    return {
+      dayOfWeek: dayOfWeek >= 0 ? dayOfWeek : date.getDay(),
+      hour: Number.isFinite(hour) ? hour % 24 : date.getHours(),
+    };
+  } catch {
+    return { dayOfWeek: date.getDay(), hour: date.getHours() };
+  }
+}
 
 export function hour12Label(hour) {
   const h = Number(hour);
@@ -459,7 +1041,7 @@ export const WORKER_EXECUTED_TRIGGERS = ['schedule', 'initial'];
 // server clamps against operator ceilings regardless of what is sent, so these
 // are starting points for the form, not limits.
 export const DEFAULT_OPTIONS = {
-  maxUrls: 500,
+  maxUrls: 10000,
   maxExternalUrls: 150,
   concurrency: 4,
   timeout: 15000,

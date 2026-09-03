@@ -1,0 +1,162 @@
+[
+  {
+    "id": "google-tag-manager",
+    "name": "Google Tag Manager",
+    "category": "Tag Manager",
+    "status": "active",
+    "srcPatterns": ["googletagmanager.com/gtm.js"],
+    "inlinePatterns": ["googletagmanager.com/gtm.js"]
+  },
+  {
+    "id": "google-analytics-4",
+    "name": "Google Analytics 4",
+    "category": "Analytics",
+    "status": "active",
+    "srcPatterns": ["googletagmanager.com/gtag/js"],
+    "inlinePatterns": ["gtag('config'", "gtag(\"config\""]
+  },
+  {
+    "id": "universal-analytics",
+    "name": "Universal Analytics (legacy)",
+    "category": "Analytics",
+    "status": "deprecated",
+    "srcPatterns": ["google-analytics.com/analytics.js"],
+    "inlinePatterns": ["google-analytics.com/analytics.js", "ga('create'", "ga(\"create\""]
+  },
+  {
+    "id": "facebook-pixel",
+    "name": "Meta (Facebook) Pixel",
+    "category": "Advertising",
+    "status": "active",
+    "srcPatterns": ["connect.facebook.net/en_US/fbevents.js", "fbevents.js"],
+    "inlinePatterns": ["fbq('init'", "fbq(\"init\"", "fbevents.js"]
+  },
+  {
+    "id": "microsoft-clarity",
+    "name": "Microsoft Clarity",
+    "category": "Session Recording",
+    "status": "active",
+    "srcPatterns": ["clarity.ms/tag"],
+    "inlinePatterns": ["clarity.ms/tag"]
+  },
+  {
+    "id": "hotjar",
+    "name": "Hotjar",
+    "category": "Session Recording",
+    "status": "active",
+    "srcPatterns": ["static.hotjar.com"],
+    "inlinePatterns": ["static.hotjar.com", "_hjSettings"]
+  },
+  {
+    "id": "linkedin-insight-tag",
+    "name": "LinkedIn Insight Tag",
+    "category": "Advertising",
+    "status": "active",
+    "srcPatterns": ["snap.licdn.com/li.lms-analytics"],
+    "inlinePatterns": ["snap.licdn.com", "_linkedin_partner_id"]
+  },
+  {
+    "id": "tiktok-pixel",
+    "name": "TikTok Pixel",
+    "category": "Advertising",
+    "status": "active",
+    "srcPatterns": ["analytics.tiktok.com"],
+    "inlinePatterns": ["analytics.tiktok.com", "ttq.load"]
+  },
+  {
+    "id": "twitter-x-pixel",
+    "name": "X (Twitter) Ads Pixel",
+    "category": "Advertising",
+    "status": "active",
+    "srcPatterns": ["static.ads-twitter.com"],
+    "inlinePatterns": ["static.ads-twitter.com", "twq('init'", "twq(\"init\""]
+  },
+  {
+    "id": "hubspot",
+    "name": "HubSpot",
+    "category": "Marketing Automation",
+    "status": "active",
+    "srcPatterns": ["js.hs-scripts.com", "js.hubspot.com"],
+    "inlinePatterns": []
+  },
+  {
+    "id": "intercom",
+    "name": "Intercom",
+    "category": "Chat & Support",
+    "status": "active",
+    "srcPatterns": ["widget.intercom.io"],
+    "inlinePatterns": ["Intercom('boot'", "intercomSettings"]
+  },
+  {
+    "id": "drift",
+    "name": "Drift",
+    "category": "Chat & Support",
+    "status": "active",
+    "srcPatterns": ["js.driftt.com"],
+    "inlinePatterns": ["drift.load"]
+  },
+  {
+    "id": "zendesk-chat",
+    "name": "Zendesk",
+    "category": "Chat & Support",
+    "status": "active",
+    "srcPatterns": ["static.zdassets.com"],
+    "inlinePatterns": []
+  },
+  {
+    "id": "crisp-chat",
+    "name": "Crisp",
+    "category": "Chat & Support",
+    "status": "active",
+    "srcPatterns": ["client.crisp.chat"],
+    "inlinePatterns": ["client.crisp.chat", "CRISP_WEBSITE_ID"]
+  },
+  {
+    "id": "segment",
+    "name": "Segment",
+    "category": "Marketing Automation",
+    "status": "active",
+    "srcPatterns": ["cdn.segment.com"],
+    "inlinePatterns": ["analytics.load"]
+  },
+  {
+    "id": "google-recaptcha",
+    "name": "Google reCAPTCHA",
+    "category": "Security",
+    "status": "active",
+    "srcPatterns": ["www.google.com/recaptcha", "www.gstatic.com/recaptcha"],
+    "inlinePatterns": []
+  },
+  {
+    "id": "google-optimize",
+    "name": "Google Optimize",
+    "category": "A/B Testing",
+    "status": "deprecated",
+    "srcPatterns": ["www.googleoptimize.com/optimize.js"],
+    "inlinePatterns": []
+  },
+  {
+    "id": "stripe",
+    "name": "Stripe",
+    "category": "Payments",
+    "status": "active",
+    "srcPatterns": ["js.stripe.com"],
+    "inlinePatterns": []
+  },
+  {
+    "id": "google-maps-embed",
+    "name": "Google Maps",
+    "category": "Embeds",
+    "status": "active",
+    "srcPatterns": ["maps.googleapis.com/maps/api/js", "google.com/maps/embed"],
+    "inlinePatterns": []
+  },
+  {
+    "id": "youtube-embed",
+    "name": "YouTube",
+    "category": "Embeds",
+    "status": "active",
+    "srcPatterns": ["youtube.com/embed", "youtube-nocookie.com/embed", "youtube.com/iframe_api"],
+    "inlinePatterns": []
+  }
+]

@@ -15,11 +15,14 @@
 import { useEffect, useState } from 'react';
 import { Modal, Button, Field } from '../../ui';
 import CrawlOptionsForm from './CrawlOptionsForm';
-import { DAY_NAMES, TIMEZONES, hour12Label, parseWeeklyCron, DEFAULT_OPTIONS } from './crawlHelpers';
+import {
+  DAY_NAMES, TIMEZONES, hour12Label, parseWeeklyCron, DEFAULT_OPTIONS, dayAndHourInTimezone,
+} from './crawlHelpers';
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
+const DEFAULT_TIMEZONE = 'America/Chicago';
 
-export default function ProjectForm({ open, project, onClose, onSave }) {
+export default function ProjectForm({ open, project, initialUrl, initialAt, onClose, onSave }) {
   const [mode, setMode] = useState('spider');
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
@@ -41,16 +44,32 @@ export default function ProjectForm({ open, project, onClose, onSave }) {
     const savedList = Array.isArray(project?.options?.urls) ? project.options.urls : null;
     setMode(savedList?.length ? 'list' : 'spider');
     setName(project?.name || '');
-    setUrl(savedList?.length ? '' : (project?.url || ''));
+    // initialUrl seeds a brand-new project (e.g. arriving here from "Schedule
+    // this crawl to repeat" on a finished run) — project?.url always wins
+    // when actually editing an existing one.
+    setUrl(savedList?.length ? '' : (project?.url || initialUrl || ''));
     setUrlList(savedList?.length ? savedList.join('\n') : '');
-    setDayOfWeek(parsed?.dayOfWeek ?? 0);
-    setHour(parsed?.hour ?? 22);
-    setTimezone(project?.timezone || 'America/Chicago');
+    const timezone = project?.timezone || DEFAULT_TIMEZONE;
+    if (parsed) {
+      setDayOfWeek(parsed.dayOfWeek);
+      setHour(parsed.hour);
+    } else {
+      // No saved schedule to parse — a brand-new project. Default to the day
+      // and hour its first report was (or, with no run behind this yet, will
+      // be) generated, instead of an arbitrary fixed slot: `initialAt` is the
+      // run being converted to a schedule via "Schedule this crawl to
+      // repeat"; with no run at all, the project's own first crawl fires the
+      // moment it's created, so "now" already *is* that first-report time.
+      const { dayOfWeek: d, hour: h } = dayAndHourInTimezone(initialAt || new Date(), timezone);
+      setDayOfWeek(d);
+      setHour(h);
+    }
+    setTimezone(timezone);
     setRecipients((project?.recipients || []).join(', '));
     setEnabled(project?.enabled !== false);
     setOptions({ ...DEFAULT_OPTIONS, ...(project?.options || {}) });
     setError('');
-  }, [open, project]);
+  }, [open, project, initialUrl, initialAt]);
 
   // Split on whitespace or commas, the two ways a list actually arrives —
   // pasted from a spreadsheet column, or from a comma-joined export.

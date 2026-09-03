@@ -5,7 +5,7 @@
 import { Field } from '../../ui';
 
 const NUMBERS = [
-  { key: 'maxUrls', label: 'Max URLs', min: 1, max: 5000, step: 1,
+  { key: 'maxUrls', label: 'Max URLs', min: 1, max: 10000, step: 1,
     helper: 'Stop after this many URLs.' },
   { key: 'maxExternalUrls', label: 'Max external URLs', min: 0, max: 500, step: 1,
     helper: 'External links checked for a status code. 0 to skip.' },

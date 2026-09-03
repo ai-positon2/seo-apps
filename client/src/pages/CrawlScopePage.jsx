@@ -5,7 +5,7 @@
 // progress can be linked to and returned to.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   SectionHeader, Card, Button, Badge, Field, EmptyState, useToast,
 } from '../ui';
@@ -27,7 +27,7 @@ const TABS = [
 // ── New crawl ───────────────────────────────────────────────────────────────
 // Spider mode crawls from one URL; list mode audits exactly the URLs given and
 // follows nothing, which is what the server's `urls` array selects.
-function NewCrawl({ onStarted }) {
+function NewCrawl({ onStarted, onScheduleInstead }) {
   const toast = useToast();
   const [mode, setMode] = useState('spider');
   const [url, setUrl] = useState('');
@@ -106,6 +106,24 @@ function NewCrawl({ onStarted }) {
         </Button>
       </div>
 
+      {/* This form only ever starts a one-off run — nothing here mentions
+          that a recurring, self-emailing version exists on the other tab.
+          A single explicit link, not a hidden feature someone has to
+          stumble onto the "Scheduled crawls" tab to discover. */}
+      <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)', fontSize: 12.5, color: 'var(--text-3)' }}>
+        Want this to run automatically and email you the report?{' '}
+        <button
+          type="button"
+          onClick={() => onScheduleInstead(mode === 'spider' ? url.trim() : '')}
+          style={{
+            background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+            font: 'inherit', color: 'var(--primary-text, var(--primary))', textDecoration: 'underline',
+          }}
+        >
+          Set up a scheduled crawl instead
+        </button>
+      </div>
+
       {showSettings && (
         <div style={{ marginTop: 18, paddingTop: 18, borderTop: '1px solid var(--border)' }}>
           {/* Was `disabled={mode === 'list'}`, which greyed out every setting.
@@ -126,10 +144,15 @@ function NewCrawl({ onStarted }) {
 }
 
 // ── Scheduled projects ──────────────────────────────────────────────────────
-function Projects({ projects, loading, reload, onOpenRun }) {
+// Form open/editing/prefill state is owned by the parent page, not this
+// component — "Set up a scheduled crawl instead" (on New Crawl) and
+// "Schedule this crawl to repeat" (on a finished run's page) both need to
+// open this same modal from outside the Projects tab.
+function Projects({
+  projects, loading, reload, onOpenRun,
+  formOpen, setFormOpen, editing, setEditing, prefillUrl, prefillAt,
+}) {
   const toast = useToast();
-  const [editing, setEditing] = useState(null);
-  const [formOpen, setFormOpen] = useState(false);
   const [busy, setBusy] = useState('');
 
   async function save(body) {
@@ -227,6 +250,8 @@ function Projects({ projects, loading, reload, onOpenRun }) {
       <ProjectForm
         open={formOpen}
         project={editing}
+        initialUrl={prefillUrl}
+        initialAt={prefillAt}
         onClose={() => setFormOpen(false)}
         onSave={save}
       />
@@ -300,12 +325,44 @@ function History({ runs, loading, onOpenRun }) {
 
 export default function CrawlScopePage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const toast = useToast();
   const [tab, setTab] = useState('crawl');
   const [projects, setProjects] = useState([]);
   const [runs, setRuns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Schedule-form state lives here, not inside Projects, so it can be opened
+  // from the New Crawl tab's cross-link and from CrawlScopeRunPage's
+  // "Schedule this crawl to repeat" button, not only from within the
+  // Projects tab itself.
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState(null);
+  const [prefillUrl, setPrefillUrl] = useState('');
+  const [prefillAt, setPrefillAt] = useState(null);
+
+  const openScheduleForm = useCallback((url, at) => {
+    setTab('projects');
+    setEditingProject(null);
+    setPrefillUrl(url || '');
+    // When the run being scheduled already has a first report behind it,
+    // its own started_at is the day/time the new schedule should default
+    // to — see ProjectForm's initialAt.
+    setPrefillAt(at || null);
+    setFormOpen(true);
+  }, []);
+
+  // Arriving via navigate('/crawl-scope', { state: { scheduleUrl, scheduleAt } })
+  // from a finished run's "Schedule this crawl to repeat" button.
+  useEffect(() => {
+    if (location.state?.scheduleUrl) {
+      openScheduleForm(location.state.scheduleUrl, location.state.scheduleAt);
+      // Consume the navigation state so a refresh or back-navigation doesn't
+      // silently reopen the form.
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state, openScheduleForm]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -357,10 +414,24 @@ export default function CrawlScopePage() {
       </div>
 
       {tab === 'crawl' && (
-        <NewCrawl onStarted={(run) => { toast.success('Crawl started.'); openRun(run.id); }} />
+        <NewCrawl
+          onStarted={(run) => { toast.success('Crawl started.'); openRun(run.id); }}
+          onScheduleInstead={openScheduleForm}
+        />
       )}
       {tab === 'projects' && (
-        <Projects projects={projects} loading={loading} reload={load} onOpenRun={openRun} />
+        <Projects
+          projects={projects}
+          loading={loading}
+          reload={load}
+          onOpenRun={openRun}
+          formOpen={formOpen}
+          setFormOpen={setFormOpen}
+          editing={editingProject}
+          setEditing={setEditingProject}
+          prefillUrl={prefillUrl}
+          prefillAt={prefillAt}
+        />
       )}
       {tab === 'history' && (
         <History runs={runs} loading={loading} onOpenRun={openRun} />

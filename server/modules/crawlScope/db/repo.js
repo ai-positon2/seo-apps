@@ -559,6 +559,87 @@ async function listResults(client, runId, { limit = 500, offset = 0, owner = nul
   return unwrap(await query.order("id", { ascending: true }).range(offset, offset + limit - 1));
 }
 
+// Patches one page's stored result with PageSpeed Insights data, keyed by
+// (run_id, url) rather than a dedicated table — a page's PSI data lives
+// alongside everything else the crawl already knows about it, the same way
+// title/meta/word-count all live inside `data`. There's no unique constraint
+// on (run_id, url) (a page is only ever inserted once per run in practice,
+// but nothing enforces that), so this reads the row, merges in `pagespeed`,
+// and writes the merge back by id rather than trying an upsert that assumes
+// uniqueness it doesn't have. Read-modify-write, not a jsonb concat operator,
+// so a concurrent PATCH to some other part of `data` isn't clobbered.
+async function updateResultPagespeed(serviceClient, runId, url, pagespeed) {
+  const rows = unwrap(
+    await serviceClient
+      .from("crawl_run_results")
+      .select("id, data")
+      .eq("run_id", runId)
+      .eq("url", url)
+      .order("id", { ascending: true })
+      .limit(1),
+  );
+  const row = firstRow(rows);
+  if (!row) return null;
+  const data = { ...(row.data || {}), pagespeed };
+  unwrap(
+    await serviceClient
+      .from("crawl_run_results")
+      .update({ data })
+      .eq("id", row.id)
+      .select("id, data"),
+  );
+  return data;
+}
+
+// ── Page category (V10.0) ───────────────────────────────────────────────────
+// See supabase/migrations/0022_page_category.sql for why these are RPCs
+// rather than .from() calls: a per-row PATCH loop over a 10,000-page crawl is
+// 10,000 round trips, and "skip rows a human already corrected" can't be
+// expressed by a plain upsert.
+
+// Patches { pageCategory } onto crawl_run_results.data for one run, in one
+// statement — the fix for the "—" the Category column has shown since V5
+// (categorizePage() always ran; its output just never reached the table the
+// UI reads). `patches` is [{ url, category }, ...]. Best-effort: called from
+// a fire-and-forget context in run/manager.js, same as the link-graph write
+// it sits next to — losing this patch costs one crawl's worth of category
+// display, not the run itself.
+async function patchResultCategories(serviceClient, runId, patches) {
+  if (!patches.length) return;
+  unwrap(
+    await serviceClient.rpc("patch_crawl_run_result_categories", {
+      p_run_id: runId,
+      patches,
+    }),
+  );
+}
+
+// Upserts a project's classification, skipping any URL a human has already
+// manually corrected (manual_override = true) — enforced by the RPC's own
+// WHERE clause, not here, so it holds regardless of caller. `entries` is
+// [{ url, category, secondary_categories?, confidence?, signals? }, ...].
+// No-op (not an error) for a run with no project_id — a one-off spider/list
+// crawl has nowhere to key a cross-crawl override on.
+async function upsertPageCategories(serviceClient, projectId, entries) {
+  if (!projectId || !entries.length) return;
+  unwrap(
+    await serviceClient.rpc("upsert_page_categories", {
+      p_project_id: projectId,
+      entries,
+    }),
+  );
+}
+
+async function listPageCategories(serviceClient, projectId) {
+  if (!projectId) return [];
+  return unwrap(
+    await serviceClient
+      .from("page_category")
+      .select("url, category, secondary_categories, category_confidence, signals_matched, manual_override, override_reason")
+      .eq("project_id", projectId),
+  );
+}
+
 // ── Issue review ────────────────────────────────────────────────────────────
 // Per-finding triage (status + notes) for one run. See
 // crawl_finding_reviews in supabase/migrations/0010_crawlscope.sql for why this
@@ -646,6 +727,10 @@ module.exports = {
   insertFindings,
   deleteRunResults,
   listResults,
+  updateResultPagespeed,
+  patchResultCategories,
+  upsertPageCategories,
+  listPageCategories,
   listFindingReviews,
   saveFindingReviews,
 };

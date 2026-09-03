@@ -51,6 +51,18 @@ const oauth2Client = new OAuth2Client(
   process.env.GOOGLE_OAUTH_REDIRECT_URI
 );
 
+// Where to send the browser after the Google round-trip. The callback always
+// lands on this server's own origin (it's whatever GOOGLE_OAUTH_REDIRECT_URI
+// says, e.g. http://localhost:5001) because that's the URL registered with
+// Google — never the Vite dev origin. In production that's fine, Express
+// serves the built client from the same origin (relative redirect). In dev
+// the client only exists on the Vite server, so a relative redirect here 404s
+// against a client/dist that was never built. CLIENT_DEV_URL lets that be
+// overridden; the Vite default port is the fallback.
+const POST_LOGIN_ORIGIN = process.env.NODE_ENV === 'development'
+  ? (process.env.CLIENT_DEV_URL || 'http://localhost:3000')
+  : '';
+
 function isAllowedEmail(email) {
   if (!email) return false;
   const allowedEmails = (process.env.ALLOWED_GOOGLE_EMAILS || '')
@@ -65,6 +77,25 @@ function isAllowedEmail(email) {
 
 router.post('/logout', (req, res) => {
   res.clearCookie(COOKIE_NAME, COOKIE_OPTIONS);
+  res.json({ ok: true });
+});
+
+// ── Dev-only bypass ───────────────────────────────────────────────────────
+// Lets local development proceed before a Google OAuth client exists. Gated
+// on two conditions, not one: NODE_ENV=development so it can never exist in a
+// deployed environment, AND no GOOGLE_OAUTH_CLIENT_ID so it self-disables the
+// moment real credentials are configured — a bypass that outlives the reason
+// it was added is the actual risk here, more than the bypass itself.
+router.post('/dev-login', (req, res) => {
+  if (process.env.NODE_ENV !== 'development' || process.env.GOOGLE_OAUTH_CLIENT_ID) {
+    return res.status(404).json({ error: 'Not found.' });
+  }
+  const sessionToken = jwt.sign(
+    { username: 'dev-local@localhost', role: 'seo' },
+    JWT_SECRET,
+    { expiresIn: '7d' }
+  );
+  res.cookie(COOKIE_NAME, sessionToken, COOKIE_OPTIONS);
   res.json({ ok: true });
 });
 
@@ -146,7 +177,7 @@ router.get('/google', (req, res) => {
 // caller's email against the allowlist/domain, then issues our own session cookie.
 router.get('/google/callback', async (req, res) => {
   const { code, error } = req.query;
-  if (error || !code) return res.redirect('/login?error=access_denied');
+  if (error || !code) return res.redirect(`${POST_LOGIN_ORIGIN}/login?error=access_denied`);
 
   try {
     const { tokens } = await oauth2Client.getToken(code);
@@ -157,7 +188,7 @@ router.get('/google/callback', async (req, res) => {
     const payload = ticket.getPayload();
 
     if (!payload.email_verified || !isAllowedEmail(payload.email)) {
-      return res.redirect('/login?error=unauthorized');
+      return res.redirect(`${POST_LOGIN_ORIGIN}/login?error=unauthorized`);
     }
 
     let userId;
@@ -178,10 +209,10 @@ router.get('/google/callback', async (req, res) => {
       { expiresIn: '7d' }
     );
     res.cookie(COOKIE_NAME, sessionToken, COOKIE_OPTIONS);
-    res.redirect('/');
+    res.redirect(POST_LOGIN_ORIGIN || '/');
   } catch (e) {
     console.error('[Auth] Google callback failed:', e.message);
-    res.redirect('/login?error=login_failed');
+    res.redirect(`${POST_LOGIN_ORIGIN}/login?error=login_failed`);
   }
 });
 

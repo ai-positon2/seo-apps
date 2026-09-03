@@ -8,6 +8,14 @@ const ERROR_MESSAGES = {
 export default function LoginPage() {
   const error = ERROR_MESSAGES[params.get('error')];
 
+  // Local-dev-only escape hatch — see server/routes/auth.js POST /dev-login.
+  // import.meta.env.DEV is Vite's own dev-vs-build flag, so this never
+  // renders in a production bundle regardless of anything server-side.
+  async function devLogin() {
+    const res = await fetch('/api/auth/dev-login', { method: 'POST', credentials: 'include' });
+    if (res.ok) window.location.href = '/';
+  }
+
   return (
     <div style={{
       height: '100vh',
@@ -86,6 +94,27 @@ export default function LoginPage() {
           </svg>
           Sign in with Google
         </a>
+
+        {import.meta.env.DEV && (
+          <button
+            onClick={devLogin}
+            style={{
+              width: '100%',
+              marginTop: 10,
+              padding: '8px 14px',
+              borderRadius: 8,
+              border: '1px dashed var(--border)',
+              background: 'transparent',
+              color: 'var(--text-3)',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+              boxSizing: 'border-box',
+            }}
+          >
+            Continue as dev user (local only)
+          </button>
+        )}
       </div>
     </div>
   );

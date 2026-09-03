@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("node:http");
-const { SeoCrawler, normalizeUrl } = require("../crawler");
+const { SeoCrawler, normalizeUrl, __assertGraphReady: assertGraphReady } = require("../crawler");
 
 function listen(server) {
   return new Promise((resolve) => {
@@ -86,9 +86,11 @@ test("crawls internal HTML, follows redirects, respects robots, and finds duplic
   assert.equal(summary.stopped, false);
   assert.equal(summary.results.length, 6);
   assert.equal(summary.robotsStatus, "Respected");
-  // 95 = the 92 original checks plus javascript-rendered-site, crawl-trap and
-  // sitemap-unreadable, which name three ways a crawl can come back thin.
-  assert.equal(summary.catalog.length, 95);
+  // 96 = the 92 original checks, javascript-rendered-site, crawl-trap and
+  // sitemap-unreadable (three ways a crawl can come back thin), plus
+  // title-missing (a page with no <title> tag at all — previously only
+  // caught live by crawler.js's quickIssues(), never re-checked post-crawl).
+  assert.equal(summary.catalog.length, 96);
   assert.ok(
     summary.findings.some((finding) => finding.ruleId === "broken-internal-links"),
   );
@@ -114,6 +116,98 @@ test("crawls internal HTML, follows redirects, respects robots, and finds duplic
   assert.equal(redirect.status, 302);
   assert.ok(redirect.redirectUrl.endsWith("/about"));
   assert.equal(blocked.statusText, "Blocked by robots.txt");
+});
+
+test("detects third-party tags by static signature match — placement, loading, and a clean page", async (t) => {
+  const server = http.createServer((request, response) => {
+    const routes = {
+      "/robots.txt": [200, "text/plain", "User-agent: *\nAllow: /"],
+      "/": [
+        200,
+        "text/html",
+        `<!doctype html><html><head>
+          <title>Tag fixture home</title>
+          <meta name="description" content="A page carrying a Google Tag Manager container and a legacy Universal Analytics snippet, for detection coverage.">
+          <link rel="canonical" href="/">
+          <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id=GTM-XXXX'+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','GTM-XXXX');</script>
+        </head><body><h1>Home</h1><p>${"Fixture content for the tag-detection test page. ".repeat(20)}</p>
+          <script>(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');ga('create', 'UA-XXXXXX-1', 'auto');ga('send', 'pageview');</script>
+          <script src="https://connect.facebook.net/en_US/fbevents.js" async></script>
+          <a href="/clean">Clean</a>
+        </body></html>`,
+      ],
+      "/clean": [
+        200,
+        "text/html",
+        `<!doctype html><html><head>
+          <title>Tag fixture clean page</title>
+          <meta name="description" content="A page with no third-party scripts at all, to confirm detection stays empty rather than false-positive.">
+        </head><body><h1>Clean</h1><p>${"No tags on this page at all. ".repeat(20)}</p></body></html>`,
+      ],
+    };
+    const [status, type, body] = routes[request.url] || [404, "text/plain", "Not found"];
+    response.statusCode = status;
+    response.setHeader("Content-Type", type);
+    response.end(body);
+  });
+  t.after(() => server.close());
+
+  const port = await listen(server);
+  const crawler = new SeoCrawler({
+    maxUrls: 20,
+    concurrency: 2,
+    respectRobots: true,
+    crawlAssets: false,
+    checkExternalLinks: false,
+    discoverSitemaps: false,
+    timeout: 5_000,
+  });
+  const summary = await crawler.start(`http://127.0.0.1:${port}/`);
+
+  const home = summary.results.find((item) => item.url.endsWith(`${port}/`));
+  const clean = summary.results.find((item) => item.url.endsWith("/clean"));
+
+  const byId = new Map(home.integrations.map((i) => [i.id, i]));
+  assert.equal(byId.size, 3);
+
+  const gtm = byId.get("google-tag-manager");
+  assert.ok(gtm, "GTM's inline embed snippet should be detected");
+  assert.equal(gtm.location, "head");
+  // The snippet's own dynamically-inserted script is async, but the
+  // detected element here is the INLINE bootstrap script itself, which runs
+  // synchronously as the parser reaches it.
+  assert.equal(gtm.loading, "sync");
+
+  const ua = byId.get("universal-analytics");
+  assert.ok(ua, "the legacy Universal Analytics snippet should still be detected");
+  assert.equal(ua.location, "body");
+
+  const pixel = byId.get("facebook-pixel");
+  assert.ok(pixel, "the externally-sourced Facebook Pixel script should be detected");
+  assert.equal(pixel.location, "body");
+  assert.equal(pixel.loading, "async");
+
+  assert.deepEqual(clean.integrations, []);
+
+  // The per-page detections above are only half the feature — the run-level
+  // aggregate (what the dashboard's "Tags detected" chart and "Integrations
+  // detected" section actually read, via run.summary.integrations) has to
+  // survive the trip from analyzer.js's buildFindings() through crawler.js's
+  // own returned payload. It's easy to wire the per-page half and forget the
+  // aggregate never got copied onto that payload — this would have caught
+  // exactly that: summary.integrations silently `null` while every page's
+  // own `.integrations` array was already correct.
+  assert.ok(summary.integrations, "summary.integrations must not be null when detections exist");
+  assert.equal(summary.integrations.totalPages, summary.results.filter((r) => r.contentType?.includes("text/html") && r.scope !== "External").length);
+  const gtmAggregate = summary.integrations.items.find((i) => i.id === "google-tag-manager");
+  assert.ok(gtmAggregate, "the site-wide aggregate must include the vendor detected on the home page");
+  assert.equal(gtmAggregate.pageCount, 1);
+
+  // Same class of bug, same guard: analyzer.js's buildFindings() computes
+  // rootCauseGroups (V9.0's root-cause rollup), and it's just as easy to
+  // wire it into analysis.* and forget to copy it onto crawler.js's own
+  // returned payload — this catches that before it ships silently null.
+  assert.ok(Array.isArray(summary.rootCauseGroups), "summary.rootCauseGroups must survive the trip through crawler.js's payload");
 });
 
 test("Location creates redirect state and crawl jobs only for Fetch redirect statuses", async () => {
@@ -2800,4 +2894,76 @@ test("distinguishes valid file hyperlinks from link-only resource relationships 
   ]) {
     assert.ok(!byTargetPath.has(validPath), `${validPath} should remain a valid hyperlink`);
   }
+});
+
+// ── Crawler-completeness Phase 1 ────────────────────────────────────────────
+
+test("assertGraphReady: throws if the queue is not drained and the crawl was not stopped", () => {
+  assert.throws(
+    () => assertGraphReady({ queueLength: 3, active: 0, stopped: false }),
+    /queued/,
+  );
+});
+
+test("assertGraphReady: throws if a fetch is still in flight, queue empty or not", () => {
+  assert.throws(
+    () => assertGraphReady({ queueLength: 0, active: 1, stopped: false }),
+    /in flight/,
+  );
+  assert.throws(
+    () => assertGraphReady({ queueLength: 0, active: 2, stopped: true }),
+    /in flight/,
+  );
+});
+
+test("assertGraphReady: does not throw once the queue is drained (or stopped) and nothing is in flight", () => {
+  assert.doesNotThrow(() => assertGraphReady({ queueLength: 0, active: 0, stopped: false }));
+  assert.doesNotThrow(() => assertGraphReady({ queueLength: 47, active: 0, stopped: true }));
+});
+
+test("a redirect response's blank Content-Type does not misclassify an ordinary internal link as isAsset", async (t) => {
+  const server = http.createServer((request, response) => {
+    const routes = {
+      "/robots.txt": [200, "text/plain", "User-agent: *\nAllow: /"],
+      "/": [
+        200,
+        "text/html",
+        `<!doctype html><html><head><title>isAsset fixture</title>
+          <meta name="description" content="A page linking to a redirecting tracking link and a real image, to confirm only the image is treated as an asset.">
+        </head><body><h1>Home</h1><p>${"Fixture content for the isAsset test page. ".repeat(20)}</p>
+          <a href="/goto/offer">Redirecting tracking link</a>
+          <img src="/logo.png" alt="Logo">
+        </body></html>`,
+      ],
+      // A 3xx with NO Content-Type header at all — the exact shape that
+      // previously tripped the content-type fallback.
+      "/goto/offer": [302, "", ""],
+      "/logo.png": [200, "image/png", "not-a-real-png-but-has-the-right-type"],
+    };
+    const [status, type, body] = routes[request.url] || [404, "text/plain", "Not found"];
+    response.statusCode = status;
+    if (type) response.setHeader("Content-Type", type);
+    if (request.url === "/goto/offer") response.setHeader("Location", "/offer");
+    response.end(body);
+  });
+  t.after(() => server.close());
+
+  const port = await listen(server);
+  const crawler = new SeoCrawler({
+    maxUrls: 20,
+    concurrency: 2,
+    respectRobots: true,
+    crawlAssets: true,
+    checkExternalLinks: false,
+    discoverSitemaps: false,
+    timeout: 5_000,
+  });
+  const summary = await crawler.start(`http://127.0.0.1:${port}/`);
+
+  const redirectResult = summary.results.find((item) => item.url.endsWith("/goto/offer"));
+  const imageResult = summary.results.find((item) => item.url.endsWith("/logo.png"));
+  assert.ok(redirectResult, "the redirect should still have been fetched and recorded");
+  assert.equal(redirectResult.isAsset, false, "a redirect with no content-type is not an asset just because it wasn't HTML");
+  assert.ok(imageResult, "the real image should have been fetched too");
+  assert.equal(imageResult.isAsset, true, "a genuine image is still correctly classified as an asset");
 });

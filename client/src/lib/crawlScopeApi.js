@@ -45,6 +45,15 @@ export const cs = {
   resume: (id) => req(`/runs/${id}/resume`, { method: 'POST' }),
   stop: (id) => req(`/runs/${id}/stop`, { method: 'POST' }),
 
+  // ── PageSpeed Insights (on-demand, one page at a time) ───────────────────
+  // POST kicks the check off and returns immediately (it can take 15-90s
+  // server-side); poll the status endpoint until it reports "done" or
+  // "error". See api/routes.js for why this isn't a single blocking call.
+  checkPageSpeed: (id, url) =>
+    req(`/runs/${id}/results/pagespeed`, { method: 'POST', body: JSON.stringify({ url }) }),
+  pageSpeedStatus: (id, url) =>
+    req(`/runs/${id}/results/pagespeed/status?url=${encodeURIComponent(url)}`),
+
   // ── Issue review ──────────────────────────────────────────────────────────
   // Findings come back with their persisted review status and notes merged in;
   // anything never touched reads as "Needs review".

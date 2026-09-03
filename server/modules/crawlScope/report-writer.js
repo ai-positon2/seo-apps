@@ -1,4 +1,5 @@
 const ExcelJS = require("exceljs");
+const { buildRootCauseGroups } = require("./analyzer");
 
 const COLORS = {
   navy: "1F4E78",
@@ -23,7 +24,7 @@ const COLORS = {
 const PRIORITY_COLORS = {
   "High Priority": { band: "B03A2E", tint: "FADBD8", text: COLORS.white },
   "Medium Priority": { band: "B9770E", tint: "FCF3CF", text: COLORS.white },
-  "Good to have": { band: "1E8449", tint: "D5F5E3", text: COLORS.white },
+  "Low Priority": { band: "1E8449", tint: "D5F5E3", text: COLORS.white },
 };
 const DEFAULT_PRIORITY_COLOR = { band: COLORS.navy, tint: COLORS.zebra, text: COLORS.white };
 
@@ -34,16 +35,37 @@ const REVIEW_STATUSES = [
   "Resolved",
 ];
 
+// Mirrors DISMISSED in client/src/components/crawlScope/crawlHelpers.js — a
+// finding marked either of these is not an outstanding, live issue any more.
+const DISMISSED_STATUSES = new Set(["False positive", "Resolved"]);
+
 // Detail sheets for these rules show a Current/Recommended pair instead of
 // the generic Target/Detected Value/Recommendations columns — a concrete
 // before-and-after is far more actionable than a length or a generic tip
 // repeated on every row of the sheet.
 const BEFORE_AFTER_LABELS = {
+  "title-missing": { current: "Current Title", recommended: "Recommended Title" },
   "title-long": { current: "Current Title", recommended: "Recommended Title" },
   "meta-long": { current: "Current Meta Description", recommended: "Recommended Meta Description" },
   "meta-short": { current: "Current Meta Description", recommended: "Recommended Meta Description" },
   "meta-missing": { current: "Current Meta Description", recommended: "Recommended Meta Description" },
   "h1-missing": { current: "Current H1", recommended: "Recommended H1" },
+};
+
+// "Recommended Length" is a target range to write to, not a character count of
+// whatever string happens to sit in recommendedValue — that value is
+// sometimes a real rewrite and sometimes an honest "needs a manual rewrite —
+// current title is N characters..." sentence (analyzer.js's suggestTitle/
+// suggestMetaDescription), and measuring the SENTENCE's length produced
+// nonsense like "134" on every row of a Titles tab. h1-missing has no
+// universal SEO length target, so it's an honest null rather than a
+// fabricated range.
+const TARGET_LENGTH_RANGES = {
+  "title-missing": "50–60",
+  "title-long": "50–60",
+  "meta-missing": "150–160",
+  "meta-long": "150–160",
+  "meta-short": "150–160",
 };
 
 function valueOrNull(value) {
@@ -103,8 +125,8 @@ function rowHeightFromLines(lines, { lineHeight = 13, minHeight = 20, maxHeight 
   return Math.min(maxHeight, Math.max(minHeight, lines * lineHeight + 8));
 }
 
-function styleSummarySheet(sheet) {
-  sheet.views = [{ state: "frozen", ySplit: 1, showGridLines: false }];
+function styleSummarySheet(sheet, headerRowNumber) {
+  sheet.views = [{ state: "frozen", ySplit: headerRowNumber, showGridLines: false }];
   sheet.columns = [
     { key: "priority", width: 8 },
     { key: "issue", width: 34 },
@@ -112,8 +134,9 @@ function styleSummarySheet(sheet) {
     { key: "status", width: 24 },
     { key: "implemented", width: 22 },
     { key: "action", width: 72 },
+    { key: "tier", width: 16 },
   ];
-  const header = sheet.getRow(1);
+  const header = sheet.getRow(headerRowNumber);
   header.height = 36;
   header.eachCell((cell) => {
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.headerGray } };
@@ -126,7 +149,7 @@ function styleSummarySheet(sheet) {
 function addPriorityBand(sheet, title) {
   const palette = PRIORITY_COLORS[title] || DEFAULT_PRIORITY_COLOR;
   const row = sheet.addRow([title]);
-  sheet.mergeCells(row.number, 1, row.number, 6);
+  sheet.mergeCells(row.number, 1, row.number, 7);
   row.height = 24;
   const cell = row.getCell(1);
   cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: palette.band } };
@@ -162,6 +185,97 @@ function styleDetailSheet(sheet, lastColumnLetter, tableHeaderRow, lastDataRow) 
 // review status, and reviewer notes). A handful of rules — the ones where a
 // concrete rewritten value is more useful than a repeated generic tip — get a
 // Current/Recommended pair instead.
+
+// Appended to every detail sheet, generic layout or before/after. Fix Type
+// and its root-cause line are computed from the findings themselves (see
+// assessFixType); Owner and Target Date are deliberately left blank — a real
+// name and a real date are the client team's to supply, not something a
+// crawl can infer.
+const ACTIONABILITY_COLUMNS = [
+  { key: "fixType", header: "Fix Type", width: 12, type: "code" },
+  { key: "effort", header: "Effort", width: 12, type: "code" },
+  { key: "owner", header: "Owner", width: 18, type: "text" },
+  { key: "targetDate", header: "Target Date", width: 14, type: "text" },
+  { key: "impact", header: "Estimated Impact", width: 16, type: "code" },
+];
+const OWNER_OPTIONS = ["Unassigned", "SEO Team", "Dev Team", "Content Team", "Legal/Regulatory"];
+
+// A rule that fires on many rows sharing the same detected value is a strong,
+// generic signal that one shared cause (a theme, a plugin, a template
+// component) produced all of them — fixing it once fixes every row. A rule
+// where each row's detected value differs has no such shared cause visible in
+// the data, so it's treated as needing page-by-page attention. This is a
+// heuristic computed from the actual findings, not a per-site judgment call.
+function assessFixType(findings, definition) {
+  // scope/ruleId override the shared-value heuristic below entirely for the
+  // cases where we already know the real fix shape from the catalog, rather
+  // than inferring it from how many rows share a detected value:
+  //   - scope='template' (set by collapseTemplateFindings in analyzer.js) is
+  //     a PROVEN shared cause — identical evidence matched across most of
+  //     the crawl — not the shareRatio heuristic's guess below. Checked
+  //     first because it's the strongest signal available.
+  //   - a site-scoped check (sitemap/robots config, llms.txt, HSTS, ...) is
+  //     one whole-site fix regardless of how many findings it produced
+  //   - slow-page is a server/hosting configuration change, not N page edits
+  if (findings[0]?.scope === "template") {
+    return {
+      fixType: "Template",
+      rootCause: `Identical evidence confirmed across all ${findings.length} rows — a shared template or component, not ${findings.length} separate problems. Fix it once.`,
+    };
+  }
+  if (definition?.scope === "site") {
+    return {
+      fixType: "Site",
+      rootCause: "A whole-site configuration issue (see Site-level findings), not a page-by-page problem — fix it once, not per URL.",
+    };
+  }
+  if (definition?.id === "slow-page") {
+    return {
+      fixType: "Config",
+      rootCause: "Server response time is a hosting/server configuration change, not something fixed one page at a time.",
+    };
+  }
+  const total = findings.length;
+  if (total < 5) {
+    return { fixType: "Page", rootCause: `${total} row${total === 1 ? "" : "s"} — not enough to indicate a shared cause; review individually.` };
+  }
+  const values = findings
+    .map((f) => (typeof f.detectedValue === "string" ? f.detectedValue : f.detectedValue != null ? String(f.detectedValue) : ""))
+    .filter(Boolean);
+  if (!values.length) {
+    return { fixType: "Page", rootCause: `${total} rows with no comparable detected value recorded — review individually.` };
+  }
+  const counts = new Map();
+  for (const v of values) counts.set(v, (counts.get(v) || 0) + 1);
+  const [, topCount] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+  const shareRatio = topCount / total;
+  if (shareRatio >= 0.6) {
+    return {
+      fixType: "Template",
+      rootCause: `${total} rows, ${topCount} of them (${Math.round(shareRatio * 100)}%) sharing the same detected value — consistent with one shared template or component cause rather than ${total} separate problems.`,
+    };
+  }
+  return {
+    fixType: "Page",
+    rootCause: `${total} rows with mostly distinct detected values — no shared cause visible in the data; likely needs page-by-page review.`,
+  };
+}
+
+function assessEffort(fixType, count) {
+  // One template edit, one site config change, or one server change — never
+  // scales with how many rows/pages it happens to touch.
+  if (fixType === "Template" || fixType === "Site" || fixType === "Config") return "Easy";
+  if (count <= 5) return "Easy";
+  if (count <= 15) return "Moderate";
+  return "Complex";
+}
+
+function assessImpact(priority, count) {
+  if (priority === "High Priority") return "High";
+  if (priority === "Medium Priority") return count >= 5 ? "Medium" : "Low";
+  return "Low";
+}
+
 function detailColumns(ruleId) {
   const beforeAfter = BEFORE_AFTER_LABELS[ruleId];
   if (beforeAfter) {
@@ -171,9 +285,14 @@ function detailColumns(ruleId) {
       { key: "recommended", header: beforeAfter.recommended, width: 46, type: "text" },
       { key: "status", header: "SEO Status", width: 22, type: "status" },
       { key: "notes", header: "Reviewer Notes", width: 38, type: "notes" },
+      // Appended, not inserted — keeps every existing column in place so a
+      // cell reference into A-E still means what it always meant.
+      { key: "currentLength", header: "Current Length", width: 14, type: "code" },
+      { key: "recommendedLength", header: "Recommended Length", width: 18, type: "code" },
+      ...ACTIONABILITY_COLUMNS,
     ];
   }
-  return [
+  const columns = [
     { key: "url", header: "Page URL", width: 54, type: "url" },
     { key: "target", header: "Target / Related URL", width: 48, type: "url" },
     { key: "value", header: "Detected Value", width: 40, type: "text" },
@@ -181,7 +300,12 @@ function detailColumns(ruleId) {
     { key: "recommendation", header: "Recommendations", width: 62, type: "text" },
     { key: "status", header: "SEO Status", width: 22, type: "status" },
     { key: "notes", header: "Reviewer Notes", width: 38, type: "notes" },
+    ...ACTIONABILITY_COLUMNS,
   ];
+  // A response-time finding is about the page itself, not a second related
+  // URL — that column is always empty for slow-page alone, so drop it rather
+  // than ship a column that can never hold anything, on this one sheet only.
+  return ruleId === "slow-page" ? columns.filter((c) => c.key !== "target") : columns;
 }
 
 function cellValueFor(key, finding) {
@@ -200,19 +324,48 @@ function cellValueFor(key, finding) {
       return valueOrNull(finding.detectedValue) || "(none)";
     case "recommended":
       return valueOrNull(finding.recommendedValue);
+    case "currentLength": {
+      const v = finding.detectedValue;
+      return typeof v === "string" && v !== "(none)" ? v.length : null;
+    }
+    case "recommendedLength":
+      return TARGET_LENGTH_RANGES[finding.ruleId] ?? null;
     case "status":
       return finding.reviewStatus || "Needs review";
     case "notes":
       return finding.reviewerNotes || null;
+    case "fixType":
+      return finding._fixType || null;
+    case "effort":
+      return finding._effort || null;
+    case "impact":
+      return finding._impact || null;
+    case "owner":
+      return "Unassigned";
+    case "targetDate":
+      return null;
     default:
       return null;
   }
 }
 
-function addDetailSheet(workbook, definition, findings, sheetName) {
+function addDetailSheet(workbook, definition, findings, sheetName, displayTitle = definition.title) {
   const sheet = workbook.addWorksheet(sheetName, {
     properties: { tabColor: { argb: (PRIORITY_COLORS[definition.priority] || DEFAULT_PRIORITY_COLOR).band } },
   });
+
+  // Computed once per rule, then stamped onto every finding in the group —
+  // cellValueFor reads a single finding at a time and has no other way to
+  // see the shape of the whole group.
+  const { fixType, rootCause } = assessFixType(findings, definition);
+  const effort = assessEffort(fixType, findings.length);
+  const impact = assessImpact(definition.priority, findings.length);
+  for (const finding of findings) {
+    finding._fixType = fixType;
+    finding._effort = effort;
+    finding._impact = impact;
+  }
+
   const columns = detailColumns(definition.id);
   const columnCount = columns.length;
   const lastColumn = excelColumnLetter(columnCount);
@@ -223,7 +376,7 @@ function addDetailSheet(workbook, definition, findings, sheetName) {
 
   const titleLastColumn = excelColumnLetter(Math.max(1, columnCount - 1));
   sheet.mergeCells(`A1:${titleLastColumn}1`);
-  sheet.getCell("A1").value = definition.title;
+  sheet.getCell("A1").value = displayTitle;
   sheet.getCell("A1").fill = {
     type: "pattern",
     pattern: "solid",
@@ -247,13 +400,13 @@ function addDetailSheet(workbook, definition, findings, sheetName) {
     [2, "Observation", true],
     [
       3,
-      `It is observed that ${findings.length.toLocaleString()} occurrence(s) of “${definition.title}” were identified.`,
+      `${findings.length.toLocaleString()} ${findings.length === 1 ? "row flags" : "rows flag"} "${definition.title}".`,
       false,
     ],
     [4, "Impact", true],
     [5, definition.description, false],
     [6, "Recommendations", true],
-    [7, definition.recommendation, false],
+    [7, `${definition.recommendation} Root cause: ${rootCause}`, false],
   ];
   for (const [rowNumber, value, heading] of narrative) {
     sheet.mergeCells(`A${rowNumber}:${lastColumn}${rowNumber}`);
@@ -324,6 +477,19 @@ function addDetailSheet(workbook, definition, findings, sheetName) {
       errorTitle: "Choose a review status",
       error: "Select a value from the list.",
     };
+    const ownerColumnIndex = columns.findIndex((column) => column.key === "owner") + 1;
+    if (ownerColumnIndex) {
+      row.getCell(ownerColumnIndex).dataValidation = {
+        type: "list",
+        allowBlank: false,
+        formulae: [`"${OWNER_OPTIONS.join(",")}"`],
+        showErrorMessage: false,
+      };
+    }
+    const targetDateColumnIndex = columns.findIndex((column) => column.key === "targetDate") + 1;
+    if (targetDateColumnIndex) {
+      row.getCell(targetDateColumnIndex).numFmt = "mmm d, yyyy";
+    }
   });
 
   const lastDataRow = Math.max(tableHeaderRow + 1, sheet.lastRow.number);
@@ -370,8 +536,11 @@ function addDetailSheet(workbook, definition, findings, sheetName) {
   if (definition.id === "slow-page") {
     const valueColumnIndex = columns.findIndex((column) => column.key === "value") + 1;
     const valueColumnLetter = excelColumnLetter(valueColumnIndex);
+    // Milliseconds, thousands-separated — matches the crawl-time "Time"
+    // column in the UI (e.g. "2,871 ms") rather than seconds rounded to 2
+    // decimals, which silently dropped precision (2871ms -> "2.87s").
     for (let rowNumber = tableHeaderRow + 1; rowNumber <= lastDataRow; rowNumber += 1) {
-      sheet.getCell(`${valueColumnLetter}${rowNumber}`).numFmt = '0.00"s"';
+      sheet.getCell(`${valueColumnLetter}${rowNumber}`).numFmt = '#,##0" ms"';
     }
     sheet.addConditionalFormatting({
       ref: `${valueColumnLetter}${tableHeaderRow + 1}:${valueColumnLetter}${lastDataRow}`,
@@ -379,8 +548,8 @@ function addDetailSheet(workbook, definition, findings, sheetName) {
         {
           type: "colorScale",
           cfvo: [
-            { type: "num", value: 1 },
-            { type: "num", value: 8 },
+            { type: "num", value: 1000 },
+            { type: "num", value: 8000 },
           ],
           color: [{ argb: COLORS.warning }, { argb: "FFC0392B" }],
         },
@@ -390,6 +559,151 @@ function addDetailSheet(workbook, definition, findings, sheetName) {
 
   styleDetailSheet(sheet, lastColumn, tableHeaderRow, lastDataRow);
   return { sheet, statusRange };
+}
+
+// One row per DISTINCT ROOT CAUSE, not per occurrence — analyzer.js's
+// buildRootCauseGroups groups findings by (ruleId, evidence signature), so
+// 119 rows sharing one bad href become one row here, while 44 broken
+// external links to 43 different domains correctly stay 43 rows. This is
+// the sheet a reviewer should start on; the per-rule detail sheets that
+// follow are the occurrence-level backing data for whichever row they open.
+function addConsolidatedActionsSheet(workbook, { findings, sheetPlan, findingScope }) {
+  const rootCauseGroups = buildRootCauseGroups(findings);
+  const findingsByGroupId = new Map();
+  for (const finding of findings) {
+    const list = findingsByGroupId.get(finding.rootCauseGroupId) || [];
+    list.push(finding);
+    findingsByGroupId.set(finding.rootCauseGroupId, list);
+  }
+
+  const priorityRank = { "High Priority": 0, "Medium Priority": 1, "Low Priority": 2 };
+  const rows = [];
+  for (const group of rootCauseGroups) {
+    const members = findingsByGroupId.get(group.groupId) || [];
+    const activeCount = members.filter((f) =>
+      ["Needs review", "Confirmed issue"].includes(f.reviewStatus),
+    ).length;
+    if (!activeCount) continue; // every instance already dismissed — nothing outstanding
+    const needsReviewCount = members.filter((f) => f.reviewStatus === "Needs review").length;
+    const confirmedCount = members.filter((f) => f.reviewStatus === "Confirmed issue").length;
+    const resolvedCount = members.filter((f) => f.reviewStatus === "Resolved").length;
+    const statusResult = needsReviewCount
+      ? "Needs review"
+      : confirmedCount
+        ? "Confirmed issue"
+        : resolvedCount
+          ? "Resolved"
+          : "False positive";
+    const effort = assessEffort(group.fixType, group.memberCount);
+    const key = `${group.ruleId}::${group.scope}`;
+    rows.push({ group, activeCount, statusResult, effort, sheetName: sheetPlan.get(key)?.sheetName });
+  }
+  rows.sort(
+    (a, b) =>
+      (priorityRank[a.group.priority] ?? 3) - (priorityRank[b.group.priority] ?? 3) ||
+      b.group.memberCount - a.group.memberCount,
+  );
+
+  const sheet = workbook.addWorksheet("Consolidated Actions", {
+    properties: { tabColor: { argb: COLORS.navy } },
+  });
+  sheet.views = [{ state: "frozen", ySplit: 3, showGridLines: false }];
+  sheet.columns = [
+    { key: "seq", width: 5 },
+    { key: "rootCause", width: 40 },
+    { key: "occurrences", width: 13 },
+    { key: "pages", width: 13 },
+    { key: "targets", width: 13 },
+    { key: "fixType", width: 12 },
+    { key: "effort", width: 12 },
+    { key: "priority", width: 15 },
+    { key: "status", width: 20 },
+    { key: "action", width: 62 },
+  ];
+
+  const pageScopeActive = findings.filter(
+    (f) => ["Needs review", "Confirmed issue"].includes(f.reviewStatus) && findingScope(f) === "page",
+  ).length;
+  const pageScopeActionCount = rows.filter((r) => r.group.scope === "page").length;
+  const titleRow = sheet.addRow([
+    rows.length
+      ? `${pageScopeActionCount} action${pageScopeActionCount === 1 ? "" : "s"} across ${pageScopeActive.toLocaleString()} page-level occurrence${pageScopeActive === 1 ? "" : "s"}`
+      : "No outstanding findings",
+  ]);
+  sheet.mergeCells(titleRow.number, 1, titleRow.number, 10);
+  titleRow.height = 26;
+  titleRow.getCell(1).font = { name: "Poppins", size: 13, bold: true, color: { argb: COLORS.navy } };
+  titleRow.getCell(1).alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+
+  const noteRow = sheet.addRow([
+    "One row per distinct root cause (identical evidence — the same broken link, the same missing schema property, the same server) — not one row per affected page. " +
+      "Site, resource & template-level actions are included below but excluded from the occurrence count above, same as SUMMARY's own TOTAL.",
+  ]);
+  sheet.mergeCells(noteRow.number, 1, noteRow.number, 10);
+  noteRow.height = rowHeightFromLines(estimateWrappedLines(noteRow.getCell(1).value, 120), { lineHeight: 13, minHeight: 18 });
+  noteRow.getCell(1).font = { name: "Poppins", size: 9, italic: true, color: { argb: COLORS.muted } };
+  noteRow.getCell(1).alignment = { vertical: "middle", horizontal: "left", indent: 1, wrapText: true };
+
+  const headerRowNumber = 3;
+  const header = sheet.getRow(headerRowNumber);
+  header.values = [
+    "#", "Root Cause", "Occurrences", "Affected Pages", "Unique Targets",
+    "Fix Type", "Effort", "Priority", "Status", "Recommended Action",
+  ];
+  header.height = 30;
+  header.eachCell((cell) => {
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.headerGray } };
+    cell.font = { name: "Poppins", size: 10, bold: true, color: { argb: "000000" } };
+    cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+    applyGridBorder(cell);
+  });
+
+  rows.forEach((row, index) => {
+    const palette = PRIORITY_COLORS[row.group.priority] || DEFAULT_PRIORITY_COLOR;
+    const titleCell = row.sheetName
+      ? { text: row.group.title, hyperlink: `#${quoteSheet(row.sheetName)}!A1` }
+      : row.group.title;
+    const excelRow = sheet.addRow([
+      index + 1,
+      titleCell,
+      row.activeCount,
+      row.group.affectedPageCount,
+      row.group.uniqueTargetCount,
+      row.group.fixType,
+      row.effort,
+      row.group.priority,
+      row.statusResult,
+      row.group.recommendation,
+    ]);
+    excelRow.height = rowHeightFromLines(estimateWrappedLines(row.group.recommendation, 62), {
+      lineHeight: 13,
+      minHeight: 24,
+    });
+    const isZebra = index % 2 === 1;
+    excelRow.eachCell((cell, columnNumber) => {
+      cell.font = {
+        name: "Poppins",
+        size: 9,
+        bold: columnNumber === 2,
+        color: { argb: columnNumber === 2 && row.sheetName ? COLORS.link : COLORS.black },
+        underline: columnNumber === 2 && Boolean(row.sheetName),
+      };
+      cell.alignment = {
+        vertical: "middle",
+        horizontal: [1, 3, 4, 5, 6, 7].includes(columnNumber) ? "center" : "left",
+        wrapText: true,
+      };
+      if (columnNumber === 8) {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: palette.tint } };
+        cell.font = { ...cell.font, bold: true };
+      } else if (isZebra) {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.zebra } };
+      }
+      applyGridBorder(cell);
+    });
+  });
+
+  sheet.autoFilter = { from: `A${headerRowNumber}`, to: `J${Math.max(headerRowNumber, sheet.lastRow.number)}` };
 }
 
 async function buildAuditWorkbook({
@@ -412,36 +726,94 @@ async function buildAuditWorkbook({
   const summary = workbook.addWorksheet("SUMMARY", {
     properties: { tabColor: { argb: COLORS.navy } },
   });
+  const titleRow = summary.addRow([`CrawlScope Technical SEO Audit${siteUrl ? ` — ${siteUrl}` : ""}`]);
+  summary.mergeCells(titleRow.number, 1, titleRow.number, 7);
+  titleRow.height = 26;
+  titleRow.getCell(1).font = { name: "Poppins", size: 13, bold: true, color: { argb: COLORS.navy } };
+  titleRow.getCell(1).alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+  const HEADER_ROW = 2;
   summary.addRow([
     "#",
     "Issue",
-    "New No of Errors",
+    "Open Occurrences",
     "Status",
-    "Previously Implemented",
+    "Resolved Previously",
     "Actions to be taken",
+    "Tier",
   ]);
-  styleSummarySheet(summary);
+  styleSummarySheet(summary, HEADER_ROW);
 
   const definitions = new Map(catalog.map((item) => [item.id, item]));
-  const grouped = new Map();
+  // Grouped by (ruleId, scope), not ruleId alone. A rule used to carry one
+  // scope for its whole run; now a rule like broken-internal-links can carry
+  // BOTH — most findings still page-scoped, but a link recurring identically
+  // across most of the crawl gets retagged scope='template' by
+  // collapseTemplateFindings() in analyzer.js before this ever sees it.
+  // Splitting the grouping key keeps every detail sheet — and the SUMIF
+  // ranges the formulas below point at — scoped to rows of ONE kind, the
+  // same reason a page×check matrix already can't mix a per-page count with
+  // a per-host one.
+  function findingScope(finding) {
+    return finding.scope || definitions.get(finding.ruleId)?.scope || "page";
+  }
+  const grouped = new Map(); // "ruleId::scope" -> finding[]
   for (const finding of findings) {
-    const group = grouped.get(finding.ruleId) || [];
+    const key = `${finding.ruleId}::${findingScope(finding)}`;
+    const group = grouped.get(key) || [];
     group.push(finding);
-    grouped.set(finding.ruleId, group);
+    grouped.set(key, group);
   }
   const usedNames = new Set(["summary"]);
   const detailSheets = new Map();
 
-  for (const [ruleId, group] of grouped) {
+  // A rule only needs its title disambiguated with a scope suffix when it
+  // actually split across more than one this run — the overwhelming common
+  // case (a rule that's always been one scope) keeps its plain title, same
+  // sheet name as before.
+  const groupCountByRuleId = new Map();
+  for (const group of grouped.values()) {
+    const ruleId = group[0].ruleId;
+    groupCountByRuleId.set(ruleId, (groupCountByRuleId.get(ruleId) || 0) + 1);
+  }
+
+  // Sheet names/titles are computed once, up front, and reused by both the
+  // Consolidated Actions sheet (which needs to link to them before they
+  // exist) and the actual addDetailSheet calls below — safeSheetName mutates
+  // `usedNames` to dedupe collisions, so calling it twice for the same key
+  // would hand back two DIFFERENT names ("Foo" then "Foo 2") and silently
+  // break one of the two link sets.
+  const sheetPlan = new Map(); // "ruleId::scope" -> { definition, scope, sheetName, sheetTitle }
+  for (const [key, group] of grouped) {
+    const ruleId = group[0].ruleId;
     const definition = definitions.get(ruleId) || group[0];
-    const sheetName = safeSheetName(definition.title, usedNames);
-    detailSheets.set(ruleId, {
-      ...addDetailSheet(workbook, definition, group, sheetName),
+    const scope = findingScope(group[0]);
+    const splitAcrossScopes = groupCountByRuleId.get(ruleId) > 1;
+    const sheetTitle = splitAcrossScopes
+      ? `${definition.title} (${scope.replace(/^./, (c) => c.toUpperCase())})`
+      : definition.title;
+    sheetPlan.set(key, { definition, scope, sheetName: safeSheetName(sheetTitle, usedNames), sheetTitle });
+  }
+
+  // Added here — right after SUMMARY's worksheet was created above, and
+  // before any per-rule detail sheet's own addWorksheet call below — so it
+  // lands as the second tab in the workbook, per the brief. Reads `findings`
+  // directly rather than expecting a pre-computed rootCauseGroups input: the
+  // grouping is a pure, cheap function of findings alone (see analyzer.js),
+  // and recomputing it here means the Excel export can never drift from
+  // whatever findings actually went into this workbook — the same class of
+  // "computed it, forgot to pass it through" bug that dropped
+  // summary.integrations earlier this build doesn't have anywhere to hide.
+  addConsolidatedActionsSheet(workbook, { findings, sheetPlan, findingScope });
+
+  for (const [key, group] of grouped) {
+    const { definition, sheetName, sheetTitle } = sheetPlan.get(key);
+    detailSheets.set(key, {
+      ...addDetailSheet(workbook, definition, group, sheetName, sheetTitle),
       sheetName,
     });
   }
 
-  const priorities = ["High Priority", "Medium Priority", "Good to have"];
+  const priorities = ["High Priority", "Medium Priority", "Low Priority"];
   let sequence = 1;
   const countRows = [];
   for (const priority of priorities) {
@@ -450,13 +822,20 @@ async function buildAuditWorkbook({
     // Here" list should surface the issue hitting 500 pages before one hitting
     // 2, even within the same priority tier. Category/title break ties so the
     // order stays deterministic when counts match.
-    const rules = [...grouped.keys()]
-      .map((ruleId) => definitions.get(ruleId) || grouped.get(ruleId)[0])
-      .filter((definition) => definition.priority === priority)
-      .map((definition) => ({
+    const rules = [...grouped.entries()]
+      .filter(([, group]) => findingScope(group[0]) === "page")
+      .map(([key, group]) => ({ key, definition: definitions.get(group[0].ruleId) || group[0] }))
+      .filter(({ definition }) => definition.priority === priority)
+      // Site/template/resource-scoped groups get their own block (and their
+      // own total) below the main table — a page×check matrix can't
+      // represent them without either double-counting (once per host, for
+      // HSTS) or silently dropping them, so they're never mixed into this
+      // per-page-issue ranking or its TOTAL.
+      .map(({ key, definition }) => ({
+        key,
         definition,
         activeCount: grouped
-          .get(definition.id)
+          .get(key)
           .filter((finding) =>
             ["Needs review", "Confirmed issue"].includes(finding.reviewStatus),
           ).length,
@@ -467,12 +846,12 @@ async function buildAuditWorkbook({
           a.definition.category.localeCompare(b.definition.category) ||
           a.definition.title.localeCompare(b.definition.title),
       )
-      .map(({ definition }) => definition);
+      .map(({ key, definition }) => ({ key, definition }));
     if (!rules.length) continue;
     addPriorityBand(summary, priority);
-    rules.forEach((definition, indexInTier) => {
-      const group = grouped.get(definition.id);
-      const detail = detailSheets.get(definition.id);
+    rules.forEach(({ key, definition }, indexInTier) => {
+      const group = grouped.get(key);
+      const detail = detailSheets.get(key);
       const activeCount = group.filter((finding) =>
         ["Needs review", "Confirmed issue"].includes(finding.reviewStatus),
       ).length;
@@ -482,11 +861,32 @@ async function buildAuditWorkbook({
       const needsReviewCount = group.filter(
         (finding) => finding.reviewStatus === "Needs review",
       ).length;
+      const confirmedCount = group.filter(
+        (finding) => finding.reviewStatus === "Confirmed issue",
+      ).length;
       const quoted = quoteSheet(detail.sheetName);
+      // Same four values every detail tab's dropdown uses (REVIEW_STATUSES),
+      // not the separate "Review in progress"/"Reviewed" pair this used to
+      // emit — one status vocabulary across the whole workbook. Precedence:
+      // anything still needing a look outranks anything already decided.
+      const statusResult = needsReviewCount
+        ? "Needs review"
+        : confirmedCount
+          ? "Confirmed issue"
+          : resolvedCount
+            ? "Resolved"
+            : "False positive";
+      // Matches the same "(Page)"/"(Template)" suffix the detail sheet's own
+      // tab and title carry when a rule split across scopes this run — a
+      // reader scanning the summary sheet shouldn't have to click through to
+      // discover which half of a split rule this row is.
+      const rowTitle = groupCountByRuleId.get(definition.id) > 1
+        ? `${definition.title} (Page)`
+        : definition.title;
       const row = summary.addRow([
         sequence,
         {
-          text: definition.title,
+          text: rowTitle,
           hyperlink: `#${quoted}!A1`,
         },
         {
@@ -494,14 +894,15 @@ async function buildAuditWorkbook({
           result: activeCount,
         },
         {
-          formula: `IF(COUNTIF(${quoted}!${detail.statusRange},"Needs review")>0,"Review in progress","Reviewed")`,
-          result: needsReviewCount ? "Review in progress" : "Reviewed",
+          formula: `IF(COUNTIF(${quoted}!${detail.statusRange},"Needs review")>0,"Needs review",IF(COUNTIF(${quoted}!${detail.statusRange},"Confirmed issue")>0,"Confirmed issue",IF(COUNTIF(${quoted}!${detail.statusRange},"Resolved")>0,"Resolved","False positive")))`,
+          result: statusResult,
         },
         {
           formula: `COUNTIF(${quoted}!${detail.statusRange},"Resolved")`,
           result: resolvedCount,
         },
         definition.recommendation,
+        priority,
       ]);
       countRows.push(row.number);
       sequence += 1;
@@ -542,16 +943,26 @@ async function buildAuditWorkbook({
     });
   }
 
+  // Page-scoped only — matches the rows actually in this table above. A
+  // site-scoped finding's count is never added in here (see its own block
+  // and total below), the same rule the UI's reconciliation strip follows.
   const total = findings.filter((finding) =>
-    ["Needs review", "Confirmed issue"].includes(finding.reviewStatus),
+    ["Needs review", "Confirmed issue"].includes(finding.reviewStatus) &&
+    findingScope(finding) === "page",
   ).length;
+  // SUMIF on the Tier column (G), not a hardcoded list of row references: a
+  // row inserted or deleted between the header and this total updates the
+  // total automatically as long as it carries a Tier value, instead of
+  // silently falling out of an explicit SUM(C3,C4,...) reference list.
+  const lastPossibleDataRow = Math.max(...countRows, HEADER_ROW) + 500;
   const totalRow = summary.addRow([
     null,
     "TOTAL",
     {
-      formula: `SUM(${countRows.map((row) => `C${row}`).join(",")})`,
+      formula: `SUMIF(G${HEADER_ROW + 1}:G${lastPossibleDataRow},"<>",C${HEADER_ROW + 1}:C${lastPossibleDataRow})`,
       result: total,
     },
+    null,
     null,
     null,
     null,
@@ -569,13 +980,87 @@ async function buildAuditWorkbook({
     applyGridBorder(cell);
   });
 
+  summary.autoFilter = { from: `A${HEADER_ROW}`, to: `G${totalRow.number - 1}` };
+
+  // Site/template/resource-scoped findings, on their own — not one more row
+  // in the table above. The Tier column (G) is left blank on every row in
+  // this block on purpose: TOTAL's SUMIF sums column C wherever column G is
+  // non-blank, over a wide fixed row range that includes these rows too, so
+  // leaving G blank here is what actually keeps them out of TOTAL, not just
+  // where they're visually placed on the sheet.
+  const siteScopedGroupKeys = [...grouped.keys()].filter((key) => findingScope(grouped.get(key)[0]) !== "page");
+  if (siteScopedGroupKeys.length) {
+    const bandRow = summary.addRow([
+      "Site, resource & template-level findings — not page-scoped, and not part of TOTAL above",
+    ]);
+    summary.mergeCells(bandRow.number, 1, bandRow.number, 7);
+    bandRow.height = 22;
+    bandRow.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.navy } };
+    bandRow.getCell(1).font = { name: "Poppins", size: 11, bold: true, color: { argb: COLORS.white } };
+    bandRow.getCell(1).alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+
+    let siteSequence = 1;
+    for (const key of siteScopedGroupKeys) {
+      const group = grouped.get(key);
+      const definition = definitions.get(group[0].ruleId) || group[0];
+      const activeCount = group.filter((finding) =>
+        ["Needs review", "Confirmed issue"].includes(finding.reviewStatus),
+      ).length;
+      if (!activeCount) continue; // every instance already dismissed — nothing outstanding to list
+      const resolvedCount = group.filter((finding) => finding.reviewStatus === "Resolved").length;
+      const needsReviewCount = group.filter((finding) => finding.reviewStatus === "Needs review").length;
+      const confirmedCount = group.filter((finding) => finding.reviewStatus === "Confirmed issue").length;
+      const statusResult = needsReviewCount
+        ? "Needs review"
+        : confirmedCount
+          ? "Confirmed issue"
+          : resolvedCount
+            ? "Resolved"
+            : "False positive";
+      const scopeLabel = findingScope(group[0]).replace(/^./, (c) => c.toUpperCase());
+      const detail = detailSheets.get(key);
+      const quoted = quoteSheet(detail.sheetName);
+      // Columns A-F match the main table exactly (sequence, title, open
+      // occurrences, status, resolved count, recommendation) — only column
+      // G (Tier) is omitted, which is what excludes these rows from TOTAL.
+      const row = summary.addRow([
+        siteSequence,
+        { text: `${definition.title} (${scopeLabel})`, hyperlink: `#${quoted}!A1` },
+        {
+          formula: `COUNTIF(${quoted}!${detail.statusRange},"Needs review")+COUNTIF(${quoted}!${detail.statusRange},"Confirmed issue")`,
+          result: activeCount,
+        },
+        {
+          formula: `IF(COUNTIF(${quoted}!${detail.statusRange},"Needs review")>0,"Needs review",IF(COUNTIF(${quoted}!${detail.statusRange},"Confirmed issue")>0,"Confirmed issue",IF(COUNTIF(${quoted}!${detail.statusRange},"Resolved")>0,"Resolved","False positive")))`,
+          result: statusResult,
+        },
+        {
+          formula: `COUNTIF(${quoted}!${detail.statusRange},"Resolved")`,
+          result: resolvedCount,
+        },
+        definition.recommendation,
+      ]);
+      siteSequence += 1;
+      row.eachCell((cell, columnNumber) => {
+        cell.font = {
+          name: "Poppins", size: 10, bold: columnNumber === 2,
+          color: { argb: columnNumber === 3 ? COLORS.link : COLORS.black },
+        };
+        cell.alignment = { vertical: "middle", horizontal: [1, 3, 5].includes(columnNumber) ? "center" : "left", wrapText: true };
+        applyGridBorder(cell);
+      });
+      row.getCell(2).font = { name: "Poppins", size: 10, bold: true, color: { argb: COLORS.link }, underline: true };
+    }
+  }
+
   summary.getCell("H1").value = "Audit details";
   summary.getCell("H1").font = { name: "Poppins", size: 11, bold: true };
   summary.getCell("H2").value = "Website";
   summary.getCell("I2").value = siteUrl || null;
   summary.getCell("H3").value = "Crawl date";
   summary.getCell("I3").value = new Date(crawlDate);
-  summary.getCell("I3").numFmt = "yyyy-mm-dd hh:mm";
+  // "Sep. 1, 2026" — date only, no time-of-day.
+  summary.getCell("I3").numFmt = 'mmm". "d", "yyyy';
   summary.getCell("H4").value = "Generated by";
   summary.getCell("I4").value = "CrawlScope";
   summary.getColumn("H").width = 16;
@@ -640,6 +1125,57 @@ async function buildAuditWorkbook({
     });
   });
   catalogSheet.autoFilter = `A1:F${catalogSheet.lastRow.number}`;
+
+  // The UI shows "N of M automatic checks clean" (buildSeoSnapshot's
+  // Strengths quadrant) — this sheet is that same computation, exported. A
+  // check counts as clean the same way the UI counts it: it produced no
+  // ACTIVE finding this run — one dismissed as a false positive or already
+  // resolved is not a live, outstanding issue, so it doesn't disqualify the
+  // check. "Connected data required" checks (e.g. Search Console-backed
+  // ones CrawlScope can't run alone) are excluded from both sides of the
+  // ratio — they were never actually checked, clean or not.
+  const cleanRuleIds = new Set(catalog.map((c) => c.id));
+  for (const finding of findings) {
+    if (!DISMISSED_STATUSES.has(finding.reviewStatus)) cleanRuleIds.delete(finding.ruleId);
+  }
+  const automaticChecks = catalog.filter((c) => c.detection === "Automatic");
+  const cleanChecks = automaticChecks.filter((c) => cleanRuleIds.has(c.id));
+
+  const passedSheet = workbook.addWorksheet("Checks Passed");
+  passedSheet.views = [{ state: "frozen", ySplit: 2, showGridLines: false }];
+  passedSheet.columns = [{ width: 34 }, { width: 22 }, { width: 68 }];
+  const passedTitleRow = passedSheet.addRow([
+    `${cleanChecks.length} of ${automaticChecks.length} automatic checks clean`,
+  ]);
+  passedSheet.mergeCells(passedTitleRow.number, 1, passedTitleRow.number, 3);
+  passedTitleRow.height = 24;
+  passedTitleRow.getCell(1).font = { name: "Poppins", size: 12, bold: true, color: { argb: COLORS.navy } };
+  passedTitleRow.getCell(1).alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+  passedSheet.addRow(["Issue", "Category", "Brief Description"]);
+  passedSheet.getRow(2).eachCell((cell) => {
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.navy } };
+    cell.font = { name: "Poppins", size: 10, bold: true, color: { argb: COLORS.white } };
+    cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+    applyGridBorder(cell);
+  });
+  passedSheet.getRow(2).height = 26;
+  cleanChecks.forEach((definition, index) => {
+    const row = passedSheet.addRow([definition.title, definition.category, definition.description]);
+    const isZebra = index % 2 === 1;
+    row.height = rowHeightFromLines(estimateWrappedLines(definition.description, 68), {
+      lineHeight: 13,
+      minHeight: 28,
+    });
+    row.eachCell((cell) => {
+      cell.font = { name: "Poppins", size: 9, color: { argb: COLORS.black } };
+      cell.alignment = { vertical: "top", horizontal: "left", wrapText: true };
+      if (isZebra) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.zebra } };
+      applyGridBorder(cell);
+    });
+  });
+  if (cleanChecks.length) {
+    passedSheet.autoFilter = `A2:C${passedSheet.lastRow.number}`;
+  }
 
   return workbook.xlsx.writeBuffer();
 }

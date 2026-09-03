@@ -1,6 +1,7 @@
 [
   {
     "id": "broken-internal-links",
+    "requiresCompleteGraph": true,
     "title": "Broken internal links",
     "description": "Internal links point to deleted, unavailable, or incorrect URLs, resulting in 4XX errors and poor user experience.",
     "recommendation": "Update each link to the correct live URL. Remove the link if no relevant replacement exists.",
@@ -101,6 +102,7 @@
   },
   {
     "id": "hsts-missing",
+    "scope": "site",
     "title": "Subdomains do not support HSTS",
     "description": "Some subdomains do not instruct browsers to use HTTPS automatically.",
     "recommendation": "Add the Strict-Transport-Security response header after confirming all pages and resources work correctly over HTTPS.",
@@ -111,6 +113,7 @@
   },
   {
     "id": "robots-issue",
+    "scope": "site",
     "title": "Robots.txt format or crawl restriction issues",
     "description": "Robots.txt rules may contain formatting problems or may block important resources and pages from crawling.",
     "recommendation": "Validate robots.txt syntax and unblock essential CSS, JavaScript, images, and indexable pages. Keep only intentional crawl restrictions.",
@@ -131,6 +134,7 @@
   },
   {
     "id": "sitemap-incorrect-url",
+    "requiresCompleteGraph": true,
     "title": "Incorrect URLs in sitemap",
     "description": "The sitemap contains redirected, broken, incorrect, or otherwise unsuitable URLs.",
     "recommendation": "Keep only indexable, canonical URLs that return a 200 response. Remove redirects, errors, noindex pages, and non-canonical URLs.",
@@ -171,6 +175,7 @@
   },
   {
     "id": "sitemap-robots-config",
+    "scope": "site",
     "title": "Sitemap and robots.txt configuration issues",
     "description": "The sitemap is not declared in robots.txt, which makes it harder for search engines to discover automatically without relying on a manual submission.",
     "recommendation": "Add a \"Sitemap: https://yoursite.com/sitemap.xml\" line to robots.txt pointing at the live sitemap, and confirm the sitemap itself returns a 200 response.",
@@ -221,6 +226,7 @@
   },
   {
     "id": "orphan-page",
+    "requiresCompleteGraph": true,
     "title": "Orphan pages",
     "description": "A large number of pages have no crawlable internal links pointing to them, even though some appear in sitemaps.",
     "recommendation": "Add relevant internal links from category, service, location, article, or navigation pages. Remove outdated orphan pages if they no longer provide value.",
@@ -231,6 +237,7 @@
   },
   {
     "id": "single-inlink",
+    "requiresCompleteGraph": true,
     "title": "Pages with only one incoming internal link",
     "description": "Some pages receive very limited internal linking support, making them difficult to discover and reducing their authority.",
     "recommendation": "Add contextual internal links from related high-authority pages.",
@@ -251,6 +258,8 @@
   },
   {
     "id": "link-to-redirect",
+    "requiresCompleteGraph": true,
+    "evidenceFamily": "link-target",
     "title": "Links to redirected pages",
     "description": "Internal links point to URLs that redirect before reaching the destination.",
     "recommendation": "Update internal links to point directly to the final 200-response URL.",
@@ -261,6 +270,7 @@
   },
   {
     "id": "permanent-redirect",
+    "evidenceFamily": "self-url",
     "title": "Permanent redirects",
     "description": "These URLs return permanent (301/308) redirects. Many redirects are legitimate, but a large volume of them can waste crawl budget and slow the discovery of new or updated content.",
     "recommendation": "Review redirect volume, remove unnecessary legacy redirects where safe, and update internal links, sitemaps, canonicals, and navigation to final URLs.",
@@ -301,6 +311,7 @@
   },
   {
     "id": "redirect-chain",
+    "requiresCompleteGraph": true,
     "title": "Redirect chain",
     "description": "A URL passes through more than one redirect before reaching the final page.",
     "recommendation": "Redirect the original URL directly to the final destination.",
@@ -351,6 +362,8 @@
   },
   {
     "id": "mixed-incoming-follow",
+    "requiresCompleteGraph": true,
+    "countUnit": "edge",
     "title": "Incoming nofollow and dofollow links",
     "description": "Some pages receive a mixture of crawlable and nofollow internal links. This may be intentional but should be reviewed.",
     "recommendation": "Remove unnecessary nofollow attributes from internal links so search engines can consistently crawl and understand the site structure.",
@@ -395,7 +408,7 @@
     "description": "A page with hreflang tags does not include a tag pointing to itself. Google's implementation guidance expects every page in a hreflang set to list itself alongside its alternates.",
     "recommendation": "Add a self-referencing hreflang tag for this page's own language and region, alongside the existing alternate-language tags.",
     "category": "Indexability",
-    "priority": "Good to have",
+    "priority": "Low Priority",
     "severity": "notice",
     "detection": "Automatic"
   },
@@ -411,6 +424,7 @@
   },
   {
     "id": "canonical-to-broken",
+    "requiresCompleteGraph": true,
     "title": "Canonical points to a broken page",
     "description": "This page's canonical tag points to a URL that returns an error or cannot be reached. Search engines cannot consolidate ranking signals onto a canonical target that doesn't resolve.",
     "recommendation": "Point the canonical tag at a live, 200-response URL — either fix the target page or update the canonical to reference this page itself.",
@@ -421,6 +435,7 @@
   },
   {
     "id": "canonical-to-redirect",
+    "requiresCompleteGraph": true,
     "title": "Canonical points to a redirect",
     "description": "This page's canonical tag points to a URL that itself redirects elsewhere, instead of resolving directly. Search engines have to follow an extra hop to find the true canonical target.",
     "recommendation": "Update the canonical tag to point directly at the final destination URL, not an intermediate redirect.",
@@ -431,6 +446,7 @@
   },
   {
     "id": "canonical-chain",
+    "requiresCompleteGraph": true,
     "title": "Canonical chain",
     "description": "This page's canonical points to another URL whose own canonical points somewhere else again, instead of to itself. Chained canonicals make it ambiguous which URL is actually meant to be indexed.",
     "recommendation": "Point every page's canonical directly at the final, self-canonicalizing URL in the chain — never at an intermediate page.",
@@ -441,6 +457,7 @@
   },
   {
     "id": "canonical-to-noindex",
+    "requiresCompleteGraph": true,
     "title": "Canonical points to a noindex page",
     "description": "This page's canonical tag points to a URL that itself carries a noindex directive. The canonical target won't be indexed, so neither page ends up ranking.",
     "recommendation": "Either remove noindex from the canonical target so it can be indexed, or update the canonical to point at a page that is actually meant to rank.",
@@ -470,7 +487,18 @@
     "detection": "Automatic"
   },
   {
+    "id": "title-missing",
+    "title": "Missing page title",
+    "description": "A page has no <title> tag, or its title tag is empty. Search engines usually generate their own title from other page signals, which is rarely the one you'd choose.",
+    "recommendation": "Add a unique, descriptive <title> tag summarizing the page's specific topic, service, or location.",
+    "category": "Metadata",
+    "priority": "High Priority",
+    "severity": "error",
+    "detection": "Automatic"
+  },
+  {
     "id": "title-duplicate",
+    "requiresCompleteGraph": true,
     "title": "Duplicate title tags",
     "description": "Multiple indexable pages that do not canonicalize elsewhere use the same title tag, making it difficult for search engines to understand which page answers each search intent.",
     "recommendation": "Create a unique, descriptive title for each indexable page based on its specific topic, service, or location.",
@@ -501,6 +529,7 @@
   },
   {
     "id": "meta-duplicate",
+    "requiresCompleteGraph": true,
     "title": "Duplicate meta descriptions",
     "description": "Multiple indexable pages that do not canonicalize elsewhere share the same meta description, reducing page differentiation in search results.",
     "recommendation": "Write unique descriptions for important indexable pages. Pagination and filtered pages may use self-referencing canonicals or noindex based on the indexing strategy.",
@@ -565,12 +594,13 @@
     "description": "A heading jumps over an intermediate level, such as H2 directly to H4. That obscures the document structure for screen-reader navigation and makes the relationship between sections less clear.",
     "recommendation": "Change the later heading to the next logical level, or add the missing intermediate heading when it represents a real section. Keep heading levels aligned with content structure rather than visual size.",
     "category": "Accessibility & Social",
-    "priority": "Good to have",
+    "priority": "Low Priority",
     "severity": "notice",
     "detection": "Automatic"
   },
   {
     "id": "h1-duplicate",
+    "requiresCompleteGraph": true,
     "title": "Duplicate H1 headings across pages",
     "description": "Multiple indexable pages that do not canonicalize elsewhere use the same primary H1, making distinct pages look like they target the same topic and weakening page-specific context for visitors and search engines.",
     "recommendation": "Rewrite each affected page's H1 to name its specific topic, service, product, location, or intent. Keep intentionally repeated sitewide labels outside the H1.",
@@ -651,6 +681,7 @@
   },
   {
     "id": "content-duplicate-exact",
+    "requiresCompleteGraph": true,
     "title": "Exact duplicate page content",
     "description": "Two or more successful, indexable pages contain exactly the same visible body text and do not canonicalize to one preferred URL. Search engines must choose between indistinguishable pages, which can split ranking signals and crawl attention.",
     "recommendation": "Choose the page that should rank. Redirect redundant URLs to it, or add a canonical when duplicate variants must remain accessible. If each page serves a distinct intent, rewrite the shared body copy with page-specific information instead.",
@@ -701,6 +732,7 @@
   },
   {
     "id": "anchor-missing",
+    "evidenceFamily": "link-target",
     "title": "Links without an accessible name",
     "description": "These links have no visible text or accessible name, so screen-reader and keyboard users cannot tell where they lead.",
     "recommendation": "For an icon-only link, add a descriptive aria-label to the <a> element (for example, \"View Jane Doe on LinkedIn\"). For an image link, use meaningful alt text or label the link itself. Keep empty alt text only for decorative images that are not the link's sole label.",
@@ -711,6 +743,7 @@
   },
   {
     "id": "anchor-nondescriptive",
+    "evidenceFamily": "link-label",
     "title": "Non-descriptive link labels",
     "description": "A link's visible text or accessible name uses vague wording such as “click here” or “learn more” without identifying the destination.",
     "recommendation": "Replace generic visible text with a concise destination or action (for example, “Read the technical SEO guide”). For an icon-only link, make its aria-label equally specific (for example, “View Jane Doe on LinkedIn”).",
@@ -721,6 +754,7 @@
   },
   {
     "id": "broken-external-link",
+    "evidenceFamily": "link-target",
     "title": "External links unavailable during checking",
     "description": "The crawler could not retrieve these destinations or received an HTTP error other than 403. A 404 or 410 indicates no current resource; timeouts, rate limits, authentication responses, and 5xx errors can be temporary or audience-specific.",
     "recommendation": "For 404 or 410, replace the link with a current authoritative source or remove it. For other failures, retest and open the destination manually before changing content. HTTP 403 responses are reported separately because request refusal does not prove a broken destination.",
@@ -731,6 +765,7 @@
   },
   {
     "id": "external-403",
+    "evidenceFamily": "link-target",
     "title": "External links refusing crawler access",
     "description": "The external server returned HTTP 403 Forbidden: it understood the crawler's request but refused to fulfill it. This can reflect bot protection, authentication, geography, or another access policy and does not prove that the destination is missing or broken for users.",
     "recommendation": "Open the destination in a normal signed-out or private browser session. If it works for the intended audience, keep the link and mark this notice reviewed. Replace or remove it only if users are also denied access, the destination requires unexpected authentication, or it is no longer an appropriate source.",
@@ -775,27 +810,29 @@
     "description": "An exposed img element omits its alt attribute or uses whitespace-only alt text, so assistive technology may announce an unhelpful file name or provide no equivalent meaning.",
     "recommendation": "For an informative image, add concise alt text that conveys its purpose in context. For a decorative image, use exactly alt=\"\" (no spaces) so assistive technology ignores it. For an image-only link, describe the link destination or action.",
     "category": "Accessibility & Social",
-    "priority": "Good to have",
+    "priority": "Low Priority",
     "severity": "notice",
     "detection": "Automatic"
   },
   {
     "id": "image-oversized",
+    "scope": "resource",
     "title": "Oversized image",
     "description": "At least one image has an unnecessarily large file size.",
     "recommendation": "Resize the image to its displayed dimensions, compress it, and use WebP or AVIF where supported.",
     "category": "Accessibility & Social",
-    "priority": "Good to have",
+    "priority": "Low Priority",
     "severity": "notice",
     "detection": "Automatic"
   },
   {
     "id": "open-graph-incomplete",
+    "evidenceFamily": "missing-property",
     "title": "Missing required Open Graph properties",
     "description": "One or more of the Open Graph protocol's four required properties are absent, so social platforms may not build a reliable rich preview.",
     "recommendation": "Add every property listed in Detected value. Use a page-specific og:title, an absolute representative og:image URL, og:type (usually website or article), and an og:url that matches the canonical URL.",
     "category": "Accessibility & Social",
-    "priority": "Good to have",
+    "priority": "Low Priority",
     "severity": "notice",
     "detection": "Automatic"
   },
@@ -805,7 +842,7 @@
     "description": "The four required Open Graph properties are present, but the optional og:description is absent, leaving social platforms to infer supporting copy.",
     "recommendation": "Add a concise, page-specific og:description of one or two sentences. Reuse the meta description only when it accurately summarizes the page, then preview the result on the social platforms you target.",
     "category": "Accessibility & Social",
-    "priority": "Good to have",
+    "priority": "Low Priority",
     "severity": "notice",
     "detection": "Automatic"
   },
@@ -815,7 +852,7 @@
     "description": "An og:url, og:image, or og:image:url value is not an absolute HTTP(S) URL, so external social crawlers may be unable to retrieve or identify the shared object.",
     "recommendation": "Replace the value shown in Detected value with an absolute https:// URL. Use the preferred canonical URL for og:url and a publicly retrievable representative image URL for og:image or og:image:url.",
     "category": "Accessibility & Social",
-    "priority": "Good to have",
+    "priority": "Low Priority",
     "severity": "notice",
     "detection": "Automatic"
   },
@@ -825,7 +862,7 @@
     "description": "The effective Open Graph image has no non-empty og:image:alt value, so people using accessibility features on social platforms may lose the image's context.",
     "recommendation": "Add <meta property=\"og:image:alt\" content=\"...\"> immediately after the effective image declaration. Describe what is visible and meaningful in the image rather than repeating the page title or writing a promotional caption.",
     "category": "Accessibility & Social",
-    "priority": "Good to have",
+    "priority": "Low Priority",
     "severity": "notice",
     "detection": "Automatic"
   },
@@ -835,12 +872,13 @@
     "description": "The normalized og:url identifies a different resource from the page's canonical URL, splitting the page identity used by social platforms and search engines.",
     "recommendation": "Replace the og:url shown in Detected value with the preferred canonical URL shown in Target / Related URL. Keep the scheme, hostname, path, trailing-slash policy, and meaningful query parameters aligned.",
     "category": "Accessibility & Social",
-    "priority": "Good to have",
+    "priority": "Low Priority",
     "severity": "notice",
     "detection": "Automatic"
   },
   {
     "id": "slow-page",
+    "evidenceFamily": "config",
     "title": "Slow pages",
     "description": "These pages took over a second to respond during the crawl, which can hurt both user experience and how much of the page search engines process before moving on.",
     "recommendation": "Optimize server response time, images, fonts, scripts, third-party tags, caching, compression, and render-blocking resources.",
@@ -851,6 +889,7 @@
   },
   {
     "id": "asset-uncached",
+    "scope": "resource",
     "title": "Uncached JavaScript and CSS",
     "description": "Static files do not use effective browser caching, causing repeat visitors to download them again.",
     "recommendation": "Add long cache-control headers and versioned file names for static assets.",
@@ -861,6 +900,7 @@
   },
   {
     "id": "asset-unminified",
+    "scope": "resource",
     "title": "Unminified JavaScript and CSS",
     "description": "JavaScript and CSS files contain unnecessary spaces, comments, and formatting.",
     "recommendation": "Minify production JavaScript and CSS files through the build process, CMS, or caching plugin.",
@@ -871,6 +911,7 @@
   },
   {
     "id": "asset-uncompressed",
+    "scope": "resource",
     "title": "Uncompressed JavaScript and CSS",
     "description": "Static resources are delivered without Brotli or GZIP compression.",
     "recommendation": "Enable Brotli or GZIP compression at the server, CDN, or hosting level.",
@@ -881,31 +922,34 @@
   },
   {
     "id": "schema-error",
+    "evidenceFamily": "schema-message",
     "title": "Schema.org validation errors",
     "description": "Structured data contains invalid properties, values, syntax, or unsupported relationships.",
     "recommendation": "Validate affected templates using Schema.org and Google tools, then correct required fields, data types, URLs, and nesting.",
     "category": "Structured Data",
-    "priority": "Good to have",
+    "priority": "Low Priority",
     "severity": "notice",
     "detection": "Automatic"
   },
   {
     "id": "llms-missing",
+    "scope": "site",
     "title": "Llms.txt not found",
     "description": "The website does not contain an llms.txt file. This is currently optional and is not a confirmed Google ranking requirement.",
     "recommendation": "Create one only if it supports the broader AI visibility strategy. Prioritize crawlability, structured content, schema, internal linking, and content quality first.",
     "category": "Structured Data",
-    "priority": "Good to have",
+    "priority": "Low Priority",
     "severity": "notice",
     "detection": "Automatic"
   },
   {
     "id": "llms-format",
+    "scope": "site",
     "title": "Llms.txt formatting issue",
     "description": "The llms.txt file exists but does not start with a Markdown H1 heading (a line beginning with \"# \"), which is the format most llms.txt implementations expect.",
     "recommendation": "Make the first line of llms.txt a single Markdown H1 heading naming the site (e.g. \"# Acme Corp\"), followed by the rest of the content.",
     "category": "Structured Data",
-    "priority": "Good to have",
+    "priority": "Low Priority",
     "severity": "notice",
     "detection": "Automatic"
   },
@@ -915,12 +959,13 @@
     "description": "Recently added or updated pages may not yet have been submitted through IndexNow.",
     "recommendation": "Submit important new, updated, or removed URLs through IndexNow where supported, but continue maintaining XML sitemaps and standard search engine discovery.",
     "category": "Structured Data",
-    "priority": "Good to have",
+    "priority": "Low Priority",
     "severity": "notice",
     "detection": "Connected data required"
   },
   {
     "id": "javascript-rendered-site",
+    "scope": "site",
     "title": "Page content and links require JavaScript",
     "description": "The entry page returned no crawlable links in its served HTML. CrawlScope reads the HTML a server sends and does not execute JavaScript, so a client-rendered site's content and internal navigation are invisible to this crawl — and so, in the same way, to any crawler that does not render. An audit of such a site reports very few pages not because the site is small but because nothing else could be discovered.",
     "recommendation": "Serve the primary content and internal navigation in the initial HTML response using server-side rendering, static generation, or dynamic rendering for crawlers. Verify with 'view source' rather than the browser inspector: the links must be present in the source, not only in the rendered DOM.",
@@ -931,6 +976,7 @@
   },
   {
     "id": "crawl-trap",
+    "scope": "template",
     "title": "Crawl trap generating unbounded URLs",
     "description": "One URL pattern produced more distinct URLs than any real page inventory would. This is the signature of a calendar, a faceted-navigation grid, or a self-referencing link loop generating an effectively infinite URL space. Crawlers spend their budget on these instead of on real pages, and the duplicate URLs dilute the signals of the pages that matter.",
     "recommendation": "Stop the pattern from being crawled: add a Disallow rule for it in robots.txt, mark the generated links rel=\"nofollow\", or canonicalise every variant onto a single URL. For faceted navigation, expose only the filter combinations that are meant to rank.",
@@ -941,6 +987,7 @@
   },
   {
     "id": "sitemap-unreadable",
+    "scope": "site",
     "title": "A declared sitemap could not be read",
     "description": "robots.txt names a sitemap that did not return usable XML — it failed, timed out, returned a non-200 status, or returned something that is not a sitemap. Every URL that sitemap was meant to advertise is undiscoverable through it, and this is distinct from having no sitemap at all: the site believes it has one.",
     "recommendation": "Open each declared sitemap URL directly and confirm it returns 200 with a valid <urlset> or <sitemapindex> document. If it is served gzipped, confirm the .gz is a valid gzip stream. Correct or remove the declaration in robots.txt so it does not point at a broken file.",

@@ -11,19 +11,50 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   SectionHeader, Card, Button, Badge, MetricCard, EmptyState, useToast,
 } from '../ui';
+import { useAuth } from '../context/AuthContext';
 import ModuleRuns from '../components/ModuleRuns';
 import ResultsTable from '../components/crawlScope/ResultsTable';
+import MediaLibrary from '../components/crawlScope/MediaLibrary';
+import SeoSnapshotGrid from '../components/crawlScope/SeoSnapshotGrid';
+import IssuesFoundSection from '../components/crawlScope/IssuesFoundSection';
+import SiteFindingsSection from '../components/crawlScope/SiteFindingsSection';
+import SiteHealthCard from '../components/crawlScope/SiteHealthCard';
+import SeverityCompositionBar from '../components/crawlScope/charts/SeverityCompositionBar';
+import IssueConcentrationChart from '../components/crawlScope/charts/IssueConcentrationChart';
+import IntegrationsAdoptionChart from '../components/crawlScope/charts/IntegrationsAdoptionChart';
+import BacklogSection from '../components/crawlScope/BacklogSection';
+import ExecutiveSummary from '../components/crawlScope/ExecutiveSummary';
+import IntegrationsSection from '../components/crawlScope/IntegrationsSection';
 import UrlDrawer from '../components/crawlScope/UrlDrawer';
 import {
-  healthMetrics, healthScoreExplanation, issueGroups, severityVariant,
-  runStatusVariant, formatDuration, toCsv, TERMINAL_STATUSES,
+  healthMetrics, issueGroups, buildSeoSnapshot,
+  runStatusVariant, formatDuration, toCsv, TERMINAL_STATUSES, withEffectiveIssues,
+  buildCountHierarchy, siteScopedGroups, buildBacklog,
+  BACKLOG_HISTORY_WINDOW,
 } from '../components/crawlScope/crawlHelpers';
 import { cs, saveBlob } from '../lib/crawlScopeApi';
+
+// A small uppercase label to chunk the main column into named zones — health
+// at a glance, then the findings breakdown, then the verification math —
+// rather than one undifferentiated stack of cards. Purely visual grouping;
+// nothing here changes what's shown, only how it reads.
+function SectionLabel({ children }) {
+  return (
+    <div style={{
+      fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+      color: 'var(--text-3)',
+    }}
+    >
+      {children}
+    </div>
+  );
+}
 
 export default function CrawlScopeRunPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
+  const { email } = useAuth();
 
   const [run, setRun] = useState(null);
   const [results, setResults] = useState([]);
@@ -36,6 +67,10 @@ export default function CrawlScopeRunPage() {
   const [issueFilter, setIssueFilter] = useState('');
   const [busy, setBusy] = useState('');
   const [downloading, setDownloading] = useState(false);
+  // Static reference data (id -> {category, description, recommendation}), fetched
+  // once and never scoped to this run — it's what puts "a little bit of detail" on
+  // an issue card beyond the bare title a rule id alone would give you.
+  const [catalog, setCatalog] = useState([]);
 
   // Results arrive one event at a time and a large crawl is thousands of rows,
   // so they accumulate in a ref and are flushed to state on a timer. Setting
@@ -74,6 +109,55 @@ export default function CrawlScopeRunPage() {
     })();
     return () => { cancelled = true; };
   }, [id]);
+
+  useEffect(() => {
+    cs.catalog().then(setCatalog).catch(() => {});
+  }, []);
+
+  // ── Crawl history, for the Backlog section ──────────────────────────────
+  // Only a scheduled project has other runs to compare against — a one-off
+  // crawl's project_id is null and this simply never fires for one. A bounded
+  // window of the project's own prior completed runs (oldest report first, up
+  // to BACKLOG_HISTORY_WINDOW back), each with its findings fetched the same
+  // way this page fetches its own — there is no cheaper server-side source
+  // for a per-check history today; see buildBacklog in crawlHelpers.js.
+  const [historyRuns, setHistoryRuns] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!run?.project_id || !TERMINAL_STATUSES.includes(status)) {
+      setHistoryRuns([]);
+      return undefined;
+    }
+    setHistoryLoading(true);
+    (async () => {
+      try {
+        const { runs: projectRuns } = await cs.runs({ projectId: run.project_id, limit: 20 });
+        const priorCompleted = (projectRuns || [])
+          .filter((r) => r.id !== id && r.status === 'completed'
+            && new Date(r.created_at) < new Date(run.created_at))
+          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+          .slice(0, BACKLOG_HISTORY_WINDOW);
+        const withFindings = await Promise.all(
+          priorCompleted.map(async (r) => {
+            try {
+              const { findings: f } = await cs.findings(r.id);
+              return { id: r.id, finishedAt: r.finished_at || r.created_at, findings: f || [] };
+            } catch {
+              return null; // one bad fetch shouldn't blank out the whole comparison
+            }
+          }),
+        );
+        if (!cancelled) setHistoryRuns(withFindings.filter(Boolean));
+      } catch {
+        if (!cancelled) setHistoryRuns([]);
+      } finally {
+        if (!cancelled) setHistoryLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [run?.project_id, run?.created_at, status, id]);
 
   useEffect(() => {
     const source = new EventSource(cs.streamUrl(id), { withCredentials: true });
@@ -148,8 +232,35 @@ export default function CrawlScopeRunPage() {
   const pages = useMemo(() => results.filter((r) => r.scope !== 'External'), [results]);
   const externalChecked = results.length - pages.length;
 
-  const metrics = useMemo(() => healthMetrics(pages, findings), [pages, findings]);
-  const groups = useMemo(() => issueGroups(pages, findings), [pages, findings]);
+  // `pages` still carries each page's crawl-time quickIssues() `.issues` — a
+  // smaller, separate detection pass from the full analyzer catalog in
+  // `findings`. Once findings exist (post-crawl), every issue-bearing view
+  // reads THIS instead, so the table, the drawer, and the SEO snapshot never
+  // show a different issue set than "Issue review" and the Excel export do.
+  const effectivePages = useMemo(() => withEffectiveIssues(pages, findings), [pages, findings]);
+
+  const metrics = useMemo(() => healthMetrics(effectivePages, findings), [effectivePages, findings]);
+  const groups = useMemo(() => issueGroups(effectivePages, findings), [effectivePages, findings]);
+  const siteGroups = useMemo(() => siteScopedGroups(findings), [findings]);
+  const catalogById = useMemo(() => new Map(catalog.map((c) => [c.id, c])), [catalog]);
+  const seoSnapshot = useMemo(
+    () => buildSeoSnapshot(effectivePages, groups, catalog),
+    [effectivePages, groups, catalog],
+  );
+  const counts = useMemo(
+    () => buildCountHierarchy(results, effectivePages, metrics, groups, siteGroups),
+    [results, effectivePages, metrics, groups, siteGroups],
+  );
+  const backlog = useMemo(() => buildBacklog(findings, historyRuns), [findings, historyRuns]);
+  // One bag of everything the Quick summary card's copy formats are built
+  // from — see ExecutiveSummary.jsx and its buildEmailShareText /
+  // buildChannelShareText / buildTaskTableTsv / buildExecutiveSummaryText
+  // builders in crawlHelpers.js. Passed as one object rather than growing
+  // the component's prop list to eight individual values.
+  const summaryCtx = useMemo(
+    () => ({ run, id, metrics, counts, seoSnapshot, groups, siteGroups, backlog, email }),
+    [run, id, metrics, counts, seoSnapshot, groups, siteGroups, backlog, email],
+  );
   const running = !TERMINAL_STATUSES.includes(status);
 
   async function control(action) {
@@ -166,9 +277,9 @@ export default function CrawlScopeRunPage() {
 
   function exportCsv() {
     // The export is the table, so it carries the same rows the table shows.
-    if (!pages.length) return;
+    if (!effectivePages.length) return;
     const host = (() => { try { return new URL(run?.url || '').hostname; } catch { return 'crawl'; } })();
-    saveBlob(new Blob([toCsv(pages)], { type: 'text/csv;charset=utf-8' }), `${host}-crawl.csv`);
+    saveBlob(new Blob([toCsv(effectivePages)], { type: 'text/csv;charset=utf-8' }), `${host}-crawl.csv`);
   }
 
   async function downloadWorkbook() {
@@ -180,6 +291,32 @@ export default function CrawlScopeRunPage() {
       toast.error(e.message);
     } finally {
       setDownloading(false);
+    }
+  }
+
+  // Start a fresh crawl of this same site right now, independent of any
+  // schedule — a project's run reuses the project (queued for the worker,
+  // same as its own "Run now"); a one-off run just starts again with the
+  // same url/options it was created with (repeating a list crawl's exact
+  // URL list too, since `options.urls` rode along on the original request).
+  // Always lands on the NEW run's own page — this run's page keeps showing
+  // this run.
+  async function recrawl() {
+    setBusy('recrawl');
+    try {
+      const { run: started } = run.project_id
+        ? await cs.runProjectNow(run.project_id)
+        : await cs.startRun(
+          Array.isArray(run.options?.urls) && run.options.urls.length
+            ? { urls: run.options.urls, options: run.options }
+            : { url: run.url, options: run.options },
+        );
+      toast.success('Crawl started.');
+      navigate(`/crawl-scope/runs/${started.id}`);
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setBusy('');
     }
   }
 
@@ -205,7 +342,7 @@ export default function CrawlScopeRunPage() {
       : 0);
 
   return (
-    <main style={{ padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <main style={{ padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 24 }}>
       <SectionHeader
         title={run?.url || 'Crawl'}
         subtitle={`Started ${new Date(run?.started_at || run?.created_at).toLocaleString()}`}
@@ -221,8 +358,42 @@ export default function CrawlScopeRunPage() {
             ) : (
               <>
                 <Button variant="secondary" onClick={() => navigate(`/crawl-scope/runs/${id}/review`)}>
-                  Issue review{findings.length ? ` (${findings.length})` : ''}
+                  {/* Same reconciled, active-occurrence count the strip and
+                      cards below use — not raw findings.length, which also
+                      counts findings already marked Resolved/False positive.
+                      The review page itself still lists those; only this
+                      button's number changed. */}
+                  Issue review{counts.occurrences ? ` (${counts.occurrences})` : ''}
                 </Button>
+                {/* Available on any finished run, scheduled or one-off —
+                    the most direct way to get a fresh crawl (new checks,
+                    updated content, or just to see this build's latest
+                    detections) without leaving the page. */}
+                <Button variant="secondary" loading={busy === 'recrawl'} onClick={recrawl}>
+                  Recrawl now
+                </Button>
+                {/* Only for a one-off run (no project_id) — a run that's
+                    already part of a scheduled project doesn't need this
+                    prompt again. This is the only path from "I just saw this
+                    report" to actually setting up a recurring schedule; the
+                    New Crawl form that started most runs has zero mention of
+                    scheduling anywhere in it. */}
+                {!run?.project_id && run?.url && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => navigate('/crawl-scope', {
+                      state: {
+                        scheduleUrl: run.url,
+                        // The new schedule defaults to this crawl's own
+                        // day/time — the first report already generated —
+                        // rather than an arbitrary fixed slot.
+                        scheduleAt: run.started_at || run.created_at,
+                      },
+                    })}
+                  >
+                    Schedule this crawl to repeat
+                  </Button>
+                )}
                 <Button loading={downloading} onClick={downloadWorkbook}>Download Excel audit</Button>
               </>
             )}
@@ -266,79 +437,174 @@ export default function CrawlScopeRunPage() {
         )}
       </Card>
 
-      {/* Metrics */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
-        {/* Pages of this site and external URLs checked are separate figures,
-            the same way the Tech Audit card reports them. One number covering
-            both answers neither question. */}
-        <MetricCard label="Pages crawled" value={pages.length.toLocaleString()} />
-        <MetricCard label="HTML pages" value={metrics.htmlCount.toLocaleString()} />
-        <MetricCard
-          label="External URLs checked"
-          value={externalChecked.toLocaleString()}
-        />
-        <div title={healthScoreExplanation(metrics)}>
-          <MetricCard
-            label="Site health"
-            value={metrics.health === null ? '—' : `${metrics.health}%`}
-            sub="Hover for the breakdown"
+      {/* Quick summary — the whole page in a few dozen lines, structured for
+          a one-click copy into an email or a doc. Sits under the crawl
+          status, above the detailed layout, so it's the first thing read
+          after "is this even done yet." */}
+      {!running && pages.length > 0 && <ExecutiveSummary ctx={summaryCtx} />}
+
+      {/* Two columns: a detailed left pane (root-cause findings, the full
+          scored SEO snapshot, the media asset table — the SEO-lead/
+          implementer working view) and a lean main column (a CXO glance,
+          then the page table). Wraps to stacked under a narrow viewport via
+          plain flex-wrap — no new responsive framework. */}
+      <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        {/* ── Left pane — detailed ── */}
+        <div style={{ flex: '0 0 380px', minWidth: 300, display: 'flex', flexDirection: 'column', gap: 24 }}>
+          <SectionLabel>Detailed findings</SectionLabel>
+          <SiteFindingsSection groups={siteGroups} catalogById={catalogById} />
+
+          {/* Full scored quadrants with per-item descriptions — the main
+              column gets a compact summary of the same data instead. */}
+          {catalog.length > 0 && pages.length > 0 && (
+            <Card title="SEO snapshot">
+              <SeoSnapshotGrid snapshot={seoSnapshot} />
+            </Card>
+          )}
+
+          <IssuesFoundSection
+            groups={groups}
+            catalogById={catalogById}
+            issueFilter={issueFilter}
+            onToggleIssueFilter={(id) => setIssueFilter((current) => (current === id ? '' : id))}
           />
+
+          {/* Media library — only meaningful once the crawl has actually
+              finished: run.summary is written once, on completion, same as
+              findings. */}
+          {run?.summary?.mediaLibrary && (
+            <MediaLibrary mediaLibrary={run.summary.mediaLibrary} />
+          )}
         </div>
-        <MetricCard label="Errors" value={metrics.errors.toLocaleString()} sub={`${metrics.affectedErrorPages} page(s)`} />
-        <MetricCard label="Warnings" value={metrics.warnings.toLocaleString()} sub={`${metrics.affectedWarningPages} page(s)`} />
-        <MetricCard label="Indexable" value={metrics.indexable.toLocaleString()} sub={`of ${metrics.htmlCount} HTML`} />
+
+        {/* ── Main column — CXO glance ── */}
+        <div style={{ flex: '1 1 480px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 28 }}>
+          {/* Zone 1 — the glance: health, severity mix, and the scored
+              quadrants. What a CXO reads and stops. */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <SectionLabel>Overview</SectionLabel>
+            {/* Site health carries real extra structure of its own — a
+                budget bar and an expandable breakdown — that a plain
+                MetricCard doesn't. Sharing a grid row with two one-line
+                stat tiles made it visibly taller than its neighbors, which
+                read as misaligned rather than as "this one card just has
+                more in it." Its own row avoids the mismatch outright
+                instead of forcing three different shapes to look equal. */}
+            <SiteHealthCard metrics={metrics} />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+              <MetricCard
+                label="External URLs checked"
+                value={externalChecked.toLocaleString()}
+                sub="fetched to verify outbound links"
+              />
+              <MetricCard label="Indexable" value={metrics.indexable.toLocaleString()} sub={`of ${metrics.htmlCount} HTML`} />
+            </div>
+
+            <SeverityCompositionBar
+              metrics={metrics}
+              siteOccurrences={counts.siteOccurrences}
+              resourceOccurrences={counts.resourceOccurrences}
+              templateOccurrences={counts.templateOccurrences}
+            />
+          </div>
+
+          {/* Zone 2 — what's actually wrong, and whether it's new or stale.
+              The SEO snapshot's own detail (with per-item descriptions) lives
+              once, in the pane's "SEO snapshot" card — a compact repeat of
+              the same four counts here read as the same fact said twice, so
+              it isn't duplicated in this zone. */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <SectionLabel>Findings breakdown</SectionLabel>
+            <IssueConcentrationChart groups={groups} totalOccurrences={counts.occurrences} />
+            <IntegrationsAdoptionChart integrations={run?.summary?.integrations} />
+            {run?.project_id && <BacklogSection backlog={backlog} loading={historyLoading} />}
+          </div>
+
+          {/* Zone 3 — trust-building detail for whoever wants to verify the
+              numbers above, not the headline. */}
+          {(pages.length > 0 || results.length > 0) && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <SectionLabel>Verification</SectionLabel>
+              {/* Count reconciliation — one coherent hierarchy instead of
+                  several numbers that look related but are different units
+                  of different things (a crawled-URL count, a page count, an
+                  occurrence count, and a distinct-check count all used to be
+                  shown side by side with no stated relationship).
+                  `reconciled` is a real assertion, computed two independent
+                  ways in buildCountHierarchy — this fails loudly rather than
+                  silently disagreeing if it's ever wrong. */}
+              <Card title="Count reconciliation">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <MetricCard label="URLs fetched" value={counts.urlsFetched.toLocaleString()} />
+                  <span aria-hidden style={{ color: 'var(--text-3)', fontSize: 16 }}>→</span>
+                  <MetricCard label="HTML pages" value={counts.htmlPages.toLocaleString()} sub="the audit universe" />
+                  <span aria-hidden style={{ color: 'var(--text-3)', fontSize: 16 }}>→</span>
+                  <MetricCard label="Occurrences" value={counts.occurrences.toLocaleString()} sub="every page × check hit" />
+                  <span aria-hidden style={{ color: 'var(--text-3)', fontSize: 16 }}>→</span>
+                  <MetricCard
+                    label="Issue types"
+                    value={counts.issueTypes.toLocaleString()}
+                    sub="= root-cause groups, for now"
+                  />
+                </div>
+                <div style={{ marginTop: 10, fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.5 }}>
+                  {(counts.urlsFetched - counts.htmlPages).toLocaleString()} of the fetched URLs are external
+                  links this site points to, or non-HTML assets (images, scripts, stylesheets, PDFs) — not
+                  part of the audit universe. Issue types and root-cause groups are the same number in this
+                  build: nothing yet consolidates several related checks into one fix action.
+                  {(counts.siteOccurrences + counts.resourceOccurrences + counts.templateOccurrences) > 0 && (
+                    <>
+                      {' '}"Occurrences" above counts page-level findings only — {counts.siteOccurrences}{' '}
+                      site-level, {counts.resourceOccurrences} resource-level, and {counts.templateOccurrences}{' '}
+                      template-level finding(s) are never added into it (see Site-level findings in the pane), so
+                      a whole-site issue can't inflate a per-page count or get silently dropped by one.
+                    </>
+                  )}
+                </div>
+                {!counts.reconciled && (
+                  <div style={{
+                    marginTop: 8, padding: '8px 10px', background: 'var(--danger-soft)', color: 'var(--danger)',
+                    borderRadius: 'var(--r-md)', fontSize: 12, fontWeight: 600,
+                  }}
+                  >
+                    Counts disagree: {counts.occurrencesByCheck.toLocaleString()} occurrences summed by check
+                    vs {counts.occurrencesByPage.toLocaleString()} summed by page. The figures on this page are
+                    not trustworthy until this is fixed — please report it.
+                  </div>
+                )}
+              </Card>
+            </div>
+          )}
+
+          {/* Results — this site's pages only. */}
+          <Card title="Pages on this site">
+            <ResultsTable
+              results={effectivePages}
+              issueFilter={issueFilter}
+              onClearIssueFilter={() => setIssueFilter('')}
+              onRowClick={setSelected}
+              onExportCsv={exportCsv}
+            />
+            {externalChecked > 0 && (
+              // Said out loud rather than left as a discrepancy between "86 crawled"
+              // in one place and 50 rows here.
+              <div style={{ marginTop: 10, fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.45 }}>
+                {externalChecked} external URL{externalChecked === 1 ? ' was' : 's were'} also fetched to
+                check the outbound links on these pages. They are not pages of this site, so they are not
+                listed here and are not counted in Site health — a broken one appears as a finding on the
+                page that links to it.
+              </div>
+            )}
+          </Card>
+        </div>
       </div>
 
-      {/* Issue overview */}
-      {groups.length > 0 && (
-        <Card title={`Issues found (${groups.length})`}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 320, overflowY: 'auto' }}>
-            {groups.map((g) => (
-              <button
-                key={g.id}
-                onClick={() => setIssueFilter(issueFilter === g.id ? '' : g.id)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px',
-                  border: `1px solid ${issueFilter === g.id ? 'var(--primary)' : 'var(--border)'}`,
-                  borderRadius: 'var(--r-md)', background: issueFilter === g.id ? 'var(--primary-soft)' : 'transparent',
-                  cursor: 'pointer', textAlign: 'left',
-                }}
-              >
-                <Badge variant={severityVariant(g.severity)}>{g.severity}</Badge>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {g.label}
-                </span>
-                <span style={{ fontSize: 12, color: 'var(--text-3)', flexShrink: 0 }}>
-                  {g.urls.length} URL{g.urls.length === 1 ? '' : 's'}
-                </span>
-              </button>
-            ))}
-          </div>
-        </Card>
-      )}
+      {/* Full-width, not inside either column — a site-wide inventory, not a
+          glance or a detail-pane item. Renders nothing until there's
+          something detected. */}
+      <IntegrationsSection integrations={run?.summary?.integrations} />
 
-      {/* Results — this site's pages only. */}
-      <Card title="Pages on this site">
-        <ResultsTable
-          results={pages}
-          issueFilter={issueFilter}
-          onClearIssueFilter={() => setIssueFilter('')}
-          onRowClick={setSelected}
-          onExportCsv={exportCsv}
-        />
-        {externalChecked > 0 && (
-          // Said out loud rather than left as a discrepancy between "86 crawled"
-          // in one place and 50 rows here.
-          <div style={{ marginTop: 10, fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.45 }}>
-            {externalChecked} external URL{externalChecked === 1 ? ' was' : 's were'} also fetched to
-            check the outbound links on these pages. They are not pages of this site, so they are not
-            listed here and are not counted in Site health — a broken one appears as a finding on the
-            page that links to it.
-          </div>
-        )}
-      </Card>
-
-      <UrlDrawer result={selected} onClose={() => setSelected(null)} />
+      <UrlDrawer result={selected} runId={id} onClose={() => setSelected(null)} />
 
       {/* Scoped to this run: the label the server records is `run <id>`. */}
       <ModuleRuns

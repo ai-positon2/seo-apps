@@ -46,12 +46,24 @@ const { staggerMinute } = require("../shared/schedule");
 const report = require("../run/report");
 const repo = require("../db/repo");
 const catalog = require("../issue-catalog.json");
+const { getPageSpeedForAllDomains } = require("../../../services/pageSpeedCA");
 
 const router = express.Router();
 
 // One manager for the process, shared by every manual run. Exported so server.js
 // can drain it on shutdown instead of killing crawls mid-flight.
 const manager = new RunManager({ serviceClient });
+
+// On-demand PageSpeed checks, tracked in-process the same way
+// competitorAnalysis/routes.js tracks its own run-pagespeed job: the check
+// itself can take 15-90s (PSI is slow, and a rate-limit retry alone waits
+// ~100s — see services/pageSpeedCA.js), too long to hold an HTTP request
+// open for. POST kicks the check off and returns immediately; the status map
+// lets the UI poll rather than guess. Keyed by `${runId}:${url}` since a run
+// can have several checks in flight for different pages at once. In-process
+// only — a restart loses in-flight status, which is fine, the eventual PSI
+// result still lands in crawl_run_results either way.
+const pagespeedChecks = new Map();
 
 const asyncRoute = (fn) => (req, res, next) => fn(req, res, next).catch(next);
 
@@ -171,6 +183,83 @@ router.get(
     if (!run) return res.status(404).json({ error: "Run not found." });
     const rows = await repo.listResults(req.db, req.params.id, { offset, limit });
     res.json({ results: rows.map((r) => r.data), offset, limit });
+  }),
+);
+
+// ---- PageSpeed Insights (on-demand, per page) ----
+//
+// Runs Lighthouse mobile+desktop for one crawled URL and merges the result
+// into that page's stored `data.pagespeed` (repo.js#updateResultPagespeed).
+// Deliberately NOT run automatically for every page of every crawl: PSI is
+// slow (15-90s per URL per strategy) and quota-limited, so bulk-checking a
+// whole site would either stall crawls or burn through the daily quota. The
+// worker's post-crawl enrichment (run/manager.js) covers a small automatic
+// sample (seed + top-linked pages); this endpoint covers everything else, one
+// page at a time, on request.
+router.post(
+  "/runs/:id/results/pagespeed",
+  asyncRoute(async (req, res) => {
+    const run = await repo.getRunForViewer(req.db, req.params.id, req.crawlViewer);
+    if (!run) return res.status(404).json({ error: "Run not found." });
+    const url = String(req.body?.url || "").trim();
+    if (!url) return res.status(400).json({ error: "A url is required." });
+
+    const key = `${run.id}:${url}`;
+    const existing = pagespeedChecks.get(key);
+    if (existing && existing.status === "running") {
+      return res.status(409).json({ error: "A PageSpeed check for this URL is already running." });
+    }
+
+    const startedAt = Date.now();
+    const setStatus = (patch) => {
+      const entry = { startedAt, ...patch };
+      pagespeedChecks.set(key, entry);
+      // Evict once the UI has had a real chance to poll the terminal status —
+      // otherwise this map only ever grows for the life of the process, one
+      // entry per (run, url) ever checked. Guarded by identity: if a fresh
+      // check for the same key has already started by the time this fires,
+      // this timer's job is done (that's a different entry now) and it must
+      // not delete it out from under the new check.
+      if (patch.status === "done" || patch.status === "error") {
+        setTimeout(() => {
+          if (pagespeedChecks.get(key) === entry) pagespeedChecks.delete(key);
+        }, 10 * 60_000).unref();
+      }
+      return entry;
+    };
+
+    setStatus({ status: "running", error: null, finishedAt: null });
+    res.json({ status: "running" });
+
+    const db = req.db; // capture before the request context is gone
+    (async () => {
+      try {
+        const [result] = await getPageSpeedForAllDomains([url]);
+        const data = await repo.updateResultPagespeed(db, run.id, url, {
+          ...result,
+          checkedAt: new Date().toISOString(),
+        });
+        if (!data) {
+          setStatus({ status: "error", error: "No crawled result stored for that URL in this run.", finishedAt: Date.now() });
+          return;
+        }
+        setStatus({ status: "done", error: null, finishedAt: Date.now(), pagespeed: data.pagespeed });
+      } catch (err) {
+        setStatus({ status: "error", error: err.message, finishedAt: Date.now() });
+      }
+    })();
+  }),
+);
+
+router.get(
+  "/runs/:id/results/pagespeed/status",
+  asyncRoute(async (req, res) => {
+    const run = await repo.getRunForViewer(req.db, req.params.id, req.crawlViewer);
+    if (!run) return res.status(404).json({ error: "Run not found." });
+    const url = String(req.query.url || "").trim();
+    if (!url) return res.status(400).json({ error: "A url is required." });
+    const status = pagespeedChecks.get(`${run.id}:${url}`);
+    res.json(status || { status: "idle", error: null });
   }),
 );
 

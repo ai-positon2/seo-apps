@@ -15,7 +15,10 @@ function intCeiling(name, fallback) {
 
 function ceilings() {
   return {
-    maxUrls: intCeiling("MAX_URLS_CEILING", 5_000),
+    // Raised from 500 to a real 10,000-page-audit ceiling. Env-overridable
+    // (MAX_URLS_CEILING) without a redeploy if that ever needs to change
+    // again.
+    maxUrls: intCeiling("MAX_URLS_CEILING", 10_000),
     maxExternalUrls: intCeiling("MAX_EXTERNAL_CEILING", 500),
     concurrency: intCeiling("MAX_CONCURRENCY_CEILING", 8),
     timeout: intCeiling("TIMEOUT_CEILING_MS", 30_000),
@@ -24,8 +27,16 @@ function ceilings() {
     // a calendar or a faceted-nav grid will happily consume in full before the
     // real site is reached.
     maxDepth: intCeiling("MAX_DEPTH_CEILING", 20),
-    maxUrlsPerTemplate: intCeiling("MAX_URLS_PER_TEMPLATE", 500),
-    maxEdges: intCeiling("MAX_EDGES_CEILING", 400_000),
+    // Raised alongside maxUrls: at the old 500-per-template cap, a real
+    // 10,000-page crawl would trip trap detection on its own largest
+    // legitimate section (a flat product catalog or paginated blog easily
+    // exceeds 500 same-template pages) before ever reaching 10k — the trap
+    // guard would fire on real inventory, not a runaway parameter grid. 2,000
+    // still catches genuine explosions (a faceted-nav trap generates orders
+    // of magnitude more than that from one template) while giving a large
+    // legitimate section room to be fully crawled.
+    maxUrlsPerTemplate: intCeiling("MAX_URLS_PER_TEMPLATE", 2_000),
+    maxEdges: intCeiling("MAX_EDGES_CEILING", 1_000_000),
   };
 }
 
@@ -111,7 +122,7 @@ function parseCrawlRequest(body = {}, overrides = {}) {
   const options = {
     maxUrls: listUrls
       ? listUrls.length
-      : clampInt(1, cap.maxUrls)(raw.maxUrls ?? 500),
+      : clampInt(1, cap.maxUrls)(raw.maxUrls ?? 10_000),
     maxExternalUrls: clampInt(0, cap.maxExternalUrls)(raw.maxExternalUrls ?? 150),
     concurrency: clampInt(1, cap.concurrency)(
       Math.min(raw.concurrency ?? 4, overrides.concurrency ?? Number.POSITIVE_INFINITY),

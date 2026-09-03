@@ -2037,3 +2037,458 @@ test("non-Fetch 3xx statuses never enter redirect relationships even with Locati
     "the non-200 sitemap entry remains incorrect without being mislabeled as a redirect",
   );
 });
+
+// ── Page categorization ─────────────────────────────────────────────────
+test("categorizePage: depth 0 and the root path are always Home", () => {
+  const root = baseResult({ url: "https://example.com/", depth: 0 });
+  const deepRoot = baseResult({ url: "https://example.com/anything", depth: 0 });
+  const { results } = buildFindings({ results: [root, deepRoot], startUrl: root.url });
+  assert.equal(results.find((r) => r.url === root.url).pageCategory, "Home");
+  assert.equal(results.find((r) => r.url === deepRoot.url).pageCategory, "Home");
+});
+
+test("categorizePage: schema.org @type outranks a non-matching URL", () => {
+  const result = baseResult({
+    url: "https://example.com/items/widget-9000",
+    schemaTypes: ["Product", "BreadcrumbList"],
+  });
+  const { results } = buildFindings({ results: [result], startUrl: "https://example.com/" });
+  assert.equal(results[0].pageCategory, "Product");
+});
+
+test("categorizePage: URL path patterns cover the common page types", () => {
+  const cases = [
+    ["https://example.com/products/widget", "Product"],
+    ["https://example.com/blog/how-we-built-it", "Blog / Article"],
+    ["https://example.com/training/level-1", "Training"],
+    ["https://example.com/guides/getting-started", "Guide / Resource"],
+    ["https://example.com/faqs/", "FAQ"],
+    ["https://example.com/about-us/", "About"],
+    ["https://example.com/careers/", "Careers"],
+    ["https://example.com/privacy/", "Legal"],
+  ];
+  const results = cases.map(([url]) => baseResult({ url }));
+  const { results: enriched } = buildFindings({ results, startUrl: "https://example.com/" });
+  for (const [url, expected] of cases) {
+    assert.equal(enriched.find((r) => r.url === url).pageCategory, expected, url);
+  }
+});
+
+test("categorizePage: an unmatched page falls back to Other, not a guess", () => {
+  const result = baseResult({ url: "https://example.com/xj4k2" });
+  const { results } = buildFindings({ results: [result], startUrl: "https://example.com/" });
+  assert.equal(results[0].pageCategory, "Other");
+});
+
+// ── Media library ────────────────────────────────────────────────────────
+test("buildMediaLibrary: an image referenced from two pages is one item with usedByCount 2", () => {
+  const home = baseResult({ url: "https://example.com/", depth: 0 });
+  const about = baseResult({ url: "https://example.com/about/" });
+  const image = baseResult({
+    url: "https://example.com/wp-content/uploads/hero.jpg",
+    isAsset: true,
+    contentType: "image/jpeg",
+    size: 204_800,
+    depth: 1,
+  });
+  const resourceEdges = [
+    { sourceUrl: home.url, targetUrl: image.url },
+    { sourceUrl: about.url, targetUrl: image.url },
+  ];
+  const { mediaLibrary } = buildFindings({
+    results: [home, about, image],
+    resourceEdges,
+    startUrl: home.url,
+  });
+  assert.equal(mediaLibrary.count, 1);
+  assert.equal(mediaLibrary.items[0].url, image.url);
+  assert.equal(mediaLibrary.items[0].type, "Image");
+  assert.equal(mediaLibrary.items[0].usedByCount, 2);
+  assert.equal(mediaLibrary.totalBytes, 204_800);
+});
+
+test("buildMediaLibrary: excludes non-media assets (CSS/JS) and non-200s, includes external media labeled isExternal", () => {
+  // External used to be a hard exclusion — that silently dropped a linked
+  // compliance PDF or spec sheet hosted on a sibling domain from the media
+  // library entirely. It's now included, just labeled, so the reader judges
+  // relevance instead of the tool guessing it away (see buildMediaLibrary).
+  const script = baseResult({ url: "https://example.com/app.js", isAsset: true, contentType: "application/javascript", status: 200 });
+  const externalImage = baseResult({ url: "https://cdn.other.com/pic.png", isAsset: true, contentType: "image/png", scope: "External", status: 200 });
+  const brokenImage = baseResult({ url: "https://example.com/missing.png", isAsset: true, contentType: "image/png", status: 404 });
+  const pdf = baseResult({ url: "https://example.com/whitepaper.pdf", isAsset: true, contentType: "application/pdf", size: 50_000, status: 200 });
+  const { mediaLibrary } = buildFindings({
+    results: [script, externalImage, brokenImage, pdf],
+    resourceEdges: [],
+    startUrl: "https://example.com/",
+  });
+  assert.equal(mediaLibrary.count, 2);
+  const byUrl = new Map(mediaLibrary.items.map((item) => [item.url, item]));
+  assert.ok(byUrl.has(pdf.url));
+  assert.equal(byUrl.get(pdf.url).type, "Document");
+  assert.equal(byUrl.get(pdf.url).isExternal, false);
+  assert.ok(byUrl.has(externalImage.url));
+  assert.equal(byUrl.get(externalImage.url).type, "Image");
+  assert.equal(byUrl.get(externalImage.url).isExternal, true);
+  assert.ok(!byUrl.has(script.url), "a script is not media even though it's isAsset");
+  assert.ok(!byUrl.has(brokenImage.url), "a 404'd asset was never actually delivered");
+});
+
+test("buildMediaLibrary: recognizes a linked calendar/office/archive file, not just images/video/audio/PDF", () => {
+  const ics = baseResult({ url: "https://example.com/event.ics", isAsset: true, contentType: "text/calendar", status: 200 });
+  const docx = baseResult({
+    url: "https://example.com/brochure.docx",
+    isAsset: true,
+    contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    status: 200,
+  });
+  const { mediaLibrary } = buildFindings({
+    results: [ics, docx],
+    resourceEdges: [],
+    startUrl: "https://example.com/",
+  });
+  assert.equal(mediaLibrary.count, 2);
+  assert.ok(mediaLibrary.items.every((item) => item.type === "Document"));
+});
+
+test("buildIntegrations: aggregates a vendor's page count, placement, and loading strategy across pages", () => {
+  const home = baseResult({
+    url: "https://example.com/",
+    integrations: [
+      { id: "google-tag-manager", location: "head", loading: "sync" },
+      { id: "facebook-pixel", location: "body", loading: "async" },
+    ],
+  });
+  const about = baseResult({
+    url: "https://example.com/about",
+    integrations: [
+      { id: "google-tag-manager", location: "head", loading: "sync" },
+    ],
+  });
+  const { integrations } = buildFindings({ results: [home, about], startUrl: home.url });
+
+  assert.equal(integrations.totalPages, 2);
+  const gtm = integrations.items.find((item) => item.id === "google-tag-manager");
+  assert.equal(gtm.pageCount, 2);
+  assert.equal(gtm.headCount, 2);
+  assert.equal(gtm.bodyCount, 0);
+  assert.equal(gtm.loadingCounts.sync, 2);
+  assert.equal(gtm.name, "Google Tag Manager");
+  assert.equal(gtm.category, "Tag Manager");
+  assert.equal(gtm.status, "active");
+
+  const pixel = integrations.items.find((item) => item.id === "facebook-pixel");
+  assert.equal(pixel.pageCount, 1);
+  assert.equal(pixel.bodyCount, 1);
+  assert.equal(pixel.loadingCounts.async, 1);
+
+  // Sorted by adoption, most-used first.
+  assert.equal(integrations.items[0].id, "google-tag-manager");
+});
+
+test("buildIntegrations: flags a deprecated vendor and returns nothing for a clean page", () => {
+  const legacy = baseResult({
+    integrations: [{ id: "universal-analytics", location: "body", loading: "sync" }],
+  });
+  const { integrations: withLegacy } = buildFindings({ results: [legacy], startUrl: legacy.url });
+  const ua = withLegacy.items.find((item) => item.id === "universal-analytics");
+  assert.equal(ua.status, "deprecated");
+
+  const clean = baseResult({ integrations: [] });
+  const { integrations: withNone } = buildFindings({ results: [clean], startUrl: clean.url });
+  assert.equal(withNone.items.length, 0);
+  assert.equal(withNone.totalPages, 1);
+});
+
+test("buildIntegrations: an unrecognized/stale vendor id is skipped rather than surfaced blank", () => {
+  const page = baseResult({ integrations: [{ id: "some-retired-catalog-id", location: "head", loading: "sync" }] });
+  const { integrations } = buildFindings({ results: [page], startUrl: page.url });
+  assert.equal(integrations.items.length, 0);
+});
+
+// ── Crawler-completeness Phase 1 ────────────────────────────────────────────
+
+test("broken-internal-links does not fire when the target was only skipped for the crawl's own robots.txt compliance", () => {
+  const source = baseResult({ url: "https://example.com/" });
+  const target = baseResult({
+    url: "https://example.com/search",
+    status: 0,
+    statusText: "Blocked by robots.txt",
+    indexability: "Non-indexable",
+  });
+  const { findings } = buildFindings({
+    results: [source, target],
+    linkEdges: [{ sourceUrl: source.url, targetUrl: target.url, internal: true, anchorText: "Search" }],
+    startUrl: source.url,
+  });
+  assert.ok(
+    !findings.some((f) => f.ruleId === "broken-internal-links" && f.url === source.url),
+    "a robots-disallowed target is a polite no-fetch, not a dead link",
+  );
+  // The target itself still gets its own, milder finding — this isn't
+  // silently dropping the fact that an internal link points somewhere the
+  // site's own robots.txt blocks.
+  assert.ok(findings.some((f) => f.ruleId === "robots-blocked" && f.url === target.url));
+});
+
+test("broken-internal-links still fires for a genuinely broken target (404, not robots-blocked)", () => {
+  const source = baseResult({ url: "https://example.com/" });
+  const target = baseResult({ url: "https://example.com/dead", status: 404, statusText: "Not Found" });
+  const { findings } = buildFindings({
+    results: [source, target],
+    linkEdges: [{ sourceUrl: source.url, targetUrl: target.url, internal: true, anchorText: "Dead" }],
+    startUrl: source.url,
+  });
+  assert.ok(findings.some((f) => f.ruleId === "broken-internal-links" && f.url === source.url && f.statusCode === 404));
+});
+
+test("collapseTemplateFindings: a broken link present on nearly every page collapses to ONE scope='template' signature, not N page findings", () => {
+  const target = baseResult({ url: "https://example.com/search", status: 0, statusText: "Server error" });
+  const pages = Array.from({ length: 10 }, (_, i) => baseResult({ url: `https://example.com/page-${i}` }));
+  const linkEdges = pages.map((page) => ({
+    sourceUrl: page.url,
+    targetUrl: target.url,
+    internal: true,
+    anchorText: "Search",
+  }));
+  const { findings } = buildFindings({
+    results: [...pages, target],
+    linkEdges,
+    startUrl: pages[0].url,
+  });
+  const broken = findings.filter((f) => f.ruleId === "broken-internal-links");
+  assert.equal(broken.length, 10, "still one finding per affected page — nothing is deleted");
+  assert.ok(broken.every((f) => f.scope === "template"), "every instance is re-tagged, not merged into one row");
+  assert.ok(!findings.some((f) => f.ruleId === "broken-internal-links" && f.scope === "page"));
+});
+
+test("collapseTemplateFindings: a broken link on only a couple of pages stays scope='page', not template", () => {
+  const target = baseResult({ url: "https://example.com/one-off", status: 404 });
+  const pages = Array.from({ length: 10 }, (_, i) => baseResult({ url: `https://example.com/page-${i}` }));
+  // Only 2 of 10 pages link to it — well under the 50%-of-crawl threshold.
+  const linkEdges = pages.slice(0, 2).map((page) => ({
+    sourceUrl: page.url,
+    targetUrl: target.url,
+    internal: true,
+    anchorText: "One off",
+  }));
+  const { findings } = buildFindings({
+    results: [...pages, target],
+    linkEdges,
+    startUrl: pages[0].url,
+  });
+  const broken = findings.filter((f) => f.ruleId === "broken-internal-links");
+  assert.equal(broken.length, 2);
+  assert.ok(broken.every((f) => f.scope === "page"), "too few affected pages to call it a template pattern");
+});
+
+test("collapseTemplateFindings: distinct targets under the same rule collapse independently", () => {
+  // Two DIFFERENT broken targets, each linked from every page — two separate
+  // template findings, not one merged one (they're different defects).
+  const targetA = baseResult({ url: "https://example.com/dead-a", status: 404 });
+  const targetB = baseResult({ url: "https://example.com/dead-b", status: 404 });
+  const pages = Array.from({ length: 6 }, (_, i) => baseResult({ url: `https://example.com/page-${i}` }));
+  const linkEdges = pages.flatMap((page) => [
+    { sourceUrl: page.url, targetUrl: targetA.url, internal: true, anchorText: "A" },
+    { sourceUrl: page.url, targetUrl: targetB.url, internal: true, anchorText: "B" },
+  ]);
+  const { findings } = buildFindings({
+    results: [...pages, targetA, targetB],
+    linkEdges,
+    startUrl: pages[0].url,
+  });
+  const broken = findings.filter((f) => f.ruleId === "broken-internal-links" && f.scope === "template");
+  const byTarget = new Map();
+  for (const f of broken) byTarget.set(f.targetUrl, (byTarget.get(f.targetUrl) || 0) + 1);
+  assert.equal(byTarget.get(targetA.url), 6);
+  assert.equal(byTarget.get(targetB.url), 6);
+});
+
+// ── Root-cause rollup (V9.0) ─────────────────────────────────────────────
+// buildRootCauseGroups() groups every finding by (ruleId, evidence
+// signature) per its `evidenceFamily` in issue-catalog.json — always, not
+// threshold-gated like collapseTemplateFindings above. Scaled-down versions
+// of the brief's own nine worked examples (a)-(i); the shape of each fixture
+// mirrors the real one, just with fewer rows.
+
+function groupsFor(rootCauseGroups, ruleId) {
+  return rootCauseGroups.filter((g) => g.ruleId === ruleId);
+}
+
+test("root-cause (a): links to redirected pages — one shared target collapses to ONE group", () => {
+  const finalPage = baseResult({ url: "https://example.com/final", canonical: "https://example.com/final" });
+  const redirector = baseResult({
+    url: "https://example.com/old-service",
+    status: 301,
+    canonical: "",
+    redirectUrl: finalPage.url,
+  });
+  const pages = Array.from({ length: 6 }, (_, i) => baseResult({ url: `https://example.com/page-${i}` }));
+  const linkEdges = pages.map((page) => ({
+    sourceUrl: page.url,
+    targetUrl: redirector.url,
+    internal: true,
+    anchorText: "Old service",
+  }));
+  const { findings, rootCauseGroups } = buildFindings({
+    results: [...pages, redirector, finalPage],
+    linkEdges,
+    startUrl: pages[0].url,
+  });
+  const groups = groupsFor(rootCauseGroups, "link-to-redirect");
+  assert.equal(groups.length, 1, "all 6 links to the same redirected URL are one root cause");
+  assert.equal(groups[0].memberCount, 6);
+  assert.equal(groups[0].uniqueTargetCount, 1);
+  const members = findings.filter((f) => f.ruleId === "link-to-redirect");
+  assert.ok(members.every((f) => f.rootCauseGroupId === groups[0].groupId));
+  assert.ok(members.every((f) => f.groupMemberCount === 6));
+});
+
+test("root-cause (b): a permanent redirect is its own single-member group (merge with (a) is Part 2)", () => {
+  const redirector = baseResult({
+    url: "https://example.com/legacy",
+    status: 301,
+    canonical: "",
+    redirectUrl: "https://example.com/current",
+  });
+  const { rootCauseGroups } = buildFindings({
+    results: [redirector, baseResult({ url: "https://example.com/current" })],
+    startUrl: redirector.url,
+  });
+  const groups = groupsFor(rootCauseGroups, "permanent-redirect");
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].memberCount, 1);
+  assert.equal(groups[0].uniqueTargetCount, 1, "self-url family: the group's own identity is the redirecting URL");
+});
+
+test("root-cause (c): links without an accessible name collapse per distinct destination, not per row", () => {
+  const targets = ["a", "b", "c"].map((id) =>
+    baseResult({ url: `https://example.com/icon-${id}`, contentType: "image/svg+xml", isAsset: true }),
+  );
+  const pages = Array.from({ length: 4 }, (_, i) => baseResult({ url: `https://example.com/page-${i}` }));
+  // 3 icon links per page, same 3 destinations every time — 12 rows, 3 distinct targets.
+  const linkEdges = pages.flatMap((page) =>
+    targets.map((target) => ({ sourceUrl: page.url, targetUrl: target.url, internal: true })),
+  );
+  const { findings, rootCauseGroups } = buildFindings({
+    results: [...pages, ...targets],
+    linkEdges,
+    startUrl: pages[0].url,
+  });
+  const missing = findings.filter((f) => f.ruleId === "anchor-missing");
+  assert.equal(missing.length, 12, "still one row per occurrence");
+  const groups = groupsFor(rootCauseGroups, "anchor-missing");
+  assert.equal(groups.length, 3, "3 unique targets -> 3 groups, not 12");
+  assert.ok(groups.every((g) => g.memberCount === 4));
+});
+
+test("root-cause (d): missing Open Graph properties group by the sorted set of what's missing", () => {
+  const bothMissing = Array.from({ length: 4 }, (_, i) =>
+    baseResult({
+      url: `https://example.com/loc-${i}`,
+      openGraphMissing: ["og:image", "og:title"],
+      openGraphDescriptionMissing: false,
+    }),
+  );
+  const imageOnlyMissing = baseResult({
+    url: "https://example.com/loc-other",
+    openGraphMissing: ["og:image"],
+    openGraphDescriptionMissing: false,
+  });
+  const { findings, rootCauseGroups } = buildFindings({
+    results: [...bothMissing, imageOnlyMissing],
+    startUrl: bothMissing[0].url,
+  });
+  const incomplete = findings.filter((f) => f.ruleId === "open-graph-incomplete");
+  assert.equal(incomplete.length, 5);
+  const groups = groupsFor(rootCauseGroups, "open-graph-incomplete");
+  assert.equal(groups.length, 2, "two distinct missing-property sets -> two groups");
+  const sizes = groups.map((g) => g.memberCount).sort((a, b) => a - b);
+  assert.deepEqual(sizes, [1, 4]);
+});
+
+test("root-cause (e): schema.org validation errors with the identical message collapse to ONE group", () => {
+  const message = "Dentist is missing the required address property";
+  const pages = Array.from({ length: 5 }, (_, i) =>
+    baseResult({ url: `https://example.com/location-${i}`, schemaErrors: [message] }),
+  );
+  const { findings, rootCauseGroups } = buildFindings({ results: pages, startUrl: pages[0].url });
+  assert.equal(findings.filter((f) => f.ruleId === "schema-error").length, 5);
+  const groups = groupsFor(rootCauseGroups, "schema-error");
+  assert.equal(groups.length, 1, "identical validation message -> one schema template fix");
+  assert.equal(groups[0].memberCount, 5);
+});
+
+test("root-cause (f): non-descriptive link labels cluster case-insensitively per destination, but not across destinations", () => {
+  const targetA = baseResult({ url: "https://example.com/guide-a" });
+  const targetB = baseResult({ url: "https://example.com/guide-b" });
+  const pages = Array.from({ length: 3 }, (_, i) => baseResult({ url: `https://example.com/page-${i}` }));
+  const linkEdges = [
+    { sourceUrl: pages[0].url, targetUrl: targetA.url, internal: true, anchorText: "Read More" },
+    { sourceUrl: pages[1].url, targetUrl: targetA.url, internal: true, anchorText: "read more" },
+    { sourceUrl: pages[2].url, targetUrl: targetB.url, internal: true, anchorText: "Learn More" },
+  ];
+  const { findings, rootCauseGroups } = buildFindings({
+    results: [...pages, targetA, targetB],
+    linkEdges,
+    startUrl: pages[0].url,
+  });
+  assert.equal(findings.filter((f) => f.ruleId === "anchor-nondescriptive").length, 3);
+  const groups = groupsFor(rootCauseGroups, "anchor-nondescriptive");
+  assert.equal(groups.length, 2, "'Read More'/'read more' -> targetA collapse; 'Learn More' -> targetB stays separate");
+  const byTarget = new Map(groups.map((g) => [g.uniqueTargetCount, g.memberCount]));
+  assert.equal(groups.find((g) => g.memberCount === 2)?.uniqueTargetCount, 1);
+});
+
+test("root-cause (g): slow pages are one Config group regardless of how many pages are slow", () => {
+  const pages = Array.from({ length: 5 }, (_, i) =>
+    baseResult({ url: `https://example.com/slow-${i}`, responseTime: 1200 + i * 500 }),
+  );
+  const { findings, rootCauseGroups } = buildFindings({ results: pages, startUrl: pages[0].url });
+  assert.equal(findings.filter((f) => f.ruleId === "slow-page").length, 5);
+  const groups = groupsFor(rootCauseGroups, "slow-page");
+  assert.equal(groups.length, 1, "server response time is one fix, not N page-by-page ones");
+  assert.equal(groups[0].memberCount, 5);
+  assert.equal(groups[0].fixType, "Config");
+});
+
+test("root-cause (h): external links unavailable during checking do NOT over-collapse — distinct targets stay distinct", () => {
+  const source = baseResult({ url: "https://example.com/resources" });
+  const targets = Array.from({ length: 4 }, (_, i) =>
+    baseResult({ url: `https://dead-${i}.test/page`, scope: "External", status: 404, statusText: "Not Found", canonical: "" }),
+  );
+  const linkEdges = targets.map((target) => ({
+    sourceUrl: source.url,
+    targetUrl: target.url,
+    internal: false,
+    anchorText: "Reference",
+  }));
+  const { findings, rootCauseGroups } = buildFindings({
+    results: [source, ...targets],
+    linkEdges,
+    startUrl: source.url,
+  });
+  assert.equal(findings.filter((f) => f.ruleId === "broken-external-link").length, 4);
+  const groups = groupsFor(rootCauseGroups, "broken-external-link");
+  assert.equal(groups.length, 4, "4 distinct broken destinations -> 4 groups, NOT one merged action");
+  assert.ok(groups.every((g) => g.memberCount === 1));
+});
+
+test("root-cause (i): external 403s group per distinct bot-protected destination", () => {
+  const source = baseResult({ url: "https://example.com/partners" });
+  const domainA = baseResult({ url: "https://social-a.test/profile", scope: "External", status: 403, statusText: "Forbidden", canonical: "" });
+  const domainB = baseResult({ url: "https://social-b.test/profile", scope: "External", status: 403, statusText: "Forbidden", canonical: "" });
+  const otherPages = Array.from({ length: 2 }, (_, i) => baseResult({ url: `https://example.com/page-${i}` }));
+  const linkEdges = [source, ...otherPages].flatMap((page) => [
+    { sourceUrl: page.url, targetUrl: domainA.url, internal: false, anchorText: "Follow us" },
+    { sourceUrl: page.url, targetUrl: domainB.url, internal: false, anchorText: "Follow us" },
+  ]);
+  const { findings, rootCauseGroups } = buildFindings({
+    results: [source, ...otherPages, domainA, domainB],
+    linkEdges,
+    startUrl: source.url,
+  });
+  assert.equal(findings.filter((f) => f.ruleId === "external-403").length, 6);
+  const groups = groupsFor(rootCauseGroups, "external-403");
+  assert.equal(groups.length, 2, "2 bot-protected destinations linked from every page -> 2 groups, not 6");
+  assert.ok(groups.every((g) => g.memberCount === 3));
+});
