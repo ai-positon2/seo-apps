@@ -84,6 +84,16 @@ const SERVICE_UNIVERSE_MAP = {
     clusters: ['Tooth Extraction', 'Wisdom Teeth Removal', 'Dental Implants'],
     terms: ['oral surgery', 'oral surgeon', 'extraction', 'wisdom teeth', 'surgical'],
   },
+  // The Specialty hub, covering the specialist services beneath it.
+  'specialty-care': {
+    clusters: ['Sedation & Dental Anxiety', 'Sleep Apnea & Snoring', 'TMJ / TMD & Bruxism', 'Pediatric Dentistry', 'Emergency Dental Care'],
+    terms: ['specialty', 'specialist', 'sedation', 'sleep apnea', 'tmj', 'tmd', 'pediatric', 'emergency'],
+  },
+  // No dental cluster covers injectables, so match the keyword text.
+  'botox-cosmetic-and-injectables': {
+    keywordLike: ['%botox%', '%injectable%', '%filler%', '%dermal%'],
+    terms: ['botox', 'injectable', 'filler', 'dermal', 'wrinkle'],
+  },
   'orthodontics': {
     clusters: ['Braces', 'Invisalign & Clear Aligners', 'Bite & Alignment Issues'],
     terms: ['orthodont', 'brace', 'aligner', 'invisalign', 'overbite', 'underbite', 'crooked'],

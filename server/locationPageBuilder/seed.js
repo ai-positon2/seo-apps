@@ -267,6 +267,7 @@ const GD_SERVICE_DEFS = [
   ['Cosmetic', 'Teeth Whitening', 'teeth-whitening'],
   ['Cosmetic', 'Veneers', 'veneers'],
   ['Cosmetic', 'Invisalign® Treatment', 'invisalign-treatment'],
+  ['Cosmetic', 'BOTOX® Cosmetic & Injectables', 'botox-cosmetic-and-injectables'],
 
   ['Restorative', 'Restorative Dentistry', 'restorative-dentistry'],
   ['Restorative', 'Crowns and Bridges', 'crowns-and-bridges'],
@@ -298,6 +299,7 @@ const GD_SERVICE_DEFS = [
   ['Preventive', 'Curodont™', 'curodont'],
   ['Preventive', 'Diabetes And Oral Health', 'diabetes-and-oral-health'],
 
+  ['Specialty', 'Specialty Care', 'specialty-care'],
   ['Specialty', 'Emergency Dentist', 'emergency-dentist'],
   ['Specialty', 'Pediatric Dentistry', 'pediatric-dentistry'],
   ['Specialty', 'Periodontist', 'periodontist'],
