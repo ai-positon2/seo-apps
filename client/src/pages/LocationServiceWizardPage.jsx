@@ -999,7 +999,24 @@ export default function LocationServiceWizardPage() {
               </div>
             </div>
             <div>
-              <label style={labelStyle}>Service</label>
+              <label style={{ ...labelStyle, display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+                <span>Service</span>
+                <span style={{ fontWeight: 400, fontSize: '0.6875rem', color: 'var(--text-3)', marginLeft: 'auto' }}>
+                  {gdData.services.length} available
+                </span>
+                {/* The service list is reference data in the database, so a
+                    taxonomy change in seed.js only appears after a re-seed.
+                    This is safe to re-run: hand-entered NAP is preserved
+                    (see seed.mergeLocation). */}
+                <button
+                  style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.6875rem', color: 'var(--primary)', cursor: seeding ? 'default' : 'pointer', textDecoration: 'underline' }}
+                  disabled={seeding}
+                  title="Re-import the service and location list. Addresses, phone numbers and hours you have entered are kept."
+                  onClick={seedGentleDental}
+                >
+                  {seeding ? 'Syncing…' : 'Sync list'}
+                </button>
+              </label>
               <input style={{ ...inputStyle, marginBottom: '0.5rem' }} placeholder="Filter by service or category…" value={svcFilter} onChange={e => setSvcFilter(e.target.value)} />
               <PickerList groups={groupedServices} selectedId={serviceId} onSelect={selectService} emptyMessage="No services match." />
               <div style={{ marginTop: '0.375rem', fontSize: '0.75rem', minHeight: '1.25rem' }}>

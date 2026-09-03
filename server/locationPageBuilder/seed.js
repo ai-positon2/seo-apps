@@ -407,12 +407,69 @@ const GD_LOCATIONS = GD_LOCATION_DEFS.map(([stateAbbr, region, city, pagePath]) 
   };
 });
 
+// Location fields the SEO team fills in by hand. The seed deliberately ships
+// them EMPTY (see nap_todo above), so a blind replaceAll silently destroyed
+// that work — which made re-seeding to pick up a service change cost the
+// entire NAP effort, and is why this used to be a one-shot bootstrap rather
+// than something safe to re-run.
+const PRESERVED_LOCATION_FIELDS = [
+  'street_address', 'zip_code', 'phone_number', 'hours_by_day', 'directions_url',
+  'map_image_url', 'hero_image_url', 'hero_image_alt', 'latitude', 'longitude',
+  'nearby_areas', 'gbp_url', 'brand_name',
+];
+
+// nap_todo is the opposite case: an EMPTY list is meaningful (it means the
+// team finished the NAP), so "preserve only when non-empty" would reset a
+// completed checklist back to the full set of TODOs. Preserve it whenever the
+// stored row carries the field at all.
+const PRESERVED_IF_PRESENT = ['nap_todo'];
+
+function hasValue(v) {
+  if (v == null || v === '') return false;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === 'object') return Object.keys(v).length > 0;
+  return true;
+}
+
+// Seeded values win for identity and geography (that is the point of
+// re-seeding); anything a human populated wins over the seed's blank.
+function mergeLocation(seeded, stored) {
+  if (!stored) return seeded;
+  const merged = { ...seeded };
+  for (const field of PRESERVED_LOCATION_FIELDS) {
+    if (hasValue(stored[field])) merged[field] = stored[field];
+  }
+  for (const field of PRESERVED_IF_PRESENT) {
+    if (Object.prototype.hasOwnProperty.call(stored, field)) merged[field] = stored[field];
+  }
+  return merged;
+}
+
+// Re-runnable. Services are pure reference data and are replaced outright, so
+// a renamed service loses its old row (and any page generated under the old
+// slug is orphaned — that is inherent to a rename, not to the seed).
 async function seedGentleDental() {
   await store.upsertBy('clients', 'id', GD_CLIENT, 'client');
   await store.upsertBy('globalTemplates', 'id', GD_GLOBAL_TEMPLATE, 'gt');
   await store.replaceAllForClient('services', GD_CLIENT_ID, GD_SERVICES);
-  await store.replaceAllForClient('locations', GD_CLIENT_ID, GD_LOCATIONS);
-  return { client_id: GD_CLIENT_ID, services: GD_SERVICES.length, locations: GD_LOCATIONS.length };
+
+  const stored = await store.list('locations', { client_id: GD_CLIENT_ID });
+  const storedById = new Map(stored.map(l => [l.id, l]));
+  const locations = GD_LOCATIONS.map(l => mergeLocation(l, storedById.get(l.id)));
+  await store.replaceAllForClient('locations', GD_CLIENT_ID, locations);
+
+  const napPreserved = locations.filter((l, i) => storedById.has(l.id)
+    && PRESERVED_LOCATION_FIELDS.some(f => hasValue(l[f]) && hasValue(storedById.get(l.id)[f]))).length;
+
+  return {
+    client_id: GD_CLIENT_ID,
+    services: GD_SERVICES.length,
+    locations: locations.length,
+    locations_with_preserved_data: napPreserved,
+  };
 }
 
-module.exports = { seedNeuroWellness, CLIENT_ID, seedGentleDental, GD_CLIENT_ID };
+module.exports = {
+  seedNeuroWellness, CLIENT_ID, seedGentleDental, GD_CLIENT_ID,
+  mergeLocation, PRESERVED_LOCATION_FIELDS, PRESERVED_IF_PRESENT,
+};

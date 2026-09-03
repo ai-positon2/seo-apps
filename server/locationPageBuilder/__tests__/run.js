@@ -45,6 +45,7 @@ const dentalOutline = require('../dentalOutline');
 const contentGenerator = require('../contentGenerator');
 const config = require('../config');
 const keywordUniverseMap = require('../keywordUniverseMap');
+const seed = require('../seed');
 const keywordAdapter = require('../keywordAdapter');
 
 // The keyword-presence check carries its own threshold in its id, so it is
@@ -875,6 +876,42 @@ const SERVICE_DEFS = (() => {
 })();
 const WIZARD_CATEGORIES = ['Cosmetic', 'Restorative', 'Oral Surgery', 'Orthodontics', 'Preventive', 'Specialty'];
 
+test('re-seeding preserves hand-entered NAP', () => {
+  // seedGentleDental replaceAll-ed locations, which wiped the address, phone
+  // and hours the SEO team enters by hand (the seed ships those blank on
+  // purpose). That made re-seeding to pick up a service change cost the whole
+  // NAP effort -- and re-seeding is the ONLY way a taxonomy change reaches the
+  // dropdown, so the two were in direct conflict.
+  const seeded = {
+    id: 'dloc_ma-quincy', city: 'Quincy', region: 'South Shore',
+    street_address: '', phone_number: '', hours_by_day: {}, nearby_areas: [],
+    brand_name: null, nap_todo: ['street_address', 'phone_number'],
+  };
+  const stored = {
+    id: 'dloc_ma-quincy', city: 'Quincy', region: 'South Shore',
+    street_address: '123 Hancock St', phone_number: '617-555-0100',
+    hours_by_day: { mon: '8-5' }, nearby_areas: ['Braintree'],
+    brand_name: null, nap_todo: [],
+  };
+  const merged = seed.mergeLocation(seeded, stored);
+  assert.strictEqual(merged.street_address, '123 Hancock St');
+  assert.strictEqual(merged.phone_number, '617-555-0100');
+  assert.deepStrictEqual(merged.hours_by_day, { mon: '8-5' });
+  assert.deepStrictEqual(merged.nearby_areas, ['Braintree']);
+  assert.deepStrictEqual(merged.nap_todo, [], 'a completed NAP checklist must not be reset');
+});
+test('re-seeding still applies seeded identity and brand overrides', () => {
+  // The point of re-seeding is to pick up changes, so anything the team has
+  // NOT populated must take the seeded value.
+  const seeded = { id: 'x', city: 'Boston', brand_name: 'Newbury Dental Associates', street_address: '' };
+  const merged = seed.mergeLocation(seeded, { id: 'x', city: 'Stale', brand_name: null, street_address: '' });
+  assert.strictEqual(merged.brand_name, 'Newbury Dental Associates');
+  assert.strictEqual(merged.city, 'Boston', 'identity/geo always comes from the seed');
+});
+test('a location with nothing stored seeds unchanged', () => {
+  const seeded = { id: 'new', city: 'Methuen', street_address: '' };
+  assert.deepStrictEqual(seed.mergeLocation(seeded, null), seeded);
+});
 test('every service has a unique slug that matches its name', () => {
   // The slug is both the page URL and the service id, so a mismatch means the
   // URL does not follow from the name and a collision means two services
