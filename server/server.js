@@ -230,6 +230,14 @@ require('./modules/competitorAnalysis/store').init().catch(err => {
   console.error('[CompetitorAnalysis] Store init failed:', err.message);
 });
 
+// Sweeps expired rows out of the shared `cache` table (nothing else deletes
+// them — TTL is applied on read). Enforces the 180-day SEMrush retention.
+try {
+  require('./jobs/cachePurge').init();
+} catch (err) {
+  console.error('[CachePurge] Scheduler init failed:', err.message);
+}
+
 require('./modules/robotsMonitor/monitorStore').init().then(() => {
   require('./modules/robotsMonitor/monitorScheduler').init().catch(err => {
     console.error('[RobotsMonitor] Scheduler init failed:', err.message);

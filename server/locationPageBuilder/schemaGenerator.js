@@ -121,7 +121,9 @@ function stripHtml(html) {
 function generateDentalSchema({ scaffold, client, location, service }) {
   const m = scaffold.meta;
   const sec = scaffold.sections;
-  const brand = client.name;
+  // The practice name for THIS page, resolved once in compose. Offices with
+  // their own local brand must not be described as Gentle Dental in schema.
+  const brand = m.brandName || client.name;
   const officeInfo = sec.officeInfo;
 
   const breadcrumbList = {

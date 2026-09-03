@@ -4,6 +4,7 @@
 
 const store = require('./store');
 const { slugify } = require('./urlBuilder');
+const config = require('./config');
 
 const CLIENT_ID = 'client_neuro_wellness_spa';
 const BASE_URL = 'https://neurowellnessspa.com';
@@ -236,7 +237,9 @@ const GD_GLOBAL_TEMPLATE = {
   section_order: ['seo', 'hero', 'breadcrumb', 'officeInfo', 'servicesInCity', 'educationalBody', 'faq', 'schema'],
   section_layouts: {},
   seo_head_structure: {
-    meta_title_pattern: '[Service] in [City], [STATE] | Gentle Dental',
+    // [Brand] is the per-office practice name (config.dental.brand), not the
+    // group name — a few offices trade under their own brand.
+    meta_title_pattern: '[Service] in [City], [STATE] | [Brand]',
     h1_pattern: '[Service] in [City], [STATE]',
   },
   schema_skeletons: { business_type: 'Dentist' },
@@ -349,6 +352,11 @@ const GD_LOCATIONS = GD_LOCATION_DEFS.map(([stateAbbr, region, city, pagePath]) 
     state: GD_STATE_NAMES[stateAbbr] || stateAbbr,
     state_abbreviation: stateAbbr,
     location_page_url: pagePath,
+    // Practice name for this office. Almost all trade as Gentle Dental; the
+    // exceptions live in config.dental.brand so compose can apply them to rows
+    // that predate this field (re-seeding locations would wipe the NAP data
+    // the SEO team enters by hand). Kept here too so a fresh seed carries it.
+    brand_name: config.dental.brand.byLocationPageUrl[pagePath] || null,
     // NAP — left EMPTY on purpose (populated manually from GBP/Birdeye later).
     street_address: '',
     zip_code: '',

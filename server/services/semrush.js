@@ -1,11 +1,13 @@
 const axios = require('axios');
 
-async function getUrlKeywords(url, apiKey, limit = 10) {
+// `database` is optional and defaults to the previous hardcoded value, so
+// existing callers are unaffected.
+async function getUrlKeywords(url, apiKey, limit = 10, database = 'us') {
   const params = {
     type: 'url_organic',
     key: apiKey,
     url: url,
-    database: 'us',
+    database,
     display_limit: limit,
     export_columns: 'Ph,Po,Nq,Cp,Kd',
     display_sort: 'nq_desc'

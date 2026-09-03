@@ -5,22 +5,6 @@ import { lpb } from '../lib/lpbApi';
 // Matches server/locationPageBuilder/seed.js GD_CLIENT_ID.
 const GD_CLIENT_ID = 'client_gentle_dental';
 
-const VERDICT_COLORS = {
-  PASS:                 { bg: 'var(--success-soft,#ECFDF5)', text: 'var(--success,#059669)' },
-  'CONDITIONAL PASS':   { bg: 'var(--warning-soft,#FFFBEB)', text: 'var(--warning,#B45309)' },
-  'REVISIONS REQUIRED': { bg: 'var(--warning-soft,#FFFBEB)', text: 'var(--warning,#B45309)' },
-  FAIL:                 { bg: 'var(--danger-soft,#FEF2F2)',  text: 'var(--danger,#EF4444)' },
-};
-
-function VerdictPill({ verdict }) {
-  const c = VERDICT_COLORS[verdict] || { bg: 'var(--surface)', text: 'var(--text-3)' };
-  return (
-    <span style={{ fontSize: '0.75rem', fontWeight: 600, padding: '2px 8px', borderRadius: '9999px', backgroundColor: c.bg, color: c.text, display: 'inline-block' }}>
-      {verdict || 'Not run'}
-    </span>
-  );
-}
-
 // This dashboard exists because generated Gentle Dental pages are ALWAYS
 // saved (one per location+service, upserted in place — see dentalWizard.js),
 // but without this list there was no way to see that: they're excluded from
@@ -32,6 +16,7 @@ export default function GentleDentalPagesPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
   const [error, setError] = useState('');
+  const [deletingId, setDeletingId] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -40,6 +25,21 @@ export default function GentleDentalPagesPage() {
     setLoading(false);
   }
   useEffect(() => { load(); }, []);
+
+  // Pages are kept forever unless explicitly deleted; this is the only way to
+  // delete one. The server also drops the page's approved-keyword record, so
+  // a delete leaves nothing orphaned behind it.
+  async function remove(row) {
+    const label = [row.service_name, row.location_name].filter(Boolean).join(' — ') || row.url_path || row.id;
+    if (!window.confirm(`Permanently delete "${label}"? Its generated content and approved keywords cannot be recovered.`)) return;
+    setDeletingId(row.id);
+    setError('');
+    try {
+      await lpb.deletePage(row.id);
+      await load();
+    } catch (e) { setError(e.message); }
+    setDeletingId(null);
+  }
 
   const filtered = rows.filter(r =>
     !filter || [r.service_name, r.location_name, r.primary_keyword, r.url_path].join(' ').toLowerCase().includes(filter.toLowerCase()));
@@ -75,8 +75,8 @@ export default function GentleDentalPagesPage() {
               <th style={{ padding: '0.75rem 1rem', fontWeight: 500 }}>Service</th>
               <th style={{ padding: '0.75rem 1rem', fontWeight: 500 }}>Location</th>
               <th style={{ padding: '0.75rem 1rem', fontWeight: 500 }}>Primary Keyword</th>
-              <th style={{ padding: '0.75rem 1rem', fontWeight: 500 }}>QC</th>
               <th style={{ padding: '0.75rem 1rem', fontWeight: 500 }}>Updated</th>
+              <th style={{ padding: '0.75rem 1rem', fontWeight: 500 }} />
             </tr>
           </thead>
           <tbody>
@@ -97,8 +97,17 @@ export default function GentleDentalPagesPage() {
                 <td style={{ padding: '0.75rem 1rem', fontWeight: 500, color: 'var(--text)' }}>{r.service_name}</td>
                 <td style={{ padding: '0.75rem 1rem', color: 'var(--text-2)' }}>{r.location_name}</td>
                 <td style={{ padding: '0.75rem 1rem', color: 'var(--text-2)', fontFamily: 'var(--font-mono)' }}>{r.primary_keyword || '—'}</td>
-                <td style={{ padding: '0.75rem 1rem' }}><VerdictPill verdict={r.qc_verdict} /></td>
                 <td style={{ padding: '0.75rem 1rem', color: 'var(--text-3)', fontSize: '0.75rem' }}>{new Date(r.updated_at).toLocaleString()}</td>
+                <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
+                  <button
+                    style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', fontWeight: 500, color: 'var(--danger,#EF4444)', background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--r-md,6px)', cursor: 'pointer' }}
+                    disabled={deletingId === r.id}
+                    // The row itself opens the page — don't do both.
+                    onClick={e => { e.stopPropagation(); remove(r); }}
+                  >
+                    {deletingId === r.id ? 'Deleting…' : 'Delete'}
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
