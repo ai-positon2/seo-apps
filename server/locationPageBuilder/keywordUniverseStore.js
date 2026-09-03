@@ -4,6 +4,7 @@
 
 const { getSupabase, isSupabaseConfigured } = require('../services/supabase');
 const supabaseStore = require('../services/supabaseStore');
+const config = require('./config');
 const { universeFilterFor } = require('./keywordUniverseMap');
 
 const TABLE = 'lpb_keyword_universe';
@@ -27,7 +28,7 @@ async function hasUniverse(clientId) {
 // for a given client+service+city, matched via the static Cluster/Pillar map
 // (see keywordUniverseMap.js) plus the city (or the geo-unspecific '-' rows,
 // which apply to every location).
-async function getUniverseCandidates({ clientId, serviceSlug, city }) {
+async function getUniverseCandidates({ clientId, serviceSlug, city, limit }) {
   const filter = universeFilterFor(serviceSlug);
   if (!filter || !clientId) return [];
   if (!(await hasUniverse(clientId))) return [];
@@ -41,7 +42,12 @@ async function getUniverseCandidates({ clientId, serviceSlug, city }) {
     ? q.in('cluster', filter.clusters)
     : q.or(filter.keywordLike.map(p => `keyword_norm.ilike.${p}`).join(','));
 
-  const { data, error } = await q.limit(2000);
+  // Highest search volume first, then capped. Without an explicit order the
+  // rows Postgres returns are arbitrary, so the cap would silently pick a
+  // different (and often worthless) 100 keywords on every run.
+  const { data, error } = await q
+    .order('semrush_sv', { ascending: false })
+    .limit(limit || config.keywords.universePoolSize);
   if (error) throw new Error(`[keywordUniverseStore.getUniverseCandidates] ${error.message}`);
 
   return data.map(r => ({

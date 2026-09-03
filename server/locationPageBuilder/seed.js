@@ -4,6 +4,7 @@
 
 const store = require('./store');
 const { slugify } = require('./urlBuilder');
+const config = require('./config');
 
 const CLIENT_ID = 'client_neuro_wellness_spa';
 const BASE_URL = 'https://neurowellnessspa.com';
@@ -236,7 +237,9 @@ const GD_GLOBAL_TEMPLATE = {
   section_order: ['seo', 'hero', 'breadcrumb', 'officeInfo', 'servicesInCity', 'educationalBody', 'faq', 'schema'],
   section_layouts: {},
   seo_head_structure: {
-    meta_title_pattern: '[Service] in [City], [STATE] | Gentle Dental',
+    // [Brand] is the per-office practice name (config.dental.brand), not the
+    // group name — a few offices trade under their own brand.
+    meta_title_pattern: '[Service] in [City], [STATE] | [Brand]',
     h1_pattern: '[Service] in [City], [STATE]',
   },
   schema_skeletons: { business_type: 'Dentist' },
@@ -244,33 +247,68 @@ const GD_GLOBAL_TEMPLATE = {
 
 // Appendix A — 26 services (category | name | slug).
 const GD_SERVICE_DEFS = [
+  // The client's own service taxonomy. Three kinds of page live here, and they
+  // all run through the same generator:
+  //   - single procedures ("Dental Crowns", "Root Canals")
+  //   - category hubs ("Cosmetic Dentistry", "Oral Surgery")
+  //   - practitioner pages ("Orthodontist", "Periodontist")
+  //
+  // Deliberate near-pairs are NOT accidental duplicates: "Teeth Extractions"
+  // and "Tooth Extraction", "TMD/TMJ Treatment" and "TMJ Treatment" target
+  // different searches and get their own pages.
+  //
+  // The slug is the page URL and the service id, so renaming a service here
+  // changes both. Anything already generated under the old slug is orphaned
+  // (compose.loadLayers can no longer resolve it) and has to be regenerated.
+  // Every slug added here also needs an entry in keywordUniverseMap, or its
+  // live keyword pool loses its topical filter.
+  ['Cosmetic', 'Cosmetic Dentistry', 'cosmetic-dentistry'],
+  ['Cosmetic', 'Smile Makeover', 'smile-makeover'],
   ['Cosmetic', 'Teeth Whitening', 'teeth-whitening'],
   ['Cosmetic', 'Veneers', 'veneers'],
-  ['Cosmetic', 'Smile Makeover', 'smile-makeover'],
-  ['Cosmetic', 'Invisalign', 'invisalign'],
-  ['Restorative', 'Crowns & Bridges', 'crowns-bridges'],
+  ['Cosmetic', 'Invisalign® Treatment', 'invisalign-treatment'],
+  ['Cosmetic', 'BOTOX® Cosmetic & Injectables', 'botox-cosmetic-and-injectables'],
+
+  ['Restorative', 'Restorative Dentistry', 'restorative-dentistry'],
+  ['Restorative', 'Crowns and Bridges', 'crowns-and-bridges'],
+  ['Restorative', 'Dental Crowns', 'dental-crowns'],
+  ['Restorative', 'Dental Bridges', 'dental-bridges'],
   ['Restorative', 'Dental Fillings', 'dental-fillings'],
   ['Restorative', 'Root Canals', 'root-canals'],
+  ['Restorative', 'Dental Implants', 'dental-implants'],
+  ['Restorative', 'Dentures', 'dentures'],
   ['Restorative', 'Gum Treatments', 'gum-treatments'],
-  ['Restorative', 'Partial & Full Dentures', 'partial-and-full-dentures'],
-  ['Restorative', 'Implants', 'implants'],
-  ['Oral Surgery', 'Extractions', 'extractions'],
+  ['Restorative', 'Gum Disease Treatment', 'gum-disease-treatment'],
+
+  ['Oral Surgery', 'Oral Surgery', 'oral-surgery'],
+  ['Oral Surgery', 'Teeth Extractions', 'teeth-extractions'],
+  ['Oral Surgery', 'Tooth Extraction', 'tooth-extraction'],
   ['Oral Surgery', 'Wisdom Teeth Extractions', 'wisdom-teeth-extractions'],
+
+  ['Orthodontics', 'Orthodontics', 'orthodontics'],
+  ['Orthodontics', 'Orthodontist', 'orthodontist'],
   ['Orthodontics', 'Braces', 'braces'],
-  ['Preventive', 'Exams', 'exams'],
-  ['Preventive', 'Digital X-rays', 'digital-x-rays'],
-  ['Preventive', 'Cleanings', 'cleanings'],
+
+  ['Preventive', 'Preventive Dentistry', 'preventive-dentistry'],
+  ['Preventive', 'Dental Exam', 'dental-exam'],
+  ['Preventive', 'Dental Cleaning', 'dental-cleaning'],
+  ['Preventive', 'Digital X-Rays', 'digital-x-rays'],
   ['Preventive', 'Fluoride Treatment', 'fluoride-treatment'],
+  ['Preventive', 'Dental Sealants', 'dental-sealants'],
   ['Preventive', 'Oral Cancer Screening', 'oral-cancer-screening'],
-  ['Preventive', 'Sealants', 'sealants'],
-  ['Preventive', 'Cavity Prevention (Curodont)', 'curodont'],
-  ['Preventive', 'Diabetes & Oral Health', 'diabetes-and-oral-health'],
-  ['Specialty', 'Emergency Dental Care', 'emergency-dental-care'],
+  ['Preventive', 'Curodont™', 'curodont'],
+  ['Preventive', 'Diabetes And Oral Health', 'diabetes-and-oral-health'],
+
+  ['Specialty', 'Specialty Care', 'specialty-care'],
+  ['Specialty', 'Emergency Dentist', 'emergency-dentist'],
   ['Specialty', 'Pediatric Dentistry', 'pediatric-dentistry'],
+  ['Specialty', 'Periodontist', 'periodontist'],
   ['Specialty', 'Sedation Dentistry', 'sedation-dentistry'],
   ['Specialty', 'Sleep Apnea Treatment', 'sleep-apnea-treatment'],
   ['Specialty', 'TMD/TMJ Treatment', 'tmd-tmj-treatment'],
+  ['Specialty', 'TMJ Treatment', 'tmj-treatment'],
 ];
+
 
 const GD_SERVICES = GD_SERVICE_DEFS.map(([category, name, slug]) => ({
   id: `dsvc_${slug}`,
@@ -349,6 +387,11 @@ const GD_LOCATIONS = GD_LOCATION_DEFS.map(([stateAbbr, region, city, pagePath]) 
     state: GD_STATE_NAMES[stateAbbr] || stateAbbr,
     state_abbreviation: stateAbbr,
     location_page_url: pagePath,
+    // Practice name for this office. Almost all trade as Gentle Dental; the
+    // exceptions live in config.dental.brand so compose can apply them to rows
+    // that predate this field (re-seeding locations would wipe the NAP data
+    // the SEO team enters by hand). Kept here too so a fresh seed carries it.
+    brand_name: config.dental.brand.byLocationPageUrl[pagePath] || null,
     // NAP — left EMPTY on purpose (populated manually from GBP/Birdeye later).
     street_address: '',
     zip_code: '',
@@ -366,12 +409,69 @@ const GD_LOCATIONS = GD_LOCATION_DEFS.map(([stateAbbr, region, city, pagePath]) 
   };
 });
 
+// Location fields the SEO team fills in by hand. The seed deliberately ships
+// them EMPTY (see nap_todo above), so a blind replaceAll silently destroyed
+// that work — which made re-seeding to pick up a service change cost the
+// entire NAP effort, and is why this used to be a one-shot bootstrap rather
+// than something safe to re-run.
+const PRESERVED_LOCATION_FIELDS = [
+  'street_address', 'zip_code', 'phone_number', 'hours_by_day', 'directions_url',
+  'map_image_url', 'hero_image_url', 'hero_image_alt', 'latitude', 'longitude',
+  'nearby_areas', 'gbp_url', 'brand_name',
+];
+
+// nap_todo is the opposite case: an EMPTY list is meaningful (it means the
+// team finished the NAP), so "preserve only when non-empty" would reset a
+// completed checklist back to the full set of TODOs. Preserve it whenever the
+// stored row carries the field at all.
+const PRESERVED_IF_PRESENT = ['nap_todo'];
+
+function hasValue(v) {
+  if (v == null || v === '') return false;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === 'object') return Object.keys(v).length > 0;
+  return true;
+}
+
+// Seeded values win for identity and geography (that is the point of
+// re-seeding); anything a human populated wins over the seed's blank.
+function mergeLocation(seeded, stored) {
+  if (!stored) return seeded;
+  const merged = { ...seeded };
+  for (const field of PRESERVED_LOCATION_FIELDS) {
+    if (hasValue(stored[field])) merged[field] = stored[field];
+  }
+  for (const field of PRESERVED_IF_PRESENT) {
+    if (Object.prototype.hasOwnProperty.call(stored, field)) merged[field] = stored[field];
+  }
+  return merged;
+}
+
+// Re-runnable. Services are pure reference data and are replaced outright, so
+// a renamed service loses its old row (and any page generated under the old
+// slug is orphaned — that is inherent to a rename, not to the seed).
 async function seedGentleDental() {
   await store.upsertBy('clients', 'id', GD_CLIENT, 'client');
   await store.upsertBy('globalTemplates', 'id', GD_GLOBAL_TEMPLATE, 'gt');
   await store.replaceAllForClient('services', GD_CLIENT_ID, GD_SERVICES);
-  await store.replaceAllForClient('locations', GD_CLIENT_ID, GD_LOCATIONS);
-  return { client_id: GD_CLIENT_ID, services: GD_SERVICES.length, locations: GD_LOCATIONS.length };
+
+  const stored = await store.list('locations', { client_id: GD_CLIENT_ID });
+  const storedById = new Map(stored.map(l => [l.id, l]));
+  const locations = GD_LOCATIONS.map(l => mergeLocation(l, storedById.get(l.id)));
+  await store.replaceAllForClient('locations', GD_CLIENT_ID, locations);
+
+  const napPreserved = locations.filter((l, i) => storedById.has(l.id)
+    && PRESERVED_LOCATION_FIELDS.some(f => hasValue(l[f]) && hasValue(storedById.get(l.id)[f]))).length;
+
+  return {
+    client_id: GD_CLIENT_ID,
+    services: GD_SERVICES.length,
+    locations: locations.length,
+    locations_with_preserved_data: napPreserved,
+  };
 }
 
-module.exports = { seedNeuroWellness, CLIENT_ID, seedGentleDental, GD_CLIENT_ID };
+module.exports = {
+  seedNeuroWellness, CLIENT_ID, seedGentleDental, GD_CLIENT_ID,
+  mergeLocation, PRESERVED_LOCATION_FIELDS, PRESERVED_IF_PRESENT,
+};

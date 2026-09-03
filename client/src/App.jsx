@@ -102,9 +102,15 @@ export default function App() {
           <Route path="/content-enhancement" element={<ContentEnhancementPage />} />
           <Route path="/article-enhancement" element={<ArticleEnhancementPage />} />
           <Route path="/article-enhancement-lite" element={<ArticleEnhancementLitePage />} />
-          <Route path="/location-page-builder" element={<LocationPageBuilderPage />} />
+          {/* This module is used for Gentle Dental, so the Gentle Dental page
+              list is the front door. The Neuro Wellness pipeline keeps its own
+              dashboard at /neuro rather than being removed — it is a separate
+              page_object shape with its own detail view and approval flow. */}
+          <Route path="/location-page-builder" element={<GentleDentalPagesPage />} />
           <Route path="/location-page-builder/wizard" element={<LocationServiceWizardPage />} />
+          {/* Kept so existing links and bookmarks still resolve. */}
           <Route path="/location-page-builder/gentle-dental-pages" element={<GentleDentalPagesPage />} />
+          <Route path="/location-page-builder/neuro" element={<LocationPageBuilderPage />} />
           <Route path="/location-page-builder/:id" element={<LocationPageDetailPage />} />
           <Route path="/robots-monitor" element={<RobotsMonitorPage />} />
           <Route path="/market-potential" element={<MarketPotentialPage />} />

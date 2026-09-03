@@ -100,7 +100,7 @@ async function rankCompetitors({ client, service, location, seeds, onProgress })
     if (!data) {
       try {
         data = await searchGoogle(seed);
-        await store.cacheSet(cacheK, data);
+        await store.cacheSet(cacheK, data, { kind: 'serp', ttlMs: config.cache.serpTtlMs });
       } catch (e) {
         if (e.code === 'QUOTA_EXCEEDED') throw e;
         data = { results: [] }; // transient error → skip this seed
@@ -191,7 +191,7 @@ async function extractKeywords({ urls }) {
       if (!kws) {
         try {
           kws = await getUrlKeywords(u.url, apiKey, config.semrush.keywordsPerUrl);
-          await store.cacheSet(cacheK, kws);
+          await store.cacheSet(cacheK, kws, { kind: 'semrush', ttlMs: config.cache.semrushTtlMs });
         } catch (e) {
           if (e.message && e.message.includes('Invalid SEMrush')) throw e;
           kws = [];
@@ -292,7 +292,7 @@ Rules:
     excluded: parsed.buckets?.excluded || [],
     candidate_pool: (parsed.keywords || []).map(k => ({ ...k, ...enrich(k.keyword) })),
   };
-  await store.cacheSet(cacheK, result);
+  await store.cacheSet(cacheK, result, { kind: 'llm', ttlMs: config.cache.llmTtlMs });
   return result;
 }
 

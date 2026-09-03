@@ -15,6 +15,9 @@ const ROOT = config.dataRoot; // kept for backward-compat exports (unused for IO
 const COLLECTIONS = [
   'clients', 'globalTemplates', 'services', 'locations', 'providers',
   'reviews', 'insuranceSets', 'resources', 'toneProfiles', 'pages',
+  // Approved primary/secondary keywords, saved the moment they're approved
+  // (not just when a page is generated) -> lpb_keywordselections.
+  'keywordSelections',
 ];
 
 function tableFor(collection) {
@@ -59,6 +62,12 @@ async function replaceAll(collection, rows) {
   return store.replaceAll(tableFor(collection), rows, collection.slice(0, 3));
 }
 
+// Deterministic-id upsert: safe against concurrent writes for the same record
+// (see supabaseStore.upsertById).
+async function upsertById(collection, data, idPrefix) {
+  return store.upsertById(tableFor(collection), data, idPrefix || collection.slice(0, 3));
+}
+
 async function upsertBy(collection, keyField, data, idPrefix) {
   return store.upsertBy(tableFor(collection), keyField, data, idPrefix || collection.slice(0, 3));
 }
@@ -84,12 +93,25 @@ async function replaceAllForClient(collection, clientId, rows) {
 // ── Cache (Spec §14): keyed JSON blobs with TTL ──────────────────────────────
 
 const cacheGet = (key, ttlMs) => store.cacheGet(key, ttlMs);
-const cacheSet = (key, value) => store.cacheSet(key, value);
+const cacheSet = (key, value, opts) => store.cacheSet(key, value, opts);
 const cacheKey = (...parts) => store.cacheKey(...parts);
+
+// Best-effort variants. The underlying cache is Supabase-backed and THROWS
+// when Supabase isn't configured (supabaseStore.fail), and call sites
+// typically read the cache OUTSIDE the try/catch that guards their expensive
+// work — so an unwrapped miss propagates and kills the whole run over a cache
+// outage. Every caller that treats caching as an optimization rather than a
+// requirement should use these instead of hand-rolling the same try/catch.
+const cacheGetSafe = async (key, ttlMs) => {
+  try { return await cacheGet(key, ttlMs); } catch { return null; }
+};
+const cacheSetSafe = async (key, value, opts) => {
+  try { await cacheSet(key, value, opts); } catch { /* non-fatal */ }
+};
 
 module.exports = {
   ROOT, COLLECTIONS, newId, nowIso,
-  list, get, findOne, insert, update, remove, upsertBy, replaceAll,
+  list, get, findOne, insert, update, remove, upsertBy, upsertById, replaceAll,
   removeWhere, replaceAllForClient,
-  cacheGet, cacheSet, cacheKey,
+  cacheGet, cacheSet, cacheKey, cacheGetSafe, cacheSetSafe,
 };

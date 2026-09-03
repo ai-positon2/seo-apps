@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { lpb } from '../lib/lpbApi';
 import { ProgressSteps } from '../ui/ProgressSteps';
@@ -128,6 +128,49 @@ function CopyButton({ label, getText, getHtml }) {
   );
 }
 
+// ── Character count for every generated field ──────────────────────────────
+// Sits on the field's label row, right-aligned. Characters are what the SEO
+// team counts (and what the SERP truncates); a word count rides along for the
+// fields whose limits are expressed in words — the paragraph cap and the FAQ
+// answer cap are word-based, so chars alone would not tell a reviewer whether
+// a field is over.
+//
+// `limit` is optional and is only ever passed from server-supplied numbers
+// (see contentLimits), never hardcoded here: duplicating the SEO thresholds in
+// the client is how the prompt and the QC gate drifted apart once already.
+function CharCount({ value, words: showWords, limit, limitWords }) {
+  const chars = String(value || '').length;
+  const wordCount = (showWords || limitWords)
+    ? String(value || '').trim().split(/\s+/).filter(Boolean).length
+    : null;
+
+  // Amber only against a real server-supplied threshold. Some fields have a
+  // character range (the meta description), some a word cap (an FAQ answer),
+  // most have neither and just show their count.
+  const outOfRange = limit && (chars < limit.min || chars > limit.max);
+  const overWords = limitWords && wordCount > limitWords;
+  const color = (outOfRange || overWords) ? 'var(--warning,#B45309)' : 'var(--text-3)';
+
+  return (
+    <span style={{ fontWeight: 400, fontSize: '0.6875rem', color, marginLeft: 'auto', whiteSpace: 'nowrap' }}>
+      {chars} chars
+      {wordCount != null ? ` \u00b7 ${wordCount} words` : ''}
+      {limit ? ` \u00b7 target ${limit.min}-${limit.max}` : ''}
+      {limitWords ? ` \u00b7 max ${limitWords}` : ''}
+    </span>
+  );
+}
+
+// A label that carries its count on the same row.
+function FieldLabel({ children, value, words: showWords, limit }) {
+  return (
+    <label style={{ ...labelStyle, display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+      <span>{children}</span>
+      <CharCount value={value} words={showWords} limit={limit} />
+    </label>
+  );
+}
+
 function RegenButton({ busy, onClick, label }) {
   return (
     <button
@@ -137,6 +180,103 @@ function RegenButton({ busy, onClick, label }) {
     >
       {busy ? 'Regenerating…' : (label || '⟳ Regenerate')}
     </button>
+  );
+}
+
+// ── Educational-body outline provenance (read-only) ─────────────────────────
+// The server grades the scraped competitor headings before writing anything
+// (server/locationPageBuilder/dentalOutline.js) and decides per block whether
+// the H2 came from a competitor page, the curated fallback ladder, or a blend
+// of the two. Surfacing that tells the SEO reviewer WHY this stack exists.
+const OUTLINE_QUALITY_LABELS = {
+  good: { label: 'Competitor headings: good', color: 'var(--success, #15803d)' },
+  partial: { label: 'Competitor headings: mixed', color: 'var(--warning, #b45309)' },
+  poor: { label: 'Competitor headings: poor — used fallback', color: 'var(--warning, #b45309)' },
+  unavailable: { label: 'Outline planner unavailable — used fallback', color: 'var(--text-3)' },
+};
+
+function OutlineNote({ meta }) {
+  if (!meta?.competitorQuality) return null;
+  const grade = OUTLINE_QUALITY_LABELS[meta.competitorQuality] || OUTLINE_QUALITY_LABELS.poor;
+  return (
+    <div style={{ marginBottom: '0.75rem', padding: '0.5rem 0.625rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-md,6px)' }}>
+      <span style={{ fontSize: '0.6875rem', fontWeight: 700, color: grade.color }}>{grade.label}</span>
+      {meta.rationale && <p style={{ fontSize: '0.75rem', color: 'var(--text-3)', margin: '0.25rem 0 0' }}>{meta.rationale}</p>}
+    </div>
+  );
+}
+
+const SOURCE_TAG_LABELS = { competitor: 'competitor', fallback: 'fallback', blend: 'blend' };
+
+function SourceTag({ source }) {
+  const label = SOURCE_TAG_LABELS[source];
+  if (!label) return null;
+  return (
+    <span
+      title="Where this heading came from: a competitor page's topic, the curated fallback ladder, or a blend"
+      style={{
+        fontSize: '0.625rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em',
+        color: 'var(--text-3)', background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 'var(--r-sm,4px)', padding: '0.25rem 0.375rem', whiteSpace: 'nowrap',
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+// ── Inline QC notices ───────────────────────────────────────────────────────
+// QC failures used to be one list at the top of step 4 (plus a verdict pill on
+// the dashboard). That told the reviewer the page was wrong, not WHERE. Every
+// check now carries the field it belongs to (server/locationPageBuilder/
+// qaEngine.js), so its notice renders against the control that has to change,
+// and carries its own Recheck button — confirming one fix costs one check, not
+// a full QC pass.
+//
+// Amber and neutral, never red: these are review notes on a draft, not errors,
+// and a wall of red on a freshly generated page reads as breakage.
+const QC_TONES = {
+  Critical: { bg: 'var(--warning-soft,#FFFBEB)', bar: 'var(--warning,#B45309)', text: 'var(--warning,#B45309)' },
+  Major: { bg: 'var(--warning-soft,#FFFBEB)', bar: 'var(--warning,#B45309)', text: 'var(--warning,#B45309)' },
+  Minor: { bg: 'var(--surface)', bar: 'var(--border)', text: 'var(--text-2)' },
+};
+const QC_PASS_TONE = { bg: 'var(--success-soft,#ECFDF5)', bar: 'var(--success,#059669)', text: 'var(--success,#059669)' };
+
+// Fields with a control on this page. Anything else — internal links, or a
+// result stored before checks carried fields — falls back to the page-level
+// strip so it can never go unseen. Keep this in step with the `field` values
+// in server/locationPageBuilder/qaEngine.js.
+const QC_INLINE_FIELDS = new Set(['hero.h1', 'hero.intro', 'meta.title', 'meta.metaDescription', 'educationalBody', 'faq', 'schema']);
+const qcFieldOf = (check) => (QC_INLINE_FIELDS.has(check.field) ? check.field : 'page');
+const qcKeyOf = (check) => check.id || check.name;
+
+function QcNotice({ check, detail, busy, onRecheck }) {
+  const tone = check.pass ? QC_PASS_TONE : (QC_TONES[check.severity] || QC_TONES.Minor);
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.625rem',
+      margin: '0.375rem 0 0.625rem', padding: '0.5rem 0.625rem', fontSize: '0.75rem',
+      background: tone.bg, borderLeft: `3px solid ${tone.bar}`, borderRadius: 'var(--r-md,6px)', color: tone.text,
+    }}>
+      <div>
+        <span style={{ fontWeight: 700 }}>{check.pass ? '✓ ' : ''}{check.label || (check.name || '').replace(/_/g, ' ')}</span>
+        <span style={{ fontSize: '0.625rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', opacity: 0.7, marginLeft: '0.375rem' }}>
+          {check.pass ? 'now passes' : check.severity}
+        </span>
+        <p style={{ margin: '0.1875rem 0 0', opacity: 0.9 }}>{detail || check.detail}</p>
+        {!check.pass && check.fix && <p style={{ margin: '0.1875rem 0 0', opacity: 0.7 }}>{check.fix}</p>}
+      </div>
+      {!check.pass && onRecheck && (
+        <button
+          style={{ ...btnStyle(false), fontSize: '0.6875rem', padding: '0.25rem 0.5rem', color: tone.text, flexShrink: 0 }}
+          disabled={busy}
+          onClick={onRecheck}
+          title="Re-run just this check against your current edits"
+        >
+          {busy ? 'Checking…' : '↻ Recheck'}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -168,11 +308,19 @@ const labelStyle = { display: 'block', fontSize: '0.75rem', fontWeight: 600, col
 // deterministic and lets the selected state stay visible regardless of focus.
 function PickerList({ groups, selectedId, onSelect, emptyMessage }) {
   return (
-    <div style={{ height: '12rem', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--r-md,6px)', background: 'var(--surface)' }}>
+    <div style={{ height: '22rem', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--r-md,6px)', background: 'var(--surface)' }}>
       {groups.map(([label, items]) => (
         <div key={label}>
-          <div style={{ padding: '0.25rem 0.625rem', fontSize: '0.6875rem', fontWeight: 700, color: 'var(--text-3)', background: 'var(--surface)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-            {label}
+          <div style={{
+            position: 'sticky', top: 0, zIndex: 1,
+            display: 'flex', justifyContent: 'space-between', gap: '0.5rem',
+            padding: '0.25rem 0.625rem', fontSize: '0.6875rem', fontWeight: 700,
+            color: 'var(--text-3)', background: 'var(--surface)',
+            borderBottom: '1px solid var(--border)',
+            textTransform: 'uppercase', letterSpacing: '0.03em',
+          }}>
+            <span>{label}</span>
+            <span style={{ fontWeight: 400 }}>{items.length}</span>
           </div>
           {items.map(item => {
             const active = item.id === selectedId;
@@ -235,6 +383,10 @@ export default function LocationServiceWizardPage() {
   const [secondaryList, setSecondaryList] = useState([]);
   const [showAllKeywords, setShowAllKeywords] = useState(false);
   const [manualKeyword, setManualKeyword] = useState('');
+  // Set when the server's review pass rejected the discovered Primary picks
+  // and fell back to the synthesized "{service} {city}" pair at zero volume.
+  const [kwLowVolume, setKwLowVolume] = useState(false);
+  const [kwReviewFailures, setKwReviewFailures] = useState([]);
 
   // Step 3
   const [generating, setGenerating] = useState(false);
@@ -242,13 +394,53 @@ export default function LocationServiceWizardPage() {
 
   // Step 4
   const [page, setPage] = useState(null);
+  // The saved page's id. Needed to persist edits, store QC verdicts and
+  // delete — previously the id returned by /wizard/generate was discarded.
+  const [pageId, setPageId] = useState(null);
+  // Manual edits live in `page` until saved; `dirty` drives the Save button
+  // and the navigate-away guard.
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [qc, setQc] = useState(null);
   const [qcLoading, setQcLoading] = useState(false);
+  const [qcError, setQcError] = useState('');
+  const [rechecking, setRechecking] = useState({});
+  // Timers that retire the "now passes" confirmations. Held so they can be
+  // cancelled when the page (and its QC result) is replaced underneath them.
+  const recheckTimers = useRef({});
+  // The current QC result, readable by code that runs before the next render —
+  // a queued recheck needs the list its predecessor produced, and React state
+  // is not updated in time for that. Written only by commitQc.
+  const qcRef = useRef(null);
+  // Serializes QC requests: see recheck().
+  const qcQueue = useRef(Promise.resolve());
+  // Monotonic token for keyword research. Selecting a different service or
+  // location while a request is in flight must invalidate that request: without
+  // this, the stale response repopulates the keyword lists AFTER the new
+  // selection has cleared them, and Generate then builds the new page from the
+  // previous service's keywords.
+  const kwRequestRef = useRef(0);
+  // Checks that just went green, held for a few seconds so a fix is
+  // acknowledged where it was made instead of the notice silently vanishing.
+  const [recheckPassed, setRecheckPassed] = useState({});
   const [confirmed, setConfirmed] = useState(false);
   const [regenerating, setRegenerating] = useState({});
   const [regenError, setRegenError] = useState('');
 
   useEffect(() => { loadReferenceData(); }, []);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => () => Object.values(recheckTimers.current).forEach(clearTimeout), []);
+
+  // Edits are held locally until saved, so leaving with unsaved changes would
+  // silently discard them.
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const warn = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
 
   // Direct link from the Gentle Dental Pages dashboard — jump straight to
   // Step 4 with the saved page loaded, instead of making the user reselect
@@ -264,9 +456,17 @@ export default function LocationServiceWizardPage() {
       const result = await lpb.wizardPage(pageId);
       setServiceId(result.serviceId);
       setLocationId(result.locationId);
+      setPageId(result.pageId || pageId);
       setPage(result.page);
-      setQc(result.page.qc || null);
+      applyQc(result.page.qc);
+      setDirty(false);
       setStep(3);
+      refreshStaleQc(result.page, result.pageId || pageId);
+      // Rehydrate the approved keywords too, so "← Edit keywords" opens a
+      // populated step 2 instead of an empty one that re-runs billed research.
+      hydrateKeywords({
+        serviceId: result.serviceId, locationId: result.locationId, page: result.page,
+      });
     } catch (e) { setLoadError(e.message); }
   }
 
@@ -290,13 +490,22 @@ export default function LocationServiceWizardPage() {
 
   function selectLocation(id) {
     setLocationId(id);
-    setCandidates([]); setPrimaryList([]); setSecondaryList([]);
-    setPage(null); setQc(null); setExistingPage(null); setConfirmed(false);
+    kwRequestRef.current++; // discard any research still in flight for the old pair
+    setCandidates([]); setPrimaryList([]); setSecondaryList([]); setKwLowVolume(false); setKwReviewFailures([]);
+    setPage(null); applyQc(null); setExistingPage(null); setConfirmed(false); forgetSavedPage();
   }
   function selectService(id) {
     setServiceId(id);
-    setCandidates([]); setPrimaryList([]); setSecondaryList([]);
-    setPage(null); setQc(null); setExistingPage(null); setConfirmed(false);
+    kwRequestRef.current++; // discard any research still in flight for the old pair
+    setCandidates([]); setPrimaryList([]); setSecondaryList([]); setKwLowVolume(false); setKwReviewFailures([]);
+    setPage(null); applyQc(null); setExistingPage(null); setConfirmed(false); forgetSavedPage();
+  }
+
+  // Switching tuple invalidates everything about the previously loaded page.
+  // Without this the id outlives the page it belongs to, and `dirty` keeps the
+  // unsaved-changes prompt armed for edits that are no longer on screen.
+  function forgetSavedPage() {
+    setPageId(null); setDirty(false); setSaveError('');
   }
 
   const derived = useMemo(() => {
@@ -328,8 +537,24 @@ export default function LocationServiceWizardPage() {
 
   function openExisting() {
     setPage(existingPage.page);
-    setQc(existingPage.page.qc || null);
+    // Without the id, Save stays disabled and a recheck can't persist — the
+    // endpoint has always returned it, this just stopped throwing it away.
+    setPageId(existingPage.pageId || null);
+    applyQc(existingPage.page.qc);
     setStep(3);
+    refreshStaleQc(existingPage.page, existingPage.pageId);
+  }
+
+  // A result stored before checks carried ids and fields can't be anchored to a
+  // control or rechecked — every notice would land in the page-level strip with
+  // no Recheck button. Refresh it when such a page is opened; runDentalQC is
+  // offline and costs nothing but the round trip. Takes the page explicitly
+  // because the caller has only just handed it to setPage.
+  async function refreshStaleQc(target, id) {
+    const checks = target?.qc?.checks;
+    if (checks?.length && checks.every(c => c.id)) return;
+    try { applyQc(await lpb.wizardQc(target, id || null)); }
+    catch { /* leave whatever was stored on screen */ }
   }
 
   const groupedLocations = useMemo(() => {
@@ -357,25 +582,104 @@ export default function LocationServiceWizardPage() {
     return [...groups.entries()].filter(([, items]) => items.length);
   }, [gdData, svcFilter]);
 
-  async function runKeywordResearch() {
-    setKwLoading(true); setKwError('');
+  // Load the saved approval for a tuple, falling back to the keyword strings
+  // stored on the page itself for pages generated before selections were
+  // persisted. Returns true when something was restored, so callers know not
+  // to fire the billed research call.
+  async function hydrateKeywords({ serviceId: svc, locationId: loc, page: pg }) {
     try {
-      const results = await lpb.keywordCandidates({
-        service: service.name, city: location.city, state: location.state_abbreviation, seedQuery: derived.seedQuery,
-        clientId: GD_CLIENT_ID, serviceSlug: service.slug,
-      });
-      setCandidates(results);
-      // Pre-select like the keyword-research module: top 2 by volume as
-      // Primary, next 10 as Secondary — user can still add/remove freely.
-      const sorted = [...results].sort((a, b) => (b.volume || 0) - (a.volume || 0));
-      setPrimaryList(sorted.slice(0, MAX_PRIMARY));
-      setSecondaryList(sorted.slice(MAX_PRIMARY, MAX_PRIMARY + MAX_SECONDARY));
-    } catch (e) { setKwError(e.message); }
-    setKwLoading(false);
+      const saved = await lpb.wizardGetKeywords({ clientId: GD_CLIENT_ID, serviceId: svc, locationId: loc });
+      if (saved.exists && (saved.primary.length || saved.secondary.length)) {
+        setPrimaryList(saved.primary);
+        setSecondaryList(saved.secondary);
+        // Keep the pool a superset of the picks so the step-2 table can still
+        // offer swaps without re-researching.
+        const pool = saved.candidates.length ? saved.candidates : [...saved.primary, ...saved.secondary];
+        setCandidates(pool);
+        return true;
+      }
+    } catch { /* fall through to the page_object fallback */ }
+
+    // Legacy pages: only bare strings were ever stored, so volume/difficulty
+    // are unknown (0) until the user re-researches explicitly.
+    const asCandidate = k => ({ keyword: k, volume: 0, difficulty: 0, intent: '', source: 'saved' });
+    const savedPrimary = (pg?.primaryKeywords || (pg?.primaryKeyword ? [pg.primaryKeyword] : [])).map(asCandidate);
+    const savedSecondary = (pg?.secondaryKeywords || []).map(asCandidate);
+    if (savedPrimary.length || savedSecondary.length) {
+      setPrimaryList(savedPrimary);
+      setSecondaryList(savedSecondary);
+      setCandidates([...savedPrimary, ...savedSecondary]);
+      return true;
+    }
+    return false;
   }
 
+  // Persist the approved picks. Fire-and-forget: failing to record an approval
+  // must never block the user from generating.
+  async function persistKeywords(primary, secondary, pool, approved = true) {
+    if (!serviceId || !locationId || !primary.length) return;
+    try {
+      await lpb.wizardSaveKeywords({
+        clientId: GD_CLIENT_ID, serviceId, locationId,
+        primary, secondary, candidates: pool || candidates, approved,
+      });
+    } catch (e) { console.warn('Failed to save approved keywords (non-fatal):', e.message); }
+  }
+
+  async function runKeywordResearch() {
+    const token = ++kwRequestRef.current;
+    const isCurrent = () => token === kwRequestRef.current;
+    setKwLoading(true); setKwError('');
+    try {
+      const res = await lpb.keywordCandidates({
+        service: service.name, city: location.city, state: location.state_abbreviation, seedQuery: derived.seedQuery,
+        // Lets Secondary legitimately name this office's own broader region
+        // and state while every rival city stays blocked.
+        stateName: location.state, region: location.region,
+        clientId: GD_CLIENT_ID, serviceSlug: service.slug,
+      });
+      // A newer selection superseded this request while it was in flight --
+      // drop the result rather than overwrite the current pair's state.
+      if (!isCurrent()) return;
+      // Default the arrays: the response shape is { candidates, primary,
+      // secondary, ... }, and persistKeywords below reads primary.length, so a
+      // missing field would surface as a TypeError in the catch instead of a
+      // useful message.
+      const results = res.candidates || [];
+      const primary = res.primary || [];
+      const secondary = res.secondary || [];
+      const { lowVolume, reviewFailures } = res;
+      setCandidates(results);
+      // Server pre-selects Primary/Secondary: volume-sorted, then Claude
+      // Sonnet-checked for location/topical relevance and swapped from the
+      // extended pool when a top-volume pick doesn't hold up, then reviewed
+      // by a second Claude pass.
+      setPrimaryList(primary);
+      setSecondaryList(secondary);
+      setKwLowVolume(!!lowVolume);
+      setKwReviewFailures(reviewFailures || []);
+      persistKeywords(primary, secondary, results, false);
+    } catch (e) {
+      if (!isCurrent()) return;
+      setKwError(e.message);
+    } finally {
+      if (isCurrent()) setKwLoading(false);
+    }
+  }
+
+  // Entering step 2: restore the saved approval first and only fall back to the
+  // billed research call when there is genuinely nothing stored for this tuple.
   useEffect(() => {
-    if (step === 1 && candidates.length === 0 && !kwLoading && !kwError && service && location) runKeywordResearch();
+    if (step !== 1 || candidates.length || kwLoading || kwError || !service || !location) return;
+    let cancelled = false;
+    (async () => {
+      setKwLoading(true);
+      const restored = await hydrateKeywords({ serviceId, locationId, page });
+      if (cancelled) return;
+      setKwLoading(false);
+      if (!restored) runKeywordResearch();
+    })();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
@@ -410,7 +714,9 @@ export default function LocationServiceWizardPage() {
         secondaryKeywords: secondaryList.map(k => k.keyword),
       });
       setPage(result.page);
-      setQc(result.page.qc || null);
+      setPageId(result.pageId || null);
+      applyQc(result.page.qc);
+      setDirty(false);
       setGenerating(false);
       setStep(3);
     } catch (e) {
@@ -425,11 +731,128 @@ export default function LocationServiceWizardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
+  // qcRef shadows the qc state so a queued request can read the result the
+  // request before it produced. React state is not visible to code that runs
+  // before the next render, and rechecks are chained — so every write to qc
+  // goes through commitQc, which updates both.
+  function commitQc(next) {
+    qcRef.current = next || null;
+    setQc(next || null);
+  }
+
+  // Every wholesale replacement of the QC result goes through here: a
+  // confirmation or an in-flight recheck belongs to the result it was computed
+  // from, and must not survive a regenerate, a reload, or a reset.
+  function applyQc(next) {
+    Object.values(recheckTimers.current).forEach(clearTimeout);
+    recheckTimers.current = {};
+    setRecheckPassed({});
+    setRechecking({});
+    setQcError('');
+    commitQc(next);
+  }
+
+  // pageId is withheld while there are unsaved edits: the verdict would be
+  // computed from content the store does not have, and persisting it would
+  // leave the record claiming a result its own content does not produce.
+  // Saving re-runs QC server-side over what it stored, so nothing is lost.
+  //
+  // Queued with the rechecks so a full pass and a single check can't land out
+  // of order and overwrite each other.
   async function runQc() {
     setQcLoading(true);
-    try { setQc(await lpb.wizardQc(page)); }
-    catch { /* keep prior qc on failure */ }
+    setQcError('');
+    qcQueue.current = qcQueue.current.then(async () => {
+      try { applyQc(await lpb.wizardQc(page, dirty ? null : pageId)); }
+      catch (e) { setQcError(e.message); /* keep the prior result on screen */ }
+    }, () => {});
+    await qcQueue.current;
     setQcLoading(false);
+  }
+
+  // Re-run ONE check against the current (possibly unsaved) edits — the
+  // per-notice Recheck button.
+  //
+  // Queued, not fired in parallel. Each recheck sends the check list the client
+  // holds and gets back that list with one entry replaced; two in flight at
+  // once would both send the SAME list, and whichever replied last would undo
+  // the other's fix — the reviewer fixes two fields, rechecks both, and one
+  // notice stubbornly stays. Chaining them means each sends what the previous
+  // one produced.
+  async function recheck(id) {
+    if (!page || !id) return;
+    setRechecking(prev => ({ ...prev, [id]: true }));
+    setQcError('');
+    // Retire any standing confirmation for this check before re-running it:
+    // one that passes, is edited again and now fails would otherwise show its
+    // failure and a stale "now passes" side by side.
+    clearTimeout(recheckTimers.current[id]);
+    delete recheckTimers.current[id];
+    setRecheckPassed(prev => {
+      if (!prev[id]) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    qcQueue.current = qcQueue.current.then(() => sendRecheck(id), () => sendRecheck(id));
+    await qcQueue.current;
+  }
+
+  async function sendRecheck(id) {
+    try {
+      // Same rule as runQc: never persist a verdict for unsaved content.
+      // qcRef, not qc — a queued recheck must build on the list the one before
+      // it produced, not the one captured when its button was clicked.
+      const result = await lpb.wizardQcCheck(page, dirty ? null : pageId, id, qcRef.current?.checks || []);
+      commitQc({ verdict: result.verdict, checks: result.checks });
+      if (result.check?.pass) {
+        setRecheckPassed(prev => ({ ...prev, [id]: result.check }));
+        recheckTimers.current[id] = setTimeout(() => {
+          delete recheckTimers.current[id];
+          setRecheckPassed(prev => {
+            const next = { ...prev };
+            delete next[id];
+            return next;
+          });
+        }, 6000);
+      }
+    } catch (e) { setQcError(e.message); }
+    setRechecking(prev => ({ ...prev, [id]: false }));
+  }
+
+  const qcFailuresByField = useMemo(() => {
+    const map = {};
+    for (const c of qc?.checks || []) {
+      if (c.pass) continue;
+      (map[qcFieldOf(c)] = map[qcFieldOf(c)] || []).push(c);
+    }
+    return map;
+  }, [qc]);
+
+  // Every notice belonging to one control: outstanding failures, plus anything
+  // that just passed a recheck here. Checks carrying per-block detail
+  // (readability) are left to qcBlockNotice so they land on the offending
+  // block instead of the section header.
+  function qcNotices(field) {
+    const failures = (qcFailuresByField[field] || []).filter(c => !c.blocks);
+    const passed = Object.values(recheckPassed).filter(c => qcFieldOf(c) === field);
+    if (!failures.length && !passed.length) return null;
+    return (
+      <>
+        {failures.map(c => (
+          <QcNotice key={qcKeyOf(c)} check={c} busy={!!rechecking[c.id]} onRecheck={c.id ? () => recheck(c.id) : null} />
+        ))}
+        {passed.map(c => <QcNotice key={`ok:${qcKeyOf(c)}`} check={c} />)}
+      </>
+    );
+  }
+
+  // A readability failure names the blocks it found: show each finding under
+  // the block that has to be rewritten.
+  function qcBlockNotice(index) {
+    const check = (qcFailuresByField.educationalBody || []).find(c => c.blocks && c.blocks[index] != null);
+    if (!check) return null;
+    return <QcNotice check={check} detail={check.blocks[index]} busy={!!rechecking[check.id]} onRecheck={() => recheck(check.id)} />;
   }
 
   function updateSection(mutate) {
@@ -438,23 +861,89 @@ export default function LocationServiceWizardPage() {
       mutate(next);
       return next;
     });
+    setDirty(true);
+  }
+
+  // Manual edits were previously held in React state only and lost the moment
+  // the user navigated away — this is what actually persists them.
+  async function saveContent() {
+    if (!pageId || !page) return false;
+    setSaving(true); setSaveError('');
+    try {
+      const result = await lpb.wizardSaveContent(pageId, page);
+      // The server re-runs QC over what it stored, so adopt that verdict rather
+      // than leaving a stale one on screen.
+      if (result?.qc) applyQc(result.qc);
+      setDirty(false);
+      setSaving(false);
+      return true;
+    } catch (e) {
+      setSaveError(e.message);
+      setSaving(false);
+      return false;
+    }
+  }
+
+  // Confirm was a purely local flag; make it commit the edits first so a
+  // confirmed page is a saved page.
+  async function confirmPage() {
+    if (dirty && pageId && !(await saveContent())) return;
+    setConfirmed(true);
   }
 
   // "Option to regenerate every section" — one small targeted call per
   // section instead of re-running (and re-billing) the whole page. Always
   // updates the SAME saved page record (server enforces one-per-tuple).
   async function regenerate(section, blockIndex) {
+    // The server regenerates from the page it has stored, so any unsaved edit
+    // in this tab would be silently overwritten by the response. Commit first
+    // and abort if that fails, rather than losing the user's work.
+    if (dirty && pageId && !(await saveContent())) return;
     const key = blockIndex != null ? `${section}:${blockIndex}` : section;
     setRegenerating(prev => ({ ...prev, [key]: true }));
     setRegenError('');
     try {
       const result = await lpb.wizardRegenerate({ clientId: GD_CLIENT_ID, serviceId, locationId, section, blockIndex });
       setPage(result.page);
-      setQc(result.page.qc || null);
+      setPageId(result.pageId || pageId);
+      applyQc(result.page.qc);
+      setDirty(false); // the server persisted this regeneration
     } catch (e) {
       setRegenError(e.message);
     }
     setRegenerating(prev => ({ ...prev, [key]: false }));
+  }
+
+  // The thresholds QC gates on, fetched once so a target shown next to a field
+  // is the same number the check enforces. Empty until it resolves (and if it
+  // fails), which just means counts render without a target.
+  const [contentLimits, setContentLimits] = useState({});
+  useEffect(() => {
+    let live = true;
+    lpb.contentLimits()
+      .then(l => { if (live) setContentLimits(l || {}); })
+      .catch(() => { /* counts still render, just without targets */ });
+    return () => { live = false; };
+  }, []);
+
+  const [docxBusy, setDocxBusy] = useState(false);
+  const [docxError, setDocxError] = useState('');
+
+  // Exports what is ON SCREEN, including unsaved edits — the route takes the
+  // page in the request body rather than reading it back by id.
+  async function downloadDocx() {
+    setDocxBusy(true); setDocxError('');
+    try {
+      const { blob, filename } = await lpb.wizardExportDocx(page);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setDocxError(e.message);
+    }
+    setDocxBusy(false);
   }
 
   function downloadJson() {
@@ -474,8 +963,9 @@ export default function LocationServiceWizardPage() {
 
   function resetWizard() {
     setStep(0); setServiceId(''); setLocationId('');
-    setCandidates([]); setPrimaryList([]); setSecondaryList([]); setManualKeyword(''); setShowAllKeywords(false);
-    setPage(null); setQc(null); setConfirmed(false); setGenError(''); setKwError(''); setExistingPage(null); setRegenError('');
+    setCandidates([]); setPrimaryList([]); setSecondaryList([]); setKwLowVolume(false); setKwReviewFailures([]); setManualKeyword(''); setShowAllKeywords(false);
+    setPage(null); setPageId(null); applyQc(null); setConfirmed(false); setGenError(''); setKwError(''); setExistingPage(null); setRegenError('');
+    setDirty(false); setSaving(false); setSaveError('');
   }
 
   const progressSteps = STEPS.map((label, i) => ({
@@ -517,7 +1007,24 @@ export default function LocationServiceWizardPage() {
               </div>
             </div>
             <div>
-              <label style={labelStyle}>Service</label>
+              <label style={{ ...labelStyle, display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+                <span>Service</span>
+                <span style={{ fontWeight: 400, fontSize: '0.6875rem', color: 'var(--text-3)', marginLeft: 'auto' }}>
+                  {gdData.services.length} available
+                </span>
+                {/* The service list is reference data in the database, so a
+                    taxonomy change in seed.js only appears after a re-seed.
+                    This is safe to re-run: hand-entered NAP is preserved
+                    (see seed.mergeLocation). */}
+                <button
+                  style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.6875rem', color: 'var(--primary)', cursor: seeding ? 'default' : 'pointer', textDecoration: 'underline' }}
+                  disabled={seeding}
+                  title="Re-import the service and location list. Addresses, phone numbers and hours you have entered are kept."
+                  onClick={seedGentleDental}
+                >
+                  {seeding ? 'Syncing…' : 'Sync list'}
+                </button>
+              </label>
               <input style={{ ...inputStyle, marginBottom: '0.5rem' }} placeholder="Filter by service or category…" value={svcFilter} onChange={e => setSvcFilter(e.target.value)} />
               <PickerList groups={groupedServices} selectedId={serviceId} onSelect={selectService} emptyMessage="No services match." />
               <div style={{ marginTop: '0.375rem', fontSize: '0.75rem', minHeight: '1.25rem' }}>
@@ -561,6 +1068,58 @@ export default function LocationServiceWizardPage() {
 
           {kwError && <p style={{ color: 'var(--danger,#EF4444)', fontSize: '0.8125rem' }}>{kwError}</p>}
           {kwLoading && <p style={{ color: 'var(--text-2)', fontSize: '0.8125rem' }}>Pulling competitor keyword data…</p>}
+
+          {/* At least one Primary slot could not be filled from real research
+              — either nothing qualified, or the review pass rejected what did
+              — so it carries a service+location keyword at zero volume. Say
+              which, and say it plainly, rather than letting a 0 pass unnoticed.
+              The copy distinguishes "nothing was found" from "only some slots
+              fell back", because claiming the former when a real keyword was
+              found is simply false. */}
+          {/* Driven by what is CURRENTLY in primaryList, not by the flag the
+              server returned. The user can swap a synthesized keyword out for
+              a real one right here; gating on the stale server verdict left the
+              warning up afterwards, reading "0 of 1 Primary keywords have very
+              low or no search volume". kwLowVolume is still the server's
+              verdict and is kept for the research-time reasons list. */}
+          {!kwLoading && (() => {
+            const synth = primaryList.filter(k => k.source === 'synthesized');
+            const allSynth = synth.length > 0 && synth.length === primaryList.length;
+            if (!synth.length && !kwReviewFailures.length) return null;
+            return (
+              <div style={{
+                background: 'var(--warning-soft,#FFFBEB)', color: 'var(--warning,#B45309)',
+                padding: '0.875rem 1rem', borderRadius: 'var(--r-lg)', fontSize: '0.8125rem',
+              }}>
+                {!!synth.length && (
+                  <>
+                    <strong>
+                      {allSynth
+                        ? 'These keywords have very low or no search volume.'
+                        : `${synth.length} of ${primaryList.length} Primary keywords have very low or no search volume.`}
+                    </strong>{' '}
+                    {allSynth
+                      ? `No keyword combining “${service?.name}” with “${location?.city}” survived the SERP and keyword-database research, so Primary has been built from the service and location name instead.`
+                      : `Research did not fill every Primary slot, so ${synth.length === 1 ? 'one has' : `${synth.length} have`} been built from the service and location name instead.`}
+                    {' '}Keywords shown with “—” volume have no recorded searches — expect
+                    little organic demand for those terms.
+                  </>
+                )}
+                {!!kwReviewFailures.length && (
+                  <>
+                    <div style={{ marginTop: synth.length ? '0.5rem' : 0, fontWeight: 600 }}>
+                      Rejected by the review pass:
+                    </div>
+                    <ul style={{ margin: '0.25rem 0 0', paddingLeft: '1.25rem' }}>
+                      {kwReviewFailures.map((f, i) => (
+                        <li key={i}>[{f.slot}] {f.keyword} — {f.reason}</li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+            );
+          })()}
 
           {!kwLoading && (
             <>
@@ -650,7 +1209,7 @@ export default function LocationServiceWizardPage() {
                       {availableKeywords.map(kw => (
                         <tr key={kw.keyword} style={{ borderBottom: '1px solid var(--border)' }}>
                           <td style={{ padding: '0.5rem 0.625rem', color: 'var(--text)' }}>{kw.keyword}</td>
-                          <td style={{ padding: '0.5rem 0.625rem', color: 'var(--text-2)' }}>{kw.volume || 0}</td>
+                          <td style={{ padding: '0.5rem 0.625rem', color: 'var(--text-2)' }}>{kw.volume > 0 ? kw.volume.toLocaleString() : '—'}</td>
                           <td style={{ padding: '0.5rem 0.625rem', color: 'var(--text-2)' }}>{kw.difficulty || 0}</td>
                           <td style={{ padding: '0.5rem 0.625rem', color: 'var(--text-2)' }}>{kw.intent || '—'}</td>
                           <td style={{ padding: '0.5rem 0.625rem', color: 'var(--text-3)', fontSize: '0.75rem' }}>{kw.source === 'universe' ? 'Universe' : kw.source === 'manual' ? 'Manual' : 'Live'}</td>
@@ -686,7 +1245,7 @@ export default function LocationServiceWizardPage() {
 
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1.25rem' }}>
             <button style={btnStyle(false)} onClick={() => setStep(0)}>← Back</button>
-            <button style={btnStyle(true)} disabled={!primaryList.length} onClick={() => setStep(2)}>Next →</button>
+            <button style={btnStyle(true)} disabled={!primaryList.length} onClick={() => { persistKeywords(primaryList, secondaryList); setStep(2); }}>Next →</button>
           </div>
         </div>
       )}
@@ -716,16 +1275,36 @@ export default function LocationServiceWizardPage() {
           <div style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--bg)', paddingBottom: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button style={btnStyle(false)} disabled={qcLoading} onClick={runQc}>{qcLoading ? 'Running QC…' : 'Run QC'}</button>
+              <button style={btnStyle(dirty)} disabled={saving || !dirty || !pageId} onClick={saveContent}>
+                {saving ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}
+              </button>
               <CopyButton label="Copy All (HTML)" getText={() => buildCopyAllHtml(page)} getHtml={() => buildCopyAllHtml(page)} />
+              <button style={btnStyle(false)} disabled={docxBusy} onClick={downloadDocx}>
+                {docxBusy ? 'Building DOCX…' : 'Download DOCX'}
+              </button>
               <button style={btnStyle(false)} onClick={downloadJson}>Download JSON</button>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button style={btnStyle(false)} onClick={() => setStep(1)}>← Edit keywords</button>
               {!confirmed
-                ? <button style={btnStyle(true)} onClick={() => setConfirmed(true)}>Confirm</button>
+                ? <button style={btnStyle(true)} disabled={saving} onClick={confirmPage}>Confirm</button>
                 : <button style={btnStyle(true)} onClick={resetWizard}>Generate another →</button>}
             </div>
           </div>
+
+          {saveError && (
+            <div style={{ padding: '0.625rem 0.875rem', borderRadius: 'var(--r-lg)', marginBottom: '0.75rem', fontSize: '0.8125rem', background: 'var(--danger-soft,#FEF2F2)', color: 'var(--danger,#EF4444)', display: 'flex', justifyContent: 'space-between', gap: '0.75rem' }}>
+              <span>Could not save your edits: {saveError}</span>
+              <button style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontWeight: 700 }} onClick={() => setSaveError('')}>×</button>
+            </div>
+          )}
+
+          {docxError && (
+            <div style={{ padding: '0.625rem 0.875rem', borderRadius: 'var(--r-lg)', marginBottom: '0.75rem', fontSize: '0.8125rem', background: 'var(--danger-soft,#FEF2F2)', color: 'var(--danger,#EF4444)', display: 'flex', justifyContent: 'space-between', gap: '0.75rem' }}>
+              <span>Could not build the DOCX: {docxError}</span>
+              <button style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontWeight: 700 }} onClick={() => setDocxError('')}>×</button>
+            </div>
+          )}
 
           {regenError && (
             <div style={{ padding: '0.625rem 0.875rem', borderRadius: 'var(--r-lg)', marginBottom: '0.75rem', fontSize: '0.8125rem', background: 'var(--danger-soft,#FEF2F2)', color: 'var(--danger,#EF4444)', display: 'flex', justifyContent: 'space-between', gap: '0.75rem' }}>
@@ -734,33 +1313,47 @@ export default function LocationServiceWizardPage() {
             </div>
           )}
 
-          {qc && (
-            <div style={{
-              padding: '0.875rem 1rem', borderRadius: 'var(--r-lg)', marginBottom: '1rem', fontSize: '0.8125rem',
-              background: qc.verdict === 'PASS' ? 'var(--success-soft,#ECFDF5)' : qc.verdict === 'FAIL' ? 'var(--danger-soft,#FEF2F2)' : 'var(--warning-soft,#FFFBEB)',
-              color: qc.verdict === 'PASS' ? 'var(--success,#059669)' : qc.verdict === 'FAIL' ? 'var(--danger,#EF4444)' : 'var(--warning,#B45309)',
-            }}>
-              <strong>QC: {qc.verdict}</strong>
-              <ul style={{ margin: '0.5rem 0 0', paddingLeft: '1.25rem' }}>
-                {qc.checks.filter(c => !c.pass).map(c => (
-                  <li key={c.name}><strong>[{c.severity}]</strong> {c.name.replace(/_/g, ' ')} — {c.detail}</li>
-                ))}
-                {qc.checks.every(c => c.pass) && <li>All checks passed.</li>}
-              </ul>
+          {qcError && (
+            <div style={{ padding: '0.625rem 0.875rem', borderRadius: 'var(--r-lg)', marginBottom: '0.75rem', fontSize: '0.8125rem', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-2)' }}>
+              Could not re-run that check: {qcError}
             </div>
           )}
+
+          {/* The findings themselves live next to the fields they came from —
+              this only says how many there are and where to look. */}
+          {qc && (() => {
+            const open = (qc.checks || []).filter(c => !c.pass);
+            return (
+              <div style={{ marginBottom: '1rem' }}>
+                <div style={{
+                  padding: '0.5rem 0.75rem', borderRadius: 'var(--r-lg)', fontSize: '0.75rem',
+                  background: 'var(--surface)', border: '1px solid var(--border)',
+                  color: open.length ? 'var(--warning,#B45309)' : 'var(--success,#059669)',
+                }}>
+                  {open.length
+                    ? `QC flagged ${open.length} item${open.length === 1 ? '' : 's'} — each is marked below, next to the field it came from. Fix it, then hit Recheck on that notice.`
+                    : 'QC — every check passes.'}
+                </div>
+                {qcNotices('page')}
+              </div>
+            );
+          })()}
 
           <SectionCard title="SEO Metadata" note={page.meta.urlPath}
             actions={<>
               <RegenButton busy={!!regenerating.metaDescription} onClick={() => regenerate('metaDescription')} label="⟳ Regenerate description" />
               <CopyButton label="Copy" getText={() => sectionBuilders.meta(page).text} getHtml={() => sectionBuilders.meta(page).html} />
             </>}>
-            <label style={labelStyle}>Title Tag <span style={{ fontWeight: 400, color: 'var(--text-3)' }}>(deterministic — service + city + state)</span></label>
+            <FieldLabel value={page.meta.title}>
+              Title Tag <span style={{ fontWeight: 400, color: 'var(--text-3)' }}>(deterministic — service + city + state)</span>
+            </FieldLabel>
             <input style={{ ...inputStyle, marginBottom: '0.5rem' }} value={page.meta.title}
               onChange={e => updateSection(p => { p.meta.title = e.target.value; })} />
-            <label style={labelStyle}>Meta Description ({page.meta.metaDescription.length} chars)</label>
+            {qcNotices('meta.title')}
+            <FieldLabel value={page.meta.metaDescription} limit={contentLimits.metaDescription}>Meta Description</FieldLabel>
             <textarea style={inputStyle} rows={2} value={page.meta.metaDescription}
               onChange={e => updateSection(p => { p.meta.metaDescription = e.target.value; })} />
+            {qcNotices('meta.metaDescription')}
           </SectionCard>
 
           <SectionCard title="Hero"
@@ -768,11 +1361,15 @@ export default function LocationServiceWizardPage() {
               <RegenButton busy={!!regenerating.heroIntro} onClick={() => regenerate('heroIntro')} />
               <CopyButton label="Copy" getText={() => sectionBuilders.hero(page).text} getHtml={() => sectionBuilders.hero(page).html} />
             </>}>
-            <label style={labelStyle}>H1 (deterministic)</label>
+            <FieldLabel value={page.sections.hero.h1}>H1 (deterministic)</FieldLabel>
             <div style={{ ...inputStyle, marginBottom: '0.5rem', background: 'var(--surface)', color: 'var(--text-2)' }}>{page.sections.hero.h1}</div>
-            <label style={labelStyle}>Intro <span style={{ fontWeight: 400, color: 'var(--text-3)' }}>(short description below the H1, keyword-optimized)</span></label>
+            {qcNotices('hero.h1')}
+            <FieldLabel value={page.sections.hero.intro} words>
+              Intro <span style={{ fontWeight: 400, color: 'var(--text-3)' }}>(below the H1 — commercial: patient outcome, then the next step)</span>
+            </FieldLabel>
             <textarea style={inputStyle} rows={2} value={page.sections.hero.intro}
               onChange={e => updateSection(p => { p.sections.hero.intro = e.target.value; })} />
+            {qcNotices('hero.intro')}
           </SectionCard>
 
           <SectionCard title="Educational Body"
@@ -780,17 +1377,26 @@ export default function LocationServiceWizardPage() {
               <RegenButton busy={!!regenerating.educationalBody} onClick={() => regenerate('educationalBody')} label="⟳ Regenerate all" />
               <CopyButton label="Copy" getText={() => sectionBuilders.educationalBody(page).text} getHtml={() => sectionBuilders.educationalBody(page).html} />
             </>}>
+            <OutlineNote meta={page.outlineMeta} />
+            {qcNotices('educationalBody')}
             {page.sections.educationalBody.blocks.map((b, i) => (
               <div key={i} style={{ marginBottom: '0.75rem', paddingBottom: '0.75rem', borderBottom: i < page.sections.educationalBody.blocks.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.375rem' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.375rem', alignItems: 'center' }}>
                   <input style={{ ...inputStyle, fontWeight: 600 }} value={b.h2}
                     onChange={e => updateSection(p => { p.sections.educationalBody.blocks[i].h2 = e.target.value; })} />
+                  <SourceTag source={page.outlineMeta?.sources?.[i]?.source} />
                   <RegenButton busy={!!regenerating[`educationalBlock:${i}`]} onClick={() => regenerate('educationalBlock', i)} label="⟳" />
+                </div>
+                <div style={{ display: 'flex', marginBottom: '0.25rem' }}>
+                  <span style={{ fontSize: '0.6875rem', color: 'var(--text-3)' }}>H2</span>
+                  <CharCount value={b.h2} />
                 </div>
                 {/* Edited as clean plain text — no visible <p>/<ul> markup — and
                     reconstructed into semantic HTML on change. */}
                 <textarea style={inputStyle} rows={4} value={htmlBlockToPlainText(b.html)}
                   onChange={e => updateSection(p => { p.sections.educationalBody.blocks[i].html = plainTextToHtmlBlock(e.target.value); })} />
+                <div style={{ display: 'flex' }}><CharCount value={htmlBlockToPlainText(b.html)} words /></div>
+                {qcBlockNotice(i)}
               </div>
             ))}
           </SectionCard>
@@ -800,6 +1406,7 @@ export default function LocationServiceWizardPage() {
               <RegenButton busy={!!regenerating.faqs} onClick={() => regenerate('faqs')} label="⟳ Regenerate all" />
               <CopyButton label="Copy" getText={() => sectionBuilders.faq(page).text} getHtml={() => sectionBuilders.faq(page).html} />
             </>}>
+            {qcNotices('faq')}
             {page.sections.faq.items.map((f, i) => (
               <div key={i} style={{ marginBottom: '0.75rem', paddingBottom: '0.75rem', borderBottom: i < page.sections.faq.items.length - 1 ? '1px solid var(--border)' : 'none' }}>
                 <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.375rem' }}>
@@ -807,13 +1414,21 @@ export default function LocationServiceWizardPage() {
                     onChange={e => updateSection(p => { p.sections.faq.items[i].q = e.target.value; })} />
                   <RegenButton busy={!!regenerating[`faqItem:${i}`]} onClick={() => regenerate('faqItem', i)} label="⟳" />
                 </div>
+                <div style={{ display: 'flex', marginBottom: '0.25rem' }}>
+                  <span style={{ fontSize: '0.6875rem', color: 'var(--text-3)' }}>Question</span>
+                  <CharCount value={f.q} />
+                </div>
                 <textarea style={inputStyle} rows={2} value={f.a}
                   onChange={e => updateSection(p => { p.sections.faq.items[i].a = e.target.value; })} />
+                <div style={{ display: 'flex' }}>
+                  <CharCount value={f.a} words limitWords={contentLimits.faqAnswerMaxWords} />
+                </div>
               </div>
             ))}
           </SectionCard>
 
           <SectionCard title="Schema (JSON-LD)" note="Deterministic + generated — 5 blocks">
+            {qcNotices('schema')}
             {Object.entries(page.schema).map(([key, value]) => (
               <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: '1px solid var(--border)' }}>
                 <span style={{ fontSize: '0.8125rem', fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{key}</span>

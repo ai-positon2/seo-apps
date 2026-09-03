@@ -47,12 +47,50 @@ export const lpb = {
   // ── Gentle Dental wizard ──────────────────────────────────────────────────
   keywordCandidates: (body) => req('/keyword-candidates', { method: 'POST', body: JSON.stringify(body) }),
   wizardGenerate: (body) => req('/wizard/generate', { method: 'POST', body: JSON.stringify(body) }),
-  wizardQc: (page) => req('/wizard/qc', { method: 'POST', body: JSON.stringify({ page }) }),
+  // pageId is optional: when given, the QC verdict is persisted onto the page
+  // instead of being recomputed and lost on every reload.
+  contentLimits: () => req('/wizard/content-limits'),
+  wizardQc: (page, pageId) => req('/wizard/qc', { method: 'POST', body: JSON.stringify({ page, pageId }) }),
+  // Re-run a SINGLE check after the reviewer has fixed that one field. Returns
+  // { check, verdict, checks } — the fresh check spliced into `checks` with the
+  // verdict re-derived, so the caller can replace its QC state wholesale.
+  wizardQcCheck: (page, pageId, id, checks) =>
+    req('/wizard/qc/check', { method: 'POST', body: JSON.stringify({ page, pageId, id, checks }) }),
   wizardExisting: ({ clientId, serviceId, locationId }) =>
     req(`/wizard/existing?clientId=${encodeURIComponent(clientId)}&serviceId=${encodeURIComponent(serviceId)}&locationId=${encodeURIComponent(locationId)}`),
   wizardRegenerate: (body) => req('/wizard/regenerate', { method: 'POST', body: JSON.stringify(body) }),
   wizardPages: (clientId) => req(`/wizard/pages?clientId=${encodeURIComponent(clientId)}`),
   wizardPage: (id) => req(`/wizard/pages/${id}`),
+
+  // Approved keywords, saved on approval rather than only as a byproduct of
+  // generating — so leaving before generating no longer loses the work, and
+  // re-opening a page never silently re-runs the billed research call.
+  wizardSaveKeywords: (body) => req('/wizard/keywords', { method: 'POST', body: JSON.stringify(body) }),
+  wizardGetKeywords: ({ clientId, serviceId, locationId }) =>
+    req(`/wizard/keywords?clientId=${encodeURIComponent(clientId)}&serviceId=${encodeURIComponent(serviceId)}&locationId=${encodeURIComponent(locationId)}`),
+  // Persist manual step-4 edits (the Neuro content route expects a different
+  // page shape and can't be reused here).
+  wizardSaveContent: (id, page) => req(`/wizard/pages/${id}`, { method: 'PUT', body: JSON.stringify({ page }) }),
+
+  // The docx comes back as a binary body, which the shared `req` helper would
+  // stringify, so this one drives fetch directly. It POSTs the on-screen page
+  // rather than a pageId so unsaved edits are in the document (see the route).
+  wizardExportDocx: async (page) => {
+    const res = await fetch(`${BASE}/wizard/export/docx`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ page }),
+    });
+    if (!res.ok) {
+      let msg = `Export failed (${res.status})`;
+      try { msg = (await res.json()).error || msg; } catch { /* non-JSON error body */ }
+      throw new Error(msg);
+    }
+    const disposition = res.headers.get('content-disposition') || '';
+    const named = /filename="?([^";]+)"?/i.exec(disposition);
+    return { blob: await res.blob(), filename: named ? named[1] : 'gentle_dental_page.docx' };
+  },
 };
 
 // Open an SSE stream for a minted token; returns the EventSource.

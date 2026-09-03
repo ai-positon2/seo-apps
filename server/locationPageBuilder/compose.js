@@ -7,15 +7,31 @@
 const store = require('./store');
 const categoryLogic = require('./categoryLogic');
 const { pageUrl, canonicalUrl, breadcrumbLabel, dentalPageUrl, canonicalDentalUrl } = require('./urlBuilder');
+const { baseCity } = require('./text');
+const config = require('./config');
 
 // Pull all L2 reference data for a (client, service, location) tuple.
 async function loadLayers({ clientId, serviceId, locationId }) {
   const client = await store.get('clients', clientId);
   const service = await store.get('services', serviceId);
-  const location = await store.get('locations', locationId);
-  if (!client || !service || !location) {
+  const locationRow = await store.get('locations', locationId);
+  if (!client || !service || !locationRow) {
     throw new Error('Client, service, or location not found.');
   }
+  // Six Gentle Dental offices carry a sub-area label in `city` rather than a
+  // city name ("Manchester Elm Street", "Boston - Newbury Street"). Keyword
+  // matching already resolves those to the parent city; page CONTENT did not,
+  // so those offices got an H1 and title of "Sealants in Manchester Elm
+  // Street, NH", a schema addressLocality that is not a locality, and body
+  // copy drilled to repeat the office label as if it were a city — which the
+  // localization gates then PASSED, hiding it.
+  //
+  // `city` is the geographic claim (H1, title, schema, prompts, CTAs) and
+  // `location_name` is the office's identity (officeInfo/NAP, internal-link
+  // anchors); every consumer already reads whichever it means. So resolving
+  // `city` once here fixes all of them at once and leaves the office label
+  // intact. baseCity is a no-op for a normal city name, so nothing else moves.
+  const location = { ...locationRow, city: baseCity(locationRow.city, locationRow.region) };
   const template = client.global_template_id
     ? await store.get('globalTemplates', client.global_template_id)
     : await store.findOne('globalTemplates', { client_id: clientId });
@@ -145,6 +161,21 @@ function mergeL3(pageObject, l3) {
 // NAP (officeInfo) is PULLED from the location record, never generated; it may
 // be empty in v1 (NAP populated manually from GBP/Birdeye — see location.nap_todo).
 
+// The practice name for ONE page. Most offices trade as Gentle Dental; a few
+// carry their own local brand (the Newbury Street office is Newbury Dental
+// Associates) and calling those "Gentle Dental" is simply wrong — it is the
+// name in the title tag, the body copy, the schema and the exported document.
+//
+// Resolution order: the location row's own brand_name, then the config
+// override keyed by page URL, then the brand default.
+function dentalBrandName(location = {}, client = {}) {
+  const own = String(location.brand_name || '').trim();
+  if (own) return own;
+  const override = config.dental.brand.byLocationPageUrl[location.location_page_url];
+  if (override) return override;
+  return config.dental.brand.default || client.name || '';
+}
+
 function dentalBreadcrumb({ client, service, location }) {
   const baseUrl = (client.brand_static?.base_url || '').replace(/\/+$/, '');
   const stateSlugMatch = /^\/dental-offices\/([^/]+)/.exec(location.location_page_url || '');
@@ -178,13 +209,17 @@ function buildDentalScaffold(layers) {
   const baseUrl = client.brand_static?.base_url || '';
   const urlPath = dentalPageUrl(location.location_page_url, service.slug);
   const canonical = canonicalDentalUrl(baseUrl, location.location_page_url, service.slug);
-  const title = `${service.name} in ${location.city}, ${location.state_abbreviation} | Gentle Dental`;
+  const brandName = dentalBrandName(location, client);
+  const title = `${service.name} in ${location.city}, ${location.state_abbreviation} | ${brandName}`;
 
   return {
     meta: {
       page_id: '', client_id: client.id, service_id: service.id, location_id: location.id,
       status: 'draft',
       urlPath, title,
+      // Read by schemaGenerator, the exporter and the wizard, so every surface
+      // names the practice the same way without re-resolving it.
+      brandName,
       metaDescription: '',
       canonical,
     },
@@ -218,6 +253,9 @@ function buildDentalScaffold(layers) {
       faq: { heading: 'Frequently Asked Questions', items: [] },
     },
     schema: { breadcrumbList: '', dentist: '', medicalWebPage: '', medicalProcedure: '', faqPage: '' },
+    // Set by dentalWizard once dentalOutline has graded the scraped competitor
+    // headings: { competitorQuality, rationale, sources } for the review screen.
+    outlineMeta: null,
     qc: null,
   };
 }
@@ -239,4 +277,4 @@ function mergeDentalL3(scaffold, l3) {
   return scaffold;
 }
 
-module.exports = { loadLayers, buildScaffold, mergeL3, buildDentalScaffold, mergeDentalL3 };
+module.exports = { loadLayers, buildScaffold, mergeL3, buildDentalScaffold, mergeDentalL3, dentalBrandName };

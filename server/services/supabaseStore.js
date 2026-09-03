@@ -104,6 +104,26 @@ async function remove(table, id) {
   return (count || 0) > 0;
 }
 
+// Race-free write for records whose id is a deterministic function of their
+// natural key. upsertBy below does a read-then-write, so two concurrent writers
+// can both see "no existing row" and each insert one -- producing duplicates
+// that later reads then pick between arbitrarily. A single upsert on the
+// primary key makes concurrent writers converge on ONE row instead.
+async function upsertById(table, data, idPrefix) {
+  const id = data.id || newId(idPrefix || table.slice(0, 3));
+  // Best-effort: keep the original creation time rather than resetting it on
+  // every save. A lost race here only mis-stamps created_at, never duplicates.
+  let created_at = data.created_at;
+  if (!created_at) {
+    const existing = await get(table, id);
+    created_at = existing?.created_at || nowIso();
+  }
+  const record = { ...data, id, created_at, updated_at: nowIso() };
+  const { error } = await getSupabase().from(table).upsert(rowFor(record), { onConflict: 'id' });
+  if (error) fail('upsertById', table, error);
+  return record;
+}
+
 // Upsert by a natural key (idempotent seeding / caches keyed by a field).
 async function upsertBy(table, keyField, data, idPrefix) {
   const existing = await findOne(table, { [keyField]: data[keyField] });
@@ -151,16 +171,76 @@ async function cacheGet(key, ttlMs) {
   return hit.value;
 }
 
-async function cacheSet(key, value) {
+// opts.kind tags what a row IS ('semrush' | 'serp' | 'llm'), since the key is
+// an opaque sha1; opts.ttlMs stamps expires_at so retention is enforceable by
+// the purge job rather than only filtered on read. Both are optional -- older
+// two-arg callers still work, they just write untagged, never-expiring rows.
+// The retention columns are added by a migration that is applied BY HAND (this
+// repo has no migration runner), so the code must not assume they exist yet:
+// without this fallback, deploying before running the migration would make
+// every cache write fail -- and some callers treat a failed write as "no
+// keywords found" rather than surfacing it. Latched per-process so the
+// fallback costs one wasted round-trip, not one per write.
+let cacheHasRetentionColumns = true;
+
+function isUnknownColumn(error) {
+  // PostgREST schema-cache miss (PGRST204) / Postgres undefined_column (42703).
+  return error && (error.code === 'PGRST204' || error.code === '42703'
+    || /column .* does not exist|Could not find the '.*' column/i.test(error.message || ''));
+}
+
+async function cacheSet(key, value, opts = {}) {
   const sb = getSupabase();
-  const row = {
+  const base = {
     id: key,
     data: { at: Date.now(), value },
     created_at: nowIso(),
     updated_at: nowIso(),
   };
-  const { error } = await sb.from('cache').upsert(row, { onConflict: 'id' });
+  const withRetention = {
+    ...base,
+    kind: opts.kind || null,
+    expires_at: opts.ttlMs ? new Date(Date.now() + opts.ttlMs).toISOString() : null,
+  };
+
+  if (cacheHasRetentionColumns) {
+    const { error } = await sb.from('cache').upsert(withRetention, { onConflict: 'id' });
+    if (!error) return;
+    if (!isUnknownColumn(error)) fail('cacheSet', 'cache', error);
+    cacheHasRetentionColumns = false;
+    console.warn('[supabaseStore] cache.kind/expires_at missing - apply migration 0009; '
+      + 'writing without retention metadata until then.');
+  }
+
+  const { error } = await sb.from('cache').upsert(base, { onConflict: 'id' });
   if (error) fail('cacheSet', 'cache', error);
+}
+
+// Physically delete cache rows that no reader could still use. Two passes:
+//   1. anything with an expires_at in the past;
+//   2. legacy/untagged rows whose payload timestamp is older than maxAgeMs.
+// Pass 2 is what finally clears rows orphaned by a hand-bumped key prefix
+// (e.g. 'dental-kw-adapter-v7' after the bump to v8) -- they have no expiry and
+// are unreachable, so they would otherwise sit in the table forever. Default
+// floor is the longest TTL in the app (180d), so a row older than that is
+// unusable to every reader regardless of which TTL it was written under.
+async function purgeExpired({ maxAgeMs = 180 * 24 * 60 * 60 * 1000 } = {}) {
+  const sb = getSupabase();
+
+  const expired = await sb.from('cache').delete({ count: 'exact' })
+    .not('expires_at', 'is', null).lt('expires_at', nowIso());
+  // Nothing to purge until the retention migration has been applied.
+  if (expired.error && isUnknownColumn(expired.error)) return { expired: 0, stale: 0, skipped: true };
+  if (expired.error) fail('purgeExpired', 'cache', expired.error);
+
+  // created_at is rewritten on every upsert (see cacheSet), so age has to come
+  // from the payload's own `at` stamp.
+  const cutoff = Date.now() - maxAgeMs;
+  const stale = await sb.from('cache').delete({ count: 'exact' })
+    .is('expires_at', null).lt('data->at', cutoff);
+  if (stale.error) fail('purgeExpired', 'cache', stale.error);
+
+  return { expired: expired.count || 0, stale: stale.count || 0 };
 }
 
 function cacheKey(...parts) {
@@ -188,7 +268,7 @@ async function setSetting(key, value) {
 module.exports = {
   newId, nowIso,
   list, get, findOne,
-  insert, update, remove, upsertBy, replaceAll, removeWhere,
-  cacheGet, cacheSet, cacheKey,
+  insert, update, remove, upsertBy, upsertById, replaceAll, removeWhere,
+  cacheGet, cacheSet, cacheKey, purgeExpired,
   getSetting, setSetting,
 };

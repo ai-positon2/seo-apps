@@ -163,9 +163,155 @@ async function toDocxBuffer(pageObject) {
   return Packer.toBuffer(doc);
 }
 
+// ── Gentle Dental ────────────────────────────────────────────────────────────
+// The wizard's page_object shares none of the Neuro shape above (no
+// service_data / location_data / page_data), so every exporter needs a dental
+// counterpart rather than a conditional threaded through the Neuro ones.
+// A dental page is recognised by its sections.hero block.
+function isDentalPage(pageObject) {
+  return !!(pageObject && pageObject.sections && pageObject.sections.hero);
+}
+
+// The educational body is stored as HTML fragments. Both exporters need it as
+// structured text, so unwrap the handful of tags the writer is allowed to emit
+// (<p>, <ul>/<ol>/<li>, <h3>) into typed lines and let each format render them.
+function htmlToLines(html) {
+  const out = [];
+  const clean = (s) => String(s || '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ').trim();
+  const re = /<(h3|p|li)\b[^>]*>([\s\S]*?)<\/\1>/gi;
+  let m;
+  while ((m = re.exec(String(html || '')))) {
+    const textValue = clean(m[2]);
+    if (textValue) out.push({ type: m[1].toLowerCase(), text: textValue });
+  }
+  // A fragment with no recognised tags at all still has to export its copy.
+  if (!out.length) {
+    const bare = clean(html);
+    if (bare) out.push({ type: 'p', text: bare });
+  }
+  return out;
+}
+
+function toDentalMarkdown(pageObject) {
+  const m = pageObject.meta || {};
+  const s = pageObject.sections || {};
+  const L = [];
+  const list = (arr) => (arr || []).map((x) => `- ${typeof x === 'string' ? x : x.keyword}`).join('\n') || '- (none)';
+
+  L.push(`# ${s.hero?.h1 || ''}`);
+  L.push(`<!-- page_url: ${m.urlPath || ''} -->\n`);
+  // The wizard folds a SECOND primary into secondaryKeywords so the writer
+  // weaves it in without holding it to the strict structural gates. That is
+  // right for generation but wrong to print: the deliverable would list the
+  // same keyword under both headings. Show each keyword once, as Primary.
+  const primaries = pageObject.primaryKeywords || [pageObject.primaryKeyword].filter(Boolean);
+  const primaryKeys = new Set(primaries.map((k) => String(typeof k === 'string' ? k : k.keyword).toLowerCase()));
+  const secondaries = (pageObject.secondaryKeywords || [])
+    .filter((k) => !primaryKeys.has(String(typeof k === 'string' ? k : k.keyword).toLowerCase()));
+  L.push(`## Primary Keywords\n${list(primaries)}`);
+  L.push(`## Secondary Keywords\n${list(secondaries)}\n`);
+  L.push(`## Meta Title\n${m.title || ''}`);
+  L.push(`## Meta Description\n${m.metaDescription || ''}`);
+  L.push(`## Canonical\n${m.canonical || ''}\n`);
+  L.push(`## Hero Intro\n${s.hero?.intro || ''}`);
+
+  (s.educationalBody?.blocks || []).forEach((b) => {
+    L.push(`## ${b.h2}`);
+    htmlToLines(b.html).forEach((ln) => {
+      if (ln.type === 'h3') L.push(`### ${ln.text}`);
+      else if (ln.type === 'li') L.push(`- ${ln.text}`);
+      else L.push(ln.text);
+    });
+  });
+
+  L.push(`## ${s.faq?.heading || 'FAQs'}`);
+  (s.faq?.items || []).forEach((f, i) => L.push(`### Q${i + 1}: ${f.q}\n${f.a}`));
+
+  const links = s.servicesInCity?.internalLinks || [];
+  L.push(`## Internal Links\n| Anchor | URL |\n|---|---|`);
+  links.forEach((l) => L.push(`| ${l.anchor_text || l.label || ''} | ${l.url || ''} |`));
+
+  L.push(`## Schema\n\`\`\`json\n${JSON.stringify(pageObject.schema || {}, null, 2)}\n\`\`\``);
+  return L.join('\n\n');
+}
+
+async function toDentalDocxBuffer(pageObject) {
+  const m = pageObject.meta || {};
+  const s = pageObject.sections || {};
+  const children = [];
+  const run = (t, opts = {}) => new TextRun({ text: String(t || ''), size: 22, ...opts });
+  const eyebrow = (t) => new Paragraph({ spacing: { after: 40 }, children: [run(t, { bold: true, color: TEAL, size: 17, characterSpacing: 30 })] });
+  const title = (t) => new Paragraph({ spacing: { after: 60 }, children: [run(t, { bold: true, color: NAVY, size: 40 })] });
+  const section = (t, size = 26) => new Paragraph({
+    spacing: { before: 320, after: 120 },
+    border: { bottom: { style: BorderStyle.SINGLE, size: 8, color: TEAL, space: 4 } },
+    children: [run(t, { bold: true, color: TEAL, size })],
+  });
+  const subHeading = (t, color = '111827') => new Paragraph({ spacing: { before: 160, after: 40 }, children: [run(t, { bold: true, color })] });
+  const body = (t) => new Paragraph({ spacing: { after: 80 }, children: [run(t)] });
+  const bullet = (t) => new Paragraph({ bullet: { level: 0 }, spacing: { after: 20 }, children: [run(t)] });
+
+  children.push(eyebrow('SEO PAGE CONTENT'));
+  children.push(title(s.hero?.h1 || ''));
+  children.push(new Paragraph({ spacing: { after: 60 }, children: [run('Page URL:  ', { bold: true, color: GREY, size: 18 }), run(m.urlPath || '', { color: GREY, size: 18 })] }));
+
+  children.push(section('SEO Metadata'));
+  children.push(subHeading('Meta Title')); children.push(body(m.title));
+  children.push(subHeading('Meta Description')); children.push(body(m.metaDescription));
+  children.push(subHeading('H1')); children.push(body(s.hero?.h1));
+
+  children.push(section('Page Content'));
+  children.push(subHeading('Hero'));
+  children.push(body(s.hero?.intro));
+
+  (s.educationalBody?.blocks || []).forEach((b) => {
+    children.push(section(b.h2));
+    htmlToLines(b.html).forEach((ln) => {
+      if (ln.type === 'h3') children.push(subHeading(ln.text));
+      else if (ln.type === 'li') children.push(bullet(ln.text));
+      else children.push(body(ln.text));
+    });
+  });
+
+  children.push(section(s.faq?.heading || 'FAQs'));
+  (s.faq?.items || []).forEach((f, i) => {
+    children.push(subHeading(`Q${i + 1}. ${f.q}`, TEAL));
+    children.push(body(f.a));
+  });
+
+  const footer = new Footer({
+    children: [new Paragraph({
+      tabStops: [{ type: TabStopType.RIGHT, position: 9360 }],
+      border: { top: { style: BorderStyle.SINGLE, size: 4, color: 'D8DEE4', space: 6 } },
+      children: [run(`${m.brandName || 'Gentle Dental'}  |  ${s.hero?.h1 || ''}`, { color: GREY, size: 16 }), run('\tPage ', { color: GREY, size: 16 }), new TextRun({ children: [PageNumber.CURRENT], color: GREY, size: 16 })],
+    })],
+  });
+
+  const doc = new Document({
+    sections: [{
+      properties: { page: { margin: { top: 1080, bottom: 1080, left: 1080, right: 1080 } } },
+      footers: { default: footer },
+      children,
+    }],
+  });
+  return Packer.toBuffer(doc);
+}
+
 function safeFilename(pageObject) {
+  if (isDentalPage(pageObject)) {
+    // "/dental-offices/ma/boston/implants" -> "ma_boston_implants"
+    const parts = String(pageObject.meta?.urlPath || '').split('/').filter(Boolean).slice(1);
+    return (parts.join('_') || 'gentle_dental_page').replace(/[^a-z0-9_-]/gi, '_');
+  }
   const sd = pageObject.service_data, ld = pageObject.location_data;
   return `${sd.service_slug}_${ld.location_slug}`.replace(/[^a-z0-9_-]/gi, '_');
 }
 
-module.exports = { toJSON, toMarkdown, toDocxBuffer, safeFilename };
+module.exports = {
+  toJSON, toMarkdown, toDocxBuffer, safeFilename,
+  isDentalPage, toDentalMarkdown, toDentalDocxBuffer, htmlToLines,
+};
