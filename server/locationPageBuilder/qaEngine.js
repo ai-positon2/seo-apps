@@ -154,6 +154,7 @@ const DENTAL_WORDS_MAX = config.dental.pageWords.acceptMax;
 const DENTAL_META_DESC_MIN = config.dental.metaDescription.min;
 const DENTAL_META_DESC_MAX = config.dental.metaDescription.max;
 const DENTAL_MIN_FAQS = config.dental.faqs.min;
+const DENTAL_MIN_LOCALIZED_FAQS = config.dental.faqs.minLocalized;
 const DENTAL_MIN_INTERNAL_LINKS = 3;
 // A MINIMUM presence, not a quota. This used to be 5, which is what produced
 // copy like "Invisalign Boston patients trust offers a discreet way ... we'll
@@ -282,6 +283,9 @@ function dentalContext(scaffold) {
   return {
     scaffold, meta: m, sections: sec, hero, blocks, faqItems,
     h1: h1Raw, city, stateAbbr,
+    // The practice name for this page, so "at Gentle Dental Methuen" reads as
+    // the office's proper name rather than a keyword jammed against a city.
+    brandName: m.brandName || '',
     primary, primaryPhrases, related, keywordPhrases,
     stateExclude, geoExclude,
     bodyText,
@@ -499,7 +503,7 @@ const DENTAL_CHECKS = [
       const perBlock = {};
       let firstField = null;
       fields.forEach(([where, body, field, blockIndex]) => {
-        const forced = text.findForcedKeywordPhrases(body, { keywordPhrases: ctx.keywordPhrases, city: ctx.city });
+        const forced = text.findForcedKeywordPhrases(body, { keywordPhrases: ctx.keywordPhrases, city: ctx.city, brandName: ctx.brandName });
         if (!forced.length) return;
         hits.push(`${where}: ${forced.map(f => `"${f}"`).join(', ')}`);
         firstField = firstField || field;
@@ -524,10 +528,42 @@ const DENTAL_CHECKS = [
     run: (ctx) => dentalCityCheck(ctx, ctx.blocks.some(b => dentalStripHtml(b.html).toLowerCase().includes(ctx.city)), 'body copy'),
   },
   {
-    id: 'city_in_faq', severity: 'Major', field: 'faq',
+    id: `city_in_faq_min_${DENTAL_MIN_LOCALIZED_FAQS}`, severity: 'Major', field: 'faq',
     label: 'City named in the FAQ',
-    fix: 'Name the city in at least one question or answer.',
-    run: (ctx) => dentalCityCheck(ctx, ctx.faqItems.some(f => `${f.q} ${f.a}`.toLowerCase().includes(ctx.city)), 'FAQ'),
+    fix: 'Name the location in another question — one about what THIS office offers ("Do you offer IV sedation at your {city} practice?"), not about the procedure itself.',
+    run: (ctx) => {
+      if (!ctx.city) {
+        return {
+          pass: false,
+          detail: `Could not read a city from the H1 ("${ctx.h1}") — it must read "{Service} in {City}, {ST}" for the FAQ localization check to run.`,
+        };
+      }
+      const localized = text.countLocalizedFaqs(ctx.faqItems, ctx.city);
+      return {
+        pass: localized >= DENTAL_MIN_LOCALIZED_FAQS,
+        detail: `${localized} of ${ctx.faqItems.length} FAQs name "${ctx.city}" (minimum ${DENTAL_MIN_LOCALIZED_FAQS}).`,
+      };
+    },
+  },
+  {
+    // The counterweight to the check above. Requiring N localized FAQs without
+    // this would just buy city names bolted onto universal questions — the
+    // exact trade the keyword frequency quota used to make.
+    id: 'faq_localization_is_meaningful', severity: 'Major', field: 'faq',
+    label: 'Local FAQs are genuinely local',
+    fix: 'Either drop the city from that question, or turn it into one the location actually changes: what this office offers, which options it runs, or booking here.',
+    run: (ctx) => {
+      const forced = text.findForcedFaqLocalization(
+        ctx.faqItems.map(f => f.q),
+        { city: ctx.city, brandName: ctx.brandName },
+      );
+      return {
+        pass: !forced.length,
+        detail: forced.length
+          ? `The answer to these does not change by city, so naming it reads as filler — ${forced.map(q => `"${q}"`).join('; ')}.`
+          : 'Every FAQ that names the location is one the location actually affects.',
+      };
+    },
   },
   {
     id: 'internal_links_min_3', severity: 'Major', field: 'internalLinks',
@@ -658,7 +694,7 @@ const DENTAL_LIMITS = {
   faqAnswerMaxWords: config.dental.faqAnswerMaxWords,
   pageWords: { min: DENTAL_WORDS_MIN, max: DENTAL_WORDS_MAX },
   blocks: { min: DENTAL_BLOCKS_MIN, max: DENTAL_BLOCKS_MAX },
-  faqs: { min: DENTAL_MIN_FAQS, max: config.dental.faqs.max },
+  faqs: { min: DENTAL_MIN_FAQS, max: config.dental.faqs.max, minLocalized: DENTAL_MIN_LOCALIZED_FAQS },
 };
 
 function runDentalQC(scaffold) {

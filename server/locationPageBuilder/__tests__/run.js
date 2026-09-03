@@ -48,6 +48,8 @@ const keywordAdapter = require('../keywordAdapter');
 
 // The keyword-presence check carries its own threshold in its id, so it is
 // derived from config rather than hardcoded here.
+// Threshold-carrying ids are derived from config, never hardcoded.
+const FAQ_LOCALIZATION_CHECK = `city_in_faq_min_${config.dental.faqs.minLocalized}`;
 const KEYWORD_PRESENCE_CHECK = `primary_keyword_present_${config.dental.minKeywordUses}x`;
 
 let passed = 0, failed = 0;
@@ -525,7 +527,7 @@ test('an H1 that is not "{Service} in {City}, {ST}" says so instead of quoting a
   const scaffold = dentalScaffoldWithContent();
   scaffold.sections.hero.h1 = 'Quincy Teeth Whitening'; // no " in {City}, {ST}"
   const qc = qaEngine.runDentalQC(scaffold);
-  ['city_in_educational_body', 'city_in_faq'].forEach(id => {
+  ['city_in_educational_body', FAQ_LOCALIZATION_CHECK].forEach(id => {
     const c = qc.checks.find(x => x.id === id);
     assert.strictEqual(c.pass, false);
     assert.ok(!c.detail.includes('""'), `${id} quoted an empty city: ${c.detail}`);
@@ -861,6 +863,113 @@ test('"Why Choose" is only dropped when it is the brand block', () => {
     .forEach(h => assert.strictEqual(dentalOutline.BOILERPLATE_RE.test(h), false, `${h} is a real topic and must survive`));
 });
 
+console.log('\nDental - FAQ localization is meaningful, not decorative');
+// The reviewer's own pairs. Both lists say "in Methuen", so the phrasing is not
+// the signal — what the question ASKS is.
+const FAQ_LOCAL_GOOD = [
+  'What types of sedation dentistry are available at your Methuen location?',
+  'Is oral conscious sedation offered in Methuen?',
+  'Do you offer IV sedation at your Methuen practice?',
+  'Do you use sedation for dental implants at Gentle Dental Methuen?',
+];
+const FAQ_LOCAL_BAD = [
+  'Does sedation dentistry hurt in Methuen?',
+  'How long does sedation dentistry take in Methuen?',
+  'Is sedation dentistry safe for me in Methuen?',
+  'Who should consider sedation dentistry in Methuen?',
+];
+const METHUEN = { city: 'Methuen', brandName: 'Gentle Dental' };
+
+test('questions about what THIS office offers may name the city', () => {
+  assert.deepStrictEqual(text.findForcedFaqLocalization(FAQ_LOCAL_GOOD, METHUEN), [],
+    'availability, options and booking are genuinely local');
+});
+test('universal clinical questions may not name the city', () => {
+  const flagged = text.findForcedFaqLocalization(FAQ_LOCAL_BAD, METHUEN);
+  assert.strictEqual(flagged.length, FAQ_LOCAL_BAD.length,
+    `all four should flag, got ${JSON.stringify(flagged)}`);
+});
+test('the same question is fine once the city comes off', () => {
+  const stripped = FAQ_LOCAL_BAD.map(q => q.replace(/ in Methuen/, ''));
+  assert.deepStrictEqual(text.findForcedFaqLocalization(stripped, METHUEN), [],
+    'pain/duration/safety/candidacy questions are wanted — just not localized');
+});
+test('an availability question survives a clinical word', () => {
+  // "safe" appears, but the question is about what the office provides.
+  assert.deepStrictEqual(
+    text.findForcedFaqLocalization(['Do you offer sedation that is safe for children in Methuen?'], METHUEN), []);
+  assert.deepStrictEqual(
+    text.findForcedFaqLocalization(['Is IV sedation available for nervous patients in Methuen?'], METHUEN), []);
+});
+test('cost is not treated as universal — it varies by office', () => {
+  assert.deepStrictEqual(
+    text.findForcedFaqLocalization(['How much does sedation dentistry cost in Methuen?'], METHUEN), []);
+});
+test('the office name is a proper noun, not a keyword jammed against a city', () => {
+  // "Gentle Dental Methuen" puts a service word right against the city, which
+  // is exactly the force-fit shape — but it is what the office is called.
+  const opts = { keywordPhrases: ['dental sedation methuen'], city: 'Methuen', brandName: 'Gentle Dental' };
+  assert.deepStrictEqual(
+    text.findForcedKeywordPhrases('Do you use sedation for implants at Gentle Dental Methuen?', opts), [],
+    'the practice name must not be reported as a force-fit');
+  assert.deepStrictEqual(
+    text.findForcedKeywordPhrases('Ask about dental sedation Methuen options today.', opts), ['sedation Methuen'],
+    'a real force-fit in the same sentence shape still flags');
+});
+
+console.log('\nDental - the two FAQ gates hold each other honest');
+function faqScaffold(items) {
+  const scaffold = dentalScaffoldWithContent();
+  scaffold.sections.faq.items = items;
+  return scaffold;
+}
+const faqCheck = (scaffold, id) => qaEngine.runDentalQC(scaffold).checks.find(c => c.id === id);
+
+test(`fewer than ${config.dental.faqs.minLocalized} localized FAQs fails`, () => {
+  const check = faqCheck(faqScaffold([
+    { q: 'Do you offer in-office whitening in Quincy?', a: 'Yes, most visits take an hour.' },
+    { q: 'Does whitening hurt?', a: 'Some brief sensitivity is normal.' },
+    { q: 'How long do results last?', a: 'Usually a year with good care.' },
+    { q: 'Will insurance cover it?', a: 'Whitening is cosmetic, so usually not.' },
+  ]), FAQ_LOCALIZATION_CHECK);
+  assert.strictEqual(check.pass, false);
+  assert.ok(check.detail.includes(`minimum ${config.dental.faqs.minLocalized}`), check.detail);
+});
+test(`${config.dental.faqs.minLocalized} localized FAQs pass`, () => {
+  const check = faqCheck(faqScaffold([
+    { q: 'Do you offer in-office whitening in Quincy?', a: 'Yes, most visits take an hour.' },
+    { q: 'Which whitening options are available at your Quincy office?', a: 'In-office trays and take-home kits.' },
+    { q: 'Does whitening hurt?', a: 'Some brief sensitivity is normal.' },
+    { q: 'Will insurance cover it?', a: 'Whitening is cosmetic, so usually not.' },
+  ]), FAQ_LOCALIZATION_CHECK);
+  assert.strictEqual(check.pass, true, check.detail);
+});
+test('hitting the count by localizing universal questions is caught', () => {
+  // Exactly the trade a bare count invites: two cities bolted onto questions
+  // whose answers do not change by city.
+  const scaffold = faqScaffold([
+    { q: 'Does teeth whitening hurt in Quincy?', a: 'Some brief sensitivity is normal.' },
+    { q: 'Is teeth whitening safe for me in Quincy?', a: 'Yes, under a dentist.' },
+    { q: 'How long do results last?', a: 'Usually a year with good care.' },
+    { q: 'Will insurance cover it?', a: 'Whitening is cosmetic, so usually not.' },
+  ]);
+  assert.strictEqual(faqCheck(scaffold, FAQ_LOCALIZATION_CHECK).pass, true, 'the count is satisfied');
+  const meaningful = faqCheck(scaffold, 'faq_localization_is_meaningful');
+  assert.strictEqual(meaningful.pass, false, 'but the localization is decoration');
+  assert.strictEqual(meaningful.severity, 'Major');
+  assert.ok(meaningful.detail.includes('hurt in Quincy'), meaningful.detail);
+});
+test('the FAQ localization minimum is published to the wizard', () => {
+  assert.strictEqual(qaEngine.DENTAL_LIMITS.faqs.minLocalized, config.dental.faqs.minLocalized);
+});
+test('every prompt path states the FAQ localization rule', () => {
+  const brief = contentGenerator.DENTAL_SECTION_BRIEFS.faqs;
+  assert.ok(brief.includes('LOCALIZING THE FAQ'), 'the brief must carry the rule');
+  assert.ok(brief.includes('Does sedation dentistry hurt in Methuen?'), 'the BAD pair must be shown, not described');
+  assert.ok(brief.includes('Do you offer IV sedation at your Methuen practice?'), 'the GOOD pair too');
+  assert.ok(!/gentle dental/i.test(brief), 'the worked example must not hardcode one office brand');
+});
+
 console.log('\nDental - the meta description is never handed back truncated');
 test('a short description is left alone, not padded with a clipped CTA', () => {
   // The reported failure: a 142-char description was padded with
@@ -1030,10 +1139,39 @@ test('each section brief states where it appears, who reads it and its job', () 
       assert.ok(brief.includes(part), `${k} brief is missing "${part}"`));
   });
 });
+test('the page is framed as commercial intent, not a guide', () => {
+  // These are location+service pages whose job is to fill a chair. The hero
+  // used to close by describing what the page covers, which is blog framing.
+  const svc = { id: 's', name: 'Sedation Dentistry', category: 'Specialty' };
+  const loc = { id: 'l', location_name: 'Methuen', city: 'Methuen', region: 'Merrimack Valley', state_abbreviation: 'MA' };
+  const outline = dentalOutline.fallbackOutline({ service: svc, location: loc, primaryKeyword: 'sedation dentistry methuen' });
+  const { system } = contentGenerator.buildDentalPrompt({
+    service: svc, location: loc, primaryKeyword: 'sedation dentistry methuen',
+    secondaryKeywords: [], outline, competitorFaqs: [], brandName: 'Gentle Dental',
+  });
+  assert.ok(system.includes('THIS IS A COMMERCIAL-INTENT PAGE'), 'the page type has to be stated outright');
+  assert.ok(/Commercial does NOT mean hype/.test(system), 'commercial must not be read as license to hype');
+
+  const meta = contentGenerator.DENTAL_SECTION_BRIEFS.metaDescription;
+  const hero = contentGenerator.DENTAL_SECTION_BRIEFS.heroIntro;
+  [meta, hero].forEach(brief => assert.ok(/COMMERCIAL/.test(brief), 'both top-of-page briefs are commercial'));
+  assert.ok(/next step|book|consultation/i.test(meta), 'the snippet has to move the reader');
+  assert.ok(/next step|consultation/i.test(hero), 'so does the hero');
+
+  // The body stays explanatory — the evidence, not the pitch.
+  assert.ok(/Do NOT: sell/.test(contentGenerator.DENTAL_SECTION_BRIEFS.educationalBody),
+    'the educational body must still explain rather than sell');
+});
 test('the hero brief carries the worked good/bad example', () => {
   const hero = contentGenerator.DENTAL_SECTION_BRIEFS.heroIntro;
-  assert.ok(hero.includes('GOOD:') && hero.includes('BAD:'), 'the contrast is the instruction');
-  assert.ok(hero.includes('Invisalign Boston patients trust'), 'the real failure is shown, not described');
+  assert.ok(hero.includes('GOOD:'), 'the target has to be shown, not described');
+  assert.ok(hero.includes('Invisalign Boston patients trust'), 'the force-fit failure is shown verbatim');
+  // Two distinct failure modes, both worked: a force-fitted keyword and an
+  // informational close on a page whose job is commercial.
+  assert.ok(hero.includes('BAD (force-fitted keyword)'), 'the keyword failure must be labelled');
+  assert.ok(hero.includes('BAD (informational'), 'the informational failure must be labelled');
+  assert.ok(hero.includes('Learn about the treatment process'),
+    'the informational close is shown as the thing NOT to write');
 });
 test('no prompt asks for a keyword frequency any more', () => {
   const svc = { id: 's', name: 'Invisalign', category: 'Cosmetic' };

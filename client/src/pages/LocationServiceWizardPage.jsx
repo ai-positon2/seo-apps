@@ -1340,7 +1340,7 @@ export default function LocationServiceWizardPage() {
             <div style={{ ...inputStyle, marginBottom: '0.5rem', background: 'var(--surface)', color: 'var(--text-2)' }}>{page.sections.hero.h1}</div>
             {qcNotices('hero.h1')}
             <FieldLabel value={page.sections.hero.intro} words>
-              Intro <span style={{ fontWeight: 400, color: 'var(--text-3)' }}>(short description below the H1 — leads with the patient outcome)</span>
+              Intro <span style={{ fontWeight: 400, color: 'var(--text-3)' }}>(below the H1 — commercial: patient outcome, then the next step)</span>
             </FieldLabel>
             <textarea style={inputStyle} rows={2} value={page.sections.hero.intro}
               onChange={e => updateSection(p => { p.sections.hero.intro = e.target.value; })} />

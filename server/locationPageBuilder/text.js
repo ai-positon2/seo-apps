@@ -214,9 +214,20 @@ function countAnyKeywordOccurrences(bodyText, phrases, { window = 8, exclude } =
 // popular" and "clear aligners in Boston" are both left alone.
 //
 // Returns the offending fragments (de-duplicated) so QC can quote them back.
-function findForcedKeywordPhrases(body, { keywordPhrases = [], city = '' } = {}) {
+function findForcedKeywordPhrases(body, { keywordPhrases = [], city = '', brandName = '' } = {}) {
   const cityRaw = String(city || '').trim();
   if (!cityRaw || !keywordPhrases.length) return [];
+
+  // "Gentle Dental Methuen" is the office's NAME — a proper noun a patient
+  // would say out loud — even though it puts a service word ("Dental") right
+  // against the city. Mask the brand+city pair before scanning so the office's
+  // own name is never reported as a force-fitted keyword.
+  let text = String(body || '');
+  const brand = String(brandName || '').trim();
+  if (brand) {
+    const brandCity = new RegExp(`${escapeRegex(brand)}\\s+(?:of\\s+)?${escapeRegex(cityRaw)}`, 'gi');
+    text = text.replace(brandCity, ' ');
+  }
 
   const geo = new Set(words(cityRaw));
   const terms = [...new Set(
@@ -230,7 +241,57 @@ function findForcedKeywordPhrases(body, { keywordPhrases = [], city = '' } = {})
   // Escapes are DOUBLED because this is a template literal: a single \b
   // there is a literal backspace and \w / \s collapse to letters.
   const re = new RegExp(`\\b(?:(?:${alt})\\w*\\s+${c}|${c}\\s+(?:${alt})\\w*)\\b`, 'gi');
-  return [...new Set((String(body || '').match(re) || []).map(m => m.replace(/\s+/g, ' ')))];
+  return [...new Set((text.match(re) || []).map(m => m.replace(/\s+/g, ' ')))];
+}
+
+// ── FAQ localization: is naming the city here meaningful, or forced? ───────
+// At least two FAQs should name the location, but ONLY where the answer
+// actually depends on it. Compare:
+//
+//   GOOD  "Do you offer IV sedation at your Methuen practice?"
+//         "Is oral conscious sedation offered in Methuen?"
+//         "What types of sedation dentistry are available at your Methuen location?"
+//   BAD   "Does sedation dentistry hurt in Methuen?"
+//         "How long does sedation dentistry take in Methuen?"
+//         "Is sedation dentistry safe for me in Methuen?"
+//         "Who should consider sedation dentistry in Methuen?"
+//
+// Both lists say "in Methuen", so the phrasing is not the signal — the QUESTION
+// TYPE is. Sedation does not hurt more in Methuen, take longer in Methuen or
+// have a different safety profile in Methuen; those answers are identical in
+// every city, so the city is decoration. Availability, which options this
+// office runs, and who to ask are genuinely local.
+//
+// So: flag a question that names the city AND asks about the procedure itself,
+// unless it also asks what this practice provides.
+const FAQ_UNIVERSAL_RE = /\b(hurts?|hurting|painful|pain)\b|how long (does|will|is)|\bsafe\b|\brisks?\b|\bside effects?\b|\bwho should\b|\bcandidates?\b|\bsuitable\b|how does it (work|feel)/i;
+
+function faqAvailabilityRe(brandName) {
+  const brand = String(brandName || '').trim();
+  const brandClause = brand ? `|\\bat ${escapeRegex(brand)}\\b` : '';
+  return new RegExp(
+    `\\bdo(?:es)? (?:you|your)\\b|\\bavailable\\b|\\boffere?d?\\b|\\bprovide[sd]?\\b|\\bat your\\b|\\bwhat types?\\b|\\bcan i (?:get|book|schedule)\\b${brandClause}`,
+    'i',
+  );
+}
+
+function mentionsCity(s, city) {
+  const c = String(city || '').trim();
+  if (!c) return false;
+  return new RegExp(`\\b${escapeRegex(c)}\\b`, 'i').test(String(s || ''));
+}
+
+// Returns the questions whose localization is decoration rather than substance.
+function findForcedFaqLocalization(questions, { city = '', brandName = '' } = {}) {
+  const availability = faqAvailabilityRe(brandName);
+  return (questions || [])
+    .map(q => String(q || ''))
+    .filter(q => mentionsCity(q, city) && !availability.test(q) && FAQ_UNIVERSAL_RE.test(q));
+}
+
+// How many FAQ items name the location at all (question or answer).
+function countLocalizedFaqs(items, city) {
+  return (items || []).filter(f => mentionsCity(`${f?.q || ''} ${f?.a || ''}`, city)).length;
 }
 
 module.exports = {
@@ -238,4 +299,5 @@ module.exports = {
   wordCount, shingles, similarity, pageBodyText,
   STOPWORDS, stem, words, containsAllKeywordWords, countKeywordOccurrences,
   matchAnyKeyword, countAnyKeywordOccurrences, findForcedKeywordPhrases,
+  findForcedFaqLocalization, countLocalizedFaqs, mentionsCity,
 };

@@ -112,7 +112,15 @@ module.exports = {
     // all have to read the same number — the prompt used to say "4-6" in prose
     // while the gate held its own copy of 4, and a regeneration that returned
     // a single FAQ silently replaced a passing page's whole FAQ block.
-    faqs: { min: 4, max: 6 },
+    faqs: {
+      min: 4,
+      max: 6,
+      // How many FAQs must name the location. Two, because one is easy to
+      // satisfy with a throwaway mention — but ONLY where the city genuinely
+      // changes the answer (availability, which options this office runs), never
+      // on a universal clinical question. See text.findForcedFaqLocalization.
+      minLocalized: 2,
+    },
     // accept* is the QC gate; target* is what the writer is asked for —
     // deliberately inside the gate so normal variance still passes.
     pageWords: { acceptMin: 500, acceptMax: 900, targetMin: 600, targetMax: 860 },

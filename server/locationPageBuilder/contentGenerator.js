@@ -261,6 +261,7 @@ const DENTAL_PARA_WORDS_MIN = config.dental.paragraphWords.min;
 const DENTAL_PARA_WORDS_MAX = config.dental.paragraphWords.max;
 const DENTAL_MAX_LIST_ITEM_WORDS = config.dental.listItemMaxWords;
 const DENTAL_MAX_FAQ_ANSWER_WORDS = config.dental.faqAnswerMaxWords;
+const DENTAL_MIN_LOCALIZED_FAQS = config.dental.faqs.minLocalized;
 const DENTAL_META_DESC_MIN = config.dental.metaDescription.min;
 const DENTAL_META_DESC_MAX = config.dental.metaDescription.max;
 const DENTAL_MIN_FAQS = config.dental.faqs.min;
@@ -282,29 +283,41 @@ const DENTAL_WORDS_TARGET_MAX = config.dental.pageWords.targetMax;
 // per-section regeneration calls, so a regenerated hero is written to the same
 // brief as the original.
 const DENTAL_SECTION_BRIEFS = {
-  metaDescription: `SECTION: SEO meta description — the SERP snippet.
+  metaDescription: `SECTION: SEO meta description — the SERP snippet. COMMERCIAL.
 Where it appears: Google's results page, NOT on the page itself.
-Who is reading: someone scanning ten near-identical dental results, deciding which to click.
-Its job: earn the click. Say what the service is, where it is, one concrete reason to choose this
-practice, then a soft invitation. Every clause has to pay for its characters.
-Do NOT: summarize the page, restate the H1, or reuse the hero intro's sentences. No hype, no
-"welcome to", no exclamation marks.`,
+Who is reading: someone scanning ten near-identical dental results, about to pick one practice to
+call. They are shopping, not studying.
+Its job: win the click against nine competitors. Three moves, in this order:
+  1. the outcome or service, and the city — what they get and where;
+  2. one concrete reason to choose HERE (an option this office offers, who it suits, a practical
+     point about the visit) — something a rival snippet could not claim identically;
+  3. a clear next step: book, schedule, call, ask about a consultation.
+Every clause has to pay for its characters.
+Do NOT: summarize the page ("learn about…", "everything you need to know"), restate the H1, reuse
+the hero intro's sentences, or promise prices, availability or outcomes you were not given. No hype,
+no "welcome to", no exclamation marks. Vary the closing step across pages — the same "Call today"
+bolted onto every description is the tell of a template.`,
 
-  heroIntro: `SECTION: hero intro — the short paragraph directly under the H1.
+  heroIntro: `SECTION: hero intro — the short paragraph directly under the H1. COMMERCIAL.
 Where it appears: the first thing read after the click, above the fold.
-Who is reading: someone who just landed and is deciding in about three seconds whether this page
-answers their question.
-Its job: confirm they are in the right place, then tell them what they will get from the page. Lead
-with the OUTCOME in plain patient language, name the service and city naturally, and close by
-signalling what the page covers.
-Do NOT: open with the keyword, stack the service and city into a label, list features, or repeat the
-H1. This is the sentence most often force-fitted — write it as if the keyword did not exist, then
-check the topic and city read naturally.
-GOOD: "Straighten your teeth discreetly with Invisalign clear aligners in Boston. Learn about the
-treatment process, costs, and what to expect from start to finish."
-BAD:  "Invisalign Boston patients trust offers a discreet way to straighten teeth without metal
-brackets. At your visit, we'll explain clear aligner treatment, discuss Invisalign cost Boston and
-help you understand what to expect from start to finish."`,
+Who is reading: someone who just landed, has about three seconds, and is deciding whether this
+practice is the one to book with. They are at the point of choosing a provider.
+Its job: sell the visit, not the page. Three moves:
+  1. open with the OUTCOME the patient actually wants, in plain language;
+  2. make clear this office provides it, here — name the service and city naturally;
+  3. point at the next step: a consultation, a visit, finding out whether it suits them.
+Do NOT: describe the page ("learn about the process, costs and what to expect" belongs on a blog,
+not on a page whose job is to fill a chair), open with the keyword, stack the service and city into
+a label, list features, or repeat the H1. This is the sentence most often force-fitted — write it as
+if the keyword did not exist, then check the topic and city read naturally.
+GOOD: "Straighten your teeth discreetly with Invisalign clear aligners in Boston. Book a
+consultation to find out whether clear aligners suit your smile and how long treatment would take."
+BAD (informational — describes the page instead of moving the reader): "Straighten your teeth
+discreetly with Invisalign clear aligners in Boston. Learn about the treatment process, costs, and
+what to expect from start to finish."
+BAD (force-fitted keyword): "Invisalign Boston patients trust offers a discreet way to straighten
+teeth without metal brackets. At your visit, we'll explain clear aligner treatment, discuss
+Invisalign cost Boston and help you understand what to expect from start to finish."`,
 
   educationalBody: `SECTION: educational body — the H2 stack that makes up the page.
 Where it appears: the main body, under scannable headings.
@@ -323,11 +336,34 @@ takes, whether insurance covers it, whether they are a candidate, what recovery 
 Its job: ask the question in the patient's own words — the way they would say it out loud — and
 answer it in the FIRST sentence. Cover different blockers; do not ask the same question twice.
 Do NOT: write marketing questions ("Why choose us?"), bury the answer after a preamble, or repeat an
-educational block verbatim.`,
+educational block verbatim.
+
+LOCALIZING THE FAQ — at least ${DENTAL_MIN_LOCALIZED_FAQS} questions must name the location, and the city belongs ONLY in a
+question whose answer actually depends on it. Ask yourself: would the answer be different in another
+city? If not, the city is decoration and a reader notices.
+
+Local by nature — what THIS office provides, which options it runs, booking here:
+  GOOD "What types of sedation dentistry are available at your Methuen location?"
+  GOOD "Is oral conscious sedation offered in Methuen?"
+  GOOD "Do you offer IV sedation at your Methuen practice?"
+  GOOD "Do you use sedation for dental implants at our Methuen office?"
+
+Universal by nature — pain, duration, safety, candidacy, risks. The answer is identical everywhere,
+so NEVER attach a city to one:
+  BAD  "Does sedation dentistry hurt in Methuen?"
+  BAD  "How long does sedation dentistry take in Methuen?"
+  BAD  "Is sedation dentistry safe for me in Methuen?"
+  BAD  "Who should consider sedation dentistry in Methuen?"
+
+Note that "in Methuen" appears in both lists, so this is not about phrasing — it is about what the
+question asks. Keep the universal questions (patients genuinely ask them) and simply leave the city
+out of those; carry the location in the availability questions instead. Naming the office as
+the practice name followed by the city (however this office is branded) is fine — that is what the
+office is actually called, and patients say it that way.`,
 };
 
 const DENTAL_L3_SCHEMA_HINT = `{
-  "heroIntro": "string — the short paragraph under the H1. 1-2 sentences, 30-40 words. Lead with the patient outcome, not the keyword.",
+  "heroIntro": "string — the short paragraph under the H1. 1-2 sentences, 30-40 words. Commercial intent: lead with the patient outcome, then point at the next step. Never the keyword first, never a description of the page.",
   "metaDescription": "string — MUST be ${DENTAL_META_DESC_MIN}-${DENTAL_META_DESC_MAX} characters TOTAL, counting every character including spaces. A two-sided range: too short wastes the snippet, too long is truncated by Google. Count it, and if it is short, add a genuinely specific clause about THIS practice or city rather than a generic CTA. Must end as a complete sentence.",
   "educationalBody": [
     { "h2": "string — the heading from the OUTLINE, in the same order", "html": "string — clean semantic HTML using ONLY <p>, <ul>, <li>. No inline styles/classes." }
@@ -343,6 +379,19 @@ const DENTAL_L3_SCHEMA_HINT = `{
 // one detail a local searcher checks first.
 const dentalSystemPrompt = (brandName) => `You are an expert local-SEO + GEO/AEO content writer for ${brandName},
 a dental practice in Massachusetts and New Hampshire.
+
+THIS IS A COMMERCIAL-INTENT PAGE. It is not a guide and not a blog post. The person reading it has
+already decided they may want this treatment and is now choosing WHERE to have it done — they are
+comparing practices, not researching a topic for its own sake. That shapes the page top to bottom:
+
+  - The title, meta description and hero intro have to win the appointment. They lead with the
+    outcome the patient wants, make clear this office provides it here, and move toward the next
+    step (booking, a consultation, a call).
+  - The educational body and FAQ earn the trust that makes that step feel safe, by explaining
+    plainly rather than selling. They are the evidence, not the pitch.
+
+Commercial does NOT mean hype. No superlatives, no "state-of-the-art", no exclamation marks, no
+invented credentials or prices. Concrete and specific converts; adjectives do not.
 
 Write US English in AP style:
 - Spell out one through nine; numerals for 10+. Always use numerals for data/metrics.
@@ -494,7 +543,9 @@ ${DENTAL_SECTION_BRIEFS.metaDescription}
 ${bodyStack}
 
 ${DENTAL_SECTION_BRIEFS.faqs}
-Write ${config.dental.faqs.min}-${config.dental.faqs.max} Q&As, each answer at most ${DENTAL_MAX_FAQ_ANSWER_WORDS} words. Localize at least one to ${location.city}.
+Write ${config.dental.faqs.min}-${config.dental.faqs.max} Q&As, each answer at most ${DENTAL_MAX_FAQ_ANSWER_WORDS} words. At least ${DENTAL_MIN_LOCALIZED_FAQS} must name ${location.city} —
+and only in questions about what this office offers, never in a question about pain, duration,
+safety or candidacy.
 ${faqBlock}
 
 WORD BUDGET: heroIntro 30-40 words; ${DENTAL_PARA_WORDS_MIN}-${DENTAL_PARA_WORDS_MAX} words per body paragraph; each FAQ answer at most
@@ -724,12 +775,12 @@ async function generateDentalRegen({ service, location, primaryKeyword, secondar
 
   let schemaHint, task;
   if (section === 'heroIntro') {
-    schemaHint = `{ "heroIntro": "string — 1-2 sentences, 30-40 words, leading with the patient outcome" }`;
+    schemaHint = `{ "heroIntro": "string — 1-2 sentences, 30-40 words, leading with the patient outcome and closing on the next step" }`;
     task = `${DENTAL_SECTION_BRIEFS.heroIntro}
 
 Write ONLY a fresh hero intro for "${service.name}" in ${cityState}. 1-2 sentences, 30-40 words.`;
   } else if (section === 'metaDescription') {
-    schemaHint = `{ "metaDescription": "string — MUST be ${DENTAL_META_DESC_MIN}-${DENTAL_META_DESC_MAX} characters total, names the service and city, ends as a complete sentence" }`;
+    schemaHint = `{ "metaDescription": "string — MUST be ${DENTAL_META_DESC_MIN}-${DENTAL_META_DESC_MAX} characters total, names the service and city, gives one reason to choose this office, ends with a clear next step as a complete sentence" }`;
     task = `${DENTAL_SECTION_BRIEFS.metaDescription}
 
 Write ONLY a fresh meta description for "${service.name}" in ${cityState}. ${DENTAL_META_DESC_MIN}-${DENTAL_META_DESC_MAX} characters, ending as a complete sentence.`;
@@ -767,7 +818,7 @@ across the whole stack, spread over different blocks.`;
     schemaHint = `{ "faqs": [ { "q": "string", "a": "string" } ] }`;
     task = `${DENTAL_SECTION_BRIEFS.faqs}
 
-Write a fresh set of ${DENTAL_MIN_FAQS}-${DENTAL_MAX_FAQS} FAQ Q&As for "${service.name}" in ${cityState}, phrased the way patients ask; each answer at most ${DENTAL_MAX_FAQ_ANSWER_WORDS} words; localize at least one to ${location.city}.`;
+Write a fresh set of ${DENTAL_MIN_FAQS}-${DENTAL_MAX_FAQS} FAQ Q&As for "${service.name}" in ${cityState}, phrased the way patients ask; each answer at most ${DENTAL_MAX_FAQ_ANSWER_WORDS} words. At least ${DENTAL_MIN_LOCALIZED_FAQS} must name ${location.city}, and only where the answer genuinely depends on it (what this office offers), never on a pain/duration/safety/candidacy question.`;
   } else if (section === 'faqItem') {
     schemaHint = `{ "q": "string", "a": "string" }`;
     const otherQuestions = (context.otherQuestions || []).filter(Boolean);
@@ -775,7 +826,8 @@ Write a fresh set of ${DENTAL_MIN_FAQS}-${DENTAL_MAX_FAQS} FAQ Q&As for "${servi
 
 Write ONE fresh FAQ Q&A for "${service.name}" in ${cityState}${
       context.currentQ ? `, replacing the current question "${context.currentQ}"` : ''
-    }, phrased the way a patient asks, answer at most ${DENTAL_MAX_FAQ_ANSWER_WORDS} words.${otherQuestions.length ? ` Do NOT duplicate these other questions already on the page: ${otherQuestions.join(' | ')}.` : ''}`;
+    }, phrased the way a patient asks, answer at most ${DENTAL_MAX_FAQ_ANSWER_WORDS} words. Name ${location.city} only if this
+question is about what the office offers; never attach it to a pain, duration, safety or candidacy question.${otherQuestions.length ? ` Do NOT duplicate these other questions already on the page: ${otherQuestions.join(' | ')}.` : ''}`;
   } else {
     throw new Error(`Unknown regen section "${section}".`);
   }
