@@ -247,33 +247,66 @@ const GD_GLOBAL_TEMPLATE = {
 
 // Appendix A — 26 services (category | name | slug).
 const GD_SERVICE_DEFS = [
+  // The client's own service taxonomy. Three kinds of page live here, and they
+  // all run through the same generator:
+  //   - single procedures ("Dental Crowns", "Root Canals")
+  //   - category hubs ("Cosmetic Dentistry", "Oral Surgery")
+  //   - practitioner pages ("Orthodontist", "Periodontist")
+  //
+  // Deliberate near-pairs are NOT accidental duplicates: "Teeth Extractions"
+  // and "Tooth Extraction", "TMD/TMJ Treatment" and "TMJ Treatment" target
+  // different searches and get their own pages.
+  //
+  // The slug is the page URL and the service id, so renaming a service here
+  // changes both. Anything already generated under the old slug is orphaned
+  // (compose.loadLayers can no longer resolve it) and has to be regenerated.
+  // Every slug added here also needs an entry in keywordUniverseMap, or its
+  // live keyword pool loses its topical filter.
+  ['Cosmetic', 'Cosmetic Dentistry', 'cosmetic-dentistry'],
+  ['Cosmetic', 'Smile Makeover', 'smile-makeover'],
   ['Cosmetic', 'Teeth Whitening', 'teeth-whitening'],
   ['Cosmetic', 'Veneers', 'veneers'],
-  ['Cosmetic', 'Smile Makeover', 'smile-makeover'],
-  ['Cosmetic', 'Invisalign', 'invisalign'],
-  ['Restorative', 'Crowns & Bridges', 'crowns-bridges'],
+  ['Cosmetic', 'Invisalign® Treatment', 'invisalign-treatment'],
+
+  ['Restorative', 'Restorative Dentistry', 'restorative-dentistry'],
+  ['Restorative', 'Crowns and Bridges', 'crowns-and-bridges'],
+  ['Restorative', 'Dental Crowns', 'dental-crowns'],
+  ['Restorative', 'Dental Bridges', 'dental-bridges'],
   ['Restorative', 'Dental Fillings', 'dental-fillings'],
   ['Restorative', 'Root Canals', 'root-canals'],
+  ['Restorative', 'Dental Implants', 'dental-implants'],
+  ['Restorative', 'Dentures', 'dentures'],
   ['Restorative', 'Gum Treatments', 'gum-treatments'],
-  ['Restorative', 'Partial & Full Dentures', 'partial-and-full-dentures'],
-  ['Restorative', 'Implants', 'implants'],
-  ['Oral Surgery', 'Extractions', 'extractions'],
+  ['Restorative', 'Gum Disease Treatment', 'gum-disease-treatment'],
+
+  ['Oral Surgery', 'Oral Surgery', 'oral-surgery'],
+  ['Oral Surgery', 'Teeth Extractions', 'teeth-extractions'],
+  ['Oral Surgery', 'Tooth Extraction', 'tooth-extraction'],
   ['Oral Surgery', 'Wisdom Teeth Extractions', 'wisdom-teeth-extractions'],
+
+  ['Orthodontics', 'Orthodontics', 'orthodontics'],
+  ['Orthodontics', 'Orthodontist', 'orthodontist'],
   ['Orthodontics', 'Braces', 'braces'],
-  ['Preventive', 'Exams', 'exams'],
-  ['Preventive', 'Digital X-rays', 'digital-x-rays'],
-  ['Preventive', 'Cleanings', 'cleanings'],
+
+  ['Preventive', 'Preventive Dentistry', 'preventive-dentistry'],
+  ['Preventive', 'Dental Exam', 'dental-exam'],
+  ['Preventive', 'Dental Cleaning', 'dental-cleaning'],
+  ['Preventive', 'Digital X-Rays', 'digital-x-rays'],
   ['Preventive', 'Fluoride Treatment', 'fluoride-treatment'],
+  ['Preventive', 'Dental Sealants', 'dental-sealants'],
   ['Preventive', 'Oral Cancer Screening', 'oral-cancer-screening'],
-  ['Preventive', 'Sealants', 'sealants'],
-  ['Preventive', 'Cavity Prevention (Curodont)', 'curodont'],
-  ['Preventive', 'Diabetes & Oral Health', 'diabetes-and-oral-health'],
-  ['Specialty', 'Emergency Dental Care', 'emergency-dental-care'],
+  ['Preventive', 'Curodont™', 'curodont'],
+  ['Preventive', 'Diabetes And Oral Health', 'diabetes-and-oral-health'],
+
+  ['Specialty', 'Emergency Dentist', 'emergency-dentist'],
   ['Specialty', 'Pediatric Dentistry', 'pediatric-dentistry'],
+  ['Specialty', 'Periodontist', 'periodontist'],
   ['Specialty', 'Sedation Dentistry', 'sedation-dentistry'],
   ['Specialty', 'Sleep Apnea Treatment', 'sleep-apnea-treatment'],
   ['Specialty', 'TMD/TMJ Treatment', 'tmd-tmj-treatment'],
+  ['Specialty', 'TMJ Treatment', 'tmj-treatment'],
 ];
+
 
 const GD_SERVICES = GD_SERVICE_DEFS.map(([category, name, slug]) => ({
   id: `dsvc_${slug}`,

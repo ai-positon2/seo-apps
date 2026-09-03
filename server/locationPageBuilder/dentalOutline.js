@@ -45,27 +45,41 @@ const MAX_TOTAL_PARAGRAPHS = config.dental.paragraphsPerPage.max;
 // Safe?": broken English in the page's first H2, and in the repair path that
 // forces that rung into slot 1 when nothing else names the service.
 const GENERAL_LADDER = [
-  (s, plural) => `What ${plural ? 'Are' : 'Is'} ${s}?`,
-  s => `Benefits of ${s}`,
-  s => `What to Expect During ${s}`,
-  s => `Who Is a Good Candidate for ${s}?`,
-  s => `Types and Options for ${s}`,
+  (s, plural) => whatIsRung(s, plural),
+  (s, plural) => `Benefits of ${withArticle(s, plural)}`,
+  (s, plural) => `What to Expect During ${withArticle(s, plural)}`,
+  (s, plural) => `Who Is a Good Candidate for ${withArticle(s, plural)}?`,
+  (s, plural) => `Types and Options for ${withArticle(s, plural)}`,
   s => `${s} Cost and Effectiveness`,
-  (s, plural) => `${plural ? 'Are' : 'Is'} ${s} Safe?`,
+  (s, plural) => `${plural ? 'Are' : 'Is'} ${withArticle(s, plural)} Safe?`,
 ];
 // Clinical/urgent services are asked about differently — patients arrive with
 // a symptom, not a wish list — so the ladder leads with symptoms and process.
 const CLINICAL_LADDER = [
-  (s, plural) => `What ${plural ? 'Are' : 'Is'} ${s}?`,
-  s => `Signs You May Need ${s}`,
+  (s, plural) => whatIsRung(s, plural),
+  (s, plural) => `Signs You May Need ${withArticle(s, plural)}`,
   // "The Root Canals Procedure" is clumsy; the question form reads naturally
   // for plurals without needing to singularize the service name.
   (s, plural) => (plural ? `What Happens During ${s}` : `The ${s} Procedure`),
   () => 'What to Expect During Recovery',
-  s => `Alternatives to ${s}`,
+  (s, plural) => `Alternatives to ${withArticle(s, plural)}`,
   s => `${s} Cost and Insurance`,
-  (s, plural) => `${plural ? 'Are' : 'Is'} ${s} Safe?`,
+  (s, plural) => `${plural ? 'Are' : 'Is'} ${withArticle(s, plural)} Safe?`,
 ];
+// A practitioner page is about a PERSON, not a procedure, so none of the
+// procedure rungs parse on it: "What Is Orthodontist?", "What to Expect During
+// an Orthodontist", "Types and Options for an Orthodontist". These are the
+// questions patients actually ask about a specialist.
+const PRACTITIONER_LADDER = [
+  (s, plural, a) => `What Does ${a} ${s} Do?`,
+  (s, plural, a) => `When Should You See ${a} ${s}?`,
+  s => `Conditions ${s}s Treat`,
+  () => 'What to Expect at Your First Visit',
+  (s, plural, a) => `How to Choose ${a} ${s}`,
+  (s, plural, a) => `Do You Need a Referral to See ${a} ${s}?`,
+  s => `${s} Cost and Insurance`,
+];
+
 const CLINICAL_RE = /root canal|extraction|extract|emergency|surgery|surgical|periodont|oral surgeon|wisdom (tooth|teeth)/i;
 
 // Plural if the LAST word of the service name is a plural noun. Checking the
@@ -74,11 +88,58 @@ const CLINICAL_RE = /root canal|extraction|extract|emergency|surgery|surgical|pe
 function isPluralName(name) {
   const last = String(name || '').trim().split(/\s+/).pop() || '';
   const word = last.toLowerCase().replace(/[^a-z-]/g, '');
-  if (word.length < 4 || /(ss|us|is)$/.test(word)) return false;
+  // -ics names a field, not a plural: orthodontics, endodontics,
+  // periodontics, prosthodontics, pediatrics. Without this the ladder
+  // renders "What Are Orthodontics?" and "Are Orthodontics Safe?".
+  if (word.length < 4 || /(ss|us|is|ics)$/.test(word)) return false;
   return word.endsWith('s');
 }
 
+// A practitioner page names a PERSON, so the procedure rungs are nonsense on
+// it: "What Is Orthodontist?" and "Is Periodontist Safe?" are not English.
+// These pages run through the same generator (the stack is still generic for
+// them), but the two rungs that break outright are swapped for ones that read.
+function isPractitionerName(name) {
+  const last = String(name || '').trim().split(/\s+/).pop() || '';
+  return /(?:ist|surgeon|hygienist)$/i.test(last.replace(/[^a-z]/gi, ''));
+}
+
+// Mass and abstract nouns take no article: "What Is Teeth Whitening?",
+// "What Is Oral Surgery?", "What Is Orthodontics?". Countable ones do:
+// "What Is a Dental Exam?", "What Is a Smile Makeover?". Trademarked names are
+// proper nouns and never take one ("What Is Curodont™?").
+const MASS_NOUN_RE = /(ing|istry|ics|ery|ry|ment|health|care|hygiene|apnea)$/i;
+
+function isProperName(name) {
+  return /[®™]/.test(String(name || ''));
+}
+
+function needsArticle(name, plural) {
+  if (plural || isProperName(name)) return false;
+  const last = String(name || '').trim().split(/\s+/).pop() || '';
+  return !MASS_NOUN_RE.test(last.replace(/[^a-z]/gi, ''));
+}
+
+function articleFor(name) {
+  return /^[aeiou]/i.test(String(name || '').trim()) ? 'an' : 'a';
+}
+
+// The service name as it reads inside a sentence: "a Dental Exam", but
+// "Teeth Whitening" (mass), "Veneers" (plural), "Curodont™" (proper).
+function withArticle(s, plural) {
+  return needsArticle(s, plural) ? `${articleFor(s)} ${s}` : s;
+}
+
+// "What Is/Are X?" with the right agreement and article.
+function whatIsRung(s, plural) {
+  if (plural) return `What Are ${s}?`;
+  return `What Is ${withArticle(s, plural)}?`;
+}
+
 function pickLadder(service = {}) {
+  // Checked first: "Periodontist" also matches CLINICAL_RE on "periodont",
+  // and the clinical ladder is just as wrong for a person as the general one.
+  if (isPractitionerName(service.name)) return PRACTITIONER_LADDER;
   const hay = `${service.name || ''} ${service.category || ''}`;
   return CLINICAL_RE.test(hay) ? CLINICAL_LADDER : GENERAL_LADDER;
 }
@@ -86,7 +147,7 @@ function pickLadder(service = {}) {
 function ladderHeadings(service = {}) {
   const name = service.name || 'This Service';
   const plural = isPluralName(name);
-  return pickLadder(service).map(fn => fn(name, plural));
+  return pickLadder(service).map(fn => fn(name, plural, articleFor(name)));
 }
 
 // ── Scraped-heading pre-filter ─────────────────────────────────────────────
@@ -374,6 +435,7 @@ async function planDentalOutline({ service, location, primaryKeyword, secondaryK
 module.exports = {
   planDentalOutline, normalizeOutline, fallbackOutline,
   pickLadder, ladderHeadings, filterCompetitorHeadings, isPluralName,
-  GENERAL_LADDER, CLINICAL_LADDER, BOILERPLATE_RE,
+  isPractitionerName, needsArticle, whatIsRung, withArticle,
+  GENERAL_LADDER, CLINICAL_LADDER, PRACTITIONER_LADDER, BOILERPLATE_RE,
   MIN_BLOCKS, MAX_BLOCKS,
 };

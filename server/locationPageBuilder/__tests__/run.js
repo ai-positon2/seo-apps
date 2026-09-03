@@ -44,6 +44,7 @@ const keywordRelevance = require('../keywordRelevance');
 const dentalOutline = require('../dentalOutline');
 const contentGenerator = require('../contentGenerator');
 const config = require('../config');
+const keywordUniverseMap = require('../keywordUniverseMap');
 const keywordAdapter = require('../keywordAdapter');
 
 // The keyword-presence check carries its own threshold in its id, so it is
@@ -861,6 +862,101 @@ test('"Why Choose" is only dropped when it is the brand block', () => {
     .forEach(h => assert.strictEqual(dentalOutline.BOILERPLATE_RE.test(h), true, `${h} should be dropped`));
   ['Why Choose Professional Teeth Whitening', 'Why Choose an Experienced Dentist for Veneers', 'Why Choose the Right Whitening Option']
     .forEach(h => assert.strictEqual(dentalOutline.BOILERPLATE_RE.test(h), false, `${h} is a real topic and must survive`));
+});
+
+console.log('\nDental - the service dropdown (seeded taxonomy)');
+// Read the taxonomy out of the seed rather than restating it, so the test
+// covers whatever is actually in the dropdown.
+const SERVICE_DEFS = (() => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'seed.js'), 'utf8');
+  const block = src.slice(src.indexOf('const GD_SERVICE_DEFS'), src.indexOf('const GD_SERVICES'));
+  return [...block.matchAll(/\['([^']+)', '([^']+)', '([^']+)'\]/g)]
+    .map(m => ({ category: m[1], name: m[2], slug: m[3] }));
+})();
+const WIZARD_CATEGORIES = ['Cosmetic', 'Restorative', 'Oral Surgery', 'Orthodontics', 'Preventive', 'Specialty'];
+
+test('every service has a unique slug that matches its name', () => {
+  // The slug is both the page URL and the service id, so a mismatch means the
+  // URL does not follow from the name and a collision means two services
+  // share an id.
+  const seen = new Map();
+  SERVICE_DEFS.forEach(d => {
+    assert.strictEqual(url.slugify(d.name), d.slug, `${d.name}: slugify gives "${url.slugify(d.name)}"`);
+    assert.ok(!seen.has(d.slug), `slug "${d.slug}" is used by both "${seen.get(d.slug)}" and "${d.name}"`);
+    seen.set(d.slug, d.name);
+  });
+  assert.ok(SERVICE_DEFS.length >= 38, `expected the full taxonomy, found ${SERVICE_DEFS.length}`);
+});
+test('trademarked names survive slugification', () => {
+  assert.strictEqual(url.slugify('Invisalign® Treatment'), 'invisalign-treatment');
+  assert.strictEqual(url.slugify('Curodont™'), 'curodont');
+});
+test('every service groups under a category the wizard renders', () => {
+  SERVICE_DEFS.forEach(d => assert.ok(WIZARD_CATEGORIES.includes(d.category),
+    `${d.name} is in "${d.category}", which the dropdown does not group by`));
+});
+test('every service has keyword relevance terms', () => {
+  // relevanceTermsFor returning null means the live SERP/SEMrush pool gets no
+  // topical filter at all, which is how "veneers" ended up pulling in
+  // "vanguard dental" and "dentist manchester nh". Renaming a slug silently
+  // drops its entry, so this guards the whole taxonomy.
+  SERVICE_DEFS.forEach(d => {
+    const terms = keywordUniverseMap.relevanceTermsFor(d.slug);
+    assert.ok(terms && terms.length, `${d.name} [${d.slug}] has no relevance terms`);
+  });
+});
+
+console.log('\nDental - ladder grammar across the whole taxonomy');
+test('no ladder heading is ungrammatical for any service', () => {
+  const broken = [];
+  SERVICE_DEFS.forEach(d => {
+    dentalOutline.ladderHeadings(d).forEach(h => {
+      // Agreement: a field or mass noun is never "What Are ...?"
+      if (/^What Are .*(Dentistry|Surgery|Orthodontics|Whitening|Screening)\?$/.test(h)) broken.push(`${d.name}: ${h}`);
+      // A person is never a procedure.
+      if (/(During|Options for) (a|an) .*(ist|Dentist)\b/.test(h)) broken.push(`${d.name}: ${h}`);
+      if (/^(Is|Are) .*(ist|Dentist) Safe\?$/.test(h)) broken.push(`${d.name}: ${h}`);
+      // A countable singular always takes an article in a sentence rung.
+      if (/^(Is) (Dental Exam|Tooth Extraction|Smile Makeover) Safe\?$/.test(h)) broken.push(`${d.name}: ${h}`);
+    });
+  });
+  assert.deepStrictEqual(broken, [], `ungrammatical headings:\n  ${broken.join('\n  ')}`);
+});
+test('-ics names a field, so it is singular', () => {
+  assert.strictEqual(dentalOutline.isPluralName('Orthodontics'), false);
+  const h = dentalOutline.ladderHeadings({ name: 'Orthodontics', category: 'Orthodontics' });
+  assert.strictEqual(h[0], 'What Is Orthodontics?');
+  assert.ok(!h.some(x => /Are Orthodontics/.test(x)), 'never "Are Orthodontics Safe?"');
+});
+test('a countable singular takes an article, a mass noun does not', () => {
+  assert.strictEqual(dentalOutline.withArticle('Dental Exam', false), 'a Dental Exam');
+  assert.strictEqual(dentalOutline.withArticle('Tooth Extraction', false), 'a Tooth Extraction');
+  assert.strictEqual(dentalOutline.withArticle('Oral Surgery', false), 'Oral Surgery');
+  assert.strictEqual(dentalOutline.withArticle('Teeth Whitening', false), 'Teeth Whitening');
+  assert.strictEqual(dentalOutline.withArticle('Cosmetic Dentistry', false), 'Cosmetic Dentistry');
+  assert.strictEqual(dentalOutline.withArticle('Veneers', true), 'Veneers');
+  // A trademarked name is a proper noun.
+  assert.strictEqual(dentalOutline.withArticle('Curodont™', false), 'Curodont™');
+  assert.strictEqual(dentalOutline.ladderHeadings({ name: 'Dental Exam', category: 'Preventive' })[6], 'Is a Dental Exam Safe?');
+});
+test('a practitioner page gets its own ladder, not the procedure one', () => {
+  ['Orthodontist', 'Periodontist', 'Emergency Dentist'].forEach(name => {
+    assert.strictEqual(dentalOutline.isPractitionerName(name), true);
+    const h = dentalOutline.ladderHeadings({ name, category: 'Specialty' });
+    assert.ok(/^What Does an? .* Do\?$/.test(h[0]), `${name}: ${h[0]}`);
+    assert.ok(h.some(x => /^When Should You See/.test(x)), `${name} needs a "when to see one" rung`);
+    assert.ok(!h.some(x => /What to Expect During/.test(x)), `${name}: "During a person" is not English`);
+    assert.ok(!h.some(x => /Safe\?$/.test(x)), `${name}: a person is not "safe"`);
+  });
+});
+test('Periodontist takes the practitioner ladder despite matching the clinical regex', () => {
+  // CLINICAL_RE matches "periodont", so order matters in pickLadder.
+  assert.strictEqual(dentalOutline.pickLadder({ name: 'Periodontist', category: 'Specialty' }),
+    dentalOutline.PRACTITIONER_LADDER);
+});
+test('the clinical ladder still wins for urgent procedures', () => {
+  const h = dentalOutline.ladderHeadings({ name: 'Teeth Extractions', category: 'Oral Surgery' });
+  assert.ok(h.some(x => /^Signs You May Need/.test(x)), 'a symptom-led rung is the point of that ladder');
 });
 
 console.log('\nDental - FAQ localization is meaningful, not decorative');
