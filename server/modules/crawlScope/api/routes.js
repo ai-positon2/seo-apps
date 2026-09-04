@@ -265,10 +265,11 @@ router.get(
 
 // ---- issue review ----
 //
-// The findings themselves live in crawl_runs.summary.findings (written once when
-// the crawl completes) and are immutable evidence. Review status and notes are
-// mutable and live in crawl_finding_reviews, keyed on the analyzer's stable
-// finding id. This endpoint joins the two so the UI gets one list, with every
+// The findings themselves live in crawl_run_finding_instances (migration
+// 0023 — full per-occurrence detail, chunked-inserted when the crawl
+// completes) and are immutable evidence. Review status and notes are mutable
+// and live in crawl_finding_reviews, keyed on the analyzer's stable finding
+// id. This endpoint joins the two so the UI gets one list, with every
 // unreviewed finding defaulting to "Needs review" without a row having to exist.
 const NEEDS_REVIEW = "Needs review";
 const REVIEW_STATUSES = new Set([
@@ -277,6 +278,17 @@ const REVIEW_STATUSES = new Set([
   "False positive",
   "Resolved",
 ]);
+
+// A run finalized before migration 0023 shipped never got rows in
+// crawl_run_finding_instances — its findings are still sitting in the old
+// location, run.summary.findings. Falling back there (rather than showing
+// zero findings for every run that predates the migration) costs nothing:
+// `run` is already fetched, so this reads a field already in memory.
+async function loadRunFindings(db, run) {
+  const stored = await repo.listAllRunFindingInstances(db, run.id);
+  if (stored.length) return stored;
+  return Array.isArray(run.summary?.findings) ? run.summary.findings : [];
+}
 
 function mergeReviews(findings, reviewRows) {
   const byId = new Map(reviewRows.map((r) => [r.finding_id, r]));
@@ -296,7 +308,7 @@ router.get(
   asyncRoute(async (req, res) => {
     const run = await repo.getRunForViewer(req.db, req.params.id, req.crawlViewer);
     if (!run) return res.status(404).json({ error: "Run not found." });
-    const findings = Array.isArray(run.summary?.findings) ? run.summary.findings : [];
+    const findings = await loadRunFindings(req.db, run);
     const reviews = await repo.listFindingReviews(req.db, run.id);
     res.json({ findings: mergeReviews(findings, reviews) });
   }),
@@ -320,7 +332,7 @@ router.patch(
     // A review may only be attached to a finding this run actually produced:
     // the finding id is client-supplied, and without this an arbitrary id could
     // be written into the table.
-    const findings = Array.isArray(run.summary?.findings) ? run.summary.findings : [];
+    const findings = await loadRunFindings(req.db, run);
     const ruleById = new Map(findings.map((f) => [f.id, f.ruleId]));
 
     const reviews = [];
@@ -405,8 +417,9 @@ router.get(
 
     // Fallback for manual runs, runs predating stored reports, and any run whose
     // findings have since been reviewed.
+    const findings = await loadRunFindings(req.db, run);
     const buffer = await report.buildReportBuffer({
-      findings: mergeReviews(run.summary?.findings || [], reviews),
+      findings: mergeReviews(findings, reviews),
       siteUrl: run.url,
       crawlDate: run.finished_at || run.created_at,
     });

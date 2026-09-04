@@ -382,6 +382,13 @@ class RunManager {
 
       const findings = Array.isArray(summary.findings) ? summary.findings : [];
       await repo.insertFindings(db, aggregateFindings(findings, run.owner, run.id));
+      // Full per-occurrence detail (migration 0023) — chunked INSERTs, not the
+      // single giant summary.findings UPDATE that used to carry this and was
+      // timing out on large crawls (see the migration's own header). Ungated,
+      // same as insertFindings above: findings are the crawl's core evidence,
+      // so a failure here should fail the run rather than silently produce a
+      // report with no findings in it.
+      await repo.insertRunFindingInstances(db, run.id, run.owner, findings);
 
       // Internal link graph, for hub-and-spoke clustering (migration 0012).
       //
@@ -439,7 +446,11 @@ class RunManager {
 
       const counts = severityCounts(findings);
       const rolled = {
-        findings,
+        // NOT the full findings array — that's what was timing out (see
+        // migration 0023). Full detail now lives in
+        // crawl_run_finding_instances; readers use
+        // repo.listAllRunFindingInstances(runId) instead of summary.findings.
+        findingsCount: findings.length,
         counts,
         mediaLibrary: summary.mediaLibrary || null,
         integrations: summary.integrations || null,

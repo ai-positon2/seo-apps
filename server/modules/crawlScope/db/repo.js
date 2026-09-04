@@ -494,6 +494,56 @@ async function insertFindings(serviceClient, rows) {
   unwrap(await serviceClient.from("crawl_run_findings").insert(rows));
 }
 
+// Full per-occurrence findings for one run (migration 0023) — chunked the
+// same way insertRunLinksStreaming already handles a quarter million link
+// edges, because the single-UPDATE alternative (embedding the whole array in
+// crawl_runs.summary) is exactly what started timing out once crawls could
+// reach 10,000 pages. `data` carries each finding object exactly as
+// analyzer.js produced it, so every existing reader keeps working unchanged
+// once it reads from this table instead of run.summary.findings.
+const FINDING_INSTANCE_CHUNK = 1000;
+
+async function insertRunFindingInstances(serviceClient, runId, owner, findings) {
+  let written = 0;
+  for (let i = 0; i < findings.length; i += FINDING_INSTANCE_CHUNK) {
+    const chunk = findings.slice(i, i + FINDING_INSTANCE_CHUNK).map((f) => ({
+      run_id: runId,
+      owner,
+      finding_id: f.id,
+      rule_id: f.ruleId,
+      data: f,
+    }));
+    unwrap(await serviceClient.from("crawl_run_finding_instances").insert(chunk));
+    written += chunk.length;
+  }
+  return written;
+}
+
+// Fetches every stored finding instance for a run, reconstructed to the exact
+// shape analyzer.js produced (just `row.data`) — a drop-in replacement for
+// the old `run.summary.findings` array. Paginates internally (the same
+// .range() loop pattern used throughout this file) rather than trusting one
+// unbounded select to come back whole for a 20,000-row run. `cap` is a safety
+// ceiling, not an expected limit — findings this app itself just inserted are
+// trusted to be well under it for any real crawl.
+async function listAllRunFindingInstances(client, runId, { cap = 50_000 } = {}) {
+  const PAGE = 2_000;
+  const all = [];
+  for (let offset = 0; offset < cap; offset += PAGE) {
+    const rows = unwrap(
+      await client
+        .from("crawl_run_finding_instances")
+        .select("data")
+        .eq("run_id", runId)
+        .order("id", { ascending: true })
+        .range(offset, offset + PAGE - 1),
+    );
+    for (const row of rows) all.push(row.data);
+    if (rows.length < PAGE) break;
+  }
+  return all;
+}
+
 // Internal link edges for one run (migration 0012). Chunked because a crawl of
 // a few hundred pages produces tens of thousands of edges, and one insert that
 // size is refused by the REST layer rather than being slow.
@@ -548,6 +598,7 @@ async function listRunLinks(client, runId, { limit = 20000 } = {}) {
 async function deleteRunResults(serviceClient, runId) {
   unwrap(await serviceClient.from("crawl_run_results").delete().eq("run_id", runId));
   unwrap(await serviceClient.from("crawl_run_findings").delete().eq("run_id", runId));
+  unwrap(await serviceClient.from("crawl_run_finding_instances").delete().eq("run_id", runId));
   // A retry re-derives the graph from scratch; leaving the previous attempt's
   // edges would double every count in the clustering.
   unwrap(await serviceClient.from("crawl_run_links").delete().eq("run_id", runId));
@@ -725,6 +776,8 @@ module.exports = {
   insertRunLinksStreaming,
   listRunLinks,
   insertFindings,
+  insertRunFindingInstances,
+  listAllRunFindingInstances,
   deleteRunResults,
   listResults,
   updateResultPagespeed,

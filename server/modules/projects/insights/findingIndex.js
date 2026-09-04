@@ -9,8 +9,9 @@
 // is a statistic. "These 28 pages, and here is what each title should be" is
 // work somebody can do. The crawl already records the second one and drops it at
 // the dashboard boundary — crawl_run_findings.detail keeps only a title — while
-// the per-instance list survives in crawl_runs.summary.findings. So nothing has
-// to be re-crawled to recover it (PRD §32).
+// the per-instance list survives in crawl_run_finding_instances (migration
+// 0023; previously crawl_runs.summary.findings). So nothing has to be
+// re-crawled to recover it (PRD §32).
 //
 // Three attribution levels, never conflated:
 //
@@ -136,21 +137,18 @@ function item(fields) {
 
 // ── technical: the crawl's own per-instance findings ────────────────────────
 //
-// crawl_runs.summary.findings holds one row per occurrence, each naming a url,
-// and each carrying the rule catalog's priority plus the value it measured and
-// the value it wanted. All of it is already there; none of it reaches the card.
+// crawl_run_finding_instances (migration 0023) holds one row per occurrence,
+// each naming a url, and each carrying the rule catalog's priority plus the
+// value it measured and the value it wanted. All of it is already there;
+// none of it reaches the card. (Findings used to live embedded in
+// crawl_runs.summary.findings; overview.findingInstancesForRun falls back
+// there itself for any run finalized before the migration shipped, so this
+// adapter doesn't need to know which era a given run is from.)
 
 async function crawlAdapter(crawl, crawledCount) {
   if (!crawl) return [];
 
-  const { data, error } = await getSupabase()
-    .from('crawl_runs')
-    .select('summary, finished_at')
-    .eq('id', crawl.id)
-    .maybeSingle();
-  if (error) throw new Error(`[findingIndex.crawl] ${error.message}`);
-
-  const instances = Array.isArray(data?.summary?.findings) ? data.summary.findings : [];
+  const instances = await overview.findingInstancesForRun(crawl.id);
   const byRule = new Map();
 
   for (const inst of instances) {
@@ -181,7 +179,7 @@ async function crawlAdapter(crawl, crawledCount) {
     description: bucket.first.description,
     sourceRunId: crawl.id,
     sourceRunKind: 'crawl',
-    sourceRunAt: data?.finished_at || crawl.finished_at || null,
+    sourceRunAt: crawl.finished_at || null,
   }));
 }
 

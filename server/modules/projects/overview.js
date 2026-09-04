@@ -161,6 +161,44 @@ async function internalHtmlPageCount(runId) {
   return count;
 }
 
+/**
+ * Full per-occurrence findings for one run — crawl_run_finding_instances
+ * (migration 0023). Only siteHealth() consumes this (severity + url, to
+ * count affected pages), but it's fetched as whole finding objects rather
+ * than a narrower projection to match how every other reader of "a finding"
+ * in this codebase already works.
+ *
+ * A run finalized before 0023 shipped has no rows here — its findings are
+ * still sitting in the old location, crawl_runs.summary.findings — so this
+ * falls back there rather than reporting a false "no errors" for every run
+ * that predates the migration.
+ */
+async function findingInstancesForRun(runId) {
+  const PAGE = 2_000;
+  const CAP = 50_000;
+  const all = [];
+  for (let offset = 0; offset < CAP; offset += PAGE) {
+    const { data, error } = await getSupabase()
+      .from('crawl_run_finding_instances')
+      .select('data')
+      .eq('run_id', runId)
+      .order('id', { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    if (error) throw new Error(`[projects.overview.findingInstancesForRun] ${error.message}`);
+    for (const row of data) all.push(row.data);
+    if (data.length < PAGE) break;
+  }
+  if (all.length) return all;
+
+  const { data: run, error } = await getSupabase()
+    .from('crawl_runs')
+    .select('summary')
+    .eq('id', runId)
+    .maybeSingle();
+  if (error) throw new Error(`[projects.overview.findingInstancesForRun] ${error.message}`);
+  return Array.isArray(run?.summary?.findings) ? run.summary.findings : [];
+}
+
 /** Per-rule findings for one run — the rollup crawl_run_findings already holds. */
 async function findingsForRun(runId) {
   const { data, error } = await getSupabase()
@@ -399,10 +437,22 @@ async function liveCrawlStatus(projectId) {
  * numbers for one crawl, which is the single most damaging thing a dashboard can
  * do to its own credibility.
  *
+ * `instances` is pre-fetched by the caller (crawl_run_finding_instances,
+ * migration 0023 — full per-occurrence findings moved out of
+ * crawl_runs.summary once that single-write embed started timing out on
+ * large crawls) rather than read off `run` directly.
+ *
  * @returns {{ score: number|null, affected: object, denominator: number }|null}
  */
-function siteHealth(run, internalHtmlCount = null) {
-  const instances = Array.isArray(run?.summary?.findings) ? run.summary.findings : [];
+function siteHealth(run, internalHtmlCount = null, instances = []) {
+  // Falls back to run.summary.findings when the caller didn't pre-fetch
+  // instances (or a run predates migration 0023 and has none stored under
+  // its own id) — same fallback findingInstancesForRun/loadRunFindings
+  // already use, kept here too so this function stays correct on its own
+  // rather than depending on every caller remembering the fallback.
+  const effectiveInstances = instances.length
+    ? instances
+    : Array.isArray(run?.summary?.findings) ? run.summary.findings : [];
 
   // The internal HTML page count, and nothing else.
   //
@@ -421,7 +471,7 @@ function siteHealth(run, internalHtmlCount = null) {
   if (!denominator) return null;
 
   const affectedPages = (severity) => new Set(
-    instances.filter((f) => f.severity === severity && f.url).map((f) => f.url),
+    effectiveInstances.filter((f) => f.severity === severity && f.url).map((f) => f.url),
   ).size;
 
   const error = affectedPages('error');
@@ -431,7 +481,7 @@ function siteHealth(run, internalHtmlCount = null) {
   // A crawl stored before per-instance findings existed has counts but no urls,
   // so the shares cannot be computed. Withheld rather than reported as 100%,
   // which is what an empty instance list would otherwise produce.
-  if (!instances.length && (Number(run?.summary?.counts?.error) || Number(run?.summary?.counts?.warning))) {
+  if (!effectiveInstances.length && (Number(run?.summary?.counts?.error) || Number(run?.summary?.counts?.warning))) {
     return null;
   }
 
@@ -454,7 +504,7 @@ const SITE_HEALTH_BASIS = 'the site crawl\'s own health score (v2, internal page
   + 'warning and 8 by pages with a notice. External pages the crawler followed are excluded '
   + 'from both the findings and the denominator, so the score describes the site you own';
 
-function technicalCard(runs, findings, internalPages = null, internalHtmlPages = null) {
+function technicalCard(runs, findings, internalPages = null, internalHtmlPages = null, findingInstances = []) {
   const module = MODULES[0];
   const terminal = runs.find((r) => ['completed', 'stopped'].includes(r.status));
   const inFlight = runs.find((r) => ['queued', 'running', 'paused'].includes(r.status));
@@ -546,7 +596,7 @@ function technicalCard(runs, findings, internalPages = null, internalHtmlPages =
   // crawlHealth(), which answers a different question — is the crawl process
   // alive — and two things called health in one scope is how you get a card that
   // reports liveness as a quality score.
-  const siteScore = siteHealth(terminal, internalHtmlPages);
+  const siteScore = siteHealth(terminal, internalHtmlPages, findingInstances);
 
   return {
     ...module,
@@ -954,10 +1004,11 @@ async function buildOverview({ access }) {
 
   const crawlRuns = await recentCrawlRuns(projectRow.id);
   const latestTerminal = crawlRuns.find((r) => ['completed', 'stopped'].includes(r.status));
-  const [findings, internalPages, internalHtmlPages, evidenceByModule, toolRuns] = await Promise.all([
+  const [findings, internalPages, internalHtmlPages, findingInstances, evidenceByModule, toolRuns] = await Promise.all([
     latestTerminal ? findingsForRun(latestTerminal.id) : Promise.resolve([]),
     latestTerminal ? internalPageCount(latestTerminal.id) : Promise.resolve(null),
     latestTerminal ? internalHtmlPageCount(latestTerminal.id) : Promise.resolve(null),
+    latestTerminal ? findingInstancesForRun(latestTerminal.id) : Promise.resolve([]),
     moduleEvidence.latestByModule(projectRow.id).catch((e) => {
       // A card that can't read its evidence must fall back to "not run", never
       // to a made-up value.
@@ -997,7 +1048,7 @@ async function buildOverview({ access }) {
   );
 
   const modules = [
-    technicalCard(crawlRuns, findings, internalPages, internalHtmlPages),
+    technicalCard(crawlRuns, findings, internalPages, internalHtmlPages, findingInstances),
     ...MODULES.slice(1).map((module) => {
       const entry = evidenceByModule.get(module.key);
       if (entry && (entry.terminal || entry.inFlight)) return evidenceCard(module, entry);
@@ -1037,6 +1088,7 @@ module.exports = {
   // the same reads the dashboard uses — so a card and its page cannot disagree.
   recentCrawlRuns,
   findingsForRun,
+  findingInstancesForRun,
   internalPageCount,
   internalHtmlPageCount,
   technicalCard,
