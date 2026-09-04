@@ -82,7 +82,7 @@ function templateDefects({ backlog, crawl }) {
       action: `Fix these in the template rather than page by page — ${template.length} `
         + `change(s) instead of ${template.reduce((n, i) => n + (i.pageCount || 0), 0)} page edits.`,
       modules: [...new Set(template.map((i) => i.moduleKey))],
-      readFrom: ['crawl_runs.summary.findings[].url', 'project_module_page_runs.findings'],
+      readFrom: ['crawl_run_finding_instances.data.url', 'project_module_page_runs.findings'],
       pages: worst.pages.slice(0, 25),
       count: template.length,
     })],
