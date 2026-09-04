@@ -53,6 +53,13 @@ const CAPABILITIES = {
   manageRecipients:            [false,       true,     true,  true,  true],
   manageWorkspaceMembers:      [false,       false,    true,  true,  true],
   configureLimits:             [false,       false,    false, false, true],
+  // Permanently destroying one project, like requesting a workspace deletion,
+  // stops at admin and owner and is withheld from a platform administrator: they
+  // can see every workspace, and that is not the same as being entitled to
+  // destroy a customer's crawl history. Deliberately narrower than
+  // editProjectSettings, which an approver holds — an approver may delete a
+  // project (recoverable) but not erase it.
+  purgeProject:                [false,       false,    true,  true,  false],
   requestWorkspaceDeletion:    [false,       false,    true,  true,  false],
   restorePendingDeletion:      [false,       false,    true,  true,  false],
   transferOwnership:           [false,       false,    false, true,  true],

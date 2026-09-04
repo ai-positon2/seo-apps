@@ -91,6 +91,28 @@ const EXCLUDE_TERMS = ['tag', 'category', 'author', 'page', 'feed', 'search', 'w
 const SERVICE_TERMS = ['service', 'services', 'treatment', 'procedure', 'solution'];
 const LOCATION_TERMS = ['location', 'locations', 'city', 'office', 'branch'];
 const ARTICLE_TERMS = ['blog', 'articles', 'resources', 'insights', 'guides', 'learn', 'news', 'post'];
+// Staff/practitioner directories (a name-plus-credential slug: "adam-frank-dds",
+// "alexander-arbelo-dmd") were falling through to the article fallback below —
+// hasLongHyphenatedSlug can't tell a bio slug from a post title, since both are
+// 3+ hyphenated words. Checking the URL segment for a people/role term first
+// catches these before that fallback ever runs.
+const TEAM_TERMS = [
+  'team', 'staff', 'our-team', 'meet-the-team', 'people', 'bio', 'bios', 'profile', 'profiles',
+  'doctor', 'doctors', 'dentist', 'dentists', 'physician', 'physicians', 'provider', 'providers',
+  'practitioner', 'practitioners', 'attorney', 'attorneys', 'lawyer', 'lawyers', 'associate', 'associates',
+];
+// Corporate/IR/PR sections: one-off announcements and compliance filings, not
+// evergreen topical content — a hub/spoke strategy has nothing to cluster
+// them around, and "/about-us/news-and-media/press-releases/{slug}" was
+// slipping in as 'article' purely because "news-and-media" contains ARTICLE_
+// TERMS' bare "news". These compound, more specific terms are checked first
+// and win over that looser single-word match.
+const CORPORATE_TERMS = [
+  'press-release', 'press-releases', 'news-and-media', 'newsroom', 'media-center', 'media-centre',
+  'investor', 'investors', 'investor-relations', 'shareholder', 'shareholders', 'annual-report', 'annual-reports',
+  'corporate-governance', 'board-of-directors', 'csr', 'sustainability-report', 'regulatory-filing',
+  'regulatory-filings', 'disclosures',
+];
 
 // A representative bundled city list — not exhaustive, but covers the common
 // case of a location-page slug being a bare city name with no other signal.
@@ -129,15 +151,18 @@ function hasQueryString(exampleUrls) {
   return exampleUrls.some((u) => u.includes('?'));
 }
 
-// "Slug with 3+ hyphenated words and no exclusion signal" — inspected against
-// the pattern's example URLs' final segment, since the template itself is
-// just "{slug}" at that point.
-function hasLongHyphenatedSlug(exampleUrls) {
-  return exampleUrls.some((u) => {
-    const segs = pathSegments(u);
-    const last = segs[segs.length - 1] || '';
-    return (last.match(/-/g) || []).length >= 2; // 3+ words = 2+ hyphens
-  });
+// A pattern whose LAST segment is a generic listing/index word ("all",
+// "articles", "index"...) is a hub/landing page for a section, not one member
+// of a content series — regardless of what folder it sits under. Checked
+// against the template itself (never against a placeholder), so it only ever
+// fires on a literal one-off path like "/resources/articles" or
+// "/resources/all", never on a real templated content bucket like
+// "/resources/{slug}".
+const INDEX_LEAF_TERMS = new Set(['all', 'article', 'articles', 'index', 'archive', 'archives', 'overview', 'list', 'home']);
+function isIndexLeafPattern(pattern) {
+  const segs = pattern.split('/').filter(Boolean);
+  const last = (segs[segs.length - 1] || '').toLowerCase();
+  return INDEX_LEAF_TERMS.has(last);
 }
 
 function classifyPattern(entry) {
@@ -145,15 +170,36 @@ function classifyPattern(entry) {
   const depth = pattern.split('/').filter(Boolean).length;
 
   if (matchesExcludeTerm(pattern) || hasQueryString(examples)) return 'exclude';
+  if (isIndexLeafPattern(pattern)) return 'static';
+  // Corporate/IR and staff/practitioner directories don't get their own label —
+  // they're not a recurring shape across sites the way service/location/article
+  // pages are, so a new named category per site-specific page type would never
+  // stop growing. They still need to be checked here, ahead of the article-term
+  // match, purely as a guard: "/about-us/news-and-media/press-releases/{slug}"
+  // would otherwise match ARTICLE_TERMS' bare "news" and get wrongly included.
+  if (hasTerm(pattern, CORPORATE_TERMS) || hasTerm(pattern, TEAM_TERMS)) return 'unknown';
   if (hasTerm(pattern, SERVICE_TERMS)) return 'service';
   if (hasTerm(pattern, LOCATION_TERMS) || matchesCityList(pattern)) return 'location';
-  if (hasTerm(pattern, ARTICLE_TERMS) || pattern.includes('{date}')) return 'article';
+  // Checked BEFORE the article-term match: a bare, unrepeated top-level page
+  // ("/resources", "/blog") is a section root, not a piece of content, even
+  // when its own single segment happens to be an article-signal word.
   if (count === 1 && depth <= 1) return 'static';
-  if (hasLongHyphenatedSlug(examples)) return 'article';
+  if (hasTerm(pattern, ARTICLE_TERMS) || pattern.includes('{date}')) return 'article';
+  // No positive content signal matched. This used to guess 'article' from slug
+  // shape alone (3+ hyphenated words) — but a utility/offer/bio slug reads
+  // exactly the same as a real post title ("pay-my-bill" and "get-smile-you-
+  // deserve" both "look like" an article by word count). At the scale this
+  // table has to work at — hundreds or thousands of URLs nobody will review
+  // one by one — a wrong "yes, this is content" is far more costly (it
+  // pollutes the hub/spoke clusters) than a wrong "unsure" (the user only
+  // has to notice and re-check a genuinely-missed bucket). So default to
+  // unknown/excluded rather than guessing.
   return 'unknown';
 }
 
-const DEFAULT_INCLUDED = { article: true, exclude: false, service: false, location: false, static: false, unknown: false };
+const DEFAULT_INCLUDED = {
+  article: true, exclude: false, service: false, location: false, static: false, unknown: false,
+};
 
 function buildPatternTable(urls) {
   const templates = extractTemplates(urls);
@@ -185,17 +231,48 @@ const VERTICAL_MIN_MATCHES = 3;
 // rather than as a substring anywhere in the joined path — the latter matched
 // "firm" (legal) inside "confirmation" and inflated a diabetes-device site's
 // count past unrelated healthcare signals.
+//
+// Scored by DISTINCT terms matched, not total token occurrences — a banking
+// site's blog covering "doctor loan" and "health insurance" products repeats
+// "doctor"/"health" across many post slugs, and a raw occurrence count alone
+// cleared the old threshold. But diversity alone still isn't enough on a
+// large, content-heavy site: IDFC FIRST Bank's real blog (verified against
+// its live sitemap, ~3,700 URLs) touches 5 distinct healthcare-adjacent words
+// (doctor/wellness/health/medical/physician — loan and insurance products,
+// mostly) while ALSO brushing 4 distinct saas words (platform/API/features/
+// software — digital banking) and 4 distinct ecommerce words (shop/product/
+// store/collections — a rewards catalog). No single niche vertical here was
+// close to a real diversity floor on its own; it just had more total content
+// than a small SMB site, so it grazed several unrelated lists at once.
+//
+// The tell isn't "did healthcare clear a number" — it's that saas and
+// ecommerce were right behind it. A genuine dental or home-services site's
+// own vocabulary dominates; nothing else comes close. So the winner has to
+// both clear the floor AND lead the runner-up by a real margin — otherwise
+// this is a large, diversified site that doesn't belong to any one niche.
+const VERTICAL_LEAD_MARGIN = 2;
+
 function detectVertical(urls) {
   const allTokens = urls.flatMap((u) => {
     try { return new URL(u).pathname.toLowerCase().split(/[/_-]+/).filter(Boolean); } catch { return []; }
   });
-  let best = 'other';
-  let bestCount = VERTICAL_MIN_MATCHES - 1;
-  for (const [vertical, terms] of Object.entries(VERTICAL_KEYWORDS)) {
-    const count = allTokens.reduce((sum, tok) => sum + (terms.some((t) => tok.startsWith(t)) ? 1 : 0), 0);
-    if (count > bestCount) { best = vertical; bestCount = count; }
+  const diversity = Object.entries(VERTICAL_KEYWORDS).map(([vertical, terms]) => {
+    const matchedTerms = new Set();
+    for (const tok of allTokens) {
+      const hit = terms.find((t) => tok.startsWith(t));
+      if (hit) matchedTerms.add(hit);
+    }
+    return [vertical, matchedTerms.size];
+  }).sort((a, b) => b[1] - a[1]);
+
+  const [topVertical, topScore] = diversity[0];
+  const runnerUpScore = diversity[1]?.[1] ?? 0;
+  if (topScore >= VERTICAL_MIN_MATCHES && topScore >= runnerUpScore + VERTICAL_LEAD_MARGIN) {
+    return topVertical;
   }
-  return best;
+  return 'other';
 }
 
-module.exports = { extractTemplates, buildPatternTable, classifyPattern, detectVertical, LOCATION_TERMS, CITY_LIST };
+module.exports = {
+  extractTemplates, buildPatternTable, classifyPattern, detectVertical, LOCATION_TERMS, CITY_LIST,
+};

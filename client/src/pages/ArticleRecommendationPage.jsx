@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import { saveAs } from 'file-saver';
 import { notifyAgentRunStarted, notifyAgentRunFinished } from '../lib/agentRunSignal';
@@ -204,9 +204,21 @@ async function downloadDocx(keyword, markdown) {
   saveAs(blob, filename);
 }
 
+// Same convention as ArticleEnhancementPage's `prefill`: read once via
+// useMemo, land as ordinary initial state so both fields stay editable — a
+// prefill, not a lock. Lets another tool (e.g. Content Architect's "Suggest
+// new spokes") hand off a topic without the user retyping it.
+function usePrefill() {
+  return useMemo(() => {
+    const q = new URLSearchParams(window.location.search);
+    return { keyword: q.get('keyword') || '', client: q.get('client') || '' };
+  }, []);
+}
+
 export default function ArticleRecommendationPage() {
-  const [keyword, setKeyword] = useState('');
-  const [client, setClient] = useState('');
+  const prefill = usePrefill();
+  const [keyword, setKeyword] = useState(prefill.keyword);
+  const [client, setClient] = useState(prefill.client);
   const [feedbackKbIds, setFeedbackKbIds] = useState([]);
   const [running, setRunning] = useState(false);
   const [started, setStarted] = useState(false);

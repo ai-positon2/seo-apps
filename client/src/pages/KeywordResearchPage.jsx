@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { refreshSemrushBalance } from '../lib/semrushBalanceStore';
 import { notifyAgentRunStarted, notifyAgentRunFinished } from '../lib/agentRunSignal';
 import ModuleRuns from '../components/ModuleRuns';
@@ -73,10 +74,23 @@ const PAGE_TYPE_STYLES = {
 
 const cardShadow = '0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.04)';
 
+// Same prefill-not-lock convention as ArticleRecommendationPage/
+// ArticleEnhancementPage: read once via useMemo, land as ordinary initial
+// state so it stays editable. Lets Content Architect hand off a hub/spoke
+// topic here as the research step ahead of Article Recommendation.
+function usePrefill() {
+  return useMemo(() => {
+    const q = new URLSearchParams(window.location.search);
+    return { keyword: q.get('keyword') || '', client: q.get('client') || '' };
+  }, []);
+}
+
 export default function KeywordResearchPage() {
-  const [keyword, setKeyword] = useState('');
+  const navigate = useNavigate();
+  const prefill = usePrefill();
+  const [keyword, setKeyword] = useState(prefill.keyword);
   const [intent, setIntent] = useState('commercial');
-  const [client, setClient] = useState('');
+  const [client, setClient] = useState(prefill.client);
   const [feedbackKbIds, setFeedbackKbIds] = useState([]);
   const [running, setRunning] = useState(false);
   const [started, setStarted] = useState(false);
@@ -667,8 +681,28 @@ export default function KeywordResearchPage() {
       {result && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-          {/* Copy + Edit toggle */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
+          {/* Recommend Article — the step AFTER keyword research, using the
+              keyword research actually settled on (the chosen Primary), not
+              whatever seed keyword or AI-suggested topic started this run. */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => navigate(`/article-recommendation?keyword=${encodeURIComponent(primaryList[0]?.keyword || keyword)}${client ? `&client=${encodeURIComponent(client)}` : ''}`)}
+              disabled={!primaryList.length}
+              title={primaryList.length ? `Write a content brief for "${primaryList[0].keyword}"` : 'Pick a Primary keyword below first'}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600,
+                padding: '8px 14px', borderRadius: 8, border: '1px solid var(--primary)',
+                background: primaryList.length ? 'var(--primary)' : 'var(--surface)',
+                color: primaryList.length ? '#fff' : 'var(--text-3)',
+                cursor: primaryList.length ? 'pointer' : 'not-allowed',
+                opacity: primaryList.length ? 1 : 0.6,
+              }}
+            >
+              Recommend Article{primaryList.length ? ` for "${primaryList[0].keyword}"` : ''}
+            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button
               onClick={copyKeywordsTable}
               style={{
@@ -739,6 +773,7 @@ export default function KeywordResearchPage() {
                 </>
               )}
             </button>
+            </div>
           </div>
 
           {/* Low-match warning */}

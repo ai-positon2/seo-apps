@@ -10,6 +10,10 @@ const { UnsafeUrlError } = require('./urlSafety');
 const { buildDraftClusters } = require('./draftClustering');
 const { runFullAnalysis } = require('./fullAnalysis');
 const { buildWorkbook, buildMarkdownNarrative } = require('./exporter');
+const { suggestSpokes } = require('./spokeSuggestions');
+const { buildCorpusTermProfiles } = require('./termProfile');
+const { computeIdf } = require('./similarity');
+const { topTermsForCluster } = require('./clusterEngine');
 
 const analyzeSessions = new Map();
 
@@ -46,6 +50,21 @@ router.get('/projects/:id', async (req, res) => {
   const project = await store.getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
   res.json(project);
+});
+
+// Set once (like the vertical dropdown), reused automatically by every
+// "Suggest spokes" click after this — not re-asked per request. Content
+// Architect's own store has no competitor tracking otherwise (unlike the
+// Projects module's project_domains), so this is the standalone tool's only
+// source of real competitor domain names.
+router.put('/projects/:id/competitors', async (req, res) => {
+  const { competitors } = req.body || {};
+  if (!Array.isArray(competitors)) return res.status(400).json({ error: 'competitors must be an array of domains.' });
+  const project = await store.getProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  const cleaned = [...new Set(competitors.map((d) => String(d || '').trim()).filter(Boolean))].slice(0, 10);
+  const updated = await store.updateProject(req.params.id, { competitors: cleaned });
+  res.json(updated);
 });
 
 router.delete('/projects/:id', async (req, res) => {
@@ -307,6 +326,78 @@ router.get('/projects/:id/full-analysis', async (req, res) => {
   const analysis = await store.getFullAnalysis(req.params.id);
   if (!analysis) return res.status(404).json({ error: 'No analysis yet.' });
   res.json(analysis);
+});
+
+// ── Spoke suggestions: content-gap topic ideas for one existing hub ─────────
+// On demand, per cluster — never run automatically as part of /analyze, since
+// it spends real SEMrush units and a search API call (see spokeSuggestions.js
+// for the reasoning, same as competitor auto-discovery elsewhere in this app).
+// Cached onto the stored analysis so re-opening a cluster doesn't re-spend;
+// re-running is an explicit re-click, not a page-load side effect.
+router.post('/projects/:id/clusters/:clusterId/suggest-spokes', async (req, res) => {
+  try {
+    const project = await store.getProject(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const analysis = await store.getFullAnalysis(req.params.id);
+    if (!analysis) return res.status(404).json({ error: 'Run analysis first.' });
+
+    const cluster = analysis.clusters.find((c) => c.id === req.params.clusterId);
+    if (!cluster) return res.status(404).json({ error: 'Cluster not found.' });
+
+    const pageIndexById = new Map(analysis.pages.map((p, i) => [p.id, i]));
+    const memberIndices = [cluster.hubPageId, ...cluster.spokeIds]
+      .filter(Boolean)
+      .map((id) => pageIndexById.get(id))
+      .filter((i) => i !== undefined);
+    if (!memberIndices.length) {
+      return res.status(400).json({ error: 'This cluster has no pages to derive a topic from.' });
+    }
+
+    // Recomputed rather than persisted — buildCorpusTermProfiles is pure and
+    // local (no network calls), and finalPages already carries every field it
+    // reads (title/h1/h2s/metaDescription/firstParagraph/url), so this
+    // reproduces the exact profiles the original analysis used without
+    // needing to have stored them.
+    const profiles = buildCorpusTermProfiles(analysis.pages, { domain: project.domain, vertical: project.vertical });
+    const idf = computeIdf(profiles);
+    const topTerms = topTermsForCluster(memberIndices, profiles, idf, 15);
+
+    const hubPage = cluster.hubPageId ? analysis.pages[pageIndexById.get(cluster.hubPageId)] : null;
+    const existingSpokeTitles = cluster.spokeIds
+      .map((id) => analysis.pages[pageIndexById.get(id)])
+      .filter(Boolean)
+      .map((p) => p.title || p.url);
+
+    // A gap cluster has no hub page yet, but it already has a proposed title
+    // (selectHub's mechanical suggestion, shown in the UI as "Suggested new
+    // page") — a far better topic string for keyword/PAA relevance than the
+    // cluster's own mechanical top-2-terms name ("Card Balanc & Balanc
+    // Transfer" vs. "Best Credit Cards for Balance Transfers in India").
+    const hubTitle = hubPage?.title || cluster.gapSuggestion?.title || cluster.name;
+
+    const result = await suggestSpokes({
+      domain: project.domain,
+      vertical: project.vertical,
+      hubTitle,
+      topTerms,
+      existingSpokeTitles,
+      competitorDomains: project.competitors || [],
+    });
+
+    const updatedAnalysis = {
+      ...analysis,
+      spokeSuggestionsByCluster: {
+        ...(analysis.spokeSuggestionsByCluster || {}),
+        [cluster.id]: { ...result, generatedAt: new Date().toISOString() },
+      },
+    };
+    await store.saveFullAnalysis(project.id, updatedAnalysis);
+
+    res.json(updatedAnalysis.spokeSuggestionsByCluster[cluster.id]);
+  } catch (err) {
+    console.error('[content-architect] suggest-spokes error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.get('/projects/:id/export', async (req, res) => {

@@ -239,6 +239,28 @@ router.post('/:projectId/restore', async (req, res) => {
   } catch (e) { handleError(res, e, 'restore'); }
 });
 
+// POST, not DELETE: the DELETE verb on this resource is already the recoverable
+// soft delete (§4.3.1), and overloading it on a body flag would make the
+// difference between "hidden" and "gone forever" a payload detail. A purge is a
+// distinct, named act with its own capability and its own URL.
+//
+// `confirmName` must equal the project's name and the project must already be
+// soft-deleted — both enforced in store.purgeProject, which explains why.
+router.post('/:projectId/purge', async (req, res) => {
+  if (!requireConfigured(res)) return;
+  try {
+    const access = await projectAccess.requireProject(req, req.params.projectId, 'purgeProject', {
+      includeDeleted: true,
+    });
+    const result = await store.purgeProject({
+      access,
+      reason: req.body?.reason,
+      confirmName: req.body?.confirmName,
+    });
+    res.json(result);
+  } catch (e) { handleError(res, e, 'purge'); }
+});
+
 // ── Domains ─────────────────────────────────────────────────────────────────
 
 router.get('/:projectId/domains', async (req, res) => {

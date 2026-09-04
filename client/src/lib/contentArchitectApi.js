@@ -39,6 +39,13 @@ export const ca = {
   analyzeStreamUrl: (id, token) => `${BASE}/projects/${id}/analyze/stream/${token}`,
   getFullAnalysis: (id) => req(`/projects/${id}/full-analysis`),
 
+  // Set once, reused automatically by every "Suggest spokes" click after this.
+  setCompetitors: (id, competitors) => req(`/projects/${id}/competitors`, { method: 'PUT', body: JSON.stringify({ competitors }) }),
+
+  // Content-gap spoke suggestions — on demand, per cluster (spends SEMrush
+  // units + a search call, so it's its own explicit action, never automatic).
+  suggestSpokes: (id, clusterId) => req(`/projects/${id}/clusters/${clusterId}/suggest-spokes`, { method: 'POST' }),
+
   // Stage 9 — file downloads return a binary blob, so they can't go through
   // the shared JSON req() helper above. Same blob + Content-Disposition
   // pattern as competitorTrackerApi.js's exportReport.

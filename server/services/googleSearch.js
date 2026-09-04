@@ -33,6 +33,13 @@ async function searchSerper(keyword) {
       snippet: item.snippet || '',
       displayUrl: item.displayLink || '',
     })),
+    // Serper's response carries this whenever Google's SERP showed a "People
+    // also ask" box — real search-behavior data, previously fetched and then
+    // discarded here since no caller read anything but `.organic`.
+    peopleAlsoAsk: (response.data.peopleAlsoAsk || []).map(q => ({
+      question: q.question || '',
+      snippet: q.snippet || '',
+    })).filter(q => q.question),
     searchCount: dailySearchCount,
     totalResults: response.data.searchInformation?.totalResults || items.length,
     source: 'serper',
@@ -87,6 +94,10 @@ async function searchGoogle(keyword) {
       snippet: item.snippet || '',
       displayUrl: item.displayLink || ''
     })),
+    // Google's official Custom Search API has no "People also ask" surface —
+    // only Serper (a SERP-scraping API) exposes it. Present but always empty
+    // here so callers can read `.peopleAlsoAsk` regardless of which path ran.
+    peopleAlsoAsk: [],
     searchCount: dailySearchCount,
     totalResults,
     source: 'google',
