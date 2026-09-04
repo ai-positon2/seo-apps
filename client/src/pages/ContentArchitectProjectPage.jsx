@@ -199,7 +199,12 @@ export default function ContentArchitectProjectPage() {
         setPatterns(d.patterns);
         setVertical(d.vertical);
         setDiscoverMeta(d);
-        setScreen('patterns');
+        // Confirming which URL patterns to include isn't a required step —
+        // the classifier's own defaults (buildPatternTable's included flags)
+        // are good enough to proceed on automatically. Reviewing/editing them
+        // is still fully available, just moved from a forced gate to an
+        // optional action reachable from the results screen.
+        proceedPastPatterns(d.patterns, d.vertical);
       });
       es.addEventListener('fail', (e) => {
         const d = JSON.parse(e.data);
@@ -216,15 +221,24 @@ export default function ContentArchitectProjectPage() {
     setPatterns((prev) => prev.map((p) => (p.pattern === pattern ? { ...p, included: !p.included } : p)));
   }
 
-  async function confirmPatterns() {
+  // Shared by both paths past the (now optional) pattern review: discovery's
+  // own SSE handler, auto-proceeding with the classifier's defaults, and
+  // confirmPatterns below, after a user-initiated edit. Neither the pattern
+  // table nor the draft-cluster preview are a required stop any more — this
+  // saves patterns, computes the (fast, slug-only) draft clusters full
+  // analysis needs as its input, then goes straight into full analysis and
+  // on to results. The draft preview itself stays reachable as an optional
+  // "Back to Draft" from the results screen, same as pattern editing.
+  async function proceedPastPatterns(patternsList, verticalValue) {
     setSaving(true);
     try {
-      await ca.savePatterns(id, patterns.map((p) => ({ pattern: p.pattern, included: p.included })), vertical);
+      await ca.savePatterns(id, patternsList.map((p) => ({ pattern: p.pattern, included: p.included })), verticalValue);
       setSaving(false);
       setClustering(true);
-      setScreen('clusters');
       const result = await ca.computeDraftClusters(id);
       setClusterResult(result);
+      setClustering(false);
+      await startAnalysis();
     } catch (e) {
       toast.add({ title: 'Save failed', description: e.message, variant: 'danger' });
       setScreen('patterns');
@@ -232,6 +246,10 @@ export default function ContentArchitectProjectPage() {
       setSaving(false);
       setClustering(false);
     }
+  }
+
+  async function confirmPatterns() {
+    await proceedPastPatterns(patterns, vertical);
   }
 
   async function recomputeClusters() {
@@ -568,6 +586,7 @@ export default function ContentArchitectProjectPage() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <Button variant="secondary" size="sm" onClick={() => setScreen('patterns')}>Edit URL Patterns</Button>
                 <Button variant="secondary" size="sm" onClick={() => setScreen('clusters')}>Back to Draft</Button>
                 <Button variant="secondary" size="sm" onClick={startAnalysis} loading={screen === 'analyzing'}>Re-run Analysis</Button>
                 <Button size="sm" onClick={() => downloadExport('xlsx')} loading={exportingFormat === 'xlsx'} disabled={!!exportingFormat}>
