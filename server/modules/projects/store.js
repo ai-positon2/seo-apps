@@ -857,7 +857,8 @@ async function restoreProject({ access }) {
 // ORPHAN a client's entire crawl history — every run, result, finding and link
 // still on disk with nothing pointing at them — rather than remove it. It has to
 // go first and explicitly; crawl_run_results, crawl_run_findings,
-// crawl_finding_reviews and crawl_run_links then cascade from it.
+// crawl_run_finding_instances, crawl_finding_reviews and crawl_run_links then
+// cascade from it.
 //
 // Everything else that references a project is `on delete cascade`:
 // project_domains, project_pages, project_brands, recommendations,
