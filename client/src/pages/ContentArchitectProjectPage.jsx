@@ -94,7 +94,12 @@ const CLASSIFICATION_META = {
   location: { label: 'Location', variant: 'info' },
   exclude: { label: 'Exclude', variant: 'danger' },
   static: { label: 'Static', variant: 'neutral' },
-  unknown: { label: 'Unknown', variant: 'warning' },
+  // Catch-all for anything that doesn't fit article/service/location: staff
+  // bios, press releases, one-off offer pages, or genuinely unclassifiable
+  // patterns. These don't get their own named category — a site-specific page
+  // type would never stop growing the list — so they all land here, unchecked
+  // by default, for the user to glance at rather than being auto-included.
+  unknown: { label: 'Other', variant: 'warning' },
 };
 
 const VERTICAL_OPTIONS = ['dental', 'healthcare', 'legal', 'saas', 'ecommerce', 'home-services', 'other'];
@@ -120,10 +125,30 @@ export default function ContentArchitectProjectPage() {
   const [exportingFormat, setExportingFormat] = useState(null);
   const [selectedClusterId, setSelectedClusterId] = useState(null);
   const [hubFilter, setHubFilter] = useState('all');
+  const [competitorsText, setCompetitorsText] = useState('');
+  const [savingCompetitors, setSavingCompetitors] = useState(false);
   const esRef = useRef(null);
   const startedRef = useRef(false);
 
   useEffect(() => () => esRef.current?.close(), []);
+
+  // Set once here, reused automatically by every "Suggest spokes" click after
+  // this — not re-asked per suggestion request.
+  useEffect(() => { setCompetitorsText((project?.competitors || []).join(', ')); }, [project?.id]);
+
+  async function saveCompetitors() {
+    setSavingCompetitors(true);
+    try {
+      const competitors = competitorsText.split(',').map((s) => s.trim()).filter(Boolean);
+      const updated = await ca.setCompetitors(id, competitors);
+      setProject(updated);
+      toast.add({ title: 'Competitors saved', description: 'Used automatically by "Suggest new spokes".' });
+    } catch (e) {
+      toast.add({ title: 'Save failed', description: e.message, variant: 'danger' });
+    } finally {
+      setSavingCompetitors(false);
+    }
+  }
 
   useEffect(() => {
     (async () => {
@@ -384,8 +409,13 @@ export default function ContentArchitectProjectPage() {
                   {VERTICAL_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
                 </select>
               </div>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>
-                Analyzing {selectedUrls.toLocaleString()} of {totalUrls.toLocaleString()} URLs
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>
+                  Analyzing {selectedUrls.toLocaleString()} of {totalUrls.toLocaleString()} URLs
+                </div>
+                <Button onClick={confirmPatterns} loading={saving} disabled={saving}>
+                  {saving ? 'Saving…' : 'Confirm Patterns'}
+                </Button>
               </div>
             </div>
           </Card>
@@ -420,12 +450,6 @@ export default function ContentArchitectProjectPage() {
             striped
             emptyText="No patterns found."
           />
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button onClick={confirmPatterns} loading={saving} disabled={saving}>
-              {saving ? 'Saving…' : 'Confirm Patterns'}
-            </Button>
-          </div>
         </div>
       )}
 
@@ -554,6 +578,19 @@ export default function ContentArchitectProjectPage() {
                 </Button>
               </div>
             </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Competitor domains:</span>
+              <input
+                type="text"
+                value={competitorsText}
+                onChange={(e) => setCompetitorsText(e.target.value)}
+                placeholder="competitor1.com, competitor2.com"
+                style={{ flex: '1 1 260px', minWidth: 200, fontSize: 12, padding: '5px 8px', borderRadius: 'var(--r-md)', border: '1px solid var(--border-strong)', background: 'var(--card)', color: 'var(--text)' }}
+              />
+              <Button variant="secondary" size="sm" onClick={saveCompetitors} loading={savingCompetitors}>Save</Button>
+              <span style={{ fontSize: 10.5, color: 'var(--text-3)' }}>Set once — used automatically by "Suggest new spokes" below, no need to re-enter.</span>
+            </div>
           </Card>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
@@ -663,7 +700,17 @@ export default function ContentArchitectProjectPage() {
               {selectedClusterId === 'unassigned' ? (
                 <UnassignedPanel pages={analysis.unassignedPages} />
               ) : selectedCluster ? (
-                <ClusterDetailPanel cluster={selectedCluster} pageById={pageById} />
+                <ClusterDetailPanel
+                  cluster={selectedCluster}
+                  pageById={pageById}
+                  projectId={id}
+                  siteName={project?.name}
+                  suggestions={analysis.spokeSuggestionsByCluster?.[selectedCluster.id] || null}
+                  onSuggestions={(result) => setAnalysis((prev) => ({
+                    ...prev,
+                    spokeSuggestionsByCluster: { ...(prev.spokeSuggestionsByCluster || {}), [selectedCluster.id]: result },
+                  }))}
+                />
               ) : (
                 <EmptyState title="No cluster selected" description="Pick a cluster from the list on the left." />
               )}
@@ -753,7 +800,278 @@ function EnhanceButton({ url, contentType, navigate, style }) {
   );
 }
 
-function ClusterDetailPanel({ cluster: c, pageById }) {
+// Content Architect only ever hands off a TOPIC (an AI-suggested title, not a
+// researched keyword) — never straight to Article Recommendation. Instead of
+// navigating away to the standalone Keyword Research page, this runs that
+// same backend pipeline (POST /init + SSE /stream, unchanged) inline and
+// expands the topic card in place: research it here, approve which keywords
+// actually fit, THEN write a brief for one of THOSE — not the raw suggestion.
+//
+// Deliberately a lighter consumer of the SSE stream than KeywordResearchPage
+// itself: it only reads `step` (one status line, not the full 6-badge
+// timeline), `result`, and `fail` — the per-URL/per-query detail events exist
+// for the full page's own UI and have no compact equivalent here.
+function keyOf(kw) { return (kw.keyword || '').trim().toLowerCase(); }
+const MAX_APPROVED = 2;
+
+function InlineKeywordResearch({ topic, client, navigate }) {
+  const [phase, setPhase] = useState('idle'); // idle | running | done | error
+  const [statusMessage, setStatusMessage] = useState('');
+  const [candidates, setCandidates] = useState([]); // [{keyword, volume, ...}]
+  const [approved, setApproved] = useState(new Set()); // keyOf(kw) -> approved
+  const [warning, setWarning] = useState('');
+  const [error, setError] = useState('');
+  const esRef = useRef(null);
+
+  useEffect(() => () => esRef.current?.close(), []);
+
+  function run() {
+    setPhase('running');
+    setError('');
+    setStatusMessage('Starting…');
+    fetch('/api/keyword-research/init', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ keyword: topic, client: client || undefined }),
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to start');
+        return res.json();
+      })
+      .then(({ token }) => {
+        const es = new EventSource(`/api/keyword-research/stream/${token}`);
+        esRef.current = es;
+        es.addEventListener('step', (e) => setStatusMessage(JSON.parse(e.data).message || ''));
+        es.addEventListener('result', (e) => {
+          const d = JSON.parse(e.data);
+          const primary = d.primary || [];
+          const secondary = d.secondary || [];
+          const merged = [...primary, ...secondary].filter((kw, i, arr) => arr.findIndex((k) => keyOf(k) === keyOf(kw)) === i);
+          setCandidates(merged);
+          // Primary keywords are already the AI's top pick — pre-approved,
+          // still editable (a checkbox, not a lock).
+          setApproved(new Set(primary.map(keyOf)));
+          setWarning(d.warning || '');
+        });
+        // The server always emits 'done' after 'fail' too (its SSE handler's
+        // outer finally), so 'done' must not blindly flip phase to 'done' —
+        // it only wins if nothing has already marked this run as failed.
+        es.addEventListener('fail', (e) => { setPhase('error'); setError(JSON.parse(e.data).message || 'Research failed.'); });
+        es.addEventListener('done', () => { es.close(); esRef.current = null; setPhase((p) => (p === 'error' ? p : 'done')); });
+        es.onerror = () => { es.close(); esRef.current = null; setPhase('error'); setError((prev) => prev || 'Connection lost. Please try again.'); };
+      })
+      .catch((e) => { setPhase('error'); setError(e.message); });
+  }
+
+  // Same 2-primary-keyword cap the standalone Keyword Research page already
+  // enforces (KeywordResearchPage.jsx's primaryList) — one brief targets a
+  // primary keyword pair, not an open-ended list. Unchecking is never
+  // blocked, only adding a 3rd.
+  function toggle(kw) {
+    setApproved((prev) => {
+      const k = keyOf(kw);
+      if (prev.has(k)) {
+        const next = new Set(prev);
+        next.delete(k);
+        return next;
+      }
+      if (prev.size >= MAX_APPROVED) return prev;
+      return new Set(prev).add(k);
+    });
+  }
+
+  if (phase === 'idle') {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); run(); }}
+          title="Research keywords for this topic, right here — approve which ones fit, then write a brief for one"
+          style={{
+            fontSize: 11.5, fontWeight: 600, color: 'var(--text-2)', background: 'var(--surface)',
+            border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px',
+            cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap',
+          }}
+        >
+          Keyword Research
+        </button>
+      </div>
+    );
+  }
+
+  const approvedKeywords = candidates.filter((kw) => approved.has(keyOf(kw)));
+  // Highest-volume approved keyword drives the brief — Article Recommendation
+  // targets one seed keyword, not a list; the others stay visible as
+  // approved context but aren't lost, just not the one a brief gets written
+  // for right now.
+  const topApproved = approvedKeywords.length
+    ? [...approvedKeywords].sort((a, b) => (b.volume || 0) - (a.volume || 0))[0]
+    : null;
+
+  return (
+    <div style={{ marginTop: 10, padding: 12, borderRadius: 'var(--r-md)', border: '1px solid var(--border)', background: 'var(--surface)' }}>
+      {phase === 'running' && (
+        <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Researching keywords for "{topic}"… {statusMessage}</div>
+      )}
+      {error && (
+        <div style={{ fontSize: 12, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          {error}
+          <button type="button" onClick={(e) => { e.stopPropagation(); run(); }} style={{ fontSize: 11, color: 'var(--text-2)', background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 8px', cursor: 'pointer' }}>Retry</button>
+        </div>
+      )}
+      {phase === 'done' && (
+        <>
+          {warning && <div style={{ fontSize: 11, color: 'var(--warning)', marginBottom: 8 }}>{warning}</div>}
+          {candidates.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--text-3)' }}>No keywords came back for this topic.</div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>Approve up to {MAX_APPROVED} primary keywords for now</span>
+                <span style={{
+                  fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99,
+                  background: approved.size === MAX_APPROVED ? 'var(--success-soft)' : 'var(--danger-soft, #FEF2F2)',
+                  color: approved.size === MAX_APPROVED ? 'var(--success)' : 'var(--danger)',
+                }}>
+                  {approved.size} / {MAX_APPROVED} selected
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {candidates.map((kw) => {
+                const checked = approved.has(keyOf(kw));
+                const atCap = !checked && approved.size >= MAX_APPROVED;
+                return (
+                <label
+                  key={keyOf(kw)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: atCap ? 'not-allowed' : 'pointer', opacity: atCap ? 0.5 : 1 }}
+                  title={atCap ? `Primary is full (${MAX_APPROVED}/${MAX_APPROVED}) — remove one first` : undefined}
+                >
+                  <input type="checkbox" checked={checked} disabled={atCap} onChange={(e) => { e.stopPropagation(); toggle(kw); }} onClick={(e) => e.stopPropagation()} />
+                  <span style={{ fontSize: 12.5, color: 'var(--text)', flex: 1 }}>{kw.keyword}</span>
+                  {kw.volume ? <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{kw.volume.toLocaleString('en-US')}/mo</span> : null}
+                </label>
+                );
+              })}
+              </div>
+            </>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+            <button
+              type="button"
+              disabled={!topApproved}
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/article-recommendation?keyword=${encodeURIComponent(topApproved.keyword)}${client ? `&client=${encodeURIComponent(client)}` : ''}`);
+              }}
+              title={topApproved ? `Write a content brief for "${topApproved.keyword}"` : 'Approve a keyword above first'}
+              style={{
+                fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 7, border: '1px solid var(--primary)',
+                background: topApproved ? 'var(--primary)' : 'var(--surface)', color: topApproved ? '#fff' : 'var(--text-3)',
+                cursor: topApproved ? 'pointer' : 'not-allowed', opacity: topApproved ? 1 : 0.6,
+              }}
+            >
+              Recommend Article{topApproved ? ` for "${topApproved.keyword}"` : ''}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Where a suggestion's rationale came from — kept short, since the rationale
+// sentence itself already says the specific number/quote.
+const SUGGESTION_SOURCE_LABEL = {
+  keyword_volume: 'Search volume',
+  people_also_ask: 'Real question',
+  competitor_gap: 'Competitor gap',
+  reasoning: 'AI judgment',
+};
+
+function SuggestedSpokesPanel({ cluster, projectId, siteName, suggestions, onSuggestions }) {
+  const isGap = cluster.isGap;
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function run() {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await ca.suggestSpokes(projectId, cluster.id);
+      onSuggestions(result);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.05em', color: 'var(--text-3)' }}>
+          {isGap ? 'SUPPORTING TOPICS' : 'SUGGESTED SPOKES'}{suggestions ? ` · ${suggestions.suggestions.length}` : ''}
+        </span>
+        <Button variant="secondary" size="sm" onClick={run} disabled={loading}>
+          {loading ? 'Finding topics…' : suggestions ? 'Re-suggest' : (isGap ? 'Suggest supporting topics' : 'Suggest new spokes')}
+        </Button>
+      </div>
+      <p style={{ margin: '4px 0 0', fontSize: 11.5, color: 'var(--text-3)' }}>
+        {isGap
+          ? "Keyword and question research for this topic — use it to plan the hub above and its spokes together, since neither is written yet."
+          : "Topics this hub doesn't cover yet — not pages that exist and need linking, new content ideas."}
+      </p>
+
+      {error && <div style={{ marginTop: 10, fontSize: 12, color: 'var(--danger)' }}>{error}</div>}
+
+      {suggestions && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+          {suggestions.suggestions.length === 0 && (
+            <div style={{ fontSize: 12, color: 'var(--text-3)' }}>No confident gaps found for this topic.</div>
+          )}
+          {suggestions.suggestions.map((s, i) => (
+            <div key={i} style={{ padding: '10px 14px', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{s.title}</span>
+                <div style={{ display: 'flex', gap: 4, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  {(s.basedOn?.length ? s.basedOn : ['reasoning']).map((b) => (
+                    <Badge key={b} variant="neutral">{SUGGESTION_SOURCE_LABEL[b] || b}</Badge>
+                  ))}
+                </div>
+              </div>
+              {s.rationale && <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-3)' }}>{s.rationale}</p>}
+              <div style={{ marginTop: 8 }}>
+                <InlineKeywordResearch topic={s.title} client={siteName} navigate={navigate} />
+              </div>
+            </div>
+          ))}
+          {!suggestions.signals.llmAvailable && (
+            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>ANTHROPIC_API_KEY not configured — showing keyword ideas as-is rather than AI-shaped topics. Use Keyword Research on any of these to take it further.</div>
+          )}
+          {!suggestions.signals.semrushAvailable && (
+            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>SEMRUSH_API_KEY not configured — no real search-volume signal was available.</div>
+          )}
+          {!suggestions.signals.paaIsReal && suggestions.signals.paaQuestionCount > 0 && (
+            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>No "People also ask" data for this search — questions shown are AI-inferred, not real search behavior.</div>
+          )}
+          {suggestions.signals.competitorsQueried?.length > 0 && (
+            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+              Checked against {suggestions.signals.competitorsQueried.join(', ')} for competitor keyword gaps
+              {suggestions.signals.competitorGapCandidateCount === 0 ? ' — none relevant to this specific topic.' : '.'}
+            </div>
+          )}
+          {!suggestions.signals.competitorsQueried?.length && suggestions.signals.competitorDomains?.length === 0 && (
+            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>No competitor domains set for this project — add some above to include competitor keyword gaps here.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClusterDetailPanel({ cluster: c, pageById, projectId, siteName, suggestions, onSuggestions }) {
   const navigate = useNavigate();
   const hub = c.hubPageId ? pageById.get(c.hubPageId) : null;
   const spokes = c.spokeIds.map((sid) => pageById.get(sid)).filter(Boolean);
@@ -773,11 +1091,18 @@ function ClusterDetailPanel({ cluster: c, pageById }) {
 
       {c.isGap ? (
         <div style={{ padding: 14, borderRadius: 'var(--r-md)', border: '1px solid var(--danger)', background: 'var(--danger-soft)' }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Suggested new page: {c.gapSuggestion?.title}</div>
-          <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 2 }}>{c.gapSuggestion?.slug}</div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Suggested new hub page: {c.gapSuggestion?.title}</div>
+            <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 2 }}>{c.gapSuggestion?.slug}</div>
+          </div>
           <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>
             Would tie together {spokes.length} existing page{spokes.length === 1 ? '' : 's'} below.
           </div>
+          {c.gapSuggestion?.title && (
+            <div style={{ marginTop: 10 }}>
+              <InlineKeywordResearch topic={c.gapSuggestion.title} client={siteName} navigate={navigate} />
+            </div>
+          )}
         </div>
       ) : hub && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--r-md)', border: '1px solid var(--warning)', background: 'var(--warning-soft)' }}>
@@ -835,6 +1160,8 @@ function ClusterDetailPanel({ cluster: c, pageById }) {
           </div>
         )}
       </div>
+
+      <SuggestedSpokesPanel cluster={c} projectId={projectId} siteName={siteName} suggestions={suggestions} onSuggestions={onSuggestions} />
     </div>
   );
 }
