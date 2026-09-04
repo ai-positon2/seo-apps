@@ -21,6 +21,10 @@ const ACTIONS = {
   PROJECT_UPDATED:         'project.updated',
   PROJECT_DELETED:         'project.deleted',
   PROJECT_RESTORED:        'project.restored',
+  // The one project action with nothing behind it: PROJECT_DELETED is a status
+  // flip a restore undoes, PROJECT_PURGED is the row and its whole cascade gone.
+  // Written with { strict: true } — see store.purgeProject.
+  PROJECT_PURGED:          'project.purged',
   PROJECT_VERIFIED:        'project.verified',
   ROBOTS_OVERRIDE_SET:     'project.robots_override_set',
   DOMAIN_ADDED:            'project_domain.added',

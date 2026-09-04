@@ -77,6 +77,19 @@ export const projectsApi = {
 
   restore: (projectId) => req(`${BASE}/${projectId}/restore`, { method: 'POST' }),
 
+  /**
+   * Permanently destroys a project and everything that hangs off it. There is no
+   * restore afterwards.
+   *
+   * Only valid on an already-deleted project, and `confirmName` must equal the
+   * project's name exactly — the server rejects a mismatch rather than guessing
+   * that the caller meant this one.
+   */
+  purge: (projectId, { confirmName, reason } = {}) =>
+    req(`${BASE}/${projectId}/purge`, {
+      method: 'POST', body: JSON.stringify({ confirmName, reason }),
+    }),
+
   // ── Domains ───────────────────────────────────────────────────────────────
   domains: (projectId) => req(`${BASE}/${projectId}/domains`),
 

@@ -184,6 +184,12 @@ function ProjectDetail({ project, capabilities, onMutate, onOpenDashboard }) {
   const [competitor, setCompetitor] = useState('');
   const [discovering, setDiscovering] = useState(false);
   const [reason, setReason] = useState('');
+  // Permanent deletion is behind a two-step: `purging` reveals the confirmation,
+  // `purgeName` is the typed project name the server checks. Both reset when the
+  // selection changes, so a half-finished confirmation can never carry over to a
+  // different project.
+  const [purging, setPurging] = useState(false);
+  const [purgeName, setPurgeName] = useState('');
   // One row per targeted page. Keywords are per page, so this is a list of
   // { url, keywords } rather than a single field — the implants page and the
   // pricing page do not share a target term.
@@ -198,6 +204,8 @@ function ProjectDetail({ project, capabilities, onMutate, onOpenDashboard }) {
     setCountry(project.countryCode || '');
     setCompetitor('');
     setReason('');
+    setPurging(false);
+    setPurgeName('');
     setPages((project.pages || []).map((p) => ({
       url: p.url, keywords: (p.keywords || []).join(', '),
     })));
@@ -555,6 +563,56 @@ function ProjectDetail({ project, capabilities, onMutate, onOpenDashboard }) {
               </Btn>
             )}
           </div>
+
+          {/* Permanent deletion. Offered only once the project is already
+              deleted, and only to a role that holds the capability — the server
+              enforces both, so this is about not showing a door that will not
+              open. */}
+          {deleted && capabilities.purgeProject === true && (
+            <>
+              <FadingRule />
+              <SectionHead title="Delete permanently" right="No undo" />
+              <Muted size={12.5}>
+                This erases the project itself and everything under it — every crawl run, result,
+                finding, tracked page, competitor, recommendation and AI Visibility capture. It
+                cannot be restored. The audit trail keeps a dated record that it happened.
+              </Muted>
+              {purging ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <Muted size={12.5}>
+                    Type <strong style={{ color: 'var(--text)' }}>{project.name}</strong> to confirm.
+                  </Muted>
+                  <input
+                    style={inputStyle}
+                    value={purgeName}
+                    onChange={(e) => setPurgeName(e.target.value)}
+                    placeholder={project.name}
+                    aria-label="Project name, to confirm permanent deletion"
+                  />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <Btn
+                      variant="danger"
+                      disabled={purgeName.trim() !== String(project.name || '').trim()}
+                      onClick={() => onMutate(
+                        () => projectsApi.purge(project.id, {
+                          confirmName: purgeName.trim(),
+                          reason: 'Permanently deleted from project settings',
+                        }),
+                        (result) => `${result.name} permanently deleted.`,
+                      )}
+                    >
+                      Permanently delete
+                    </Btn>
+                    <Btn onClick={() => { setPurging(false); setPurgeName(''); }}>Cancel</Btn>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Btn variant="danger" onClick={() => setPurging(true)}>Delete permanently…</Btn>
+                </div>
+              )}
+            </>
+          )}
         </Card>
       )}
     </div>
