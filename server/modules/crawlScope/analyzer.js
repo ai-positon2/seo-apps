@@ -1160,7 +1160,11 @@ function buildFindings({
       result.indexability === "Indexable" &&
       !redirectDestination(result)
     ) {
-      add("sitemap-missing-indexable", result);
+      add("sitemap-missing-indexable", result, {
+        detail:
+          "Indexable HTML page returning 200, absent from every sitemap discovered for this site",
+        detectedValue: "(not in any discovered sitemap)",
+      });
     }
 
     const robotsDirective = result.robots || (hasNoindex && hasNofollow ? "noindex, nofollow" : hasNoindex ? "noindex" : "nofollow");
@@ -1303,7 +1307,12 @@ function buildFindings({
         });
       }
       if (!result.metaDescription) {
+        // Both of these carried an empty detail and detectedValue, so 484
+        // identical rows on one crawl told a developer nothing about which page
+        // to open or what was actually observed there.
         add("meta-missing", result, {
+          detail: "No <meta name=\"description\"> on this page",
+          detectedValue: "(absent)",
           recommendedValue: suggestMetaDescription(result),
         });
       } else if (result.metaLength > 160) {
