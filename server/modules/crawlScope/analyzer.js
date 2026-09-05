@@ -1041,6 +1041,12 @@ function buildFindings({
     findings.push({
       id,
       ruleId,
+      // The crawler stops reading at MAX_BODY_BYTES and records bodyTruncated
+      // on the result. Without carrying it here, a count measured on the first
+      // 5MB of a 14.4MB document is published as though it were complete —
+      // iana.org's /domains/idn-tables reported 3,830 nameless anchors against
+      // an actual 11,113. The cap is correct; the silence about it was not.
+      ...(source && source.bodyTruncated ? { sourceTruncated: true } : {}),
       title: definition.title,
       description: definition.description,
       recommendation: extra.recommendation || definition.recommendation,
