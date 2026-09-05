@@ -291,14 +291,39 @@ function mergeReviews(findings, reviewRows) {
   });
 }
 
+// `?grain=rule` serves the per-rule rollup instead of every occurrence.
+//
+// The default stays `instance` because that is what the existing report and the
+// review flow consume, and changing it under them would be a silent breaking
+// change. But a caller that only needs "which rules fired and how many times" —
+// the overview tiles, the tab counts, "N distinct causes" — was downloading
+// 7,298 rows to compute 18, and the answer was already in crawl_run_findings.
+//
+// Both shapes now declare their own `grain`, so a reader can never again mistake
+// 18 for 7,298: that conflation cost an entire audit report its accuracy once.
 router.get(
   "/runs/:id/findings",
   asyncRoute(async (req, res) => {
     const run = await repo.getRunForViewer(req.db, req.params.id, req.crawlViewer);
     if (!run) return res.status(404).json({ error: "Run not found." });
-    const findings = Array.isArray(run.summary?.findings) ? run.summary.findings : [];
+
+    if (String(req.query.grain || "").toLowerCase() === "rule") {
+      const rollup = await repo.listRunFindingRollup(req.db, run.id);
+      return res.json({
+        grain: "rule",
+        findings: rollup.map((row) => ({
+          ruleId: row.rule_id,
+          severity: row.severity,
+          category: row.category,
+          count: row.count,
+          title: row.detail?.title || "",
+        })),
+      });
+    }
+
+    const findings = await loadRunFindings(req.db, run);
     const reviews = await repo.listFindingReviews(req.db, run.id);
-    res.json({ findings: mergeReviews(findings, reviews) });
+    res.json({ grain: "instance", findings: mergeReviews(findings, reviews) });
   }),
 );
 
