@@ -2508,43 +2508,61 @@ class SeoCrawler extends EventEmitter {
     const started = performance.now();
     let result;
 
-    try {
-      const response = await this._politeFetch(
-        job.url,
-        {
-          // An external URL is only ever status-checked, so a GET made the
-          // origin render a whole page whose body was then thrown away — and
-          // cancelling that body destroys the keep-alive socket instead of
-          // returning it to the pool. HEAD costs the origin nothing and keeps
-          // the connection reusable; the GET fallback covers the servers that
-          // answer 405/501 to HEAD.
-          method: job.external ? "HEAD" : "GET",
-          redirect: "manual",
-          headers: {
-            "User-Agent": this.options.userAgent,
-            Accept: job.external
-              ? "*/*"
-              : "text/html,application/xhtml+xml,application/xml,text/css,application/javascript;q=0.9,*/*;q=0.7",
-            "Accept-Language": "en-US,en;q=0.8",
-          },
-        },
-        { timeout: this.options.timeout, signal: this.rootController.signal },
-      );
+    // An external URL is only ever status-checked, so a GET made the origin
+    // render a whole page whose body was then thrown away — and cancelling that
+    // body destroys the keep-alive socket instead of returning it to the pool.
+    // HEAD costs the origin nothing and keeps the connection reusable. Two
+    // fallbacks cover servers that mishandle it: 405/501 below, and the timeout
+    // retry in the catch.
+    const fetchInit = (method) => ({
+      method,
+      redirect: "manual",
+      headers: {
+        "User-Agent": this.options.userAgent,
+        Accept: job.external
+          ? "*/*"
+          : "text/html,application/xhtml+xml,application/xml,text/css,application/javascript;q=0.9,*/*;q=0.7",
+        "Accept-Language": "en-US,en;q=0.8",
+      },
+    });
 
+    try {
+      let response;
+      try {
+        response = await this._politeFetch(
+          job.url,
+          fetchInit(job.external ? "HEAD" : "GET"),
+          { timeout: this.options.timeout, signal: this.rootController.signal },
+        );
+      } catch (error) {
+        // A server that HANGS on HEAD is the same class of broken as one that
+        // answers 405 — the difference is only which failure mode it picked,
+        // and the 405/501 fallback below never runs because a timeout throws
+        // before it. icann.org behind Cloudflare answers 301 to GET and never
+        // responds to HEAD; without this retry, 966 findings on a single crawl
+        // declared two live links broken.
+        //
+        // External only, once, and never for a deliberate stop() abort.
+        const timedOut = error.name === "TimeoutError" || error.name === "AbortError";
+        if (!job.external || !timedOut || this.stopped) throw error;
+        this.emit("log", {
+          level: "warning",
+          message: `${this._hostOf(job.url)} did not answer HEAD; retrying ${job.url} with GET`,
+        });
+        response = await this._politeFetch(job.url, fetchInit("GET"), {
+          timeout: this.options.timeout,
+          signal: this.rootController.signal,
+        });
+      }
+
+      // Servers that REFUSE HEAD outright. The ones that never reply at all are
+      // handled by the retry in the catch above.
       const usable =
         job.external && (response.status === 405 || response.status === 501)
-          ? await this._politeFetch(
-              job.url,
-              {
-                redirect: "manual",
-                headers: {
-                  "User-Agent": this.options.userAgent,
-                  Accept: "*/*",
-                  "Accept-Language": "en-US,en;q=0.8",
-                },
-              },
-              { timeout: this.options.timeout, signal: this.rootController.signal },
-            )
+          ? await this._politeFetch(job.url, fetchInit("GET"), {
+              timeout: this.options.timeout,
+              signal: this.rootController.signal,
+            })
           : response;
       if (usable !== response && response.body) {
         await response.body.cancel().catch(() => {});
