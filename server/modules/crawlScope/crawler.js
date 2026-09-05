@@ -235,8 +235,32 @@ function isInTemplateContents(element) {
   return false;
 }
 
+// <svg> and <math> are foreign content: they have their own element namespace
+// in which <title> means "accessible label for this graphic", not "title of
+// this document". Nothing document-level (title, meta description, hreflang)
+// is ever legitimately inside one.
+//
+// Filtering only template contents let SVG chart labels count as document
+// titles: iana.org's /performance carries one real <title> and 48 <title>
+// elements inside inline charts reading "August 2025: 100%", and title-multiple
+// fired on titleCount 49. Fixed here rather than at the `title` call site, so
+// the next selector added to this helper does not inherit the same trap.
+function isInForeignContent(element) {
+  let ancestor = element?.parent;
+  while (ancestor) {
+    if (ancestor.type === "tag") {
+      const tag = String(ancestor.tagName || ancestor.name).toLowerCase();
+      if (tag === "svg" || tag === "math") return true;
+    }
+    ancestor = ancestor.parent;
+  }
+  return false;
+}
+
 function documentElements($, selector) {
-  return $(selector).filter((_, element) => !isInTemplateContents(element));
+  return $(selector).filter(
+    (_, element) => !isInTemplateContents(element) && !isInForeignContent(element),
+  );
 }
 
 // The hard guard `buildFindings` is invoked behind — issue-catalog.json's
