@@ -201,5 +201,40 @@ test('a run with no recorded enqueue time still gets the requested window', () =
   assert.strictEqual(start.getTime(), NOW + 60_000);
 });
 
+// -- Every route that can satisfy the preconditions must re-ask --------------
+//
+// decide() needs a primary domain AND something to compare against, and it is
+// asked once per domain change. Miss one of those routes and a project can hold
+// every precondition with nothing ever queued: setting the primary domain used
+// to be exactly that gap, so a project created without a domain and given one
+// afterwards was declined for 'no_primary_domain' at create and never re-asked,
+// leaving the comparison to be started by hand for ever.
+//
+// Asserted against the source because the failure is an ABSENCE -- the route
+// answers 200 and writes the domain either way, and nothing in its response
+// says a run was never even considered.
+test('every domain-mutating route re-asks whether the comparison can start', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const src = fs.readFileSync(path.join(__dirname, '../routes.js'), 'utf8');
+
+  const routes = [
+    "router.post('/:projectId/domains/primary'",
+    "router.post('/:projectId/domains/competitors'",
+  ];
+
+  for (const marker of routes) {
+    const start = src.indexOf(marker);
+    assert.ok(start !== -1, `route not found: ${marker}`);
+    // Read to the next route declaration, so this inspects one handler.
+    const next = src.indexOf('\nrouter.', start + marker.length);
+    const body = src.slice(start, next === -1 ? undefined : next);
+    assert.ok(
+      body.includes('autostartAfterDomainChange('),
+      `${marker} writes a domain but never asks whether the comparison can start`,
+    );
+  }
+});
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed ? 1 : 0);

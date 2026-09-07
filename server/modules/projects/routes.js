@@ -412,8 +412,28 @@ router.post('/:projectId/domains/primary', async (req, res) => {
     const project = await store.setPrimaryDomain({
       access, domain: req.body?.domain, reason: req.body?.reason,
     });
+
+    // The comparison starts itself here too, and this is the route where that
+    // matters most. Autostart needs a primary domain AND something to compare
+    // against; a project set up with competitors but no domain yet is declined
+    // with 'no_primary_domain', and THIS is the request that satisfies the
+    // condition it was declined for. Without this call nothing ever re-asked, so
+    // a project whose domain arrived second never started a comparison at all —
+    // the card sat at "not run yet" beside a project that had everything it
+    // needed, and the only way out was pressing Run by hand.
+    //
+    // `access` was authorised for editProjectSettings; scheduleCompetitorResearch
+    // checks startRun itself, so a role that may rename a project but not start
+    // runs still gets the domain written and a reason back instead of a run.
+    //
+    // Changing an EXISTING domain lands here too, which is correct: the stored
+    // comparison measured the old site and is now about a domain this project no
+    // longer tracks.
+    const competitorResearch = await autostartAfterDomainChange(access);
+
     res.json({
       project,
+      competitorResearch,
       note: 'Site verification and any robots.txt override were cleared — they applied to the previous domain.',
     });
   } catch (e) { handleError(res, e, 'setPrimary'); }
