@@ -16,7 +16,7 @@ import DiscoverCompetitorsModal from '../components/competitorAnalysisDashboard/
 import { useSearchParams } from 'react-router-dom';
 import ModuleRuns from '../components/ModuleRuns';
 import { useActiveProjectId } from '../lib/activeProject';
-import { projectsApi, countryLabel } from '../lib/projectsApi';
+import { projectsApi, countryLabel, isModuleInFlight } from '../lib/projectsApi';
 
 const EMPTY_CLIENT_FORM = { name: '', domain: '', country: 'United States', brandName: '' };
 
@@ -206,6 +206,68 @@ export default function CompetitorAnalysisDashboardPage() {
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── Is a project-side comparison already under way? ───────────────────────
+  //
+  // `competitor` runs on the module queue, and competitorAutostart puts it there
+  // the moment a project's domains are set up — so the common case for a project
+  // with no client here is not "nobody has started this", it is "it started a
+  // minute ago and has not landed yet". Offering "Set up from project" then is
+  // worse than saying nothing: the run already exists, and pressing the button
+  // creates a second client for the same domain that the finishing run will not
+  // write into.
+  //
+  // Polled rather than pushed, because the run is executed by a worker in
+  // another process and this page has no channel to it. Only while something is
+  // in flight — once it settles the timer stops.
+  const [projectRunStatus, setProjectRunStatus] = useState(null);
+  const wasInFlight = useRef(false);
+
+  useEffect(() => {
+    const projectId = activeProject?.id;
+    if (!projectId) {
+      setProjectRunStatus(null);
+      wasInFlight.current = false;
+      return undefined;
+    }
+
+    let cancelled = false;
+    let timer = null;
+
+    const read = async () => {
+      let status = null;
+      try {
+        const data = await projectsApi.overview(projectId);
+        if (cancelled) return;
+        status = (data.modules || []).find((m) => m.key === 'competitor')?.status || null;
+      } catch {
+        // Not fatal, and not worth an error state: this only decides which of
+        // two empty states to show. Treated as "nothing in flight".
+        if (cancelled) return;
+      }
+
+      setProjectRunStatus(status);
+
+      if (isModuleInFlight(status)) {
+        wasInFlight.current = true;
+        timer = setTimeout(read, 10_000);
+        return;
+      }
+
+      // It was running and now it is not: the run mirrors its client and
+      // snapshot into this tool's store as it closes, so re-read rather than
+      // leaving the reader on an empty page next to a finished run.
+      if (wasInFlight.current) {
+        wasInFlight.current = false;
+        refreshClients().catch(() => {});
+      }
+    };
+
+    read();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [activeProject?.id, refreshClients]);
+
+  const projectRunInFlight = isModuleInFlight(projectRunStatus);
 
   // The client for whoever the header is showing.
   const linkedClient = useMemo(() => {
@@ -832,7 +894,21 @@ export default function CompetitorAnalysisDashboardPage() {
         </div>
       )}
 
-      {!selectedClientId && activeProject ? (
+      {!selectedClientId && activeProject && projectRunInFlight ? (
+        // A comparison is already on the queue or executing for this project, so
+        // this is a wait, not a setup step. Naming the state beats an empty page
+        // that reads as "nothing has ever happened here", and it withholds the
+        // button rather than inviting a duplicate client for the same domain.
+        <EmptyState
+          title={`Competitor analysis for ${activeProject.name} is being generated`}
+          description={
+            (projectRunStatus === 'queued'
+              ? 'The run is queued and starts as soon as a worker picks it up. '
+              : 'SEMrush data is being pulled for this project and its competitors. ')
+            + 'This page updates by itself when the analysis lands — there is nothing to press.'
+          }
+        />
+      ) : !selectedClientId && activeProject ? (
         // Named, and offered. The page used to answer this by quietly showing
         // whichever client came first in the file — so the header said one
         // client and the dashboard reported another's traffic.
