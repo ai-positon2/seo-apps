@@ -3,14 +3,15 @@
 // One executor per module key. The worker claims a row and hands it here; this
 // file resolves the project, runs the module, and closes the run.
 //
-// `ai_visibility` and `competitor` are registered. Every other module still
-// executes synchronously through `moduleRunners`, unchanged — the queue is
-// opt-in per module, and putting a 3-second module on it would add polling
-// latency for no benefit. AI Visibility is on it because it is the one that
-// cannot finish in a request; Competitor Research is on it because it starts
-// itself when a project's domains are set up (modules/projects/
-// competitorAutostart.js), and work that nobody is waiting on needs somewhere
-// to run that survives the request that caused it.
+// `ai_visibility`, `competitor` and `hub_spoke` are registered. Every other
+// module still executes synchronously through `moduleRunners`, unchanged — the
+// queue is opt-in per module, and putting a 3-second module on it would add
+// polling latency for no benefit. AI Visibility is on it because it is the one
+// that cannot finish in a request; Competitor Research is on it because it
+// starts itself when a project's domains are set up (modules/projects/
+// competitorAutostart.js); Hub and Spoke because it starts itself when a crawl
+// finishes (modules/projects/hubSpokeAutostart.js). Work that nobody is waiting
+// on needs somewhere to run that survives the request that caused it.
 
 const moduleEvidence = require('../modules/projects/moduleEvidence');
 
@@ -129,7 +130,55 @@ async function runCompetitor(run, { isStillOurs } = {}) {
   });
 }
 
+/**
+ * Run Hub and Spoke (Content Architect) for a claimed row.
+ *
+ * Same contract as the two above: the row is already `running`, so this executes
+ * into it and closes it through the shared `executeOpenRun` path.
+ *
+ * Simpler than runCompetitor because the module only reads. It clusters pages a
+ * crawl already stored and writes its result to Content Architect's own store and
+ * the run's evidence row — it never touches `project_domains`, so there is no
+ * capability to resolve and no reason to rebuild a role here. `can` answers false
+ * for everything rather than being absent, so a runner that grew a capability
+ * check later is denied rather than reading `undefined` as permission.
+ */
+async function runHubSpoke(run, { isStillOurs } = {}) {
+  const { getSupabase } = require('./supabase');
+  const projectsStore = require('../modules/projects/store');
+  const moduleRunners = require('../modules/projects/moduleRunners');
+
+  const { data: project, error } = await getSupabase()
+    .from('crawl_projects').select('*').eq('id', run.project_id).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!project) throw new Error(`Project ${run.project_id} no longer exists.`);
+
+  const domains = await projectsStore.listDomains(run.project_id).catch(() => []);
+
+  const access = {
+    project,
+    workspaceId: project.workspace_id || null,
+    userId: run.created_by || null,
+    actorEmail: null,
+    role: null,
+    can: () => false,
+  };
+
+  // Raw row, not projectView: runHubSpoke reads `project.url` as the fallback
+  // origin and the raw project_domains rows, the same as runCompetitor.
+  return moduleRunners.executeOpenRun({
+    access,
+    moduleKey: 'hub_spoke',
+    run,
+    target: { origin: run.target_url || project.url, host: null, fromLegacyColumn: false },
+    project,
+    domains,
+    isStillOurs,
+  });
+}
+
 module.exports = {
   ai_visibility: runAiVisibility,
   competitor: runCompetitor,
+  hub_spoke: runHubSpoke,
 };

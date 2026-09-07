@@ -1,7 +1,12 @@
 const fs = require('fs').promises;
 const path = require('path');
 
-const DATA_DIR    = path.join(__dirname, 'data');
+const { resolveDataRoot } = require('../../services/dataRoot');
+
+// Ephemeral inside the image on a container platform; see services/dataRoot.js.
+const DATA_DIR    = resolveDataRoot(
+  'robots-monitor', path.join(__dirname, 'data'), 'ROBOTS_MONITOR_DATA_ROOT',
+);
 const CLIENTS_PATH = path.join(DATA_DIR, 'clients.json');
 const SLACK_PATH   = path.join(DATA_DIR, 'slackConfig.json');
 const HISTORY_DIR  = path.join(DATA_DIR, 'history');

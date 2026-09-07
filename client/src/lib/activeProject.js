@@ -14,6 +14,14 @@ import { useEffect, useState } from 'react';
 
 export const ACTIVE_PROJECT_KEY = 'toolkit-active-project';
 const EVENT = 'toolkit:active-project';
+// Fired when the SET of projects changes — one was created, deleted, restored,
+// purged or renamed. Distinct from EVENT above, which is only about *which* of
+// them is selected. Long-lived readers of /api/projects (the header's client
+// switcher lives in the app shell and never unmounts) have no other way to
+// learn their copy of the list went stale, and a switcher still offering a
+// deleted project is how the header ends up naming a client the page below is
+// not showing.
+const PROJECTS_EVENT = 'toolkit:projects-changed';
 
 export function readActiveProjectId() {
   try { return localStorage.getItem(ACTIVE_PROJECT_KEY) || null; } catch { return null; }
@@ -54,4 +62,34 @@ export function useActiveProjectId() {
   }, []);
 
   return [projectId, setActiveProjectId];
+}
+
+/**
+ * Announces that the set of projects changed. Called by the projectsApi
+ * mutations rather than by their callers, so a screen that deletes a project
+ * cannot forget to tell the rest of the app.
+ */
+export function notifyProjectsChanged() {
+  try {
+    window.dispatchEvent(new CustomEvent(PROJECTS_EVENT));
+  } catch { /* very old browsers: lists refresh on the next mount instead */ }
+}
+
+/**
+ * Returns a counter that increments whenever notifyProjectsChanged() fires.
+ * Use it as an effect dependency to re-read /api/projects:
+ *
+ *   const projectsVersion = useProjectsChanged();
+ *   useEffect(() => { ...fetch... }, [projectsVersion]);
+ */
+export function useProjectsChanged() {
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    const bump = () => setVersion((v) => v + 1);
+    window.addEventListener(PROJECTS_EVENT, bump);
+    return () => window.removeEventListener(PROJECTS_EVENT, bump);
+  }, []);
+
+  return version;
 }

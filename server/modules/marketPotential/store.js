@@ -19,7 +19,12 @@ const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
 
-const DATA_DIR = path.join(__dirname, 'data');
+const { resolveDataRoot } = require('../../services/dataRoot');
+
+// Ephemeral inside the image on a container platform; see services/dataRoot.js.
+const DATA_DIR = resolveDataRoot(
+  'market-potential', path.join(__dirname, 'data'), 'MARKET_POTENTIAL_DATA_ROOT',
+);
 const SERVICES_PATH = path.join(DATA_DIR, 'services.json');
 const BASKETS_PATH = path.join(DATA_DIR, 'baskets.json');
 const CACHE_PATH = path.join(DATA_DIR, 'volumeCache.json');

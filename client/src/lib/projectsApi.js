@@ -12,6 +12,8 @@
 //     confirmation the PRD asks for (§18.2). It is surfaced as a typed result
 //     rather than an exception so the caller can offer "use it anyway".
 
+import { notifyProjectsChanged } from './activeProject';
+
 const BASE = '/api/projects';
 const ADMIN = '/api/admin';
 
@@ -60,22 +62,37 @@ export const projectsApi = {
    */
   create: async (body) => {
     try {
-      return await req(BASE, { method: 'POST', body: JSON.stringify(body) });
+      const created = await req(BASE, { method: 'POST', body: JSON.stringify(body) });
+      notifyProjectsChanged();
+      return created;
     } catch (e) {
       if (e.status === 409 && e.code === 'duplicate_domain') {
+        // Nothing was created, so nothing to announce.
         return { duplicate: true, message: e.message, existingProjectId: e.body?.existingProjectId };
       }
       throw e;
     }
   },
 
-  update: (projectId, patch) =>
-    req(`${BASE}/${projectId}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  // Announced too: a patch can change the name, which is what the header's
+  // switcher displays.
+  update: async (projectId, patch) => {
+    const updated = await req(`${BASE}/${projectId}`, { method: 'PATCH', body: JSON.stringify(patch) });
+    notifyProjectsChanged();
+    return updated;
+  },
 
-  remove: (projectId, reason) =>
-    req(`${BASE}/${projectId}`, { method: 'DELETE', body: JSON.stringify({ reason }) }),
+  remove: async (projectId, reason) => {
+    const removed = await req(`${BASE}/${projectId}`, { method: 'DELETE', body: JSON.stringify({ reason }) });
+    notifyProjectsChanged();
+    return removed;
+  },
 
-  restore: (projectId) => req(`${BASE}/${projectId}/restore`, { method: 'POST' }),
+  restore: async (projectId) => {
+    const restored = await req(`${BASE}/${projectId}/restore`, { method: 'POST' });
+    notifyProjectsChanged();
+    return restored;
+  },
 
   /**
    * Permanently destroys a project and everything that hangs off it. There is no
@@ -85,10 +102,13 @@ export const projectsApi = {
    * project's name exactly — the server rejects a mismatch rather than guessing
    * that the caller meant this one.
    */
-  purge: (projectId, { confirmName, reason } = {}) =>
-    req(`${BASE}/${projectId}/purge`, {
+  purge: async (projectId, { confirmName, reason } = {}) => {
+    const purged = await req(`${BASE}/${projectId}/purge`, {
       method: 'POST', body: JSON.stringify({ confirmName, reason }),
-    }),
+    });
+    notifyProjectsChanged();
+    return purged;
+  },
 
   // ── Domains ───────────────────────────────────────────────────────────────
   domains: (projectId) => req(`${BASE}/${projectId}/domains`),

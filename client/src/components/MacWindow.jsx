@@ -4,7 +4,7 @@ import { NAV_GROUPS, TAGS, getToolByPath } from '../toolsMeta';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from './ThemeContext';
 import { projectsApi } from '../lib/projectsApi';
-import { useActiveProjectId } from '../lib/activeProject';
+import { useActiveProjectId, useProjectsChanged } from '../lib/activeProject';
 import SemrushBalanceBadge from './SemrushBalanceBadge';
 import CrawlStatusBar from './home/CrawlStatusBar';
 import { useCrawlStatus } from '../lib/useCrawlStatus';
@@ -200,6 +200,13 @@ function ClientSwitcher() {
   const [projects, setProjects] = useState([]);
   const [open, setOpen] = useState(false);
   const boxRef = useRef(null);
+  // This component lives in the app shell, which does not unmount as the user
+  // navigates, so a once-on-mount fetch held its list for the lifetime of the
+  // tab. Deleting a project left it in this menu — and, because the resolution
+  // below still found it, left the header naming a client the dashboard was no
+  // longer showing. Re-reading on the change signal is what keeps the two the
+  // same client.
+  const projectsVersion = useProjectsChanged();
 
   useEffect(() => {
     let cancelled = false;
@@ -209,7 +216,7 @@ function ClientSwitcher() {
       .then((data) => { if (!cancelled) setProjects(data.projects || []); })
       .catch(() => { if (!cancelled) setProjects([]); });
     return () => { cancelled = true; };
-  }, []);
+  }, [projectsVersion]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -229,6 +236,14 @@ function ClientSwitcher() {
     () => projects.find((p) => p.id === activeProjectId) || projects[0] || null,
     [projects, activeProjectId],
   );
+
+  // Repair the stored selection, exactly as the dashboard does. Without this the
+  // header would keep resolving a dead id to projects[0] on every render while
+  // localStorage still named the deleted project, so any screen that read the id
+  // without resolving it got a different answer than the one on show here.
+  useEffect(() => {
+    if (active && active.id !== activeProjectId) setActiveProjectId(active.id);
+  }, [active, activeProjectId, setActiveProjectId]);
 
   if (!projects.length) {
     return (

@@ -6,7 +6,12 @@ const fsSync = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const DATA_ROOT = path.join(__dirname, 'data');
+const { resolveDataRoot } = require('../../services/dataRoot');
+
+// Ephemeral inside the image on a container platform; see services/dataRoot.js.
+const DATA_ROOT = resolveDataRoot(
+  'content-architect', path.join(__dirname, 'data'), 'CONTENT_ARCHITECT_DATA_ROOT',
+);
 
 function genId(prefix = 'id') {
   return `${prefix}_${Date.now().toString(36)}${crypto.randomBytes(4).toString('hex')}`;

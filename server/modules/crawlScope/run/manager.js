@@ -569,6 +569,26 @@ class RunManager {
         } catch (e) {
           console.error(`[crawl ${run.id}] page inventory sync failed:`, e.message);
         }
+
+        // Hub and Spoke clusters the pages this crawl just stored, and until now
+        // nothing re-ran it once they existed: the audit sequence runs it as a
+        // site-level module BEFORE the crawl, where it finds no completed crawl
+        // and records "run a site crawl first" — advice the reader had already
+        // taken. Queueing it here is the missing half of that.
+        //
+        // Non-fatal for the same reason as the sync above: the crawl finished,
+        // and a follow-on that could not be scheduled must not report it
+        // otherwise. scheduleHubSpoke already swallows its own failures; the
+        // catch is for the require and anything unforeseen.
+        try {
+          const hubSpokeAutostart = require("../../projects/hubSpokeAutostart");
+          const queued = await hubSpokeAutostart.scheduleHubSpoke({ run });
+          if (queued.scheduled) {
+            console.log(`[crawl ${run.id}] Hub and Spoke queued (${queued.reason}).`);
+          }
+        } catch (e) {
+          console.error(`[crawl ${run.id}] could not queue Hub and Spoke:`, e.message);
+        }
       }
 
       // Auto-sample PageSpeed for a handful of key pages. Opt-in

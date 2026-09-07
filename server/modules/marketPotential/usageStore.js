@@ -23,7 +23,12 @@ const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
 
-const DATA_DIR = path.join(__dirname, 'data');
+const { resolveDataRoot } = require('../../services/dataRoot');
+
+// Same directory as store.js on purpose — one module, one data root.
+const DATA_DIR = resolveDataRoot(
+  'market-potential', path.join(__dirname, 'data'), 'MARKET_POTENTIAL_DATA_ROOT',
+);
 const LEDGER_PATH = path.join(DATA_DIR, 'semrushUsage.json');
 const MAX_RUNS_PER_DAY_LOG = 500; // audit trail cap to keep the file bounded
 

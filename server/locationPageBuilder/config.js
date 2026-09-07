@@ -9,7 +9,13 @@ module.exports = {
   enabled: process.env.LPB_ENABLED !== 'false',
 
   // Where the file-based store persists (matches kbStore's data-root convention).
-  dataRoot: process.env.LPB_DATA_ROOT || path.join(__dirname, '../../data/location-page-builder'),
+  // LPB_DATA_ROOT still wins outright; APP_DATA_ROOT is the shared fallback so
+  // one variable relocates every file-backed module. See services/dataRoot.js.
+  dataRoot: require('../services/dataRoot').resolveDataRoot(
+    'location-page-builder',
+    path.join(__dirname, '../../data/location-page-builder'),
+    'LPB_DATA_ROOT',
+  ),
 
   // Stage-3 competitor scoring weights (Spec §6 Stage 3). Tunable.
   serpScoreWeights: {
