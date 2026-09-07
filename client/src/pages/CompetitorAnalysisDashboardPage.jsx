@@ -300,9 +300,22 @@ export default function CompetitorAnalysisDashboardPage() {
   // Picking an unlinked client by hand sticks — it was deliberate — but only
   // until the header moves. Switching project and keeping the previous choice on
   // screen is the contradiction this whole change exists to remove.
+  //
+  // A ?client= that does not resolve is IGNORED rather than obeyed. It used to
+  // suppress this effect by its mere presence, so a link carrying a client id
+  // that no longer exists — every link minted before this tool's store was last
+  // reset — left the page permanently unselected: refreshClients rightly refused
+  // to select a missing id, and this rightly deferred to a link that was never
+  // going to resolve. Between the two, nothing chose anything, and the reader
+  // got "no analysis yet" next to a dropdown naming the analysis that was
+  // sitting there. Deferring only to a link that actually resolves keeps the
+  // deep link authoritative without letting a dead one disable the fallback.
+  const requestedClientExists = Boolean(
+    requestedClientId && clients.some((c) => c.id === requestedClientId),
+  );
   const lastProjectRef = useRef(null);
   useEffect(() => {
-    if (requestedClientId) return;
+    if (requestedClientExists) return;
     if (!projects) return;                     // still resolving; hold
     const projectChanged = lastProjectRef.current !== (activeProject?.id || null);
     lastProjectRef.current = activeProject?.id || null;
@@ -311,7 +324,7 @@ export default function CompetitorAnalysisDashboardPage() {
       if (heldByHand && !projectChanged) return current;
       return linkedClient?.id || '';
     });
-  }, [linkedClient, projects, requestedClientId, unlinkedClients, activeProject?.id]);
+  }, [linkedClient, projects, requestedClientExists, unlinkedClients, activeProject?.id]);
 
   const loadDashboard = useCallback(async (clientId) => {
     if (!clientId) { setClient(null); setSnapshot(null); return; }
