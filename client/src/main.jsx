@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
+import { prefetchHome } from './lib/homePrefetch'
 import './index.css'
 import App from './App.jsx'
 
@@ -14,6 +15,11 @@ import App from './App.jsx'
 if (window.self !== window.top) {
   document.documentElement.classList.add('embedded');
 }
+
+// Before React mounts, so the dashboard's reads are in flight while the session
+// is still being verified rather than queued behind it. Does nothing unless this
+// browser has looked at a client before — see lib/homePrefetch.js.
+prefetchHome();
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

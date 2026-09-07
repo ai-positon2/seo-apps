@@ -1,0 +1,6 @@
+{
+  "rows": 3420,
+  "distinct_rule_ids": 31,
+  "grain": "instance",
+  "rollup_available": true
+}

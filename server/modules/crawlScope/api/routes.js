@@ -26,9 +26,15 @@
 // a single web instance (the default) that is always true. To scale web horizontally,
 // add a DB-mediated control channel or sticky routing.
 
+// The statuses a run cannot move out of. Named here rather than imported: the
+// client keeps its own copy in crawlHelpers and there is no shared module
+// between them — a mismatch would only make this route refuse a control request
+// it could have recorded, which is the safe direction.
+const TERMINAL_STATUSES = ["completed", "failed", "stopped"];
+
 const express = require("express");
 const { streamRun } = require("./sse");
-const { RunManager } = require("../run/manager");
+const { RunManager, CONTROL_POLL_MS } = require("../run/manager");
 const { serviceClient, isSupabaseConfigured } = require("../db/supabase");
 const { resolveIdentity } = require("../../../services/workspaceContext");
 const projectAccess = require("../../../services/projectAccess");
@@ -122,7 +128,7 @@ router.use(crawlScopeContext);
 router.post(
   "/runs",
   asyncRoute(async (req, res) => {
-    const { url, options } = parseCrawlRequest(req.body || {});
+    const { url, options, listInfo, budgetClamped } = parseCrawlRequest(req.body || {});
     const run = await repo.createRun(req.db, {
       owner: req.user.id,
       workspace_id: req.crawlWorkspaceId,
@@ -147,7 +153,11 @@ router.post(
         console.error(`[crawlScope] run ${run.id} failed:`, error.message);
         tracked?.fail(error.message, { output: { runId: run.id, url: run.url } });
       });
-    res.status(201).json({ run });
+    // budgetClamped rides along on the 201 so the caller can say that the crawl
+    // it is about to watch is smaller than the one it asked for. Without it the
+    // only figure on screen is the crawler's own ceiling, which is the reduced
+    // number — indistinguishable from the crawl simply finding fewer pages.
+    res.status(201).json({ run, listInfo: listInfo || null, budgetClamped });
   }),
 );
 
@@ -265,10 +275,11 @@ router.get(
 
 // ---- issue review ----
 //
-// The findings themselves live in crawl_runs.summary.findings (written once when
-// the crawl completes) and are immutable evidence. Review status and notes are
-// mutable and live in crawl_finding_reviews, keyed on the analyzer's stable
-// finding id. This endpoint joins the two so the UI gets one list, with every
+// The findings themselves live in crawl_run_finding_instances (migration
+// 0023 — full per-occurrence detail, chunked-inserted when the crawl
+// completes) and are immutable evidence. Review status and notes are mutable
+// and live in crawl_finding_reviews, keyed on the analyzer's stable finding
+// id. This endpoint joins the two so the UI gets one list, with every
 // unreviewed finding defaulting to "Needs review" without a row having to exist.
 const NEEDS_REVIEW = "Needs review";
 const REVIEW_STATUSES = new Set([
@@ -277,6 +288,17 @@ const REVIEW_STATUSES = new Set([
   "False positive",
   "Resolved",
 ]);
+
+// A run finalized before migration 0023 shipped never got rows in
+// crawl_run_finding_instances — its findings are still sitting in the old
+// location, run.summary.findings. Falling back there (rather than showing
+// zero findings for every run that predates the migration) costs nothing:
+// `run` is already fetched, so this reads a field already in memory.
+async function loadRunFindings(db, run) {
+  const stored = await repo.listAllRunFindingInstances(db, run.id);
+  if (stored.length) return stored;
+  return Array.isArray(run.summary?.findings) ? run.summary.findings : [];
+}
 
 function mergeReviews(findings, reviewRows) {
   const byId = new Map(reviewRows.map((r) => [r.finding_id, r]));
@@ -321,6 +343,30 @@ router.get(
       });
     }
 
+    // `?limit=` pages the instance grain, the same way /results already does.
+    // Without it the whole set is materialised three times over in this process
+    // (see repo.listRunFindingInstancesPage) and a 10,000-page crawl is an OOM
+    // rather than a slow response. The unpaged path stays the default so the
+    // existing report and review flow are untouched.
+    if (req.query.limit !== undefined) {
+      const page = await repo.listRunFindingInstancesPage(req.db, run.id, {
+        offset: req.query.offset,
+        limit: req.query.limit,
+      });
+      const reviews = await repo.listFindingReviews(req.db, run.id);
+      return res.json({
+        grain: "instance",
+        offset: page.offset,
+        // What was actually served, and where to ask next. Reporting the
+        // REQUESTED limit here is what let a caller mistake a capped page for
+        // the end of the data.
+        limit: page.limit,
+        returned: page.returned,
+        nextOffset: page.returned ? page.offset + page.returned : null,
+        findings: mergeReviews(page.rows, reviews),
+      });
+    }
+
     const findings = await loadRunFindings(req.db, run);
     const reviews = await repo.listFindingReviews(req.db, run.id);
     res.json({ grain: "instance", findings: mergeReviews(findings, reviews) });
@@ -345,7 +391,7 @@ router.patch(
     // A review may only be attached to a finding this run actually produced:
     // the finding id is client-supplied, and without this an arbitrary id could
     // be written into the table.
-    const findings = Array.isArray(run.summary?.findings) ? run.summary.findings : [];
+    const findings = await loadRunFindings(req.db, run);
     const ruleById = new Map(findings.map((f) => [f.id, f.ruleId]));
 
     const reviews = [];
@@ -397,13 +443,48 @@ for (const action of ["pause", "resume", "stop"]) {
       // site the whole workspace shares, and it is reversible by re-running.
       const run = await repo.getRunForViewer(req.db, req.params.id, req.crawlViewer);
       if (!run) return res.status(404).json({ error: "Run not found." });
-      const ok = manager[action](run.id);
-      if (!ok) {
-        return res
-          .status(409)
-          .json({ error: "This run is not being executed by this instance." });
+
+      // Executed here: applied at once, as it always was.
+      if (manager[action](run.id)) {
+        return res.json({ ok: true, action, applied: "immediately" });
       }
-      res.json({ ok: true, action });
+
+      // Executed somewhere else — the NORMAL case, not an edge one. Every
+      // project crawl and every scheduled crawl runs in the worker, so Stop on
+      // the flagship "Run Full Audit" flow always landed here and answered 409
+      // "This run is not being executed by this instance": a sentence about our
+      // process topology that left the crawl running and the reader with
+      // nothing to do about it.
+      //
+      // Recorded on the run instead. The worker reads it on its next heartbeat
+      // and applies it through the same crawler methods — see run/manager.js
+      // and migration 0025.
+      //
+      // A request on a finished run is refused rather than written: no worker
+      // is beating for it, so nothing would ever clear the column.
+      if (TERMINAL_STATUSES.includes(run.status)) {
+        return res.status(409).json({
+          error: `This crawl has already ${run.status === "completed" ? "finished" : run.status}.`,
+        });
+      }
+
+      await repo.updateRun(req.db, run.id, {
+        control_request: action,
+        control_requested_at: new Date().toISOString(),
+      });
+
+      res.json({
+        ok: true,
+        action,
+        applied: "requested",
+        // Said by the server because the interval is an operator setting and
+        // the client has no way to know it.
+        // The poll interval, not the heartbeat's: the worker checks for this
+        // on its own short timer. Quoted from the server because the interval
+        // is an operator setting and the client cannot know it.
+        note: `The crawl is running on a worker; it will ${action} within about `
+          + `${Math.max(1, Math.round(CONTROL_POLL_MS / 1000))}s.`,
+      });
     }),
   );
 }
@@ -430,8 +511,9 @@ router.get(
 
     // Fallback for manual runs, runs predating stored reports, and any run whose
     // findings have since been reviewed.
+    const findings = await loadRunFindings(req.db, run);
     const buffer = await report.buildReportBuffer({
-      findings: mergeReviews(run.summary?.findings || [], reviews),
+      findings: mergeReviews(findings, reviews),
       siteUrl: run.url,
       crawlDate: run.finished_at || run.created_at,
     });
@@ -614,9 +696,37 @@ router.patch(
 router.delete(
   "/projects/:id",
   asyncRoute(async (req, res) => {
-    const deleted = await repo.deleteProject(req.db, req.params.id, req.user.id);
-    if (!deleted) return res.status(404).json({ error: "Project not found." });
-    res.json({ ok: true });
+    // Deletion goes through the governed path for this exact row.
+    //
+    // This used to be `repo.deleteProject(req.db, req.params.id, req.user.id)`:
+    // a raw, permanent DELETE on crawl_projects gated only by the `owner`
+    // column — which projectAccess.js:14 documents as creator attribution and
+    // explicitly NOT an access decision. Any authenticated user who had created
+    // a project could therefore destroy it outright, skipping every guard the
+    // product puts on that operation: the capability check, the audit event,
+    // the "must already be soft-deleted" precondition, the confirm-the-name
+    // step, and PROJECT_PURGE_ORDER's crawl_runs-first ordering. Skipping the
+    // last one also orphaned the run history, because 0010 makes
+    // crawl_runs.project_id ON DELETE SET NULL rather than cascading.
+    //
+    // It is now the same soft delete the projects UI performs on this row:
+    // capability-checked, audited, and reversible via
+    // POST /api/projects/:id/restore. Permanent destruction still goes through
+    // POST /api/projects/:id/purge, which keeps both of its deliberate guards.
+    //
+    // Required lazily: projects/store pulls in crawlScope/shared/*, and keeping
+    // this out of the module's load graph avoids adding a cycle to it.
+    const projectsStore = require("../../projects/store");
+    const access = await projectAccess.requireProject(
+      req,
+      req.params.id,
+      "editProjectSettings",
+    );
+    const project = await projectsStore.deleteProject({
+      access,
+      reason: req.body?.reason,
+    });
+    res.json({ ok: true, project });
   }),
 );
 

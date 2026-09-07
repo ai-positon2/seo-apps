@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { adminApi } from '../lib/projectsApi';
 import {
   Card, Kicker, Muted, Tag, Btn, FadingRule, SectionHead, Spinner,
-} from '../components/home/primitives';
+} from '../components/studio/primitives';
 
 // ── Platform administration (PRD §8, §9, §7.3) ──────────────────────────────
 // Limits, rollout flags and administrator grants.

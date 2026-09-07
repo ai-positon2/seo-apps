@@ -1,0 +1,22 @@
+HTTP/1.1 301 Moved Permanently
+accept-ranges: bytes
+age: 0
+cache-control: max-age=43200
+connection: keep-alive
+content-length: 0
+content-type: text/html; charset=utf-8
+cross-origin-opener-policy: same-origin
+date: Sat, 05 Sep 2026 18:23:57 GMT
+expires: Sun, 06 Sep 2026 06:23:57 GMT
+location: https://www.firefox.com/an/channel/desktop/developer/?redirect_source=mozilla-org
+referrer-policy: strict-origin-when-cross-origin
+server: granian
+strict-transport-security: max-age=31536000
+via: 1.1 google, 1.1 varnish, 1.1 varnish
+x-backend-server: bedrock-58fdcfd585-7d4dx.gcp-us-west1
+x-cache: MISS, MISS
+x-cache-hits: 0, 0
+x-content-type-options: nosniff
+x-served-by: cache-bom-vanm7210094-BOM, cache-bom-vanm7210094-BOM, cache-bom-vanm7210072-BOM
+x-timer: S1788632638.727726,VS0,VE254
+

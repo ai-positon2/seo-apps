@@ -9,6 +9,7 @@ import { DataTable } from '../ui/DataTable';
 import { ProgressSteps } from '../ui/ProgressSteps';
 import { useToast } from '../ui/Toast';
 import ModuleRuns from '../components/ModuleRuns';
+import HubSpokeReport, { healthVariant } from '../components/contentArchitect/HubSpokeReport';
 import { ca } from '../lib/contentArchitectApi';
 
 const DISCOVER_STEPS = [
@@ -26,67 +27,6 @@ const ANALYZE_STEPS = [
   { id: 'diagnostics', label: 'Run diagnostics' },
   { id: 'relevance', label: 'Assess freshness' },
 ];
-
-function healthVariant(score) {
-  if (score >= 70) return 'success';
-  if (score >= 40) return 'warning';
-  return 'danger';
-}
-
-const HUB_FILTERS = [
-  { key: 'all', label: 'All' },
-  { key: 'needs-work', label: 'Needs work' },
-  { key: 'no-hub', label: 'No hub page' },
-];
-
-function spokeStatusFor(page) {
-  const flags = page.flags || [];
-  if (flags.includes('orphan')) return { label: 'Orphaned', variant: 'danger', fix: 'no inbound links — add links from the hub or sibling spokes' };
-  if (flags.includes('thin-or-stale')) return { label: 'Thin', variant: 'warning', fix: 'thin content — expand or refresh' };
-  if (flags.includes('buried')) return { label: 'Buried', variant: 'neutral', fix: 'buried deep — reduce clicks from the homepage' };
-  return { label: 'Healthy', variant: 'success', fix: null };
-}
-
-// Three highest-value fixes, computed from the real analysis rather than
-// fixed content — only includes a move when its underlying condition
-// actually applies, so a healthy site can show fewer than three (or none).
-function buildPriorityMoves(analysis) {
-  if (!analysis) return [];
-  const moves = [];
-
-  const gapClusters = analysis.clusters.filter((c) => c.isGap);
-  if (gapClusters.length > 0) {
-    const top = [...gapClusters].sort((a, b) => b.spokeIds.length - a.spokeIds.length).slice(0, 2);
-    const body = gapClusters.length === 1
-      ? `${gapClusters[0].name} has ${gapClusters[0].spokeIds.length} spoke${gapClusters[0].spokeIds.length === 1 ? '' : 's'} with no page to tie them together.`
-      : `${gapClusters.length} clusters have spokes but no parent page. ${top.map((c) => c.name).join(' and ')} `
-        + `${top.length > 1 ? 'are the largest opportunities' : 'is the largest opportunity'}.`;
-    moves.push({
-      title: `Write ${gapClusters.length} missing hub page${gapClusters.length === 1 ? '' : 's'}`,
-      body, chipLabel: 'High impact', chipVariant: 'info',
-    });
-  }
-
-  if (analysis.unassignedPages.length > 0) {
-    const pct = Math.round((100 * analysis.unassignedPages.length) / Math.max(1, analysis.pages.length));
-    moves.push({
-      title: `Rescue ${analysis.unassignedPages.length} unassigned page${analysis.unassignedPages.length === 1 ? '' : 's'}`,
-      body: `${pct}% of the site belongs to no cluster. Assign, merge or retire before commissioning anything new.`,
-      chipLabel: 'Highest effort', chipVariant: 'danger',
-    });
-  }
-
-  const orphanCount = analysis.pages.filter((p) => (p.flags || []).includes('orphan')).length;
-  if (orphanCount > 0) {
-    moves.push({
-      title: `Link ${orphanCount} orphaned page${orphanCount === 1 ? '' : 's'}`,
-      body: 'Capable pages with zero inbound internal links. A day of linking work, no new content required.',
-      chipLabel: 'Quick win', chipVariant: 'success',
-    });
-  }
-
-  return moves.slice(0, 3).map((m, i) => ({ ...m, n: String(i + 1).padStart(2, '0') }));
-}
 
 const CLASSIFICATION_META = {
   article: { label: 'Article', variant: 'success' },
@@ -118,8 +58,6 @@ export default function ContentArchitectProjectPage() {
   const [analyzeSteps, setAnalyzeSteps] = useState({});
   const [analysis, setAnalysis] = useState(null);
   const [exportingFormat, setExportingFormat] = useState(null);
-  const [selectedClusterId, setSelectedClusterId] = useState(null);
-  const [hubFilter, setHubFilter] = useState('all');
   const esRef = useRef(null);
   const startedRef = useRef(false);
 
@@ -290,39 +228,16 @@ export default function ContentArchitectProjectPage() {
   }));
 
   const pageById = useMemo(() => new Map((analysis?.pages || []).map((p) => [p.id, p])), [analysis]);
-  const sortedClusters = useMemo(
-    () => [...(analysis?.clusters || [])].sort((a, b) => (a.health || 0) - (b.health || 0)),
-    [analysis]
-  );
-  const filteredClusters = useMemo(() => sortedClusters.filter((c) => (
-    hubFilter === 'no-hub' ? c.isGap : hubFilter === 'needs-work' ? c.health < 60 : true
-  )), [sortedClusters, hubFilter]);
   const estimatedCount = analysis?.pages.filter((p) => p.estimated).length || 0;
   const meanHealth = analysis?.clusters.length
     ? Math.round(analysis.clusters.reduce((s, c) => s + (c.health || 0), 0) / analysis.clusters.length)
     : 0;
-  const gapCount = analysis?.clusters.filter((c) => c.isGap).length || 0;
+
   const orphanCount = analysis?.pages.filter((p) => (p.flags || []).includes('orphan')).length || 0;
   const totalSpokes = analysis?.clusters.reduce((s, c) => s + c.spokeIds.length, 0) || 0;
   const pctUnassigned = analysis
     ? Math.round((100 * analysis.unassignedPages.length) / Math.max(1, analysis.pages.length))
     : 0;
-  const insightSentence = !analysis || !analysis.clusters.length
-    ? 'No clusters were found for this selection.'
-    : gapCount === 0 && orphanCount === 0
-      ? 'Structure looks solid — every cluster has a hub, and no pages are orphaned.'
-      : `${gapCount} of ${analysis.clusters.length} cluster${analysis.clusters.length === 1 ? '' : 's'} `
-        + `${gapCount === 1 ? 'has' : 'have'} no hub page, and ${orphanCount} page${orphanCount === 1 ? '' : 's'} `
-        + `link${orphanCount === 1 ? 's' : ''} to nothing.`;
-  const selectedCluster = selectedClusterId && selectedClusterId !== 'unassigned'
-    ? analysis?.clusters.find((c) => c.id === selectedClusterId) || null
-    : null;
-  const priorityMoves = useMemo(() => buildPriorityMoves(analysis), [analysis]);
-
-  useEffect(() => {
-    if (analysis) setSelectedClusterId(analysis.clusters.length ? sortedClusters[0].id : (analysis.unassignedPages.length ? 'unassigned' : null));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [analysis]);
 
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto' }}>
@@ -526,20 +441,38 @@ export default function ContentArchitectProjectPage() {
       )}
 
       {screen === 'results' && analysis && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* Mean health and the run's own controls. The report below is about
+              individual clusters; this is the one figure that is about the site,
+              plus what you can do to the analysis as a whole. */}
           <Card>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
                 <HealthDonut value={meanHealth} />
-                <div style={{ maxWidth: 480 }}>
-                  <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', lineHeight: 1.4 }}>{insightSentence}</div>
-                  <div style={{ display: 'flex', gap: 14, marginTop: 6, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{analysis.pages.length} pages analyzed</span>
-                    <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{analysis.clusters.length} clusters</span>
-                    <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{totalSpokes} spokes mapped</span>
+                <div style={{ maxWidth: 520 }}>
+                  {/* Every figure the four KPI boxes used to carry. They moved
+                      here so the report's own four tiles stay a summary of hub
+                      state rather than becoming one of eight numbers. */}
+                  <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{analysis.pages.length} pages analysed</span>
+                    <span style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{analysis.clusters.length} clusters</span>
+                    <span style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{totalSpokes} spokes mapped</span>
+                    <span style={{ fontSize: 12.5, color: analysis.unassignedPages.length ? 'var(--text)' : 'var(--text-2)' }}>
+                      {analysis.unassignedPages.length} unassigned ({pctUnassigned}%)
+                    </span>
+                    <span style={{ fontSize: 12.5, color: orphanCount ? 'var(--danger)' : 'var(--text-2)' }}>
+                      {orphanCount} orphaned
+                    </span>
                   </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
+                    {estimatedCount > 0
+                      ? `${estimatedCount} page(s) were estimated from their URL rather than crawled.`
+                      : 'Every page in this selection was fully crawled.'}
+                  </div>
+                  {/* The health number appears on every row below, so what it
+                      measures is said once, here, rather than nowhere. */}
                   <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 6, maxWidth: 460 }}>
-                    <strong>Health</strong> (0–100, averaged across clusters) scores whether a cluster has a hub page, how well that hub covers the topic, a healthy spoke count, internal link density, and how many clicks its pages sit from the homepage.
+                    <strong>Health</strong> (0-100, averaged across clusters) scores whether a cluster has a hub page, how well that hub covers the topic, a healthy spoke count, internal link density, and how many clicks its pages sit from the homepage.
                   </div>
                 </div>
               </div>
@@ -556,31 +489,6 @@ export default function ContentArchitectProjectPage() {
             </div>
           </Card>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-            <KpiBox label="Pages analysed" value={analysis.pages.length} note={estimatedCount > 0 ? `${estimatedCount} estimated, not crawled` : 'all fully crawled'} />
-            <KpiBox label="Clusters" value={analysis.clusters.length} note={gapCount ? `${gapCount} without a hub` : 'every cluster has a hub'} tone={gapCount ? 'warning' : null} />
-            <KpiBox label="Unassigned" value={analysis.unassignedPages.length} note={`${pctUnassigned}% of the site`} tone={pctUnassigned > 20 ? 'danger' : null} />
-            <KpiBox label="Orphaned pages" value={orphanCount} note="no inbound internal links" tone={orphanCount ? 'danger' : null} />
-          </div>
-
-          {priorityMoves.length > 0 && (
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', color: 'var(--text-3)', marginBottom: 10 }}>DO THESE FIRST</div>
-              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${priorityMoves.length}, minmax(0, 1fr))`, gap: 12 }}>
-                {priorityMoves.map((m) => (
-                  <Card key={m.n}>
-                    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-3)' }}>{m.n}</span>
-                      <Badge variant={m.chipVariant}>{m.chipLabel}</Badge>
-                    </div>
-                    <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>{m.title}</div>
-                    <div style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.5 }}>{m.body}</div>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          )}
-
           {analysis.crawlMeta?.sampled && (
             <Card style={{ background: 'var(--warning-soft)' }}>
               <div style={{ fontSize: 12 }}>
@@ -590,85 +498,7 @@ export default function ContentArchitectProjectPage() {
             </Card>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 340px) minmax(0, 1fr)', gap: 16, alignItems: 'flex-start' }}>
-            <Card style={{ padding: 0, overflow: 'hidden' }}>
-              <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.05em', color: 'var(--text-3)' }}>CLUSTERS · {analysis.clusters.length}</span>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {HUB_FILTERS.map((f) => (
-                    <button
-                      key={f.key}
-                      onClick={() => setHubFilter(f.key)}
-                      style={{
-                        cursor: 'pointer', fontSize: 11, fontWeight: 500, padding: '5px 10px', borderRadius: 'var(--r-pill)',
-                        border: hubFilter === f.key ? '1px solid var(--primary)' : '1px solid var(--border)',
-                        background: hubFilter === f.key ? 'var(--primary-soft)' : 'transparent',
-                        color: hubFilter === f.key ? 'var(--primary-text)' : 'var(--text-3)',
-                      }}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div style={{ maxHeight: 560, overflowY: 'auto', padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {filteredClusters.map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={() => setSelectedClusterId(c.id)}
-                    style={{
-                      textAlign: 'left', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 6, padding: 12,
-                      borderRadius: 'var(--r-md)',
-                      border: selectedClusterId === c.id ? '1px solid var(--primary)' : '1px solid var(--border)',
-                      background: selectedClusterId === c.id ? 'var(--primary-soft)' : 'var(--surface)',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: `var(--${healthVariant(c.health)})`, flexShrink: 0 }}>{c.health}</span>
-                    </div>
-                    <div style={{ height: 4, borderRadius: 2, background: 'var(--border)', overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${c.health}%`, borderRadius: 2, background: `var(--${healthVariant(c.health)})` }} />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{c.spokeIds.length} spokes</span>
-                      <Badge variant={c.isGap ? 'danger' : 'success'}>{c.isGap ? 'No hub' : 'Hub live'}</Badge>
-                    </div>
-                  </button>
-                ))}
-                {filteredClusters.length === 0 && (
-                  <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '8px 4px' }}>No clusters match this filter.</div>
-                )}
-
-                {analysis.unassignedPages.length > 0 && (
-                  <button
-                    onClick={() => setSelectedClusterId('unassigned')}
-                    style={{
-                      textAlign: 'left', cursor: 'pointer', marginTop: 4, padding: 12, borderRadius: 'var(--r-md)', display: 'flex', flexDirection: 'column', gap: 4,
-                      border: selectedClusterId === 'unassigned' ? '1px solid var(--primary)' : '1px dashed var(--border)',
-                      background: selectedClusterId === 'unassigned' ? 'var(--primary-soft)' : 'transparent',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Unassigned pages</span>
-                      <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{pctUnassigned}%</span>
-                    </div>
-                    <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{analysis.unassignedPages.length} pages belong to no cluster</span>
-                  </button>
-                )}
-              </div>
-            </Card>
-
-            <Card style={{ minHeight: 360 }}>
-              {selectedClusterId === 'unassigned' ? (
-                <UnassignedPanel pages={analysis.unassignedPages} />
-              ) : selectedCluster ? (
-                <ClusterDetailPanel cluster={selectedCluster} pageById={pageById} />
-              ) : (
-                <EmptyState title="No cluster selected" description="Pick a cluster from the list on the left." />
-              )}
-            </Card>
-          </div>
+          <HubSpokeReport analysis={analysis} pageById={pageById} navigate={navigate} />
 
           <div style={{ fontSize: 11, color: 'var(--text-3)', textAlign: 'center' }}>
             For the full retire/refresh reasoning, excluded-page detail, and every column, download the Excel above.
@@ -705,161 +535,3 @@ function HealthDonut({ value }) {
   );
 }
 
-function KpiBox({ label, value, note, tone }) {
-  return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', gap: 4, padding: '12px 14px',
-      borderRadius: 'var(--r-md)', background: 'var(--card)', border: '1px solid var(--border)',
-    }}>
-      <span style={{ fontSize: 10, letterSpacing: '.06em', color: 'var(--text-3)' }}>{label.toUpperCase()}</span>
-      <span style={{ fontSize: 20, fontWeight: 700, color: tone ? `var(--${tone})` : 'var(--text)' }}>{value}</span>
-      {note && <span style={{ fontSize: 10.5, color: 'var(--text-3)' }}>{note}</span>}
-    </div>
-  );
-}
-
-// ── Enhance ─────────────────────────────────────────────────────────────────
-//
-// Hub and Spoke identifies the pages; Enhance Existing Article is what you do
-// about them. They were two tools with no path between them: you read a spoke
-// URL here, went to the sidebar, found the enhancer, and pasted the URL back in.
-//
-// The content type carries over because it changes what the enhancer does — a
-// hub is a navigational page judged on how well it covers and links a topic, a
-// spoke is long-form judged on depth. Sending every page over as "article" would
-// have the enhancer rewrite a hub as if it were one.
-//
-// Both values land as ordinary initial state on the other side, so they stay
-// editable: this is a prefill, not a lock.
-function enhanceHref(url, contentType) {
-  return `/article-enhancement?url=${encodeURIComponent(url)}&contentType=${contentType}`;
-}
-
-function EnhanceButton({ url, contentType, navigate, style }) {
-  if (!url) return null;
-  return (
-    <button
-      type="button"
-      onClick={(e) => { e.stopPropagation(); navigate(enhanceHref(url, contentType)); }}
-      title={`Open this ${contentType === 'hub' ? 'hub' : 'page'} in Enhance Existing Article`}
-      style={{
-        fontSize: 11.5, fontWeight: 600, color: 'var(--text-2)', background: 'var(--surface)',
-        border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px',
-        cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap', ...style,
-      }}
-    >
-      Enhance
-    </button>
-  );
-}
-
-function ClusterDetailPanel({ cluster: c, pageById }) {
-  const navigate = useNavigate();
-  const hub = c.hubPageId ? pageById.get(c.hubPageId) : null;
-  const spokes = c.spokeIds.map((sid) => pageById.get(sid)).filter(Boolean);
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
-            <h3 style={{ margin: 0, fontSize: 19, fontWeight: 600, color: 'var(--text)' }}>{c.name}</h3>
-            <Badge variant={c.isGap ? 'danger' : 'success'}>{c.isGap ? 'No hub page' : 'Hub page live'}</Badge>
-            {c.ambiguous && <Badge variant="warning">Ambiguous hub</Badge>}
-          </div>
-          {c.description && <p style={{ margin: 0, fontSize: 13, color: 'var(--text-3)', maxWidth: 640 }}>{c.description}</p>}
-        </div>
-        <Badge variant={healthVariant(c.health)} style={{ fontSize: 13, padding: '4px 12px', height: 'auto', flexShrink: 0 }}>Health {c.health}/100</Badge>
-      </div>
-
-      {c.isGap ? (
-        <div style={{ padding: 14, borderRadius: 'var(--r-md)', border: '1px solid var(--danger)', background: 'var(--danger-soft)' }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Suggested new page: {c.gapSuggestion?.title}</div>
-          <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 2 }}>{c.gapSuggestion?.slug}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>
-            Would tie together {spokes.length} existing page{spokes.length === 1 ? '' : 's'} below.
-          </div>
-        </div>
-      ) : hub && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--r-md)', border: '1px solid var(--warning)', background: 'var(--warning-soft)' }}>
-          <Badge variant="warning">HUB</Badge>
-          <a href={hub.url} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {hub.title || hub.url}
-          </a>
-          {hub.wordCount ? <span style={{ fontSize: 11, color: 'var(--text-3)', marginLeft: 'auto', flexShrink: 0 }}>{hub.wordCount.toLocaleString()} words</span> : null}
-          <EnhanceButton
-            url={hub.url}
-            contentType="hub"
-            navigate={navigate}
-            style={hub.wordCount ? undefined : { marginLeft: 'auto' }}
-          />
-        </div>
-      )}
-
-      <div>
-        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.05em', color: 'var(--text-3)' }}>SPOKES · {spokes.length}</span>
-        {spokes.length === 0 ? (
-          <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 8 }}>No spoke pages in this cluster.</div>
-        ) : (
-          <div style={{ borderRadius: 'var(--r-md)', border: '1px solid var(--border)', overflow: 'hidden', marginTop: 8 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 90px 100px 92px', gap: 12, padding: '8px 14px', background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-              <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.06em', color: 'var(--text-3)' }}>SPOKE PAGE</span>
-              <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.06em', color: 'var(--text-3)' }}>WORDS</span>
-              <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.06em', color: 'var(--text-3)' }}>STATUS</span>
-              <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.06em', color: 'var(--text-3)' }}>ACTION</span>
-            </div>
-            {spokes.map((s, i) => {
-              const st = spokeStatusFor(s);
-              return (
-                <div
-                  key={s.id}
-                  style={{
-                    display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 90px 100px 92px', gap: 12, padding: '10px 14px', alignItems: 'center',
-                    borderBottom: i < spokes.length - 1 ? '1px solid var(--border)' : 'none',
-                  }}
-                >
-                  <div style={{ minWidth: 0 }}>
-                    <a href={s.url} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: 'var(--text)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {s.title || s.url}
-                    </a>
-                    <div style={{ fontSize: 10.5, color: 'var(--text-3)' }}>
-                      {st.fix || `${s.inboundLinkCount || 0} inbound link${s.inboundLinkCount === 1 ? '' : 's'}`}
-                    </div>
-                  </div>
-                  <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{s.wordCount ? s.wordCount.toLocaleString() : '—'}</span>
-                  <Badge variant={st.variant}>{st.label}</Badge>
-                  {/* A spoke is long-form, so it goes over as an article. */}
-                  <EnhanceButton url={s.url} contentType="article" navigate={navigate} />
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function UnassignedPanel({ pages }) {
-  return (
-    <div>
-      <h3 style={{ margin: 0, fontSize: 19, fontWeight: 600, color: 'var(--text)' }}>Unassigned pages</h3>
-      <p style={{ margin: '4px 0 14px', fontSize: 13, color: 'var(--text-3)' }}>
-        {pages.length} page{pages.length === 1 ? '' : 's'} didn't clear the similarity bar for any cluster — each shows the cluster it came closest to.
-      </p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 480, overflowY: 'auto' }}>
-        {pages.map((p) => (
-          <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
-            <a href={p.url} target="_blank" rel="noreferrer" style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {p.title || p.url}
-            </a>
-            {p.nearestCluster && (
-              <span style={{ fontSize: 11, color: 'var(--text-3)', flexShrink: 0 }}>
-                closest: {p.nearestCluster.clusterName} ({Math.round(p.nearestCluster.similarity * 100)}%)
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}

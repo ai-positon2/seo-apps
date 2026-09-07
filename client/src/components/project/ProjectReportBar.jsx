@@ -85,6 +85,44 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
     return projects.find((p) => p.id === activeProjectId) || projects[0];
   }, [projects, activeProjectId]);
 
+  // ── Which project this bar reads, before the list can say ─────────────────
+  //
+  // The module detail used to wait for /api/projects, which put this bar two
+  // round trips deep before anything appeared: list the projects, THEN read the
+  // module — each starting only once the last had landed. The page above shows a
+  // skeleton for the whole of it, so on this deployment that was ~950ms of
+  // resolving before a stored report could even be drawn.
+  //
+  // The list almost always just confirms the id already sitting in localStorage,
+  // so that id is used immediately and the list merely corrects it. When the two
+  // agree — the overwhelmingly common case — the two reads have been in flight
+  // together for one round trip instead of two. When they disagree (a deleted
+  // project, a different workspace) `project` resolves to something else and the
+  // effect below re-runs against it.
+  //
+  // Speculative, not trusted: the id is membership-checked server-side like any
+  // other, so a stale one gets a 403 rather than somebody else's report. This is
+  // the same pattern the home dashboard uses for the same reason.
+  const readProjectId = project?.id || (projects === null ? activeProjectId : null);
+
+  // Whether the list has come back yet, as a ref rather than a dependency.
+  //
+  // `load` must NOT re-run just because `projects` resolved. In the common case
+  // the list confirms the id the read already used, and depending on `project`
+  // would fire an identical second request the moment it landed — turning the
+  // saved round trip back into two. `readProjectId` is a string, so when the
+  // list agrees it does not change and the effect stays put.
+  const listSettled = useRef(false);
+  useEffect(() => { if (projects !== null) listSettled.current = true; }, [projects]);
+
+  // The project this bar is currently meant to be showing, readable from inside
+  // a read that started before it changed. When the list rejects the speculative
+  // id there are two reads in flight — the stale one and the corrected one — and
+  // nothing makes them resolve in the order they were sent. Without this the
+  // slower of the two wins, which can be the wrong client's report.
+  const wantedProjectId = useRef(readProjectId);
+  useEffect(() => { wantedProjectId.current = readProjectId; }, [readProjectId]);
+
   useEffect(() => {
     let cancelled = false;
     projectsApi.list()
@@ -94,18 +132,25 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
   }, []);
 
   const load = useCallback(async () => {
-    if (!project) return;
+    if (!readProjectId) return;
     try {
-      const next = await projectsApi.moduleDetail(project.id, moduleKey);
+      const next = await projectsApi.moduleDetail(readProjectId, moduleKey);
+      if (wantedProjectId.current !== readProjectId) return;   // see wantedProjectId
       setDetail(next);
       setError(null);
       const first = defaultPage(next.pages);
       if (first) setSelectedId((current) => current || first.pageRunId);
     } catch (e) {
+      // A speculative read the list has not confirmed yet is allowed to fail
+      // quietly: `project` is about to resolve and this effect will run again
+      // against whatever the server actually returned. Reporting it would flash
+      // an error for a client nobody asked to see.
+      if (!listSettled.current) return;
+      if (wantedProjectId.current !== readProjectId) return;
       setDetail(null);
       setError(e);
     }
-  }, [project, moduleKey]);
+  }, [readProjectId, moduleKey]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -120,11 +165,21 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
   //
   // Clearing both on the project id makes the guard mean what it was written to
   // mean: it protects a reload WITHIN one client, not across two.
+  //
+  // It clears state belonging to ANOTHER client, so it must not fire the first
+  // time a client resolves — there is no previous one, and by then the
+  // speculative read above has usually already fetched this client's detail.
+  // Wiping it there left `detail` null with nothing to refetch it (the read is
+  // keyed on the project id, which had not changed), and the resolve effect
+  // below returns early without a detail: the page sat on its skeleton forever.
+  // A null `previous` means nothing stale exists, so there is nothing to clear.
   const lastProjectId = useRef(null);
   useEffect(() => {
     if (!project) return;
-    if (lastProjectId.current === project.id) return;
+    const previous = lastProjectId.current;
+    if (previous === project.id) return;
     lastProjectId.current = project.id;
+    if (previous === null) return;
     setSelectedId(null);
     setDetail(null);
     openedKey.current = null;
@@ -205,9 +260,26 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
     openedKey.current = key;
 
     let cancelled = false;
+    // Whether this fetch got far enough to be worth keeping the claim above.
+    //
+    // `openedKey` is claimed BEFORE the request, to stop the report being
+    // re-fetched on every render. But the claim outlived a cancellation: if any
+    // dependency changed while the request was in flight, the cleanup below set
+    // `cancelled` — so the reply was dropped — and the re-run then found the key
+    // already claimed and returned without fetching anything. Nothing handed a
+    // report over, nothing called emitResolved, and the page sat on its skeleton
+    // for ever. The note above openReport describes this exact trap and only
+    // closed one door into it; every other dependency in the array below is
+    // another, and `detail` walks through it whenever a second read of the module
+    // lands (React's development double-invoke does that on every mount).
+    //
+    // So a cancelled-in-flight request gives the key back and the next run
+    // retries. A settled one keeps it, which is what stops the re-fetch loop.
+    let settled = false;
     setLoadingPage(true);
     projectsApi.modulePageReport(project.id, selectedId)
       .then(({ page }) => {
+        settled = true;
         if (cancelled) return;
         if (page.native) {
           openReport.current(page.native, detail, page);
@@ -217,10 +289,13 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
           emitResolved('none');
         }
       })
-      .catch((e) => { if (!cancelled) setError(e); })
+      .catch((e) => { settled = true; if (!cancelled) setError(e); })
       .finally(() => { if (!cancelled) setLoadingPage(false); });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (!settled && openedKey.current === key) openedKey.current = null;
+    };
   }, [project, detail, isPerPage, pages.length, selectedId, emitResolved]);
 
   // ── Analyze another page ──────────────────────────────────────────────────

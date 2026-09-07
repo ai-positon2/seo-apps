@@ -412,6 +412,59 @@ async function updateProject({ access, patch }) {
     changed.enabled = { from: project.enabled, to: update.enabled };
   }
 
+  // ── How many pages this client's crawls fetch ───────────────────────────
+  //
+  // Settable after creation, which it was not. createProject() accepts
+  // crawlOptions and then clamps DOWNWARD only — `if (maxUrls > limit ||
+  // !maxUrls) maxUrls = limit` — so a project stored with a small budget kept
+  // it permanently: nothing in the API or the UI could raise it, and the only
+  // fix was to delete the project and make a new one. A real client sat at 150
+  // pages, re-crawling 150 pages a week, while every score on the dashboard
+  // described that fraction of the site without saying so.
+  //
+  // Clamped to the effective admin limit on the way in — the same ceiling
+  // createProject() applies — so this cannot exceed the operator's policy, and
+  // a clamp is audited as its own field rather than silently becoming the
+  // ceiling. Note the run-time path clamps AGAIN to MAX_URLS_CEILING, which
+  // the admin policy does not influence, so the number stored here is a
+  // request and not a guarantee.
+  if (patch.crawlOptions !== undefined) {
+    if (!patch.crawlOptions || typeof patch.crawlOptions !== 'object') {
+      throw invalid('crawlOptions must be an object.');
+    }
+    const { limits } = await adminLimits.effectiveLimits({ workspaceId: access.workspaceId });
+    const next = { ...(project.options || {}) };
+
+    let clamped = null;
+    if (patch.crawlOptions.maxUrls !== undefined) {
+      const asked = Math.floor(Number(patch.crawlOptions.maxUrls));
+      if (!Number.isFinite(asked) || asked < 1) {
+        throw invalid('maxUrls must be a whole number of at least 1.');
+      }
+      next.maxUrls = Math.min(asked, limits.maxUrlsPerCrawl);
+      // Clamped rather than rejected — but recorded as its own audited field
+      // when it happens, because the audit writer below keeps only `from` and
+      // `to` from each entry. Hanging `requested` and `ceilings` off the
+      // crawlOptions entry looked like it recorded them and did not: they were
+      // dropped on the way into oldState/newState. A request above policy has
+      // to be visible as such, or the trail shows the ceiling being chosen
+      // deliberately.
+      if (next.maxUrls !== asked) clamped = { from: asked, to: next.maxUrls };
+    }
+
+    if (patch.crawlOptions.maxDepth !== undefined) {
+      const asked = Math.floor(Number(patch.crawlOptions.maxDepth));
+      if (!Number.isFinite(asked) || asked < 1) {
+        throw invalid('maxDepth must be a whole number of at least 1.');
+      }
+      next.maxDepth = Math.min(asked, limits.maxCrawlDepth);
+    }
+
+    update.options = next;
+    changed.crawlOptions = { from: project.options || {}, to: next };
+    if (clamped) changed.crawlBudgetClampedByPolicy = clamped;
+  }
+
   if (patch.pages !== undefined) {
     if (!Array.isArray(patch.pages)) {
       throw invalid('pages must be an array of { url, keywords } entries.');
@@ -846,6 +899,140 @@ async function restoreProject({ access }) {
   return getProject(data);
 }
 
+// ── Permanent deletion ──────────────────────────────────────────────────────
+//
+// Deleted in dependency order — children before the rows they reference — so a
+// foreign key never blocks a purge halfway through and leaves a project neither
+// present nor gone.
+//
+// Only two entries, and the short list is the point. crawl_runs carries
+// `project_id ... on delete set null` (0010), so dropping the project row would
+// ORPHAN a client's entire crawl history — every run, result, finding and link
+// still on disk with nothing pointing at them — rather than remove it. It has to
+// go first and explicitly; crawl_run_results, crawl_run_findings,
+// crawl_run_finding_instances, crawl_finding_reviews and crawl_run_links then
+// cascade from it.
+//
+// Everything else that references a project is `on delete cascade`:
+// project_domains, project_pages, project_brands, recommendations,
+// project_module_runs, project_module_page_runs, project_module_schedules,
+// ai_visibility_prompts, ai_visibility_captures, capture_mention,
+// capture_citation, capture_attribute, page_category and category_rule. Naming
+// them here instead would be a list to forget to update — letting the database
+// do it is faster, impossible to get out of order, and purges a table added next
+// month without this code changing. Migration 0011's workspace PURGE_ORDER
+// deletes crawl_projects rows for exactly the same reason.
+//
+// audit_events.project_id is `set null` and stays behind on purpose. The trail
+// keeps its workspace_id, actor, reason and entity_id, so "what happened to that
+// project" still has a dated answer after the project itself is gone.
+const PROJECT_PURGE_ORDER = [
+  // Scoped by project_id alone. crawl_runs.workspace_id is itself `set null`
+  // (0010), so a run whose workspace was purged earlier still carries this
+  // project_id — adding a workspace predicate here would skip it and leave the
+  // very orphan this entry exists to prevent.
+  { table: 'crawl_runs', column: 'project_id' },
+  // The project row last, taking every cascade with it. Workspace-scoped for the
+  // same defense-in-depth as deleteProject: a project id is resolved from the
+  // caller's membership, and the delete re-states that constraint.
+  { table: 'crawl_projects', column: 'id', workspaceScoped: true },
+];
+
+/**
+ * Permanently destroys one project. Nothing survives this and nothing restores
+ * it — the opposite of deleteProject, which only flips a status.
+ *
+ * Two guards stand in front of it, because the operation has no undo:
+ *
+ *  - the project must ALREADY be soft-deleted, so erasing one is always a
+ *    second, deliberate act on something already out of use rather than one
+ *    click on a live client's data; and
+ *  - the caller must echo the project's exact name. An id in a URL is not
+ *    something a person reads, and "which project was I looking at" is precisely
+ *    the mistake that a permanent delete gives no chance to notice.
+ *
+ * The audit row is written BEFORE the deletion, with { strict: true }. It
+ * carries project_id, so writing it afterwards would either violate that
+ * foreign key or have to drop the reference; and a failure to record the one
+ * irreversible action in the system must stop it, not be swallowed. The cost is
+ * that a purge failing midway leaves a recorded intent — which is the safe
+ * direction: the trail over-reports rather than losing the event entirely.
+ */
+async function purgeProject({ access, reason, confirmName }) {
+  if (!isSupabaseConfigured()) throw notConfigured();
+  const project = access.project;
+
+  if (project.lifecycle_status !== 'deleted') {
+    throw Object.assign(
+      new Error('Delete the project first — permanent deletion only applies to an already-deleted project.'),
+      { status: 409, code: 'not_deleted' },
+    );
+  }
+
+  const expected = String(project.name || '').trim();
+  if (String(confirmName || '').trim() !== expected) {
+    throw Object.assign(
+      new Error(`Type the project name exactly ("${expected}") to permanently delete it.`),
+      { status: 400, code: 'confirm_name_mismatch' },
+    );
+  }
+
+  const db = getSupabase();
+
+  await auditEvents.record({
+    action: auditEvents.ACTIONS.PROJECT_PURGED,
+    workspaceId: project.workspace_id,
+    projectId: project.id,
+    actorUserId: access.userId,
+    actorEmail: access.actorEmail,
+    actorRole: access.role,
+    entityType: 'project',
+    entityId: project.id,
+    reason: reason || null,
+    // The name and url are snapshotted here because in a moment they will not
+    // exist anywhere else, and a trail that can only say "some project" cannot
+    // answer the question it is kept for.
+    oldState: {
+      name: project.name,
+      url: project.url,
+      lifecycleStatus: project.lifecycle_status,
+      deletedAt: project.deleted_at,
+    },
+    newState: { purged: true },
+    source: 'api.projects',
+  }, { strict: true });
+
+  const deleted = {};
+  for (const { table, column, workspaceScoped } of PROJECT_PURGE_ORDER) {
+    let query = db.from(table).delete().eq(column, project.id);
+    // Only when the project actually has a workspace. A project predating
+    // migration 0011's backfill is authorized by its creator instead
+    // (projectAccess.requireProject), and its workspace_id is null — an
+    // `.eq('workspace_id', null)` becomes SQL `= NULL`, which matches nothing,
+    // so adding the predicate unconditionally would delete no row and still
+    // report a successful purge.
+    if (workspaceScoped && project.workspace_id) {
+      query = query.eq('workspace_id', project.workspace_id);
+    }
+
+    const { data, error } = await query.select('id');
+    if (error) fail(`purgeProject.${table}`, error);
+    deleted[table] = (data || []).length;
+  }
+
+  // The project row is the one deletion that must have happened: every cascade
+  // hangs off it, so a zero here means the data is still there and every caller
+  // above has just been told it is gone. Louder than a wrong answer.
+  if (!deleted.crawl_projects) {
+    throw new Error(
+      `[store.purgeProject] ${project.id} still exists after its purge — nothing was deleted.`,
+    );
+  }
+
+  console.log(`[projects] purged ${project.name} (${project.id}):`, JSON.stringify(deleted));
+  return { id: project.id, name: project.name, purged: true, deleted };
+}
+
 module.exports = {
   DEFAULT_SCHEDULE_DAY,
   DEFAULT_SCHEDULE_HOUR,
@@ -864,4 +1051,6 @@ module.exports = {
   setRobotsOverride,
   deleteProject,
   restoreProject,
+  purgeProject,
+  PROJECT_PURGE_ORDER,
 };

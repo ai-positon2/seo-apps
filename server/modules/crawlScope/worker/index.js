@@ -11,6 +11,14 @@
 // minutes, so a weekly project can silently fire late (or, with several projects due at
 // once, hours late).
 
+// Env is loaded here, not just in server.js: this file is its own entry point
+// (`npm run worker`, and the Railway worker service). Deployed it inherits real
+// env vars from the platform, so the omission was invisible there — but run
+// locally it read an empty process.env and died on the first serviceClient()
+// call with "Supabase is not configured", before a single line of its own ran.
+// Matches server.js and worker-module.js, the other two entry points.
+require("dotenv").config({ path: require("path").join(__dirname, "../../../../.env") });
+
 const os = require("node:os");
 
 const { serviceClient } = require("../db/supabase");

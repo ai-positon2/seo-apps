@@ -267,6 +267,238 @@
   body { transition: none; }
 }
 
+/* ── Home: the audit profile ──────────────────────────────────────────────
+   The one place in the app that needs real breakpoints rather than an auto-fit
+   grid, so it is the one place with classes instead of inline styles.
+
+   The radar is a FIXED column and the cards are exactly three to a row. Both
+   matter: `auto-fit` gave the radar whatever was left over, so the same chart
+   was 320px wide on one window and 380px on another and its labels reflowed
+   between them; and it fitted five 268px cards across at full width, which made
+   six modules read as a list of links rather than as one profile.
+
+   Below 1180px the radar stops being a column and sits above the cards, because
+   a 300px chart next to two 200px cards is a chart with a margin, not a
+   comparison. */
+.home-profile {
+  display: grid;
+  /* 320, not the design's 300: AuditRadar sizes its labels in viewBox units, so
+     the card's rendered width is what decides whether they are readable, and it
+     is tuned for a card no narrower than this. See the note in AuditRadar.jsx —
+     twenty pixels is invisible in the layout and is the whole difference between
+     a 10px label and a legible one. */
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.home-modules {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 1180px) {
+  .home-profile { grid-template-columns: minmax(0, 1fr); }
+  .home-modules { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 720px) {
+  .home-modules { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* The module card's link is the card: stretched over the whole surface, with no
+   content of its own. So it needs a ring drawn for it, or the keyboard path
+   through the profile is six invisible stops. */
+.module-card-link:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ── The Tech Audit report ────────────────────────────────────────────────
+   The crawl report's page frame and its three grids. Classes rather than
+   inline styles for the same reason the home profile uses them: these need
+   real breakpoints, and an auto-fit grid gets the column count wrong at the
+   widths that matter. See pages/CrawlScopeRunPage.jsx. */
+.crawl-report {
+  padding: 24px 32px 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+/* The health card is a fixed column beside the metrics: given a share of the
+   width it stretched to 520px on a wide window, which put a 64px score alone
+   on a line with nothing beside it. */
+.crawl-overview {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.crawl-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* An issue's own page: three stat tiles, then two cards of prose. */
+.crawl-detail-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.crawl-detail-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 1080px) {
+  .crawl-overview { grid-template-columns: minmax(0, 1fr); }
+  .crawl-detail-cards { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 760px) {
+  .crawl-report { padding: 20px 16px 56px; gap: 24px; }
+  .crawl-tiles,
+  .crawl-detail-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ── The SEO & GEO report ─────────────────────────────────────────────────
+   Narrower than the crawl report on purpose: this one is about a single page
+   and is mostly prose — the model's verdict, its reasons, its fixes — where the
+   crawl report is mostly tables. 1100px keeps a paragraph at a readable
+   measure. See pages/SeoGeoAuditPage.jsx. */
+.geo-report {
+  padding: 24px 32px 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.geo-ministats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.geo-counts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+/* Six answer engines, three to a row: each tile carries a sentence explaining
+   its verdict, and six across gives that sentence a 150px measure. */
+.geo-platforms {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 4px;
+}
+
+@media (max-width: 900px) {
+  .geo-platforms { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .geo-ministats,
+  .geo-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  .geo-report { padding: 20px 16px 56px; }
+  .geo-platforms { grid-template-columns: minmax(0, 1fr); }
+}
+
+
+/* ── The AI Visibility report ────────────────────────────────────────────
+   Wider than the SEO & GEO report and narrower than the crawl report: this one
+   is mostly six-and-seven-column tables of sources and captures, which need the
+   room, but its KPI rows read badly stretched past this. The vertical rail this
+   replaced took 240px off every one of those tables.
+   See pages/AiVisibilityPage.jsx. */
+.aiv-report {
+  padding: 28px 32px 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 1220px;
+  margin: 0 auto;
+}
+
+@media (max-width: 760px) {
+  .aiv-report { padding: 20px 16px 56px; gap: 20px; }
+}
+
+/* ── The Competitor Analysis report ──────────────────────────────────────
+   Same frame as the AI Visibility report: both are wide comparison tables of
+   one client against its rivals. See pages/CompetitorAnalysisDashboardPage.jsx. */
+.ca-report {
+  padding: 28px 32px 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 1220px;
+  margin: 0 auto;
+}
+
+/* The three figures about the run itself. Three across, because they are one
+   thought — when, how much it cost, over how many domains. */
+.ca-runstats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 860px) {
+  .ca-runstats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  .ca-report { padding: 20px 16px 56px; gap: 20px; }
+  .ca-runstats { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── The Agent Readiness report ──────────────────────────────────────────
+   Layout hooks only: the page sets its desktop grids as inline style props,
+   matching the design, which has no media queries of its own — it is a
+   fixed-width desktop mockup. So the only thing needed here is the narrow
+   width behaviour, at the single 640px breakpoint this page has always used.
+
+   Every grid rule below needs !important. An inline style declaration
+   outranks any stylesheet rule that is not !important, so without it these
+   are inert and the desktop columns survive to the narrowest screen.
+   See pages/AgentReadinessAuditPage.jsx. */
+@media (max-width: 640px) {
+  .ara-score-grid,
+  .ara-sub-scores,
+  .ara-roadmap-grid,
+  .ara-brief-grid,
+  .ara-form-grid { grid-template-columns: 1fr !important; }
+
+  .ara-header-row {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 10px !important;
+  }
+
+  /* A full URL set at 28px will not fit a phone on one line, and it is one
+     unbroken token, so it needs explicit permission to break. */
+  .ara-header-row h1 { overflow-wrap: anywhere; }
+
+  .ara-share-btn { width: 100%; justify-content: center; }
+}
+
+.ara-share-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }

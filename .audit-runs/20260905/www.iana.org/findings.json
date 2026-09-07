@@ -1,0 +1,294 @@
+{
+  "domain": "www.iana.org",
+  "run_id": "a0743a84-bc4e-4ac6-84f3-dd7b2822b95b",
+  "commit": "e4b3a72",
+  "crawl": {
+    "urls_fetched": 650,
+    "internal": 500,
+    "external": 150,
+    "cap_hit": true,
+    "duration_s": 355,
+    "exit_code": 0,
+    "persistence": "signals-only",
+    "status": "completed",
+    "lost_result_rows": 0,
+    "coverage_complete": false,
+    "coverage_incomplete_reason": "Step 5 positive-control check could not run: results.json was not dumped (the Step 2 requirement did not exist at the time) and the crawl store was cleaned up afterwards. The 29 NOT_APPLICABLE verdicts cannot be re-audited and must NOT be counted toward any dead-detector claim in Phase C. Exception: the two title verdicts rest on a fresh exhaustive census (title-census.json) and are safe to rely on."
+  },
+  "ledger": {
+    "fired": 18,
+    "not_fired": 78,
+    "total": 96
+  },
+  "reconciliation": {
+    "findings_returned": 7298,
+    "summary_findings_count": 7298,
+    "ledger_sum": 7298,
+    "per_severity_match": true,
+    "verdict": "MATCH",
+    "note": "crawl_run_findings holds 18 rows (one per rule, with a count column); crawl_run_finding_instances holds 7,298 (one per occurrence). findings_cmd serves the 7,298 instances. Every per-rule number in this report is an INSTANCE count. At rule level the run found 18 issues, not 7,298."
+  },
+  "defects": [
+    {
+      "id": "D1",
+      "rule_id": "anchor-missing",
+      "type": "COUNT_MISMATCH",
+      "severity": "P2",
+      "evidence_url": "https://www.iana.org/domains/idn-tables",
+      "observed": "3,830 anchor-missing findings on this page, presented as a complete count",
+      "expected": "11,113 anchors without an accessible name (5,652 of them .xml links). The crawler stored bodyTruncated=true and decodedSize=5,000,000 against a real body of 14,383,618 bytes, so it parsed the first 5MB and counted what it saw. Confirmed by fetching the page independently and counting anchors with cheerio.",
+      "repro": "evidence/anchor-missing__1.http — load, count $('a') with no text/aria-label/title/img[alt]"
+    },
+    {
+      "id": "D2",
+      "rule_id": "broken-external-link",
+      "type": "FALSE_POSITIVE",
+      "severity": "P2",
+      "evidence_url": "https://www.icann.org/privacy/policy",
+      "observed": "966 of 1,021 findings report detail 'Timed out' for two icann.org footer links (483 each)",
+      "expected": "HTTP 301, served promptly. The link is not broken. The crawl requested icann.org 483+ times for the same two URLs, so the timeout is most likely self-inflicted rather than a property of the destination.",
+      "repro": "evidence/broken-external-link__1.http — status line reads 301"
+    },
+    {
+      "id": "D3",
+      "rule_id": "title-multiple",
+      "type": "FALSE_POSITIVE",
+      "severity": "P2",
+      "evidence_url": "https://www.iana.org/performance",
+      "observed": "titleCount=49, title-multiple fired",
+      "expected": "Exactly one document <title> ('Performance'). The other 48 are <title> elements inside inline <svg>, which are SVG accessibility labels carrying chart data ('August 2025: 100%'), not document titles. Same on /dnssec/tcrs with 41.",
+      "repro": "evidence/title-multiple__1.http — $('head > title') is 1, $('svg title') is 48"
+    },
+    {
+      "id": "D4",
+      "rule_id": "sitemap-missing-indexable",
+      "type": "BAD_EVIDENCE",
+      "severity": "P2",
+      "evidence_url": "https://www.iana.org/sitemap.xml",
+      "observed": "484 separate page-scoped findings, each with detail:'' and detectedValue:''. Accounts for 484 of the run's 486 total errors.",
+      "expected": "The underlying condition is real — robots.txt declares no Sitemap and /sitemap.xml returns 404, so the site publishes none. But it is one site-level fact, and emitting it 484 times with no evidence payload makes the error count a single condition counted 484 times.",
+      "repro": "evidence/sitemap-missing-indexable__1.http (robots.txt, 24 bytes, no Sitemap line) and __2.http (404)"
+    },
+    {
+      "id": "D5",
+      "rule_id": "meta-missing",
+      "type": "BAD_EVIDENCE",
+      "severity": "P3",
+      "evidence_url": "https://www.iana.org/about",
+      "observed": "484 findings with detail:'' and detectedValue:''",
+      "expected": "Detection is correct — the page genuinely has no meta description. But an issue record with no observed value gives a developer nothing to locate.",
+      "repro": "evidence/meta-missing__1.http — no <meta name=\"description\">"
+    },
+    {
+      "id": "D6",
+      "rule_id": "external-403",
+      "type": "MIS_SEVERITY",
+      "severity": "P3",
+      "evidence_url": "https://www.icann.org/",
+      "observed": "483 findings for one footer link to icann.org, scope=template",
+      "expected": "Classification and wording are correct (403 proves refusal, not absence) and the target really does return 403 behind Cloudflare. But scope=template is already known, so one finding with a page count would say the same thing 483 times more usefully.",
+      "repro": "evidence/external-403__1.http — 403, server: cloudflare"
+    }
+  ],
+  "verified_ok": [
+    "external-403",
+    "meta-missing",
+    "open-graph-incomplete",
+    "heading-hierarchy-skipped",
+    "sitemap-robots-config",
+    "sitemap-unreadable",
+    "llms-missing"
+  ],
+  "unverifiable": [
+    {
+      "rule_id": "broken-internal-links",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "crawl-failure",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "broken-javascript",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "mixed-content",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "hsts-missing",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "robots-issue",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "blocked-resource",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "sitemap-incorrect-url",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "sitemap-redirect",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "sitemap-duplicate",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "robots-blocked",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "orphan-page",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "single-inlink",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "mixed-incoming-follow",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "internal-nofollow-link",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "http-homepage",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "canonical-to-broken",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "canonical-to-redirect",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "canonical-chain",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "canonical-to-noindex",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "title-duplicate",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "title-long",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "meta-duplicate",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "meta-long",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "meta-short",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "h1-duplicate",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "viewport-not-responsive",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "low-text-html-ratio",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "content-duplicate-exact",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "external-nofollow",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "resource-as-link",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "image-oversized",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "open-graph-description-missing",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "asset-uncached",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "asset-uncompressed",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "llms-format",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "javascript-rendered-site",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "crawl-trap",
+      "reason": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    }
+  ],
+  "fixture_backlog": [
+    "base-url-ignored",
+    "ssl-certificate-name",
+    "sni-unsupported",
+    "http-refresh"
+  ],
+  "step5": {
+    "not_applicable": 29,
+    "structurally_silent": 7,
+    "fixture_only": 4,
+    "suspected_false_negative": 38
+  },
+  "probes": {
+    "results": [
+      {
+        "rule_id": "title-long",
+        "verdict": "NOT_APPLICABLE",
+        "proof": "exhaustive census of all 484 HTML pages: max title length 39 against a 60-char threshold, 0 over"
+      },
+      {
+        "rule_id": "title-duplicate",
+        "verdict": "NOT_APPLICABLE",
+        "proof": "exhaustive census of all 484 HTML pages: 484 distinct titles, 0 duplicated"
+      },
+      {
+        "rule_id": "broken-internal-links",
+        "verdict": "NOT_APPLICABLE",
+        "proof": "40 internal links from 8 pages returned zero >=400; consistent with zero 4xx across all 500 internal results"
+      }
+    ],
+    "method": "title rules: exhaustive re-fetch of every internal URL. broken-internal-links: 40-link sample."
+  },
+  "grain": {
+    "crawl_run_findings_rows": 18,
+    "crawl_run_finding_instances_rows": 7298,
+    "findings_cmd_returns": "instances",
+    "note": "Every per-rule count in this run is an instance count. 18 rules fired."
+  }
+}

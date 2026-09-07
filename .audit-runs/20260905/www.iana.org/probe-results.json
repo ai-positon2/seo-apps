@@ -1,0 +1,157 @@
+{
+  "titles": [
+    {
+      "url": "https://www.iana.org/domains/root/db/bananarepublic.html",
+      "title": ".bananarepublic Domain Delegation Data",
+      "len": 38
+    },
+    {
+      "url": "https://www.iana.org/",
+      "title": "Internet Assigned Numbers Authority",
+      "len": 35
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/amsterdam.html",
+      "title": ".amsterdam Domain Delegation Data",
+      "len": 33
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/bloomberg.html",
+      "title": ".bloomberg Domain Delegation Data",
+      "len": 33
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/democrat.html",
+      "title": ".democrat Domain Delegation Data",
+      "len": 32
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/abogado.html",
+      "title": ".abogado Domain Delegation Data",
+      "len": 31
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/booking.html",
+      "title": ".booking Domain Delegation Data",
+      "len": 31
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/cooking.html",
+      "title": ".cooking Domain Delegation Data",
+      "len": 31
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/bharti.html",
+      "title": ".bharti Domain Delegation Data",
+      "len": 30
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/career.html",
+      "title": ".career Domain Delegation Data",
+      "len": 30
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/coffee.html",
+      "title": ".coffee Domain Delegation Data",
+      "len": 30
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/archi.html",
+      "title": ".archi Domain Delegation Data",
+      "len": 29
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/audio.html",
+      "title": ".audio Domain Delegation Data",
+      "len": 29
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/cheap.html",
+      "title": ".cheap Domain Delegation Data",
+      "len": 29
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/dubai.html",
+      "title": ".dubai Domain Delegation Data",
+      "len": 29
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/aero.html",
+      "title": ".aero Domain Delegation Data",
+      "len": 28
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/bbva.html",
+      "title": ".bbva Domain Delegation Data",
+      "len": 28
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/cafe.html",
+      "title": ".cafe Domain Delegation Data",
+      "len": 28
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/data.html",
+      "title": ".data Domain Delegation Data",
+      "len": 28
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/fage.html",
+      "title": ".fage Domain Delegation Data",
+      "len": 28
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/fiat.html",
+      "title": ".fiat Domain Delegation Data",
+      "len": 28
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/crs.html",
+      "title": ".crs Domain Delegation Data",
+      "len": 27
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/al.html",
+      "title": ".al Domain Delegation Data",
+      "len": 26
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/bs.html",
+      "title": ".bs Domain Delegation Data",
+      "len": 26
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/cc.html",
+      "title": ".cc Domain Delegation Data",
+      "len": 26
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/ck.html",
+      "title": ".ck Domain Delegation Data",
+      "len": 26
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/dj.html",
+      "title": ".dj Domain Delegation Data",
+      "len": 26
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/ee.html",
+      "title": ".ee Domain Delegation Data",
+      "len": 26
+    },
+    {
+      "url": "https://www.iana.org/domains/root/db/es.html",
+      "title": ".es Domain Delegation Data",
+      "len": 26
+    },
+    {
+      "url": "https://www.iana.org/domains/arpa",
+      "title": ".ARPA Domain",
+      "len": 12
+    }
+  ],
+  "long": 0,
+  "dupes": [],
+  "brokenInternal": []
+}

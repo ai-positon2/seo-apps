@@ -1,0 +1,58 @@
+{
+  "url_limit": 500,
+  "runs_root": ".audit-runs",
+  "_comment_audit": "Crawls one domain at the cap. {{DOMAIN}} and {{LIMIT}} are substituted. There is NO crawl CLI in this repo — no `audit` script, no `bin` entry in any package.json. The only ways to start a CrawlScope crawl are this HTTP endpoint and the worker's scheduler, so this is the real invocation. Requires the web process running (cd server && node server.js, default port 5000) and SEO_SESSION set to a valid `seo_session` cookie value.",
+  "audit_cmd": "curl -sS -X POST http://localhost:5000/api/crawl-scope/runs -H 'Content-Type: application/json' -H \"Cookie: seo_session=$SEO_SESSION\" -d '{\"url\":\"https://{{DOMAIN}}\",\"options\":{\"maxUrls\":{{LIMIT}}}}'",
+  "_comment_audit_gaps": "Three things the previous `npm run audit -- --save-raw --out {{RUN_DIR}}/audit` command implied that this repo cannot do.",
+  "audit_cmd_gaps": {
+    "no_raw_bodies": "Response bodies are parsed into extracted signals and discarded. No field on a result record holds HTML, and nothing writes bodies to disk. `--save-raw` has no equivalent.",
+    "no_full_headers": "Only ~10 named SEO-relevant headers are kept as scalar fields (xRobotsTag, cacheControl, contentEncoding, strictTransportSecurity, refreshHeader*, locationHeader*). The full response header map is never serialised.",
+    "run_dir_unused": "{{RUN_DIR}} is not honoured. Crawl output goes to Supabase (crawl_runs, crawl_run_results, crawl_run_findings, crawl_run_finding_instances, crawl_run_links), never to a local directory. Retrieve a run with GET /api/crawl-scope/runs/:id/results and /findings.",
+    "limit_is_clamped": "{{LIMIT}} is clamped at the API boundary by MAX_URLS_CEILING in .env (currently 500) and again by run/manager.js when the worker executes a stored run. Asking for more than the ceiling silently returns less; the response now carries `budgetClamped` when that happens."
+  },
+  "_comment_readback": "How Phase A reads a crawl back. The crawl POSTs to the API and everything lands in Supabase — there is no local artifact — so the run id from audit_cmd's 201 response is the handle for all three commands below. Substitute it for {{RUN_ID}}. Shapes below were read off server/modules/crawlScope/api/routes.js, not assumed.",
+  "run_id_path": ".run.id",
+  "run_id_note": "POST /runs responds 201 with {run, listInfo, budgetClamped}. The run object is a crawl_runs row, so the id is at .run.id — NOT .id or .runId. budgetClamped is non-null when {{LIMIT}} exceeded MAX_URLS_CEILING; if it is set, the crawl is smaller than requested and Phase A step 2 must say so.",
+  "run_status_cmd": "curl -sS -H \"Cookie: seo_session=$SEO_SESSION\" http://localhost:5000/api/crawl-scope/runs/{{RUN_ID}}",
+  "run_status_note": "Returns {run, active}. Poll run.status until it is one of completed | failed | stopped (queued and running mean keep waiting; paused means a human intervened). run.progress.crawled is the live count; run.summary appears only once terminal.",
+  "findings_cmd": "curl -sS -H \"Cookie: seo_session=$SEO_SESSION\" http://localhost:5000/api/crawl-scope/runs/{{RUN_ID}}/findings",
+  "findings_note": "Returns {findings: [...]}. Each finding carries: id, ruleId, title, description, recommendation, severity, priority, category, scope (site|template|page|resource), url, targetUrl, detail. Group by ruleId for the step 3 fire ledger — this endpoint is the ONLY source of per-rule counts; run.summary.counts is by severity only and cannot tell you which of the 96 rules fired.",
+  "results_cmd": "curl -sS -H \"Cookie: seo_session=$SEO_SESSION\" \"http://localhost:5000/api/crawl-scope/runs/{{RUN_ID}}/results?limit=2000&offset={{OFFSET}}\"",
+  "results_note": "Returns {results, offset, limit}. Each result has .url and .scope (Internal|External). PAGINATED: limit defaults to 500 and is capped at 2000, so a 500-page crawl (500 internal + up to 150 external checks) exceeds the default. Page with offset until a response returns fewer rows than you asked for. This is the source for {{RUN_DIR}}/urls.txt.",
+  "_comment_reeval": "DOES NOT EXIST. Left null deliberately rather than naming a script that is not there.",
+  "reeval_cmd": null,
+  "reeval_missing": {
+    "status": "There is no way to re-run the rule engine against a stored crawl. buildFindings() (server/modules/crawlScope/analyzer.js) has exactly one production caller — crawler.js:2161, inside the crawl completion path, using in-memory state. Every other reference is a test. No script, no endpoint, no exported function re-analyses stored rows.",
+    "inputs_required": "buildFindings({ results, linkEdges, resourceEdges, sitemapMembership, siteDiagnostics, startUrl, sitemapsChecked, crawlTruncated })",
+    "inputs_persisted": [
+      "results — crawl_run_results.data, complete",
+      "startUrl — crawl_runs.url",
+      "crawlTruncated — crawl_runs.summary.truncated",
+      "sitemapsChecked — derivable from crawl_runs.options.discoverSitemaps and mode"
+    ],
+    "inputs_not_persisted": [
+      "resourceEdges — never written to any table",
+      "sitemapMembership — in-memory only; not in the stored summary",
+      "siteDiagnostics — computed and used, but absent from the rolled summary (stored keys are: findingsCount, counts, mediaLibrary, integrations, robotsStatus, elapsed, resultCount, truncated, depthLimited, edgesTruncated, trapTemplates, lostResultRows)"
+    ],
+    "inputs_persisted_lossily": [
+      "linkEdges — crawl_run_links keeps 5 of the 19 edge fields the analyzer reads (from_url, to_url, anchor, rel, nofollow). Missing: accessibleName, elementHint, tag, mechanism, sourceAttribute, alt, altElementHint, altExempt, auditAlt, download, baseHrefRaw, documentBaseUrl, url. Rules such as anchor-missing and anchor-nondescriptive read those fields directly.",
+      "linkEdges — insertRunLinksStreaming filters on `edge.internal`, so EXTERNAL edges are not stored at all. broken-external-link, external-403 and external-nofollow cannot be re-evaluated."
+    ],
+    "to_add_it": "Two changes, in order. (1) Persist the missing inputs: add resourceEdges and sitemapMembership tables (or JSONB columns on crawl_runs), widen crawl_run_links to carry the full edge record and stop filtering out external edges, and add siteDiagnostics to the rolled summary in run/manager.js. (2) Add a CLI that loads those rows for a run id, calls buildFindings() with them, and writes the result — analyzer.js is already a pure function with no I/O, so step 2 is small once step 1 exists. Until (1) is done a reeval would silently produce different findings from the original crawl, which is worse than not having it."
+  },
+  "_comment_tests": "Full suite, used as the Phase B gate. Was `npm test`, which fails at repo root with 'Missing script: test' — the root package.json has only dev, install:all, build and start. The suite lives in server/. Verified: 184 tests, 0 failures.",
+  "test_cmd": "npm test --prefix server",
+  "_comment_lint": "There is no lint and no typecheck in this repo. No eslint, typescript, prettier or biome appears in any package.json (root, server, client), and there is no .eslintrc, eslint.config.*, tsconfig.json or .prettierrc anywhere. The client is JSX built by Vite, not TypeScript. Adding one would mean introducing the toolchain first, so the Phase B gate is tests only.",
+  "lint_cmd": null,
+  "typecheck_cmd": null,
+  "_comment_paths": "rule_map and catalog both resolve from the repo root. The prompt and rule files were sitting at ./prompts and ./rules, one level above where every command file expects them; they now live under audit-loop/.",
+  "rule_map": "audit-loop/rules/rule-classes.json",
+  "rule_map_note": "96 rules grouped by category, with a _meta block declaring total 96 and severity 27 error / 54 warning / 15 notice — matches issue-catalog.json. Phase A step 1 treats any mismatch between the two as a catalog_drift defect.",
+  "catalog": "server/modules/crawlScope/issue-catalog.json",
+  "catalog_note": "96 rules: 27 error, 54 warning, 15 notice. Categories: Indexability 30, Technical 20, Metadata 16, Accessibility & Social 8, Content 7, Links 7, Performance 4, Structured Data 4.",
+  "domains": [
+    "example-shop.com",
+    "example-news.com"
+  ]
+}

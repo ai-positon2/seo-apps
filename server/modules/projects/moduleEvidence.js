@@ -981,6 +981,10 @@ function aggregatePages(pageRuns) {
 
 module.exports = {
   PAGE_MODULE_KEYS,
+  // Exported so a test can assert that `queued` is NOT terminal: that single
+  // fact is what makes a freshly enqueued run read as in-flight on the
+  // dashboard rather than as one that has already finished.
+  TERMINAL,
   refreshRunAggregate,
   followedCrawlRunId,
   salvageInterruptedRun,

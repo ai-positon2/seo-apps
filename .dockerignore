@@ -1,0 +1,30 @@
+# Dockerfile does `COPY . .`, so without this file the build context — and the
+# published image — carried the repo's real credentials and full git history.
+#
+# Runtime configuration comes from the platform environment. dotenv is happy
+# when ../.env is absent (server/server.js:1), and platform variables take
+# precedence over a file anyway, so shipping .env only ever risked baking stale
+# secrets and localhost-only overrides (COOKIE_SECURE=false) into production.
+.env
+.env.*
+.git
+.gitignore
+
+# Reinstalled inside the image by `npm run build`; copying host builds in also
+# risks shipping platform-specific native binaries (puppeteer/chromium).
+node_modules
+**/node_modules
+client/dist
+
+# Local scratch and audit output, never part of a deployable image.
+.audit-runs
+.claude
+.pytest-review-temp
+.review-build
+audit-loop
+data
+server/secrets
+server/scripts/audit-results
+modules/robotsMonitor/data
+*.local
+.DS_Store

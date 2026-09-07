@@ -1,0 +1,174 @@
+{
+  "domain": "www.iana.org",
+  "phase_b_scope": "Steps 1-3 and 5 only. Step 4 (confirmation re-crawl) not run - no database.",
+  "status": "pass",
+  "status_note": "All five steps ran. Suite green, every rule-level difference in the confirmation re-crawl explained, no P1 left unfixed. The Phase A run this fixes remains coverage_complete:false — that is a property of the audit, not of these fixes.",
+  "commits": [
+    {
+      "sha": "8400d98",
+      "message": "fix(findings): mark findings derived from a truncated body [D1]",
+      "files": [
+        "server/modules/crawlScope/__tests__/truncated-body-findings.test.js",
+        "server/modules/crawlScope/analyzer.js"
+      ]
+    },
+    {
+      "sha": "32042e0",
+      "message": "fix(broken-external-link): retry an external HEAD timeout with GET [D2]",
+      "files": [
+        "server/modules/crawlScope/__tests__/external-head-timeout.test.js",
+        "server/modules/crawlScope/crawler.js"
+      ]
+    },
+    {
+      "sha": "5633704",
+      "message": "fix(title-multiple): exclude SVG and MathML from document elements [D3]",
+      "files": [
+        "server/modules/crawlScope/__tests__/foreign-content-titles.test.js",
+        "server/modules/crawlScope/crawler.js"
+      ]
+    },
+    {
+      "sha": "78dc6f3",
+      "message": "fix(meta-missing,sitemap-missing-indexable): carry an observed value [D5]",
+      "files": [
+        "server/modules/crawlScope/__tests__/finding-evidence-payload.test.js",
+        "server/modules/crawlScope/analyzer.js"
+      ]
+    },
+    {
+      "sha": "180f768",
+      "message": "feat(crawlScope): serve the per-rule findings rollup on /runs/:id/findings [D4]",
+      "files": [
+        "server/modules/crawlScope/api/routes.js",
+        "server/modules/crawlScope/db/repo.js"
+      ]
+    }
+  ],
+  "defects_fixed": [
+    "D1",
+    "D2",
+    "D3",
+    "D4",
+    "D5"
+  ],
+  "defects_deferred": [],
+  "fixtures_added": [
+    "server/modules/crawlScope/__tests__/truncated-body-findings.test.js",
+    "server/modules/crawlScope/__tests__/external-head-timeout.test.js",
+    "server/modules/crawlScope/__tests__/foreign-content-titles.test.js",
+    "server/modules/crawlScope/__tests__/finding-evidence-payload.test.js"
+  ],
+  "fixtures_note": "Conditions synthesised in-test rather than committed as artifacts: D1 uses a result with bodyTruncated set, not the 14MB page; D2 and D3 use local http servers reproducing the behaviour.",
+  "diff_vs_phase_a": {
+    "url_sets": {
+      "phase_a": 650,
+      "recrawl": 650,
+      "overlap_pct": 99.2,
+      "verdict": "99.2% overlap - the rule-level diff below is meaningful"
+    },
+    "rules_added": [],
+    "rules_dropped": [
+      "title-multiple"
+    ],
+    "counts_changed": [
+      {
+        "rule": "broken-external-link",
+        "from": 1021,
+        "to": 4,
+        "delta": -1017
+      },
+      {
+        "rule": "external-403",
+        "from": 485,
+        "to": 481,
+        "delta": -4
+      },
+      {
+        "rule": "https-to-http-link",
+        "from": 190,
+        "to": 188,
+        "delta": -2
+      },
+      {
+        "rule": "meta-missing",
+        "from": 484,
+        "to": 480,
+        "delta": -4
+      },
+      {
+        "rule": "open-graph-incomplete",
+        "from": 484,
+        "to": 480,
+        "delta": -4
+      },
+      {
+        "rule": "sitemap-missing-indexable",
+        "from": 484,
+        "to": 480,
+        "delta": -4
+      },
+      {
+        "rule": "slow-page",
+        "from": 233,
+        "to": 119,
+        "delta": -114
+      }
+    ],
+    "all_explained": true,
+    "explanations": {
+      "title-multiple": "D3. SVG <title> chart labels no longer counted as document titles. Expected exactly 2 -> 0.",
+      "broken-external-link": "D2. 1021 -> 4. Predicted ~-966 (two icann.org links at 483 each); actual -1017, so ~51 further instances came from other hosts that also hang on HEAD and answer GET. Larger than predicted, same cause.",
+      "external-403": "-4. URL-set churn: the rule fired once per source page for one icann.org footer link, and 4 of those source pages were not reached this run.",
+      "https-to-http-link": "-2. URL-set churn, same mechanism.",
+      "meta-missing": "-4. Four fewer HTML pages crawled (/domains/root/db/*.html), one finding each.",
+      "open-graph-incomplete": "-4. Same four pages.",
+      "sitemap-missing-indexable": "-4. Same four pages.",
+      "slow-page": "233 -> 119. NOT a code change. The rule fires on responseTime > 1000ms and the re-crawl has exactly 119 internal results over 1000ms. The distribution sits on the threshold (p75 = 999ms), so ordinary latency variance moves ~100 pages across it. This rule cannot serve as a regression signal in a confirmation diff."
+    }
+  },
+  "test_suite": {
+    "passed": 189,
+    "failed": 0
+  },
+  "regressions": [],
+  "steps_run": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "recrawl": {
+    "run_id": "655205a2-5c1d-4840-855f-1a5ece97d8f5",
+    "results": 650,
+    "findings_instances": 6147,
+    "elapsed_s": 368
+  },
+  "d4_measurement": {
+    "method": "curl against GET /runs/<id>/findings on the confirmation re-crawl, 3 samples each, same run, same server, before and after the change.",
+    "before": {
+      "bytes": 6675031,
+      "seconds_approx": 5.9,
+      "grain": "instance",
+      "rows": 6147
+    },
+    "after": {
+      "bytes": 2181,
+      "seconds_approx": 0.81,
+      "grain": "rule",
+      "rows": 17,
+      "query": "?grain=rule"
+    },
+    "improvement": {
+      "payload": "3,060x smaller",
+      "time": "~7x faster"
+    },
+    "default_unchanged": {
+      "bytes": 6675050,
+      "note": "19 bytes larger for the new grain field; instance grain is still the default so the report and review flow are unaffected."
+    },
+    "reconciles": "17 rollup rows sum to 6,147 - exactly findingsCount.",
+    "correction": "findings.md and deferred.md cited 2,083,798 bytes / 9.80s as Phase A's numbers. Those were the books.toscrape run (1,694 findings), not iana.org. Per-finding they are consistent (~1.1KB); the attribution was wrong. This is why a before/after must be measured on one run."
+  }
+}

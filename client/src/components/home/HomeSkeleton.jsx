@@ -1,4 +1,4 @@
-import { Card } from './primitives';
+import { Card } from '../studio/primitives';
 
 // ── The dashboard, before it has anything to say ─────────────────────────────
 //

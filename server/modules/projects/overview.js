@@ -116,19 +116,52 @@ function displayRunStatus(run) {
   return base;
 }
 
+// The only parts of a run's `summary` anything reads. Everything else in that
+// column stays in the database.
+//
+// `summary` is where the crawler puts what it learned, and one of the things it
+// puts there is the media library — every image, video and file it saw, with its
+// dimensions. On the live Palo Alto run that is 170.7KB of a 171KB summary, and
+// it was being read TWELVE TIMES per dashboard load (once per run in the
+// history) to draw a card that shows a status, a date and three counts. The
+// media library had a panel on the crawl report once; the panel is gone and the
+// column went on being fetched.
+//
+// `findings` is kept even though it is usually absent, because for a run
+// finalized before migration 0023 it is the only place its findings exist —
+// siteHealth falls back to it, and dropping it would silently withhold the score
+// on historical runs rather than fail loudly.
+const SUMMARY_KEYS = ['counts', 'findings', 'robotsStatus', 'resultCount', 'elapsed'];
+
 /** The crawl runs for this project, newest first. */
 async function recentCrawlRuns(projectId, limit = 12) {
   const { data, error } = await getSupabase()
     .from('crawl_runs')
     .select(
-      'id, status, summary, error, trigger, created_at, started_at, finished_at, progress, '
-      + 'heartbeat_at',
+      'id, status, error, trigger, created_at, started_at, finished_at, progress, heartbeat_at, '
+      + SUMMARY_KEYS.map((k) => `summary_${k}:summary->${k}`).join(', '),
     )
     .eq('project_id', projectId)
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) throw new Error(`[projects.overview.recentCrawlRuns] ${error.message}`);
-  return data || [];
+
+  // Rebuilt into the shape every caller already expects. Postgres can project
+  // the keys out of the JSON but cannot hand them back nested, so the run rows
+  // carry `summary` exactly as before — with only these keys in it.
+  return (data || []).map((row) => {
+    const summary = {};
+    let present = false;
+    for (const k of SUMMARY_KEYS) {
+      const v = row[`summary_${k}`];
+      delete row[`summary_${k}`];
+      if (v !== null && v !== undefined) { summary[k] = v; present = true; }
+    }
+    // A run with no summary at all keeps a null one, not an empty object: the
+    // callers test `run.summary?.counts`, and both read the same, but `{}` would
+    // claim the crawl stored a summary when it stored nothing.
+    return { ...row, summary: present ? summary : null };
+  });
 }
 
 /**
@@ -161,6 +194,168 @@ async function internalHtmlPageCount(runId) {
   return count;
 }
 
+// What each caller of findingInstancesForRun actually reads.
+//
+// Everything else a stored instance carries — targetUrl, rootCauseGroupId,
+// reviewStatus, detection, scope, statusCode, evidenceKey — is read by nobody,
+// and was crossing the wire 1,590 times per dashboard load to be dropped on
+// arrival.
+//
+// The two shapes exist because the two callers are nothing alike. siteHealth()
+// counts distinct affected pages per severity, so it reads two fields and only
+// two. The insight layer's crawlAdapter groups by rule and describes each one
+// from its first instance, so it needs the catalog text as well — and that text
+// (`recommendation` and `description`) is 43% of the payload, repeated
+// identically on every instance of a rule.
+//
+// Charging the dashboard for the insight layer's columns is what made the page
+// wait: on the live Palo Alto run the wide shape is 1,111KB and 1,205ms, the
+// narrow one 149KB and 488ms, for a score computed from severity and url.
+const INSTANCE_KEYS = [
+  'ruleId', 'url', 'title', 'severity', 'priority', 'category',
+  'detectedValue', 'recommendedValue', 'recommendation', 'detail', 'description',
+];
+const INSTANCE_KEYS_LIGHT = ['severity', 'url'];
+// `->`, not `->>`. The text operator stringifies whatever it projects, and a
+// stored instance's detectedValue is a NUMBER on 286 of this run's 1,000 rows —
+// a page's title length, a byte count. `->>` hands those back as "1342", which
+// every consumer then renders as a string that happens to look right and
+// compares as one that does not. `->` returns the JSON value with its type
+// intact; the two were diffed key-by-key over 1,000 rows to confirm it.
+const selectFor = (keys) => keys.map((k) => `${k}:data->${k}`).join(',');
+const INSTANCE_SELECT = selectFor(INSTANCE_KEYS);
+const INSTANCE_SELECT_LIGHT = selectFor(INSTANCE_KEYS_LIGHT);
+
+// One terminal run's instances, kept for a minute.
+//
+// The dashboard reads this set TWICE per load — once in buildOverview for the
+// site health score, once inside the insight layer's finding index — from two
+// separate requests that cannot share a promise. It is also re-read every 8
+// seconds while a crawl is running, by a poll that is refreshing a DIFFERENT
+// run's numbers: the instances belong to the last COMPLETED crawl, which by
+// definition is not the one still going.
+//
+// Only terminal runs are cached, and rows for a terminal run do not change —
+// they are chunk-inserted once when the crawl finalizes. The minute is not for
+// correctness, then, but to bound the memory of a process that would otherwise
+// hold every run it had ever been asked about.
+const INSTANCE_TTL_MS = 60_000;
+const instanceCache = new Map();   // `${runId}:${shape}` -> { at, rows }
+
+function cachedInstances(key) {
+  const hit = instanceCache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.at > INSTANCE_TTL_MS) {
+    instanceCache.delete(key);
+    return null;
+  }
+  return hit.rows;
+}
+
+function cacheInstances(key, rows) {
+  // Bounded: a workspace with many projects would otherwise accumulate one
+  // finding set per crawl for as long as the process lives.
+  if (instanceCache.size >= 12) {
+    const oldest = [...instanceCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+    if (oldest) instanceCache.delete(oldest[0]);
+  }
+  instanceCache.set(key, { at: Date.now(), rows });
+}
+
+/**
+ * Per-occurrence findings for one run — crawl_run_finding_instances
+ * (migration 0023), projected to the keys its callers read (INSTANCE_KEYS).
+ *
+ * A run finalized before 0023 shipped has no rows here — its findings are
+ * still sitting in the old location, crawl_runs.summary.findings — so this
+ * falls back there rather than reporting a false "no errors" for every run
+ * that predates the migration.
+ *
+ * @param {string}  runId
+ * @param {object} [opts]
+ * @param {boolean} [opts.cache=true]  read and write the terminal-run cache
+ */
+async function findingInstancesForRun(runId, { cache = true, shape = 'full' } = {}) {
+  const select = shape === 'light' ? INSTANCE_SELECT_LIGHT : INSTANCE_SELECT;
+  const cacheKey = `${runId}:${shape}`;
+  if (cache) {
+    const hit = cachedInstances(cacheKey);
+    if (hit) return hit;
+  }
+  // PostgREST applies its own `max-rows` ceiling (1,000 on Supabase) and
+  // silently returns a SHORT page when asked for more. So "fewer rows than I
+  // asked for" does NOT mean "no rows left" — with PAGE above the ceiling it is
+  // the normal case on every page, and breaking on it ended this loop after
+  // one. A 1,694-finding run served 1,000 findings; the report's own
+  // completeness line was the only thing that noticed.
+  //
+  // The old loop walked the pages one after another and stopped on an empty
+  // one, so a run cost (rows / 1,000) + 1 SEQUENTIAL round trips — and against a
+  // hosted database every one of those is ~240ms of pure latency, whatever it
+  // returns. The first page is asked for an exact count instead, which says how
+  // many pages exist, so the rest are fetched AT ONCE and the trailing empty
+  // probe is not needed at all. A 10,000-finding run goes from eleven round
+  // trips in series to one, then nine in parallel.
+  const PAGE = 1_000;
+  const CAP = 50_000;
+
+  const readPage = async (offset) => {
+    const q = getSupabase()
+      .from('crawl_run_finding_instances')
+      .select(select, offset === 0 ? { count: 'exact' } : undefined)
+      .eq('run_id', runId)
+      .order('id', { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    const { data, count, error } = await q;
+    if (error) throw new Error(`[projects.overview.findingInstancesForRun] ${error.message}`);
+    return { rows: data || [], count };
+  };
+
+  const first = await readPage(0);
+  const all = [...first.rows];
+
+  // `count` is the number of rows matching the filter, not the number returned,
+  // so it is the only trustworthy statement of how much is left. Falling back to
+  // the sequential walk if the server declined to count keeps this correct
+  // rather than truncating silently, which is the failure this whole comment
+  // block exists because of.
+  if (Number.isFinite(first.count)) {
+    const total = Math.min(first.count, CAP);
+    const offsets = [];
+    for (let o = all.length; o < total; o += PAGE) offsets.push(o);
+    const pages = await Promise.all(offsets.map((o) => readPage(o)));
+    for (const page of pages) all.push(...page.rows);
+  } else if (first.rows.length) {
+    let offset = all.length;
+    while (offset < CAP) {
+      // eslint-disable-next-line no-await-in-loop
+      const next = await readPage(offset);
+      if (!next.rows.length) break;
+      all.push(...next.rows);
+      offset += next.rows.length;
+    }
+  }
+
+  if (all.length) {
+    if (cache) cacheInstances(cacheKey, all);
+    return all;
+  }
+
+  const { data: run, error } = await getSupabase()
+    .from('crawl_runs')
+    .select('summary')
+    .eq('id', runId)
+    .maybeSingle();
+  if (error) throw new Error(`[projects.overview.findingInstancesForRun] ${error.message}`);
+  // The pre-0023 fallback returns whole stored findings whatever the shape asked
+  // for. That is not a shape violation: siteHealth reads severity and url off
+  // them either way, and narrowing an already-fetched array would only throw
+  // away fields the wide caller still wants.
+  const stored = Array.isArray(run?.summary?.findings) ? run.summary.findings : [];
+  if (cache) cacheInstances(cacheKey, stored);
+  return stored;
+}
+
 /** Per-rule findings for one run — the rollup crawl_run_findings already holds. */
 async function findingsForRun(runId) {
   const { data, error } = await getSupabase()
@@ -170,19 +365,6 @@ async function findingsForRun(runId) {
     .order('count', { ascending: false })
     .limit(200);
   if (error) throw new Error(`[projects.overview.findingsForRun] ${error.message}`);
-  return data || [];
-}
-
-/** Tool runs recorded against the workspace, for the activity table. */
-async function recentToolRuns(workspaceId, limit = 20) {
-  if (!workspaceId) return [];
-  const { data, error } = await getSupabase()
-    .from('tool_runs')
-    .select('id, tool_id, status, label, action, actor_email, created_at, completed_at, duration_ms, error')
-    .eq('workspace_id', workspaceId)
-    .order('created_at', { ascending: false })
-    .limit(limit);
-  if (error) throw new Error(`[projects.overview.recentToolRuns] ${error.message}`);
   return data || [];
 }
 
@@ -399,10 +581,22 @@ async function liveCrawlStatus(projectId) {
  * numbers for one crawl, which is the single most damaging thing a dashboard can
  * do to its own credibility.
  *
+ * `instances` is pre-fetched by the caller (crawl_run_finding_instances,
+ * migration 0023 — full per-occurrence findings moved out of
+ * crawl_runs.summary once that single-write embed started timing out on
+ * large crawls) rather than read off `run` directly.
+ *
  * @returns {{ score: number|null, affected: object, denominator: number }|null}
  */
-function siteHealth(run, internalHtmlCount = null) {
-  const instances = Array.isArray(run?.summary?.findings) ? run.summary.findings : [];
+function siteHealth(run, internalHtmlCount = null, instances = []) {
+  // Falls back to run.summary.findings when the caller didn't pre-fetch
+  // instances (or a run predates migration 0023 and has none stored under
+  // its own id) — same fallback findingInstancesForRun/loadRunFindings
+  // already use, kept here too so this function stays correct on its own
+  // rather than depending on every caller remembering the fallback.
+  const effectiveInstances = instances.length
+    ? instances
+    : Array.isArray(run?.summary?.findings) ? run.summary.findings : [];
 
   // The internal HTML page count, and nothing else.
   //
@@ -421,7 +615,7 @@ function siteHealth(run, internalHtmlCount = null) {
   if (!denominator) return null;
 
   const affectedPages = (severity) => new Set(
-    instances.filter((f) => f.severity === severity && f.url).map((f) => f.url),
+    effectiveInstances.filter((f) => f.severity === severity && f.url).map((f) => f.url),
   ).size;
 
   const error = affectedPages('error');
@@ -431,7 +625,7 @@ function siteHealth(run, internalHtmlCount = null) {
   // A crawl stored before per-instance findings existed has counts but no urls,
   // so the shares cannot be computed. Withheld rather than reported as 100%,
   // which is what an empty instance list would otherwise produce.
-  if (!instances.length && (Number(run?.summary?.counts?.error) || Number(run?.summary?.counts?.warning))) {
+  if (!effectiveInstances.length && (Number(run?.summary?.counts?.error) || Number(run?.summary?.counts?.warning))) {
     return null;
   }
 
@@ -454,7 +648,7 @@ const SITE_HEALTH_BASIS = 'the site crawl\'s own health score (v2, internal page
   + 'warning and 8 by pages with a notice. External pages the crawler followed are excluded '
   + 'from both the findings and the denominator, so the score describes the site you own';
 
-function technicalCard(runs, findings, internalPages = null, internalHtmlPages = null) {
+function technicalCard(runs, findings, internalPages = null, internalHtmlPages = null, findingInstances = []) {
   const module = MODULES[0];
   const terminal = runs.find((r) => ['completed', 'stopped'].includes(r.status));
   const inFlight = runs.find((r) => ['queued', 'running', 'paused'].includes(r.status));
@@ -546,7 +740,7 @@ function technicalCard(runs, findings, internalPages = null, internalHtmlPages =
   // crawlHealth(), which answers a different question — is the crawl process
   // alive — and two things called health in one scope is how you get a card that
   // reports liveness as a quality score.
-  const siteScore = siteHealth(terminal, internalHtmlPages);
+  const siteScore = siteHealth(terminal, internalHtmlPages, findingInstances);
 
   return {
     ...module,
@@ -636,6 +830,18 @@ function evidenceCard(module, entry) {
     const failedPages = Number(progress?.failed) || 0;
     const started = inFlight.started_at || inFlight.created_at;
 
+    // Queued is not running. A run that starts itself when a project's domains
+    // are set up (moduleRunners/competitorAutostart) sits at 'queued' for its
+    // coalescing window before a worker claims it, and saying "running" for
+    // that minute would be the same kind of lie as reporting a stalled crawl as
+    // alive: somebody watching for output would conclude it was broken.
+    //
+    // Read from `status` rather than from `scheduled_for`, which would be the
+    // more precise source and is deliberately not selected: it is a 0019
+    // column, and a deployment that has not applied 0019 must still be able to
+    // load its dashboard.
+    const queued = inFlight.status === 'queued';
+
     // The crawl this run is following, when it is following one. A run with zero
     // pages audited has two completely different explanations — the crawl has not
     // started yet, or it started and something is wrong — and the card used to
@@ -655,7 +861,7 @@ function evidenceCard(module, entry) {
 
     return {
       ...module,
-      status: 'running',
+      status: queued ? 'queued' : 'running',
       scored: runningMean !== null,
       score: runningMean,
       // Every score on this dashboard carries the basis it was computed from, and
@@ -670,16 +876,23 @@ function evidenceCard(module, entry) {
           // look like different kinds of result.
           ? `${runningMean}/100 · ${done} page${done === 1 ? '' : 's'} so far`
           : `Running · ${done} page${done === 1 ? '' : 's'} audited`)
-        : followed?.state === 'pending'
-          ? 'Waiting for the crawl to start'
-          : followed?.state === 'stalled'
-            ? 'The crawl it is following has stopped'
-            : `${module.label} running`,
+        : queued
+          ? `${module.label} queued`
+          : followed?.state === 'pending'
+            ? 'Waiting for the crawl to start'
+            : followed?.state === 'stalled'
+              ? 'The crawl it is following has stopped'
+              : `${module.label} running`,
       // No percentage. The denominator moves while the crawl is still finding
       // pages, and a percentage of an unknown total is a made-up number.
       detail: [
         done
           ? `${done} page${done === 1 ? '' : 's'} audited so far`
+          : queued
+            ? (inFlight.trigger === 'auto_setup'
+              ? 'Started by itself when this project’s domains were set up. '
+                + 'It begins shortly, and covers every competitor tracked by then.'
+              : 'Waiting for a worker to pick it up.')
           // Each of these says what is actually happening, so nobody has to read
           // the database to find out why nothing has been audited yet.
           : followed?.state === 'pending'
@@ -854,72 +1067,6 @@ function pendingCard(module) {
 }
 
 /**
- * Alerts: derived from the latest terminal crawl's findings. Error severity
- * first, then warnings, ranked by how many URLs each affects — which is the
- * closest thing to "prevalence" available before phase 4's site_insights.
- */
-function buildAlerts(runs, findings) {
-  const alerts = [];
-
-  const failed = runs.find((r) => r.status === 'failed');
-  if (failed) {
-    alerts.push({
-      severity: 'error',
-      title: 'Last crawl failed',
-      detail: failed.error || 'The crawl ended without producing a usable inventory.',
-      at: failed.finished_at || failed.created_at,
-      source: 'crawl_runs',
-      runId: failed.id,
-    });
-  }
-
-  for (const finding of findings) {
-    if (!['error', 'warning'].includes(finding.severity)) continue;
-    alerts.push({
-      severity: finding.severity,
-      title: finding.detail?.title || finding.rule_id,
-      detail: `${finding.count} affected URL${finding.count === 1 ? '' : 's'} · ${finding.category || 'uncategorised'}`,
-      at: null,
-      source: 'crawl_run_findings',
-      ruleId: finding.rule_id,
-      affectedUrls: finding.count,
-    });
-    if (alerts.length >= 8) break;
-  }
-
-  return alerts;
-}
-
-function buildActivity(crawlRuns, toolRuns) {
-  const rows = [
-    ...crawlRuns.map((r) => ({
-      id: r.id,
-      kind: 'crawl',
-      module: 'Site crawl',
-      status: displayRunStatus(r),
-      at: r.finished_at || r.started_at || r.created_at,
-      label: r.trigger === 'schedule' ? 'Scheduled crawl' : 'Manual crawl',
-      href: `/crawl-scope/runs/${r.id}`,
-    })),
-    ...toolRuns.map((r) => ({
-      id: r.id,
-      kind: 'tool',
-      module: r.tool_id,
-      status: r.status,
-      at: r.completed_at || r.created_at,
-      label: r.label || r.action || null,
-      actor: r.actor_email || null,
-      href: '/runs',
-    })),
-  ];
-
-  return rows
-    .filter((r) => r.at)
-    .sort((a, b) => String(b.at).localeCompare(String(a.at)))
-    .slice(0, 14);
-}
-
-/**
  * Composite: the mean of the modules that actually produced a score. With none
  * scored — which is today's state — it is null, not zero, and carries the count
  * so the UI can say "0 of 6 modules scored" instead of showing a 0/100 ring
@@ -944,31 +1091,110 @@ function buildComposite(modules) {
  * @param {object} params
  * @param {object} params.access resolved by services/projectAccess.requireProject
  */
+// ── The competitor card, from the comparison that has already been run ──────
+//
+// The competitor module is METERED — a client with four rivals is close to
+// 10,000 SEMrush units — which is why "Run Full Audit" leaves it out. So on a
+// project whose analyst has already run the Competitor Research screen, the
+// dashboard card said "Not run for this project yet" while a complete
+// comparison, captured the same day, sat in that module's own store.
+//
+// Two stores, one measurement: project_module_runs holds runs started FROM a
+// project, and the competitor module keeps its own client records keyed by
+// domain. Nothing joined them, so the card reported the absence of a row rather
+// than the absence of data.
+//
+// The score here is the module's own competitorTrafficScore over the module's
+// own snapshot — imported, not reimplemented, so a card built this way and a
+// card built from a real project run cannot disagree about what the number
+// means. What differs is provenance, and the card says so: `source` marks it as
+// read from the tool, and `runnable` stays true because running it against the
+// project is still what stores it as project evidence.
+async function competitorCardFromTool(project) {
+  const primaryHost = project?.primaryDomain?.host || project?.legacyUrl || project?.url;
+  const key = (v) => String(v || '').toLowerCase()
+    .replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '').trim();
+  if (!key(primaryHost)) return null;
+
+  const caStore = require('../competitorAnalysis/store');
+  const { competitorTrafficScore, SCORE_BASIS } = require('./moduleRunners');
+
+  const clients = await caStore.getClients().catch(() => []);
+  const match = clients.find((c) => key(c.domain) === key(primaryHost));
+  if (!match) return null;
+
+  const snapshot = await caStore.getSnapshot(match.id).catch(() => null);
+  if (!snapshot?.domains?.length) return null;
+
+  const traffic = competitorTrafficScore(snapshot.domains);
+  if (!traffic) return null;
+
+  const rivals = snapshot.domains.filter((d) => !d.isClient).length;
+  return {
+    scored: true,
+    score: traffic.score,
+    scoreMax: 100,
+    scoreBasis: SCORE_BASIS.competitor,
+    status: 'completed',
+    // Said plainly. A number on a project card that came from somewhere other
+    // than a project run has to carry that, or the next reader will look for a
+    // run that does not exist.
+    source: 'competitor_analysis_tool',
+    headline: traffic.aheadOfAll
+      ? `Ahead of all ${rivals} tracked competitor${rivals === 1 ? '' : 's'} on organic traffic`
+      : `${traffic.score}% of ${traffic.strongestDomain}'s organic traffic`,
+    detail: `${traffic.clientTraffic.toLocaleString('en-US')} vs `
+      + `${traffic.strongestTraffic.toLocaleString('en-US')} estimated monthly visits. `
+      + 'From the Competitor Research screen, not a project run — run it here to store it as '
+      + 'project evidence.',
+    updatedAt: snapshot.capturedAt || null,
+    evidence: {
+      competitorCount: rivals,
+      clientDomain: traffic.clientDomain,
+      strongestDomain: traffic.strongestDomain,
+      capturedAt: snapshot.capturedAt || null,
+      competitorClientId: match.id,
+      reportRef: match.id,
+    },
+  };
+}
+
 async function buildOverview({ access }) {
   if (!isSupabaseConfigured()) {
     throw Object.assign(new Error('Project overview needs Supabase configured.'), { status: 503 });
   }
 
   const projectRow = access.project;
-  const project = await store.getProject(projectRow);
 
-  const crawlRuns = await recentCrawlRuns(projectRow.id);
+  // The project's own row and its crawl history are read TOGETHER.
+  //
+  // getProject used to be awaited first, on its own, and nothing below it reads
+  // what it returns — the crawl history is fetched by project id, which the
+  // caller already handed us. So the page sat through a full round trip to a
+  // hosted database, ~240ms of it latency, before the query it was actually
+  // waiting on had been sent.
+  const [project, crawlRuns] = await Promise.all([
+    store.getProject(projectRow),
+    recentCrawlRuns(projectRow.id),
+  ]);
+
   const latestTerminal = crawlRuns.find((r) => ['completed', 'stopped'].includes(r.status));
-  const [findings, internalPages, internalHtmlPages, evidenceByModule, toolRuns] = await Promise.all([
+  const [findings, internalPages, internalHtmlPages, findingInstances, evidenceByModule] = await Promise.all([
     latestTerminal ? findingsForRun(latestTerminal.id) : Promise.resolve([]),
     latestTerminal ? internalPageCount(latestTerminal.id) : Promise.resolve(null),
     latestTerminal ? internalHtmlPageCount(latestTerminal.id) : Promise.resolve(null),
+    // `light`: two fields, because the only thing this feeds is siteHealth's
+    // count of distinct affected pages per severity. The wide shape is the
+    // insight layer's, and it was setting the pace for the whole batch — the
+    // other four reads here finish in ~300ms and then wait on it.
+    latestTerminal
+      ? findingInstancesForRun(latestTerminal.id, { shape: 'light' })
+      : Promise.resolve([]),
     moduleEvidence.latestByModule(projectRow.id).catch((e) => {
       // A card that can't read its evidence must fall back to "not run", never
       // to a made-up value.
       console.error('[projects.overview.moduleEvidence]', e.message);
       return new Map();
-    }),
-    recentToolRuns(projectRow.workspace_id).catch((e) => {
-      // The activity table is a nicety; the audit profile is the point. A
-      // failure here must not blank the whole dashboard.
-      console.error('[projects.overview.toolRuns]', e.message);
-      return [];
     }),
   ]);
 
@@ -997,13 +1223,26 @@ async function buildOverview({ access }) {
   );
 
   const modules = [
-    technicalCard(crawlRuns, findings, internalPages, internalHtmlPages),
+    technicalCard(crawlRuns, findings, internalPages, internalHtmlPages, findingInstances),
     ...MODULES.slice(1).map((module) => {
       const entry = evidenceByModule.get(module.key);
       if (entry && (entry.terminal || entry.inFlight)) return evidenceCard(module, entry);
       return module.runnable ? evidenceCard(module, null) : pendingCard(module);
     }),
   ];
+
+  // Only when the project itself has no competitor run. A real project run is
+  // always the better evidence — it is stored, dated, and exportable — so this
+  // fills a gap and never overwrites one.
+  const competitorIndex = modules.findIndex((m) => m.key === 'competitor');
+  if (competitorIndex >= 0 && modules[competitorIndex].status === 'not_run') {
+    const fromTool = await competitorCardFromTool(project).catch((e) => {
+      // A card is not worth failing the dashboard for.
+      console.error('[projects.overview.competitorFromTool]', e.message);
+      return null;
+    });
+    if (fromTool) modules[competitorIndex] = { ...modules[competitorIndex], ...fromTool };
+  }
 
   // Counted from the same evidence the cards were built from, so the bar and the
   // cards cannot disagree about how many audits are chasing this crawl.
@@ -1017,8 +1256,6 @@ async function buildOverview({ access }) {
     crawlStatus: crawlStatus(crawlRuns, followers),
     modules,
     composite: buildComposite(modules),
-    alerts: buildAlerts(crawlRuns, findings),
-    activity: buildActivity(crawlRuns, toolRuns),
     generatedAt: new Date().toISOString(),
     // Named so the UI can render the honest empty state rather than guessing
     // why a card is blank.
@@ -1037,6 +1274,7 @@ module.exports = {
   // the same reads the dashboard uses — so a card and its page cannot disagree.
   recentCrawlRuns,
   findingsForRun,
+  findingInstancesForRun,
   internalPageCount,
   internalHtmlPageCount,
   technicalCard,
@@ -1050,8 +1288,6 @@ module.exports = {
   STALE_HEARTBEAT_MS,
   evidenceCard,
   pendingCard,
-  buildAlerts,
-  buildActivity,
   buildComposite,
   buildOverview,
 };

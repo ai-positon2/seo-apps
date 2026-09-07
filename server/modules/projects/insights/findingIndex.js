@@ -9,8 +9,9 @@
 // is a statistic. "These 28 pages, and here is what each title should be" is
 // work somebody can do. The crawl already records the second one and drops it at
 // the dashboard boundary — crawl_run_findings.detail keeps only a title — while
-// the per-instance list survives in crawl_runs.summary.findings. So nothing has
-// to be re-crawled to recover it (PRD §32).
+// the per-instance list survives in crawl_run_finding_instances (migration
+// 0023; previously crawl_runs.summary.findings). So nothing has to be
+// re-crawled to recover it (PRD §32).
 //
 // Three attribution levels, never conflated:
 //
@@ -136,21 +137,18 @@ function item(fields) {
 
 // ── technical: the crawl's own per-instance findings ────────────────────────
 //
-// crawl_runs.summary.findings holds one row per occurrence, each naming a url,
-// and each carrying the rule catalog's priority plus the value it measured and
-// the value it wanted. All of it is already there; none of it reaches the card.
+// crawl_run_finding_instances (migration 0023) holds one row per occurrence,
+// each naming a url, and each carrying the rule catalog's priority plus the
+// value it measured and the value it wanted. All of it is already there;
+// none of it reaches the card. (Findings used to live embedded in
+// crawl_runs.summary.findings; overview.findingInstancesForRun falls back
+// there itself for any run finalized before the migration shipped, so this
+// adapter doesn't need to know which era a given run is from.)
 
 async function crawlAdapter(crawl, crawledCount) {
   if (!crawl) return [];
 
-  const { data, error } = await getSupabase()
-    .from('crawl_runs')
-    .select('summary, finished_at')
-    .eq('id', crawl.id)
-    .maybeSingle();
-  if (error) throw new Error(`[findingIndex.crawl] ${error.message}`);
-
-  const instances = Array.isArray(data?.summary?.findings) ? data.summary.findings : [];
+  const instances = await overview.findingInstancesForRun(crawl.id);
   const byRule = new Map();
 
   for (const inst of instances) {
@@ -181,7 +179,7 @@ async function crawlAdapter(crawl, crawledCount) {
     description: bucket.first.description,
     sourceRunId: crawl.id,
     sourceRunKind: 'crawl',
-    sourceRunAt: data?.finished_at || crawl.finished_at || null,
+    sourceRunAt: crawl.finished_at || null,
   }));
 }
 
@@ -414,91 +412,138 @@ async function buildFindingIndex({ access }) {
   let keywordRecovery = null;
   let structure = null;
 
+  // The crawl's findings and the five modules' are read AT ONCE.
+  //
+  // This was a `for` loop that awaited each module in turn, so a project with
+  // evidence from all six paid for six round trips end to end — and each
+  // per-page module's read is itself a query against a hosted database, which is
+  // ~240ms of latency before it returns anything. Nothing in here depends on
+  // anything else in here: every branch reads one module's own stored run.
+  //
+  // The results are merged BELOW in MODULES order, not in completion order, so
+  // `items` and `coverage` come out in exactly the sequence the serial version
+  // produced. The backlog ranks by its own score, but coverage is read top to
+  // bottom by a person, and a list that reordered itself per request would be
+  // a different answer to the same question every time.
+  const crawlWork = !crawl
+    ? Promise.resolve(null)
+    : crawlAdapter(crawl, crawledCount).then((crawlItems) => ({ crawlItems }));
+
+  const moduleWork = overview.MODULES
+    .filter((module) => module.key !== 'technical')
+    .map(async (module) => {
+
+      const run = evidenceByModule.get(module.key)?.terminal || null;
+
+      if (!run) {
+        return {
+          coverage: coverageEntry(module.key, 'never_run', {
+            reason: `${module.label} has not been run against this project.`,
+          }),
+        };
+      }
+
+      const runAt = run.finished_at || run.created_at;
+
+      if (run.status === 'failed') {
+        return {
+          coverage: coverageEntry(module.key, 'failed', {
+            reason: run.error || 'The run failed without recording a reason.',
+            runId: run.id,
+            runAt,
+          }),
+        };
+      }
+
+      if (run.status === 'insufficient_data') {
+        return {
+          coverage: coverageEntry(module.key, 'insufficient_data', {
+            reason: run.payload?.note || run.note
+              || 'The module ran and found nothing it could measure.',
+            runId: run.id,
+            runAt,
+          }),
+        };
+      }
+
+      // A crawl-dependent module whose run predates the latest crawl describes an
+      // inventory that has since been replaced.
+      const stale = Boolean(
+        CRAWL_DEPENDENT.includes(module.key)
+        && crawledAt && runAt && String(runAt) < String(crawledAt),
+      );
+
+      let produced = [];
+      let moduleStructure = null;
+      let moduleKeywords = null;
+      let moduleKeywordRecovery = null;
+      if (moduleEvidence.PAGE_MODULE_KEYS.includes(module.key)) {
+        produced = await perPageAdapter(module.key, run, crawledCount);
+      } else if (module.key === 'hub_spoke') {
+        produced = hubSpokeAdapter(run, crawledCount);
+        // latestByModule deliberately projects only `payload->>note` and
+        // `payload->>reportRef` — the dashboard must not pull five 400KB payloads to
+        // draw six cards. The structural facts the correlation rules need (clusters,
+        // orphan counts, limitations) live in the full payload, so it is fetched
+        // once, here, for the one module that has them.
+        moduleStructure = await fullPayload(projectId, module.key);
+      } else if (module.key === 'competitor') {
+        const parsed = competitorKeywords(run);
+        moduleKeywords = parsed.keywords;
+        moduleKeywordRecovery = parsed.recovery;
+      }
+
+      return {
+        produced,
+        structure: moduleStructure,
+        keywords: moduleKeywords,
+        keywordRecovery: moduleKeywordRecovery,
+        coverage: coverageEntry(module.key, 'measured', {
+          runId: run.id,
+          runAt,
+          stale,
+          reason: stale
+            ? 'This ran before the latest crawl, so it describes an earlier inventory of the site.'
+            : null,
+          attribution: produced.length
+            ? [...new Set(produced.map((p) => p.attribution))].join(' + ')
+            : (module.key === 'competitor' ? 'keyword-level' : null),
+          itemCount: module.key === 'competitor'
+            ? (moduleKeywords ? moduleKeywords.length : 0)
+            : produced.length,
+        }),
+      };
+    });
+
+  const [crawlResult, moduleResults] = await Promise.all([
+    crawlWork,
+    Promise.all(moduleWork),
+  ]);
+
+  // Merged in MODULES order — the crawl first, exactly where the serial version
+  // put it.
   if (!crawl) {
     coverage.push(coverageEntry('technical', 'never_run', {
       reason: 'No completed crawl for this project yet. Every page-level audit depends on it.',
     }));
   } else {
-    const crawlItems = await crawlAdapter(crawl, crawledCount);
-    items.push(...crawlItems);
+    items.push(...crawlResult.crawlItems);
     coverage.push(coverageEntry('technical', 'measured', {
       runId: crawl.id,
       runAt: crawledAt,
       attribution: 'per-instance',
-      itemCount: crawlItems.length,
+      itemCount: crawlResult.crawlItems.length,
     }));
   }
 
-  for (const module of overview.MODULES) {
-    if (module.key === 'technical') continue;
-
-    const run = evidenceByModule.get(module.key)?.terminal || null;
-
-    if (!run) {
-      coverage.push(coverageEntry(module.key, 'never_run', {
-        reason: `${module.label} has not been run against this project.`,
-      }));
-      continue;
+  for (const result of moduleResults) {
+    if (result.produced) items.push(...result.produced);
+    if (result.structure) structure = result.structure;
+    if (result.keywords) {
+      keywords = result.keywords;
+      keywordRecovery = result.keywordRecovery;
     }
-
-    const runAt = run.finished_at || run.created_at;
-
-    if (run.status === 'failed') {
-      coverage.push(coverageEntry(module.key, 'failed', {
-        reason: run.error || 'The run failed without recording a reason.',
-        runId: run.id,
-        runAt,
-      }));
-      continue;
-    }
-
-    if (run.status === 'insufficient_data') {
-      coverage.push(coverageEntry(module.key, 'insufficient_data', {
-        reason: run.payload?.note || run.note
-          || 'The module ran and found nothing it could measure.',
-        runId: run.id,
-        runAt,
-      }));
-      continue;
-    }
-
-    // A crawl-dependent module whose run predates the latest crawl describes an
-    // inventory that has since been replaced.
-    const stale = Boolean(
-      CRAWL_DEPENDENT.includes(module.key)
-      && crawledAt && runAt && String(runAt) < String(crawledAt),
-    );
-
-    let produced = [];
-    if (moduleEvidence.PAGE_MODULE_KEYS.includes(module.key)) {
-      produced = await perPageAdapter(module.key, run, crawledCount);
-    } else if (module.key === 'hub_spoke') {
-      produced = hubSpokeAdapter(run, crawledCount);
-      // latestByModule deliberately projects only `payload->>note` and
-      // `payload->>reportRef` — the dashboard must not pull five 400KB payloads to
-      // draw six cards. The structural facts the correlation rules need (clusters,
-      // orphan counts, limitations) live in the full payload, so it is fetched
-      // once, here, for the one module that has them.
-      structure = await fullPayload(projectId, module.key);
-    } else if (module.key === 'competitor') {
-      const parsed = competitorKeywords(run);
-      keywords = parsed.keywords;
-      keywordRecovery = parsed.recovery;
-    }
-
-    items.push(...produced);
-    coverage.push(coverageEntry(module.key, 'measured', {
-      runId: run.id,
-      runAt,
-      stale,
-      reason: stale
-        ? 'This ran before the latest crawl, so it describes an earlier inventory of the site.'
-        : null,
-      attribution: produced.length
-        ? [...new Set(produced.map((p) => p.attribution))].join(' + ')
-        : (module.key === 'competitor' ? 'keyword-level' : null),
-      itemCount: module.key === 'competitor' ? keywords.length : produced.length,
-    }));
+    coverage.push(result.coverage);
   }
 
   return {

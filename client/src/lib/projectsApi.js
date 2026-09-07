@@ -77,6 +77,19 @@ export const projectsApi = {
 
   restore: (projectId) => req(`${BASE}/${projectId}/restore`, { method: 'POST' }),
 
+  /**
+   * Permanently destroys a project and everything that hangs off it. There is no
+   * restore afterwards.
+   *
+   * Only valid on an already-deleted project, and `confirmName` must equal the
+   * project's name exactly — the server rejects a mismatch rather than guessing
+   * that the caller meant this one.
+   */
+  purge: (projectId, { confirmName, reason } = {}) =>
+    req(`${BASE}/${projectId}/purge`, {
+      method: 'POST', body: JSON.stringify({ confirmName, reason }),
+    }),
+
   // ── Domains ───────────────────────────────────────────────────────────────
   domains: (projectId) => req(`${BASE}/${projectId}/domains`),
 
@@ -188,9 +201,9 @@ export const projectsApi = {
   // ── Insights: the six modules read together ───────────────────────────────
 
   /**
-   * The ranked backlog, the cross-module insights, what changed since the
-   * previous run, and what is not measured. Stored evidence only — calling it
-   * runs no audits and spends nothing.
+   * The backlog's totals — how much there is to fix, how much of it is one
+   * template change, and what it was measured over. Stored evidence only —
+   * calling it runs no audits and spends nothing.
    */
   insights: (projectId) => req(`${BASE}/${projectId}/insights`),
 
@@ -294,6 +307,20 @@ export const MODULE_STATUS_LABEL = {
   failed: 'Failed',
   insufficient_data: 'Insufficient data',
 };
+
+/**
+ * Is this module status "work is under way"?
+ *
+ * 'queued' counts. Two modules put work on the run queue rather than doing it
+ * in the request — AI Visibility because a full set is 10-35 minutes, and
+ * Competitor Research because it starts itself when a project's domains are set
+ * up — and both sit at 'queued' until a worker claims them. Treating that as
+ * idle is what makes a screen offer a Run button for a run that already exists,
+ * or stop polling before the work it started has begun.
+ */
+export function isModuleInFlight(status) {
+  return status === 'queued' || status === 'running';
+}
 
 // 'accent' = affirmative, 'warn' = needs attention, 'neg' = failed/error,
 // 'muted' = nothing to say yet. Resolved to tokens by the consuming component.

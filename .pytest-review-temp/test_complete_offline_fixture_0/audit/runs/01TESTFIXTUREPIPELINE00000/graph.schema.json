@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Content Architecture Audit Graph",
+  "type": "object",
+  "required": [
+    "run_id",
+    "client",
+    "domain",
+    "generated_at",
+    "clusters",
+    "nodes",
+    "edges",
+    "recommended_edges"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string"
+    },
+    "client": {
+      "type": "string"
+    },
+    "domain": {
+      "type": "string"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "clusters": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/cluster"
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/edge"
+      }
+    },
+    "recommended_edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/recommended_edge"
+      }
+    }
+  },
+  "$defs": {
+    "point": {
+      "type": "object",
+      "required": [
+        "x",
+        "y"
+      ],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      }
+    },
+    "cluster": {
+      "type": "object",
+      "required": [
+        "id",
+        "label",
+        "state",
+        "state_reasons",
+        "page_count",
+        "hub_url",
+        "centroid"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "label": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "healthy",
+            "hub_not_linked",
+            "no_hub",
+            "thin_cluster",
+            "competing_hubs",
+            "duplication_heavy"
+          ]
+        },
+        "state_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "[0-9]"
+          }
+        },
+        "page_count": {
+          "type": "integer"
+        },
+        "hub_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "centroid": {
+          "$ref": "#/$defs/point"
+        }
+      }
+    },
+    "node": {
+      "type": "object",
+      "required": [
+        "url",
+        "title",
+        "cluster_id",
+        "role",
+        "word_count",
+        "is_orphan",
+        "x",
+        "y",
+        "flags"
+      ],
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "cluster_id": {
+          "type": "integer"
+        },
+        "role": {
+          "enum": [
+            "hub",
+            "spoke",
+            "orphan",
+            "unassigned"
+          ]
+        },
+        "word_count": {
+          "type": "integer"
+        },
+        "is_orphan": {
+          "type": "boolean"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "flags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": [
+        "source",
+        "target",
+        "context",
+        "boilerplate",
+        "same_cluster"
+      ],
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "context": {
+          "type": "string"
+        },
+        "boilerplate": {
+          "type": "boolean"
+        },
+        "same_cluster": {
+          "type": "boolean"
+        }
+      }
+    },
+    "recommended_edge": {
+      "type": "object",
+      "required": [
+        "source",
+        "target",
+        "reason",
+        "priority"
+      ],
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "priority": {
+          "type": "integer"
+        },
+        "cluster_id": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

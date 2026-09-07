@@ -1,0 +1,77 @@
+{
+  "run_id": "01TESTFIXTUREPIPELINE00000",
+  "client": "fixture",
+  "domain": "http://127.0.0.1:52850",
+  "tool_version": "1.0.0",
+  "generated_at": "2026-09-04T11:42:08.696685+00:00",
+  "config": {
+    "client_slug": "fixture",
+    "client_name": "Fixture Dental",
+    "domain": "http://127.0.0.1:52850",
+    "crawl": {
+      "sitemap_urls": [],
+      "max_urls": 100,
+      "concurrency": 2,
+      "requests_per_second": 100.0,
+      "timeout_seconds": 5.0,
+      "max_retries": 0,
+      "user_agent": "Position2-Test",
+      "respect_robots": true,
+      "follow_redirects": true,
+      "max_redirect_hops": 3
+    },
+    "exclude_patterns": [],
+    "locales": {
+      "primary": "en-US",
+      "additional": []
+    },
+    "typing": {
+      "template_overrides": {},
+      "flat_site_threshold": 0.6
+    },
+    "clustering": {
+      "embedding_model": "deterministic-test",
+      "embedding_version": "v1",
+      "chunk_tokens": 120,
+      "chunk_overlap_tokens": 20,
+      "min_cluster_size": 2,
+      "min_samples": 1,
+      "duplicate_similarity_threshold": 0.92,
+      "random_seed": 42
+    },
+    "graph": {
+      "boilerplate_link_threshold": 0.3,
+      "hub_score_percentile": 0.8,
+      "max_healthy_depth": 3
+    },
+    "thresholds": {
+      "thin_content_words": 100,
+      "stale_lastmod_days": 540
+    },
+    "vertical": "dental",
+    "ymyl": true
+  },
+  "stages": [],
+  "models": {
+    "embedding": "deterministic-test",
+    "embedding_version": "v1",
+    "cluster_label": "gpt-4.1-mini if OPENAI_API_KEY is available, deterministic TF-IDF fallback otherwise"
+  },
+  "random_seeds": {
+    "clustering": 42,
+    "template_sampling": "sha256(path_template)"
+  },
+  "counts": {
+    "inventory": 10,
+    "pages": 10,
+    "clusters": 2,
+    "findings": 23,
+    "recommendations": 12
+  },
+  "warnings": [],
+  "artifacts": {
+    "workbook": "fixture_content_architecture_audit_2026-09-04.xlsx",
+    "graph": "graph.json",
+    "graph_schema": "graph.schema.json"
+  }
+}

@@ -13,25 +13,60 @@ import { CollapsibleTable } from './charts/CollapsibleTable';
 // and a type that never occurs for one brand should just not appear rather
 // than forcing every brand into the same narrow set. Must mirror
 // server/modules/competitorAnalysis/contentAnalysis/taxonomy.js.
-const CONTENT_TYPE_LABELS = {
-  homepage: 'Homepage',
-  person: 'Person',
-  locationService: 'Location + Service',
-  location: 'Location',
-  service: 'Service',
-  solution: 'Solutions',
-  serviceProvider: 'Service Provider',
-  product: 'Product',
-  pricing: 'Pricing',
-  company: 'Company',
-  blog: 'Blog/Article',
-  resource: 'Other Resource',
-  category: 'Category',
-  landing: 'Landing',
-  legal: 'Legal',
-  other: 'Other',
+// The taxonomy's families, and the subtypes inside each. Mirrors
+// server/modules/competitorAnalysis/contentAnalysis/pageTaxonomy.js — that file
+// is the source of truth; this exists so the browser can label and group
+// without a round trip.
+//
+// Ninety-two subtypes are far too many to hand-label one by one and keep in
+// sync, so a label is derived from the subtype (snake_case -> Title Case) and
+// only the handful whose derived form reads badly are overridden below. Adding a
+// subtype server-side therefore needs no change here at all.
+const TYPE_FAMILIES = {
+  root: ['home', 'home_locale', 'hub'],
+  people: ['person', 'person_directory', 'author_archive'],
+  places: ['location', 'location_directory', 'geo_landing'],
+  services: ['service', 'service_category', 'location_service', 'service_provider', 'service_provider_directory'],
+  solutions: ['solution', 'industry', 'persona', 'integration', 'platform_overview', 'feature'],
+  commerce: ['product', 'product_category', 'brand', 'product_comparison', 'cart', 'checkout', 'order_confirmation'],
+  pricing: ['pricing', 'quote_request', 'payment_options'],
+  company: ['about', 'contact', 'careers_hub', 'job_posting', 'press_release', 'press_coverage', 'investor_relations', 'csr', 'awards_credentials'],
+  editorial: ['blog_post', 'news', 'blog_index', 'taxonomy_archive', 'date_archive', 'podcast_episode', 'podcast_hub', 'video', 'video_hub', 'magazine_issue'],
+  informational: ['guide', 'faq', 'help_article', 'documentation', 'changelog', 'glossary_term', 'glossary_index', 'case_study', 'case_study_index', 'whitepaper', 'data_study', 'template_download', 'tool', 'quiz', 'comparison', 'alternatives', 'listicle_directory', 'webinar', 'event', 'event_index', 'course', 'lesson', 'portfolio_project', 'gallery', 'testimonials'],
+  conversion: ['landing', 'lead_form', 'booking', 'demo_request', 'free_trial', 'offer', 'thank_you'],
+  system: ['legal', 'sitemap_html', 'search_results', 'login', 'account', 'portal', 'error', 'paywall_gate', 'redirect_shell', 'parked_stub'],
+  fallback: ['unclassified'],
 };
-const TYPE_OPTIONS = Object.keys(CONTENT_TYPE_LABELS);
+
+// Only where the derived label would be wrong or awkward.
+const LABEL_OVERRIDES = {
+  home: 'Homepage',
+  home_locale: 'Locale Home',
+  faq: 'FAQ',
+  csr: 'CSR',
+  sitemap_html: 'HTML Sitemap',
+  location_service: 'Service × Location',
+  listicle_directory: 'Listicle / Directory',
+  taxonomy_archive: 'Category / Tag Archive',
+  job_posting: 'Job Posting',
+  investor_relations: 'Investor Relations',
+  product_comparison: 'Own-Product Comparison',
+  paywall_gate: 'Paywall',
+  redirect_shell: 'Redirect Stub',
+  parked_stub: 'Parked / Coming Soon',
+};
+
+const titleCase = (s) => String(s).split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+const labelFor = (subtype) => LABEL_OVERRIDES[subtype] || titleCase(subtype);
+
+const CONTENT_TYPE_LABELS = Object.fromEntries(
+  Object.values(TYPE_FAMILIES).flat().map((s) => [s, labelFor(s)]),
+);
+const FAMILY_OF_SUBTYPE = Object.fromEntries(
+  Object.entries(TYPE_FAMILIES).flatMap(([f, subs]) => subs.map((s) => [s, f])),
+);
+// The editor's dropdown, grouped by family so ninety-two options stay findable.
+const TYPE_OPTIONS = Object.values(TYPE_FAMILIES).flat();
 
 const NAMED_COLORS = ['var(--viz-1)', 'var(--viz-2)', 'var(--viz-3)', 'var(--viz-4)', 'var(--viz-5)', 'var(--viz-6)'];
 const OTHER_COLOR = 'var(--text-3)';
@@ -282,6 +317,8 @@ export default function ContentAnalysisTab({
   contentAnalysis,
   running,
   onRun,
+  onReclassify,
+  reclassifying,
   regeneratingTopPages,
   onRegenerateTopPages,
   regeneratingSitemap,
@@ -305,6 +342,7 @@ export default function ContentAnalysisTab({
 
   const topPagesDomains = topPages?.domains || [];
   const topPagesTypes = presentTypesFor(topPagesDomains, 'contentTypeCounts');
+  const classifier = contentAnalysis?.topPages?.classifier || null;
   const sitemapDomains = sitemap?.domains || [];
   const noSitemap = sitemapDomains.filter((d) => d.sitemapStatus !== 'found');
   const cappedSitemaps = sitemapDomains.filter((d) => d.capped);
@@ -350,8 +388,41 @@ export default function ContentAnalysisTab({
               regenerating={regeneratingTopPages}
               disabled={running || regeneratingSitemap}
             />
-            <Card title="Content Type Counts">
+            <Card
+              title="Content Type Counts"
+              actions={onReclassify ? (
+                <button
+                  type="button"
+                  onClick={onReclassify}
+                  disabled={reclassifying || running}
+                  /* What decided this column, and how to decide it again. A
+                     stored analysis keeps the types it was given when it ran, so
+                     without this the only way to pick up a better classifier is
+                     a full re-run — which re-fetches, and bills, every page it
+                     already has. */
+                  title={classifier
+                    ? `Types decided by ${classifier.model} · ${classifier.classified} of ${classifier.of} pages classified. Re-runs the classifier over the stored pages — no SEMrush units.`
+                    : 'These types were decided before page-level classification existed. Re-classify them from the stored pages — no SEMrush units.'}
+                  style={{
+                    height: 28, padding: '0 12px', fontFamily: 'var(--font-sans)', fontSize: 12,
+                    color: 'var(--text-2)', background: 'transparent',
+                    border: '1px solid var(--border)', borderRadius: 6,
+                    cursor: reclassifying || running ? 'default' : 'pointer',
+                    opacity: reclassifying || running ? 0.6 : 1,
+                  }}
+                >
+                  {reclassifying ? 'Classifying…' : 'Re-classify types'}
+                </button>
+              ) : null}
+            >
               <TypeCountsTable domains={topPagesDomains} countsKey="contentTypeCounts" presentTypes={topPagesTypes} />
+              {classifier && (
+                <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 8, lineHeight: 1.5 }}>
+                  {classifier.error
+                    ? `Page-level classification failed (${classifier.error}) — these types fall back to the folder mapping.`
+                    : `${classifier.classified} of ${classifier.of} pages typed by ${classifier.model}.`}
+                </div>
+              )}
             </Card>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {topPagesDomains.map((d) => (
@@ -361,7 +432,25 @@ export default function ContentAnalysisTab({
                       columns={[
                         { key: 'url', label: 'URL', sortable: false, maxWidth: 240 },
                         { key: 'title', label: 'Title', sortable: false, maxWidth: 240 },
-                        { key: 'contentType', label: 'Type', render: (v) => CONTENT_TYPE_LABELS[v] || v },
+                        {
+                          key: 'contentType',
+                          label: 'Type',
+                          // Subtype over family, because the subtype is the
+                          // answer and the family is the shelf it sits on. A
+                          // low-confidence verdict says so here rather than
+                          // reading as settled.
+                          render: (v, row) => (
+                            <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 1 }}>
+                              <span>{CONTENT_TYPE_LABELS[v] || v}</span>
+                              <span style={{ fontSize: 10.5, color: 'var(--text-3)' }}>
+                                {FAMILY_OF_SUBTYPE[v] || ''}
+                                {typeof row?.confidence === 'number' && row.confidence < 0.6
+                                  ? ` · low confidence${row?.subtype_secondary ? `, maybe ${CONTENT_TYPE_LABELS[row.subtype_secondary] || row.subtype_secondary}` : ''}`
+                                  : ''}
+                              </span>
+                            </span>
+                          ),
+                        },
                         { key: 'traffic', label: 'Est. Traffic', align: 'right', mono: true, render: fmtNum },
                         { key: 'keywords', label: 'Keywords', align: 'right', mono: true, render: fmtNum },
                       ]}

@@ -1,0 +1,80 @@
+{
+  "urlSets": {
+    "phaseA": 650,
+    "recrawl": 650,
+    "inBoth": 645,
+    "overlapPct": 99.2,
+    "onlyNow": [
+      "https://www.iana.org/static/icons/list.svg",
+      "https://www.iana.org/static/icons/download.svg",
+      "https://www.iana.org/static/icons/wrench.svg",
+      "https://www.iana.org/static/icons/book.svg",
+      "https://www.mondomaine.alsace/"
+    ],
+    "onlyThen": [
+      "https://www.amnic.net/",
+      "https://www.iana.org/domains/root/db/fido.html",
+      "https://www.iana.org/domains/root/db/film.html",
+      "https://www.iana.org/domains/root/db/final.html",
+      "https://www.iana.org/domains/root/db/finance.html"
+    ]
+  },
+  "diff": {
+    "added": [],
+    "dropped": [
+      [
+        "title-multiple",
+        2
+      ]
+    ],
+    "changed": [
+      [
+        "broken-external-link",
+        1021,
+        4,
+        -1017
+      ],
+      [
+        "external-403",
+        485,
+        481,
+        -4
+      ],
+      [
+        "https-to-http-link",
+        190,
+        188,
+        -2
+      ],
+      [
+        "meta-missing",
+        484,
+        480,
+        -4
+      ],
+      [
+        "open-graph-incomplete",
+        484,
+        480,
+        -4
+      ],
+      [
+        "sitemap-missing-indexable",
+        484,
+        480,
+        -4
+      ],
+      [
+        "slow-page",
+        233,
+        119,
+        -114
+      ]
+    ],
+    "unchanged": 10
+  },
+  "totals": {
+    "phaseA_instances": 7298,
+    "recrawl_instances": 6147
+  }
+}

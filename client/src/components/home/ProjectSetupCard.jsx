@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Card, Kicker, Btn, Muted, Tag, FadingRule } from './primitives';
+import { useMemo, useState } from 'react';
+import { Card, Kicker, Btn, Muted, Tag, FadingRule } from '../studio/primitives';
 import { projectsApi } from '../../lib/projectsApi';
 
 // ── Project setup (PRD §20.2) ───────────────────────────────────────────────
@@ -24,6 +24,20 @@ const COMMON_COUNTRIES = [
   { code: 'SG', label: 'Singapore' },
   { code: 'DE', label: 'Germany' },
 ];
+
+// What one domain costs Competitor Research, mirroring moduleRunners.METERED on
+// the server (domain_rank + backlinks_overview + keywords + AIO + branded). The
+// client's own domain is charged too, which is the +1 below.
+//
+// Stated here because the comparison now starts the moment the project is
+// created: a price nobody sees until the run history is not a price, it is a
+// surprise.
+const SEMRUSH_UNITS_PER_DOMAIN = 1955;
+
+// competitorAnalysis/discovery.js — what "find competitors for me" adds when the
+// typed list is empty, so the estimate is not blank in the one case where the
+// count is not yet known.
+const AUTO_DISCOVERY_COUNT = 3;
 
 const inputStyle = {
   width: '100%',
@@ -63,17 +77,24 @@ export default function ProjectSetupCard({ limits, onCreated, onCancel }) {
 
   const maxUrls = limits?.maxUrlsPerCrawl ?? 5000;
 
+  // The toggle and the typed list are not mutually exclusive: whatever is typed
+  // here is sent either way, and the server only auto-discovers more
+  // competitors if this list is still empty when the run starts
+  // (server/modules/projects/moduleRunners.js).
+  const competitors = useMemo(
+    () => competitorText.split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
+    [competitorText],
+  );
+  const competitorCount = competitors.length;
+  const estimatedUnits = (
+    (competitorCount || (autoFindCompetitors ? AUTO_DISCOVERY_COUNT : 0)) + 1
+  ) * SEMRUSH_UNITS_PER_DOMAIN;
+
   async function submit(event) {
     event?.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      // The toggle and the typed list are not mutually exclusive: whatever is
-      // typed here is sent either way, and the server only auto-discovers
-      // more competitors if this list is still empty when Competitor
-      // Research is first run (server/modules/projects/moduleRunners.js).
-      const competitors = competitorText.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
-
       const result = await projectsApi.create({
         name: name.trim() || undefined,
         primaryDomain: primaryDomain.trim(),
@@ -88,7 +109,10 @@ export default function ProjectSetupCard({ limits, onCreated, onCancel }) {
         setBusy(false);
         return;
       }
-      onCreated?.(result.project);
+      // The second argument is what the server did about Competitor Research —
+      // it starts by itself now, so the caller reports that rather than leaving
+      // a metered run to be discovered.
+      onCreated?.(result.project, result.competitorResearch);
     } catch (e) {
       setError(e.message);
       setBusy(false);
@@ -164,9 +188,9 @@ export default function ProjectSetupCard({ limits, onCreated, onCancel }) {
             <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Find competitors for me</span>
               <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
-                SEMrush + AI pick them once you start the Competitor Research analysis, not now — nothing runs at
-                setup. They&rsquo;re added and tracked automatically, no extra confirmation, and you can edit the
-                list anytime afterward.
+                SEMrush + AI pick them as part of the Competitor Research run this project starts for itself.
+                They&rsquo;re added and tracked automatically, no extra confirmation, and you can edit the list
+                anytime afterward.
               </span>
             </span>
           </label>
@@ -179,9 +203,39 @@ export default function ProjectSetupCard({ limits, onCreated, onCancel }) {
           />
           <Muted size={11}>
             {autoFindCompetitors
-              ? 'Optional, and editable later. SEMrush + AI only fill this in once you start Competitor Research and it’s still empty — anything you type here now is kept as-is.'
+              ? 'Optional, and editable later. SEMrush + AI only fill this in if it’s still empty when the run starts — anything you type here now is kept as-is.'
               : 'Optional, and editable later. One per line or comma separated. Competitors are used for competitive evidence only — their sites are never crawled.'}
           </Muted>
+
+          {/* What creating this project will spend, before it is created.
+              Competitor Research bills per domain and now starts by itself, so
+              the number belongs next to the field that decides it — not in a
+              run history someone reads afterwards. */}
+          {(competitorCount > 0 || autoFindCompetitors) && (
+            <div
+              style={{
+                display: 'flex', flexDirection: 'column', gap: 4,
+                padding: '10px 12px', borderRadius: 'var(--r-md)',
+                background: 'color-mix(in srgb, var(--viz-warn) 10%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--viz-warn) 35%, transparent)',
+              }}
+            >
+              <span style={{ fontSize: 12.5, color: 'var(--text)' }}>
+                Competitor Research starts as soon as this project is created.
+              </span>
+              <Muted size={11}>
+                It compares your domain against {autoFindCompetitors && !competitorCount
+                  ? 'the competitors it finds'
+                  : `${competitorCount} competitor${competitorCount === 1 ? '' : 's'}`}{' '}
+                and costs roughly{' '}
+                <strong style={{ color: 'var(--text-2)' }}>
+                  {estimatedUnits.toLocaleString('en-US')} SEMrush units
+                </strong>{' '}
+                {autoFindCompetitors && !competitorCount ? '(estimated) ' : ''}
+                for the run. Adding competitors later starts another one.
+              </Muted>
+            </div>
+          )}
         </div>
 
         {/* Crawl policy, stated before anything runs (PRD §20.2). */}

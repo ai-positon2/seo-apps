@@ -5,7 +5,7 @@ const store = require('./store');
 const { fetchClientDashboardData, refreshPageSpeedOnly, refreshStalePageSpeed } = require('./dataFetcher');
 const { MAX_UNITS_PER_RUN, estimateDomainCost, maxDomainsForBudget, estimateDiscoveryCost } = require('./unitCosts');
 const { hasSemrushKey } = require('./provider');
-const { runContentAnalysis, applyMappingEdits, regenerateTopPagesSummary, regenerateSitemapSummary } = require('./contentAnalysis/orchestrator');
+const { runContentAnalysis, applyMappingEdits, regenerateTopPagesSummary, regenerateSitemapSummary, reclassifyTopPages } = require('./contentAnalysis/orchestrator');
 const { discoverCompetitorsForClient, DEFAULT_DISCOVERY_LIMIT } = require('./discovery');
 const { generateReportPdf } = require('../../services/competitorPdfGenerator');
 const { buildReportData } = require('./reportExport');
@@ -265,6 +265,25 @@ router.post('/clients/:clientId/content-analysis/mapping', async (req, res) => {
 
 // Regenerate just one part's GPT summary from already-stored raw data — no
 // re-fetch, so it's fast and spends no SEMrush units regardless of part.
+// Re-decides the TYPE column from the pages already stored — no SEMrush units,
+// no crawl. This exists because a snapshot keeps whatever types it was given
+// when it ran, so improving the classifier does nothing for analyses already on
+// disk, and re-running the whole thing to fix one column costs 2,000 units per
+// domain.
+router.post('/clients/:clientId/content-analysis/reclassify', async (req, res) => {
+  const { clientId } = req.params;
+  try {
+    const previous = await store.getContentAnalysis(clientId);
+    const { snapshot, diff } = await reclassifyTopPages(previous);
+    await store.saveContentAnalysis(clientId, snapshot);
+    // The diff goes back with the snapshot so a taxonomy change can be reviewed
+    // where it was made, not just in a log.
+    res.json({ contentAnalysis: snapshot, diff });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.post('/clients/:clientId/content-analysis/summary/top-pages', async (req, res) => {
   const { clientId } = req.params;
   try {

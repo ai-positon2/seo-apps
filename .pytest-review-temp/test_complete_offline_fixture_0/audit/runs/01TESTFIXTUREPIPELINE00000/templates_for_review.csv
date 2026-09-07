@@ -1,0 +1,4 @@
+﻿path_template,url_count,proposed_type,confidence,sample_urls,override_type
+/blog/{slug}/,8,unknown,0.000,"[""http://127.0.0.1:52850/blog/gingivitis-guide/"", ""http://127.0.0.1:52850/blog/whitening-treatment-timeline/"", ""http://127.0.0.1:52850/blog/whitening-food-stains/"", ""http://127.0.0.1:52850/blog/teeth-whitening-options/"", ""http://127.0.0.1:52850/blog/periodontal-maintenance/""]",
+/,1,homepage,1.000,"[""http://127.0.0.1:52850/""]",
+/services/,1,unknown,0.000,"[""http://127.0.0.1:52850/services/""]",

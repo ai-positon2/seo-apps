@@ -1,0 +1,21 @@
+HTTP/1.1 302 Found
+accept-ranges: bytes
+age: 1008
+connection: keep-alive
+content-length: 0
+content-type: text/html; charset=utf-8
+cross-origin-opener-policy: same-origin
+date: Sat, 05 Sep 2026 18:24:00 GMT
+location: /en-US/
+referrer-policy: strict-origin-when-cross-origin
+server: granian
+strict-transport-security: max-age=31536000
+vary: Accept-Language
+via: 1.1 google, 1.1 varnish, 1.1 varnish
+x-backend-server: bedrock-58fdcfd585-62gl8.gcp-us-west1
+x-cache: MISS, HIT
+x-cache-hits: 0, 0
+x-content-type-options: nosniff
+x-served-by: cache-bom-vanm7210039-BOM, cache-bom-vanm7210039-BOM, cache-bom-vanm7210072-BOM
+x-timer: S1788632641.751292,VS0,VE1
+

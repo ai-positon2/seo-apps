@@ -1,0 +1,17 @@
+HTTP/1.1 301 Moved Permanently
+cache-control: no-cache
+cf-cache-status: DYNAMIC
+cf-ray: a366833b5ef97f78-MAA
+connection: keep-alive
+content-length: 0
+date: Sat, 05 Sep 2026 16:11:56 GMT
+location: /en/data-protection/privacy-policy
+referrer-policy: origin-when-cross-origin
+server: cloudflare
+strict-transport-security: max-age=48211200; preload
+x-frame-options: SAMEORIGIN
+x-ratelimit-burst-capacity: 200
+x-ratelimit-remaining: 180
+x-ratelimit-replenish-rate: 100
+x-ratelimit-requested-tokens: 20
+

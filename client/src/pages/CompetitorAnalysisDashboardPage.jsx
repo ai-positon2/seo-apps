@@ -1,13 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { SectionHeader } from '../ui/SectionHeader';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Field } from '../ui/Field';
-import { Card } from '../ui/Card';
 import { Tabs } from '../ui/Tabs';
 import { Drawer } from '../ui/Drawer';
 import { EmptyState } from '../ui/EmptyState';
-import { MetricCard } from '../ui/MetricCard';
 import { useToast } from '../ui/Toast';
 import { ct } from '../lib/competitorTrackerApi';
 import { hasUsablePageSpeed } from '../components/competitorAnalysisDashboard/utils';
@@ -18,8 +15,34 @@ import ContentAnalysisTab from '../components/competitorAnalysisDashboard/Conten
 import DiscoverCompetitorsModal from '../components/competitorAnalysisDashboard/DiscoverCompetitorsModal';
 import { useSearchParams } from 'react-router-dom';
 import ModuleRuns from '../components/ModuleRuns';
+import { useActiveProjectId } from '../lib/activeProject';
+import { projectsApi, countryLabel } from '../lib/projectsApi';
 
 const EMPTY_CLIENT_FORM = { name: '', domain: '', country: 'United States', brandName: '' };
+
+// ── This tool's clients, and the app's projects ─────────────────────────────
+//
+// Competitor Analysis keeps its own client list in a JSON file on the server,
+// with its own ids, no workspace scoping and no link to a project. The header's
+// client switcher drives something else entirely: `activeProjectId`, a row in
+// crawl_projects. Two registries, both called "client", neither aware of the
+// other.
+//
+// So this page defaulted to the first record in its own file, and the header
+// could say "Palo Alto Networks" over a dashboard reading Gentle Dental — whose
+// project had since been DELETED, which the file never heard about because a
+// Supabase delete cannot cascade into it.
+//
+// The two are matched on the one thing they both know: the host. Nothing is
+// written to make the link — no migration, no id column — because the file store
+// is on its way out, and a page that reads the join at render time is easier to
+// delete later than a schema that encodes it.
+const hostKey = (value) => String(value || '')
+  .toLowerCase()
+  .replace(/^https?:\/\//, '')
+  .replace(/^www\./, '')
+  .replace(/\/.*$/, '')
+  .trim();
 
 function TabLoadingSpinner() {
   return (
@@ -33,12 +56,101 @@ function TabLoadingSpinner() {
   );
 }
 
+/** The pill in the data-source band. */
+function SourcePill({ tone, children }) {
+  return (
+    <span
+      style={{
+        display: 'inline-flex', alignItems: 'center', flexShrink: 0, whiteSpace: 'nowrap',
+        fontSize: 10.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',
+        padding: '3px 9px', borderRadius: 999,
+        background: tone === 'live' ? 'var(--primary)' : 'var(--viz-warn)',
+        color: 'var(--text-on-primary)',
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+/**
+ * One figure about the run itself, not about a domain.
+ *
+ * On --surface rather than --card: these three sit above the tab strip and
+ * describe the run that produced everything below it. As cards they read as the
+ * first row of results, which is what made "Last Run" look like a metric.
+ */
+function RunStat({ label, value, badge, badgeTone }) {
+  return (
+    <div
+      style={{
+        display: 'flex', flexDirection: 'column', gap: 6, padding: '18px 20px',
+        borderRadius: 10, background: 'var(--surface)',
+      }}
+    >
+      <span
+        style={{
+          fontSize: 10.5, fontFamily: 'var(--font-mono)', fontWeight: 500,
+          textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)',
+        }}
+      >
+        {label}
+      </span>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+        <span
+          style={{
+            fontSize: 22, fontWeight: 700, lineHeight: 1.15, color: 'var(--text)',
+            letterSpacing: '-0.02em',
+          }}
+        >
+          {value}
+        </span>
+        {badge && (
+          <span
+            style={{
+              display: 'inline-flex', alignItems: 'center', padding: '2px 8px',
+              borderRadius: 999, fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 500,
+              background: badgeTone === 'warn'
+                ? 'color-mix(in srgb, var(--viz-warn) 20%, transparent)'
+                : 'color-mix(in srgb, var(--primary) 20%, transparent)',
+              color: badgeTone === 'warn' ? 'var(--viz-warn)' : 'var(--primary-text)',
+            }}
+          >
+            {badge}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function CompetitorAnalysisDashboardPage() {
   const toast = useToast();
 
   const [meta, setMeta] = useState(null);
   const [clients, setClients] = useState([]);
   const [selectedClientId, setSelectedClientId] = useState('');
+
+  // The client the header is pointing at, and the projects it resolves against.
+  const [activeProjectId] = useActiveProjectId();
+  const [projects, setProjects] = useState(null);
+  const [settingUpFromProject, setSettingUpFromProject] = useState(false);
+  const [reclassifying, setReclassifying] = useState(false);
+  useEffect(() => {
+    projectsApi.list()
+      .then((d) => setProjects(d.projects || []))
+      // Not fatal. Without the project list nothing can be matched, so the page
+      // falls back to naming this tool's own clients — which is what it did
+      // before there were projects at all.
+      .catch(() => setProjects([]));
+  }, []);
+  const activeProject = useMemo(() => {
+    if (!projects?.length) return null;
+    return projects.find((p) => p.id === activeProjectId) || projects[0];
+  }, [projects, activeProjectId]);
+  const activeProjectHost = hostKey(
+    activeProject?.primaryDomain?.host || activeProject?.legacyUrl || activeProject?.url,
+  );
   // ?client=<id> selects that client on arrival. A project audit mirrors its
   // client into this module's store and links here with its id, so opening the
   // module from the dashboard lands on that project's comparison rather than on
@@ -91,12 +203,53 @@ export default function CompetitorAnalysisDashboardPage() {
     // blind would show an empty dashboard for a client that is not there.
     const requested = selectId && list.find((c) => c.id === selectId) ? selectId : null;
     if (requested) setSelectedClientId(requested);
-    else if (list.length && !list.find((c) => c.id === selectedClientId)) {
-      setSelectedClientId(list[0].id);
-    }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The client for whoever the header is showing.
+  const linkedClient = useMemo(() => {
+    if (!activeProjectHost) return null;
+    return clients.find((c) => hostKey(c.domain) === activeProjectHost) || null;
+  }, [clients, activeProjectHost]);
+
+  // Clients this tool holds that no project claims. Kept reachable rather than
+  // hidden — the file store predates projects and may hold work nobody has
+  // migrated — but never selected on the page's own initiative, which is what
+  // put a deleted client's dashboard under another client's name.
+  const unlinkedClients = useMemo(() => {
+    if (!projects) return [];
+    const known = new Set(
+      projects.map((p) => hostKey(p.primaryDomain?.host || p.legacyUrl || p.url)).filter(Boolean),
+    );
+    return clients.filter((c) => !known.has(hostKey(c.domain)));
+  }, [clients, projects]);
+
+  // Follow the header. This replaced a fallback to `list[0]` — the first record
+  // in a JSON file, in insertion order, with no relationship to anything the
+  // reader had chosen.
+  //
+  // An explicit ?client= wins, because that is somebody linking to one specific
+  // comparison. Otherwise: the matched client, or nothing at all. Nothing is the
+  // important case — showing a different client's numbers under the active
+  // project's name is worse than showing none, and the empty state below says
+  // which project has no analysis and offers to create it.
+  //
+  // Picking an unlinked client by hand sticks — it was deliberate — but only
+  // until the header moves. Switching project and keeping the previous choice on
+  // screen is the contradiction this whole change exists to remove.
+  const lastProjectRef = useRef(null);
+  useEffect(() => {
+    if (requestedClientId) return;
+    if (!projects) return;                     // still resolving; hold
+    const projectChanged = lastProjectRef.current !== (activeProject?.id || null);
+    lastProjectRef.current = activeProject?.id || null;
+    setSelectedClientId((current) => {
+      const heldByHand = current && unlinkedClients.some((c) => c.id === current);
+      if (heldByHand && !projectChanged) return current;
+      return linkedClient?.id || '';
+    });
+  }, [linkedClient, projects, requestedClientId, unlinkedClients, activeProject?.id]);
 
   const loadDashboard = useCallback(async (clientId) => {
     if (!clientId) { setClient(null); setSnapshot(null); return; }
@@ -314,6 +467,25 @@ export default function CompetitorAnalysisDashboardPage() {
     }
   }
 
+  async function handleReclassifyTopPages() {
+    if (!selectedClientId || reclassifying) return;
+    setReclassifying(true);
+    try {
+      const data = await ct.reclassifyTopPages(selectedClientId);
+      setContentAnalysis(data.contentAnalysis);
+      const c = data.contentAnalysis?.topPages?.classifier;
+      toast.add({
+        title: 'Page types updated',
+        description: c ? `${c.classified} of ${c.of} pages classified by ${c.model}.` : undefined,
+        variant: 'success',
+      });
+    } catch (e) {
+      toast.add({ title: 'Could not re-classify the pages', description: e.message, variant: 'danger' });
+    } finally {
+      setReclassifying(false);
+    }
+  }
+
   async function handleRegenerateTopPagesSummary() {
     if (!selectedClientId || regeneratingTopPages) return;
     setRegeneratingTopPages(true);
@@ -439,13 +611,101 @@ export default function CompetitorAnalysisDashboardPage() {
   const maxCompetitors = meta?.maxCompetitors ?? 4;
   const atCompetitorLimit = (savedClient?.competitors?.length ?? 0) >= maxCompetitors;
 
+  // ── Set this tool up from the project it is already looking at ────────────
+  //
+  // The project knows its primary domain, its market and its competitors —
+  // Project Setup collected all three, and this tool was asking for them again
+  // through Add Client. So the button fills them in rather than the reader.
+  //
+  // Competitors are added one call each because that is the API the store
+  // exposes, and capped at the tool's own limit: the project can hold more than
+  // this module accepts, and createClient would reject the surplus one at a time
+  // with a message about a limit the reader never chose.
+  const projectCompetitors = (activeProject?.competitors || [])
+    .map((c) => c.host)
+    .filter(Boolean);
+
+  async function setUpFromProject() {
+    if (!activeProject || settingUpFromProject) return;
+    const domain = activeProject.primaryDomain?.host
+      || hostKey(activeProject.legacyUrl || activeProject.url);
+    if (!domain) {
+      toast.add({
+        title: 'This project has no primary domain',
+        description: 'Set one in project settings and come back — there is nothing to analyse without it.',
+        variant: 'danger',
+      });
+      return;
+    }
+    setSettingUpFromProject(true);
+    try {
+      const { client: created } = await ct.createClient({
+        name: activeProject.name,
+        domain,
+        country: countryLabel(activeProject.countryCode) || 'United States',
+        brandName: activeProject.name,
+      });
+      const wanted = projectCompetitors.slice(0, maxCompetitors);
+      const failed = [];
+      for (const host of wanted) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await ct.addCompetitor(created.id, { domain: host, label: host });
+        } catch (e) {
+          // One rejected competitor must not throw away the client that was just
+          // created, or the next attempt hits "domain already exists".
+          failed.push(`${host} (${e.message})`);
+        }
+      }
+      await refreshClients(created.id);
+      toast.add({
+        title: `Competitor analysis set up for ${activeProject.name}`,
+        description: failed.length
+          ? `${wanted.length - failed.length} of ${wanted.length} competitors added. Not added: ${failed.join(', ')}.`
+          : `${wanted.length} competitor${wanted.length === 1 ? '' : 's'} carried over. Run an analysis to pull SEMrush data.`,
+        variant: failed.length ? 'warning' : 'success',
+      });
+    } catch (e) {
+      toast.add({ title: 'Could not set it up', description: e.message, variant: 'danger' });
+    } finally {
+      setSettingUpFromProject(false);
+    }
+  }
+
   return (
-    <div style={{ padding: '28px 32px', maxWidth: 1280, margin: '0 auto' }}>
-      <SectionHeader
-        eyebrow="Optimize"
-        title="Competitor Analysis"
-        subtitle="Track a client against its competitors — SEMrush data and keyword gaps in one dashboard."
-        actions={(
+    <div className="ca-report">
+      {/* Drawn here rather than with ui/SectionHeader, which puts the title at
+          22px. This report's title is 28px, matching the other four report
+          pages; bending the shared component to hit that would have moved every
+          other screen in the app. */}
+      <div
+        style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+          gap: 20, flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span
+            style={{
+              fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase',
+              fontWeight: 600, color: 'var(--primary-text)',
+            }}
+          >
+            Optimize
+          </span>
+          <h1
+            style={{
+              margin: 0, fontSize: 28, fontWeight: 500, letterSpacing: '-0.02em',
+              color: 'var(--text)',
+            }}
+          >
+            Competitor Analysis
+          </h1>
+          <span style={{ fontSize: 13, color: 'var(--text-3)' }}>
+            Track a client against its competitors — SEMrush data and keyword gaps in one dashboard.
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <>
             {client && <Button variant="secondary" onClick={openEditClient}>Manage Client</Button>}
             <Button variant="secondary" onClick={openAddClient}>Add Client</Button>
@@ -468,20 +728,30 @@ export default function CompetitorAnalysisDashboardPage() {
               {running && runningClientId === selectedClientId ? 'Running…' : 'Run Analysis'}
             </Button>
           </>
-        )}
-      />
+        </div>
+      </div>
 
-      <Card
+      {/* Where the numbers come from, and what it costs. Tinted with the
+          accent for live data and the warning colour for simulated, rather than
+          the success/warning pair it used: "live" is not an achievement and
+          green read as one. The band is the first thing above the figures
+          because on a simulated run every figure below it is invented. */}
+      <div
         style={{
-          marginBottom: 20,
-          background: meta?.liveDataSource ? 'var(--success-soft)' : 'var(--warning-soft)',
-          border: `1px solid ${meta?.liveDataSource ? 'var(--success)' : 'var(--warning)'}`,
+          display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px',
+          borderRadius: 10,
+          background: meta?.liveDataSource
+            ? 'color-mix(in srgb, var(--primary) 10%, var(--card))'
+            : 'color-mix(in srgb, var(--viz-warn) 12%, var(--card))',
+          border: `1px solid ${meta?.liveDataSource
+            ? 'color-mix(in srgb, var(--primary) 40%, var(--border))'
+            : 'color-mix(in srgb, var(--viz-warn) 45%, var(--border))'}`,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--text)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.4 }}>
           {meta?.liveDataSource ? (
             <>
-              <Badge variant="success">Live data</Badge>
+              <SourcePill tone="live">Live data</SourcePill>
               <span>
                 Pulling real SEMrush data. Every run is hard-capped at 10,000 SEMrush units — competitors
                 beyond that cap are skipped, not fetched.
@@ -498,18 +768,31 @@ export default function CompetitorAnalysisDashboardPage() {
             </>
           )}
         </div>
-      </Card>
+      </div>
 
-      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', marginBottom: 20, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <div style={{ minWidth: 260 }}>
+          {/* The header's client switcher is the control now, so this names
+              what it chose rather than offering a second, contradicting one.
+              It stays a select only while this tool holds clients no project
+              claims — otherwise there is nothing to choose between. */}
           <Field
             as="select"
             label="Client"
             value={selectedClientId}
             onChange={(e) => setSelectedClientId(e.target.value)}
           >
-            <option value="" disabled>Select a client…</option>
-            {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {!linkedClient && <option value="" disabled>No analysis for this project</option>}
+            {linkedClient && (
+              <option value={linkedClient.id}>
+                {activeProject?.name || linkedClient.name}
+              </option>
+            )}
+            {unlinkedClients.length > 0 && (
+              <optgroup label="Not linked to a project">
+                {unlinkedClients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </optgroup>
+            )}
           </Field>
         </div>
 
@@ -522,28 +805,61 @@ export default function CompetitorAnalysisDashboardPage() {
       </div>
 
       {snapshot && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 20 }}>
-          <MetricCard label="Last Run" value={new Date(snapshot.capturedAt).toLocaleString()} />
-          <MetricCard
+        <div className="ca-runstats">
+          <RunStat label="Last Run" value={new Date(snapshot.capturedAt).toLocaleString()} />
+          <RunStat
             label={meta?.liveDataSource ? 'SEMrush Units Used' : 'Simulated Units Used'}
             value={`${usedUnits.toLocaleString()} / ${capUnits.toLocaleString()}`}
-            deltaVariant={skipped.length ? 'warning' : 'success'}
-            delta={skipped.length ? `${skipped.length} skipped` : 'All fetched'}
+            badge={skipped.length ? `${skipped.length} skipped` : 'All fetched'}
+            badgeTone={skipped.length ? 'warn' : 'ok'}
           />
-          <MetricCard label="Domains Analyzed" value={snapshot.domains.length} />
+          <RunStat label="Domains Analyzed" value={snapshot.domains.length} />
         </div>
       )}
 
       {skipped.length > 0 && (
-        <Card style={{ marginBottom: 20, background: 'var(--danger-soft)', border: '1px solid var(--danger)' }}>
-          <div style={{ fontSize: 13, color: 'var(--text)' }}>
+        <div
+          style={{
+            padding: '14px 18px', borderRadius: 10,
+            background: 'color-mix(in srgb, var(--viz-neg) 12%, var(--card))',
+            border: '1px solid color-mix(in srgb, var(--viz-neg) 45%, var(--border))',
+          }}
+        >
+          <div style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5 }}>
             <strong>Budget cap reached this run.</strong> {skipped.length} competitor{skipped.length === 1 ? '' : 's'} weren't
             fetched to stay under the 10,000-unit-per-run limit: {skipped.join(', ')}.
           </div>
-        </Card>
+        </div>
       )}
 
-      {!selectedClientId ? (
+      {!selectedClientId && activeProject ? (
+        // Named, and offered. The page used to answer this by quietly showing
+        // whichever client came first in the file — so the header said one
+        // client and the dashboard reported another's traffic.
+        <EmptyState
+          title={`No competitor analysis for ${activeProject.name} yet`}
+          description={
+            activeProject.primaryDomain?.host
+              ? `Set it up from this project: ${activeProject.primaryDomain.host}`
+                + (projectCompetitors.length
+                  ? ` and the ${Math.min(projectCompetitors.length, maxCompetitors)} competitor`
+                    + `${Math.min(projectCompetitors.length, maxCompetitors) === 1 ? '' : 's'} already stored on it`
+                    + ` (${projectCompetitors.slice(0, maxCompetitors).join(', ')}).`
+                  : '. No competitors are stored on this project yet, so add them here afterwards.')
+              : 'This project has no primary domain set, so there is nothing to analyse yet.'
+          }
+          action={(
+            <Button
+              variant="primary"
+              onClick={setUpFromProject}
+              loading={settingUpFromProject}
+              disabled={!activeProject.primaryDomain?.host}
+            >
+              Set up from project
+            </Button>
+          )}
+        />
+      ) : !selectedClientId ? (
         <EmptyState
           title="No client selected"
           description="Add a client and its competitors to start tracking."
@@ -576,6 +892,8 @@ export default function CompetitorAnalysisDashboardPage() {
                 running={contentAnalysisRunning}
                 onRun={handleRunContentAnalysis}
                 regeneratingTopPages={regeneratingTopPages}
+                onReclassify={handleReclassifyTopPages}
+                reclassifying={reclassifying}
                 onRegenerateTopPages={handleRegenerateTopPagesSummary}
                 regeneratingSitemap={regeneratingSitemap}
                 onRegenerateSitemap={handleRegenerateSitemapSummary}

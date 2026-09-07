@@ -337,45 +337,6 @@ test('the audit profile covers the six modules the design shows', () => {
   );
 });
 
-// ── Overview: alerts + activity ─────────────────────────────────────────────
-
-console.log('\nOverview — alerts and activity');
-
-test('a failed crawl is the first alert, carrying its error', () => {
-  const alerts = overview.buildAlerts(
-    [{ id: 'r9', status: 'failed', error: 'robots.txt fetch timed out', finished_at: '2026-08-21T09:00:00Z' }],
-    [],
-  );
-  assert.strictEqual(alerts[0].severity, 'error');
-  assert.match(alerts[0].detail, /robots\.txt/);
-});
-
-test('only error and warning findings become alerts, capped', () => {
-  const findings = [
-    ...Array.from({ length: 20 }, (_, i) => ({ rule_id: `e${i}`, severity: 'error', count: 1, detail: {} })),
-    { rule_id: 'n1', severity: 'notice', count: 99, detail: {} },
-  ];
-  const alerts = overview.buildAlerts([], findings);
-  assert.ok(alerts.length <= 8, 'capped');
-  assert.ok(alerts.every((a) => a.severity !== 'notice'), 'notices are not alerts');
-});
-
-test('activity merges crawl and tool runs, newest first', () => {
-  const rows = overview.buildActivity(
-    [{ id: 'c1', status: 'completed', created_at: '2026-08-20T10:00:00Z', finished_at: '2026-08-20T10:05:00Z', trigger: 'schedule' }],
-    [{ id: 't1', tool_id: 'seo-geo-audit', status: 'completed', created_at: '2026-08-21T08:00:00Z' }],
-  );
-  assert.strictEqual(rows[0].id, 't1', 'newest first');
-  assert.strictEqual(rows[1].kind, 'crawl');
-  assert.strictEqual(rows[1].label, 'Scheduled crawl');
-});
-
-test('a row with no timestamp is dropped rather than sorted arbitrarily', () => {
-  const rows = overview.buildActivity([], [{ id: 't2', tool_id: 'x', status: 'running' }]);
-  assert.strictEqual(rows.length, 0);
-});
-
-
 // ─ Live crawl status ────────────────────────────────────────────────
 
 console.log('\nOverview — live crawl status');
@@ -521,6 +482,57 @@ test('every module key the app can write is allowed by the CHECK constraint', ()
     missing, [],
     `these module keys would be rejected by the database: ${missing.join(', ')}`,
   );
+});
+
+// ─ The queue owns the long module ────────────────────────
+
+console.log('');
+console.log('AI Visibility — queued, never run inside the request');
+
+test('the run route enqueues ai_visibility instead of running it detached', () => {
+  // A module run started inside the request opens a `running` row that NOTHING
+  // ever heartbeats — only a worker's claim stamps worker_id/heartbeat_at. That
+  // is exactly what moduleQueue.reap()'s "running but never heartbeated" arm
+  // reclaims, and its threshold (10 min) is shorter than an AI Visibility run
+  // (10-35 min), so every manual run was requeued while it was still working:
+  // the dashboard saw the module leave `running` and said it had finished, and
+  // the worker then captured the whole set again on the client's money.
+  //
+  // Asserted against the source because the failure is structural — the route
+  // answers 202 either way, and only the row it leaves behind differs.
+  const fs = require('fs');
+  const path = require('path');
+  const src = fs.readFileSync(path.join(__dirname, '../routes.js'), 'utf8');
+
+  assert.ok(
+    src.includes('moduleQueue.enqueue('),
+    'the run route must put the queued modules on the queue',
+  );
+  assert.ok(
+    src.includes('QUEUED_MODULES'),
+    'the set of queue-only modules must be named here',
+  );
+  // The constant that drove the old behaviour. Asserted by name rather than by
+  // scanning for the word "detached", which also appears in the prose above and
+  // in the audit route's own (correct) description of its background loop.
+  assert.ok(
+    !src.includes('DETACHED_MODULES'),
+    'no route may start a module run detached inside the request — the reaper '
+    + 'cannot tell such a row from a dead worker, and reclaims it mid-flight',
+  );
+  assert.ok(
+    !/runModule\(\{[^}]*detached/s.test(src),
+    'runModule must not be handed a detached flag from a route',
+  );
+});
+
+test('a queued run is not terminal, so a click is not reported as finished', () => {
+  // enqueue() writes `queued`, and both pollers ask the overview whether the
+  // module is still going. moduleEvidence classes anything non-terminal as
+  // in-flight and evidenceCard turns that into `running`. If `queued` ever
+  // became terminal, every click would report "Measuring finished" instantly.
+  assert.ok(!moduleEvidence.TERMINAL.includes('queued'), 'queued must not be terminal');
+  assert.ok(!moduleEvidence.TERMINAL.includes('running'), 'running must not be terminal');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

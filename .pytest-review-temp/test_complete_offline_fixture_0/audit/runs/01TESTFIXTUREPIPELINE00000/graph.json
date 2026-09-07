@@ -1,0 +1,397 @@
+{
+  "run_id": "01TESTFIXTUREPIPELINE00000",
+  "client": "fixture",
+  "domain": "http://127.0.0.1:52850",
+  "generated_at": "2026-09-04T11:42:08.690906+00:00",
+  "tool_version": "1.0.0",
+  "clusters": [
+    {
+      "id": 0,
+      "label": "Readers gum maintenance",
+      "state": "hub_not_linked",
+      "state_reasons": [
+        "1 of 3 spokes link to the hub; the hub links to 1 of 3 spokes."
+      ],
+      "page_count": 4,
+      "hub_url": "http://127.0.0.1:52850/blog/signs-of-gum-disease/",
+      "hub_confidence": 1.1102230246251565e-16,
+      "internal_link_density": 0.3333333333333333,
+      "total_words": 2495,
+      "centroid": {
+        "x": 9.40257978439331,
+        "y": -5.862938404083252
+      }
+    },
+    {
+      "id": 1,
+      "label": "Whitening readers teeth",
+      "state": "hub_not_linked",
+      "state_reasons": [
+        "1 of 3 spokes link to the hub; the hub links to 1 of 3 spokes."
+      ],
+      "page_count": 4,
+      "hub_url": "http://127.0.0.1:52850/blog/teeth-whitening-options/",
+      "hub_confidence": 0.175,
+      "internal_link_density": 0.3333333333333333,
+      "total_words": 2496,
+      "centroid": {
+        "x": -9.28222370147705,
+        "y": 10.207793712615967
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "url": "http://127.0.0.1:52850/blog/gingivitis-guide/",
+      "title": "Gingivitis Guide",
+      "cluster_id": 0,
+      "role": "spoke",
+      "word_count": 623,
+      "h2_count": 3,
+      "hits_hub": 1.3877787807814457e-17,
+      "hits_authority": -5.551115123125783e-17,
+      "inlinks_editorial": 1,
+      "inlinks_total": 1,
+      "outlinks_editorial": 1,
+      "outlinks_same_cluster": 1,
+      "click_depth": 2,
+      "is_orphan": false,
+      "links_to_hub": false,
+      "linked_from_hub": false,
+      "x": 9.82305908203125,
+      "y": -5.808176517486572,
+      "flags": []
+    },
+    {
+      "url": "http://127.0.0.1:52850/blog/gum-treatment-options/",
+      "title": "Gum Treatment Options",
+      "cluster_id": 0,
+      "role": "spoke",
+      "word_count": 624,
+      "h2_count": 3,
+      "hits_hub": -2.7755575615628914e-17,
+      "hits_authority": 5.551115123125783e-17,
+      "inlinks_editorial": 1,
+      "inlinks_total": 2,
+      "outlinks_editorial": 1,
+      "outlinks_same_cluster": 1,
+      "click_depth": 1,
+      "is_orphan": false,
+      "links_to_hub": false,
+      "linked_from_hub": true,
+      "x": 9.342010498046875,
+      "y": -5.37418270111084,
+      "flags": []
+    },
+    {
+      "url": "http://127.0.0.1:52850/blog/periodontal-maintenance/",
+      "title": "Periodontal Maintenance",
+      "cluster_id": 0,
+      "role": "spoke",
+      "word_count": 623,
+      "h2_count": 3,
+      "hits_hub": 0.5,
+      "hits_authority": 2.7755575615628914e-17,
+      "inlinks_editorial": 1,
+      "inlinks_total": 1,
+      "outlinks_editorial": 1,
+      "outlinks_same_cluster": 1,
+      "click_depth": 3,
+      "is_orphan": false,
+      "links_to_hub": true,
+      "linked_from_hub": false,
+      "x": 9.498833656311035,
+      "y": -6.357211112976074,
+      "flags": []
+    },
+    {
+      "url": "http://127.0.0.1:52850/blog/signs-of-gum-disease/",
+      "title": "Signs Of Gum Disease",
+      "cluster_id": 0,
+      "role": "hub",
+      "word_count": 625,
+      "h2_count": 3,
+      "hits_hub": 2.7755575615628914e-17,
+      "hits_authority": 1.0,
+      "inlinks_editorial": 2,
+      "inlinks_total": 3,
+      "outlinks_editorial": 1,
+      "outlinks_same_cluster": 1,
+      "click_depth": 1,
+      "is_orphan": false,
+      "links_to_hub": false,
+      "linked_from_hub": false,
+      "x": 8.946415901184082,
+      "y": -5.9121832847595215,
+      "flags": []
+    },
+    {
+      "url": "http://127.0.0.1:52850/blog/teeth-whitening-options/",
+      "title": "Teeth Whitening Options",
+      "cluster_id": 1,
+      "role": "hub",
+      "word_count": 624,
+      "h2_count": 3,
+      "hits_hub": 5.551115123125783e-17,
+      "hits_authority": 5.551115123125783e-17,
+      "inlinks_editorial": 1,
+      "inlinks_total": 1,
+      "outlinks_editorial": 1,
+      "outlinks_same_cluster": 1,
+      "click_depth": null,
+      "is_orphan": false,
+      "links_to_hub": false,
+      "linked_from_hub": false,
+      "x": -8.659125328063965,
+      "y": 10.319623947143555,
+      "flags": []
+    },
+    {
+      "url": "http://127.0.0.1:52850/blog/whitening-food-stains/",
+      "title": "Whitening Food Stains",
+      "cluster_id": 1,
+      "role": "spoke",
+      "word_count": 624,
+      "h2_count": 3,
+      "hits_hub": 1.734723475976807e-18,
+      "hits_authority": 0,
+      "inlinks_editorial": 1,
+      "inlinks_total": 1,
+      "outlinks_editorial": 1,
+      "outlinks_same_cluster": 1,
+      "click_depth": null,
+      "is_orphan": false,
+      "links_to_hub": false,
+      "linked_from_hub": false,
+      "x": -9.20189380645752,
+      "y": 9.906143188476562,
+      "flags": []
+    },
+    {
+      "url": "http://127.0.0.1:52850/blog/whitening-sensitive-teeth/",
+      "title": "Whitening Sensitive Teeth",
+      "cluster_id": 1,
+      "role": "spoke",
+      "word_count": 624,
+      "h2_count": 3,
+      "hits_hub": 0,
+      "hits_authority": 1.1102230246251565e-16,
+      "inlinks_editorial": 1,
+      "inlinks_total": 1,
+      "outlinks_editorial": 1,
+      "outlinks_same_cluster": 1,
+      "click_depth": null,
+      "is_orphan": false,
+      "links_to_hub": false,
+      "linked_from_hub": true,
+      "x": -9.378777503967285,
+      "y": 10.632739067077637,
+      "flags": []
+    },
+    {
+      "url": "http://127.0.0.1:52850/blog/whitening-treatment-timeline/",
+      "title": "Whitening Treatment Timeline",
+      "cluster_id": 1,
+      "role": "spoke",
+      "word_count": 624,
+      "h2_count": 3,
+      "hits_hub": 2.7755575615628914e-17,
+      "hits_authority": 3.469446951953614e-18,
+      "inlinks_editorial": 1,
+      "inlinks_total": 1,
+      "outlinks_editorial": 1,
+      "outlinks_same_cluster": 1,
+      "click_depth": null,
+      "is_orphan": false,
+      "links_to_hub": true,
+      "linked_from_hub": false,
+      "x": -9.889098167419434,
+      "y": 9.972668647766113,
+      "flags": []
+    }
+  ],
+  "edges": [
+    {
+      "source": "http://127.0.0.1:52850/blog/gingivitis-guide/",
+      "target": "http://127.0.0.1:52850/blog/periodontal-maintenance/",
+      "context": "body",
+      "anchor_text": "gum disease supporting guide",
+      "boilerplate": false,
+      "same_cluster": true,
+      "recommended": false
+    },
+    {
+      "source": "http://127.0.0.1:52850/blog/gum-treatment-options/",
+      "target": "http://127.0.0.1:52850/blog/gingivitis-guide/",
+      "context": "body",
+      "anchor_text": "gum disease supporting guide",
+      "boilerplate": false,
+      "same_cluster": true,
+      "recommended": false
+    },
+    {
+      "source": "http://127.0.0.1:52850/blog/periodontal-maintenance/",
+      "target": "http://127.0.0.1:52850/blog/signs-of-gum-disease/",
+      "context": "body",
+      "anchor_text": "gum disease supporting guide",
+      "boilerplate": false,
+      "same_cluster": true,
+      "recommended": false
+    },
+    {
+      "source": "http://127.0.0.1:52850/blog/signs-of-gum-disease/",
+      "target": "http://127.0.0.1:52850/blog/gum-treatment-options/",
+      "context": "body",
+      "anchor_text": "gum disease supporting guide",
+      "boilerplate": false,
+      "same_cluster": true,
+      "recommended": false
+    },
+    {
+      "source": "http://127.0.0.1:52850/blog/teeth-whitening-options/",
+      "target": "http://127.0.0.1:52850/blog/whitening-sensitive-teeth/",
+      "context": "body",
+      "anchor_text": "teeth whitening supporting guide",
+      "boilerplate": false,
+      "same_cluster": true,
+      "recommended": false
+    },
+    {
+      "source": "http://127.0.0.1:52850/blog/whitening-food-stains/",
+      "target": "http://127.0.0.1:52850/blog/whitening-treatment-timeline/",
+      "context": "body",
+      "anchor_text": "teeth whitening supporting guide",
+      "boilerplate": false,
+      "same_cluster": true,
+      "recommended": false
+    },
+    {
+      "source": "http://127.0.0.1:52850/blog/whitening-sensitive-teeth/",
+      "target": "http://127.0.0.1:52850/blog/whitening-food-stains/",
+      "context": "body",
+      "anchor_text": "teeth whitening supporting guide",
+      "boilerplate": false,
+      "same_cluster": true,
+      "recommended": false
+    },
+    {
+      "source": "http://127.0.0.1:52850/blog/whitening-treatment-timeline/",
+      "target": "http://127.0.0.1:52850/blog/teeth-whitening-options/",
+      "context": "body",
+      "anchor_text": "teeth whitening supporting guide",
+      "boilerplate": false,
+      "same_cluster": true,
+      "recommended": false
+    }
+  ],
+  "recommended_edges": [
+    {
+      "source": "http://127.0.0.1:52850/blog/gingivitis-guide/",
+      "target": "http://127.0.0.1:52850/blog/signs-of-gum-disease/",
+      "reason": "spoke_to_hub",
+      "priority": 1,
+      "cluster_id": 0,
+      "similarity": null,
+      "suggested_anchor": "Signs Of Gum Disease"
+    },
+    {
+      "source": "http://127.0.0.1:52850/blog/gum-treatment-options/",
+      "target": "http://127.0.0.1:52850/blog/signs-of-gum-disease/",
+      "reason": "spoke_to_hub",
+      "priority": 1,
+      "cluster_id": 0,
+      "similarity": null,
+      "suggested_anchor": "Signs Of Gum Disease"
+    },
+    {
+      "source": "http://127.0.0.1:52850/blog/whitening-food-stains/",
+      "target": "http://127.0.0.1:52850/blog/teeth-whitening-options/",
+      "reason": "spoke_to_hub",
+      "priority": 1,
+      "cluster_id": 1,
+      "similarity": null,
+      "suggested_anchor": "Teeth Whitening Options"
+    },
+    {
+      "source": "http://127.0.0.1:52850/blog/whitening-sensitive-teeth/",
+      "target": "http://127.0.0.1:52850/blog/teeth-whitening-options/",
+      "reason": "spoke_to_hub",
+      "priority": 1,
+      "cluster_id": 1,
+      "similarity": null,
+      "suggested_anchor": "Teeth Whitening Options"
+    },
+    {
+      "source": "http://127.0.0.1:52850/blog/signs-of-gum-disease/",
+      "target": "http://127.0.0.1:52850/blog/gingivitis-guide/",
+      "reason": "hub_to_spoke",
+      "priority": 2,
+      "cluster_id": 0,
+      "similarity": null,
+      "suggested_anchor": "Gingivitis Guide"
+    },
+    {
+      "source": "http://127.0.0.1:52850/blog/signs-of-gum-disease/",
+      "target": "http://127.0.0.1:52850/blog/periodontal-maintenance/",
+      "reason": "hub_to_spoke",
+      "priority": 2,
+      "cluster_id": 0,
+      "similarity": null,
+      "suggested_anchor": "Periodontal Maintenance"
+    },
+    {
+      "source": "http://127.0.0.1:52850/blog/teeth-whitening-options/",
+      "target": "http://127.0.0.1:52850/blog/whitening-food-stains/",
+      "reason": "hub_to_spoke",
+      "priority": 2,
+      "cluster_id": 1,
+      "similarity": null,
+      "suggested_anchor": "Whitening Food Stains"
+    },
+    {
+      "source": "http://127.0.0.1:52850/blog/teeth-whitening-options/",
+      "target": "http://127.0.0.1:52850/blog/whitening-treatment-timeline/",
+      "reason": "hub_to_spoke",
+      "priority": 2,
+      "cluster_id": 1,
+      "similarity": null,
+      "suggested_anchor": "Whitening Treatment Timeline"
+    },
+    {
+      "source": "http://127.0.0.1:52850/blog/whitening-sensitive-teeth/",
+      "target": "http://127.0.0.1:52850/blog/whitening-treatment-timeline/",
+      "reason": "sibling_spoke",
+      "priority": 3,
+      "cluster_id": 1,
+      "similarity": 0.9945158203679765,
+      "suggested_anchor": "Whitening Treatment Timeline"
+    },
+    {
+      "source": "http://127.0.0.1:52850/blog/whitening-treatment-timeline/",
+      "target": "http://127.0.0.1:52850/blog/whitening-sensitive-teeth/",
+      "reason": "sibling_spoke",
+      "priority": 3,
+      "cluster_id": 1,
+      "similarity": 0.9945158203679765,
+      "suggested_anchor": "Whitening Sensitive Teeth"
+    },
+    {
+      "source": "http://127.0.0.1:52850/blog/gum-treatment-options/",
+      "target": "http://127.0.0.1:52850/blog/periodontal-maintenance/",
+      "reason": "sibling_spoke",
+      "priority": 3,
+      "cluster_id": 0,
+      "similarity": 0.9929804736212455,
+      "suggested_anchor": "Periodontal Maintenance"
+    },
+    {
+      "source": "http://127.0.0.1:52850/blog/periodontal-maintenance/",
+      "target": "http://127.0.0.1:52850/blog/gum-treatment-options/",
+      "reason": "sibling_spoke",
+      "priority": 3,
+      "cluster_id": 0,
+      "similarity": 0.9929804736212455,
+      "suggested_anchor": "Gum Treatment Options"
+    }
+  ]
+}

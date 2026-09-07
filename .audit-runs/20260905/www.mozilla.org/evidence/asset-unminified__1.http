@@ -1,0 +1,73 @@
+HTTP/1.1 200 OK
+accept-ranges: bytes
+access-control-allow-origin: https://prod.cms.bedrock.prod.webservices.mozgcp.net
+access-control-expose-headers: *
+age: 0
+cache-control: max-age=315360000, public, immutable
+connection: keep-alive
+content-encoding: br
+content-length: 380
+content-type: text/css
+date: Sat, 05 Sep 2026 18:23:44 GMT
+etag: "ecbece6a7dced56ab1935fcf5eafea03"
+expires: Thu, 23 Jul 2026 23:10:38 GMT
+last-modified: Tue, 21 Jul 2026 14:30:02 GMT
+server: UploadServer
+vary: Accept-Encoding
+via: 1.1 varnish, 1.1 varnish, 1.1 varnish
+x-cache: MISS, HIT, HIT
+x-cache-hits: 0, 25, 0
+x-goog-generation: 1784644202942205
+x-goog-hash: crc32c=KS2Mhw==, md5=7L7Oan3O1Wqxk1/PXq/qAw==
+x-goog-meta-goog-reserved-file-mtime: 1784644179
+x-goog-metageneration: 1
+x-goog-storage-class: STANDARD
+x-goog-stored-content-encoding: identity
+x-goog-stored-content-length: 864
+x-guploader-uploadid: AKhXX7K5nM21c96EAy-VEJJgWPoXrLzzU1jwPtNL4WK-KVeevzNPPfE2mr3IVeBDY4lVTvPx
+x-served-by: cache-bfi-krnt7300114-BFI, cache-bfi-krnt7300114-BFI, cache-bfi-krnt7300114-BFI, cache-bom-vanm7210072-BOM
+x-timer: S1788632624.893955,VS0,VE337
+
+/* Bug 958321 */
+
+@font-face {
+    font-family: X-LocaleSpecific;
+    font-weight: normal;
+    font-display: swap;
+    src: url("/media/fonts/l10n/DroidNaskh-Regular.6b911caefe9f.woff") format('woff');
+}
+
+@font-face {
+    font-family: X-LocaleSpecific;
+    font-weight: bold;
+    font-display: swap;
+    src: url("/media/fonts/l10n/DroidNaskh-Bold.f3768f9918ee.woff") format('woff');
+}
+
+
+/* !important required for locale specific override */
+ /* stylelint-disable declaration-no-important  */
+ html[lang='ar'] body,
+ html[lang='ar'] body * {
+     font-family: Inter, X-LocaleSpecific, sans-serif !important;
+     font-variant: normal !important;
+ }
+
+/* Bug 944269 */
+* {
+    letter-spacing: normal !important;
+}
+
+/* Fixes line height for all the headers */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.huge,
+.large,
+legend {
+    line-height: 1.5 !important;
+}
+/* stylelint-enable */

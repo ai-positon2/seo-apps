@@ -1,0 +1,1225 @@
+HTTP/1.1 200 OK
+accept-ranges: bytes
+age: 0
+cache-control: max-age=600
+connection: keep-alive
+content-encoding: br
+content-language: en-US
+content-length: 13870
+content-security-policy: upgrade-insecure-requests; frame-ancestors 'none'; style-src 'self' 'unsafe-inline' cdn.transcend.io transcend-cdn.com www.mozilla.org; connect-src 'self' *.analytics.google.com *.google-analytics.com *.googletagmanager.com analytics.google.com cdn.transcend.io google-analytics.com googletagmanager.com gtm.mozilla.org https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org o1069899.ingest.sentry.io o1069899.sentry.io region1.google-analytics.com telemetry.transcend.io telemetry.us.transcend.io transcend-cdn.com www.mozilla.org/submit/bedrock/; img-src 'self' blog.mozilla.org data: images.ctfassets.net www.google-analytics.com www.googletagmanager.com www.mozilla.org; font-src 'self' www.mozilla.org; object-src 'none'; form-action 'self' https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org; base-uri 'none'; frame-src 'self' accounts.firefox.com gtm.mozilla.org js.stripe.com www.google-analytics.com www.googletagmanager.com www.youtube.com; script-src 'self' 'unsafe-eval' 'unsafe-inline' *.google-analytics.com *.googletagmanager.com cdn.transcend.io google-analytics.com googletagmanager.com js.stripe.com s.ytimg.com tagmanager.google.com transcend-cdn.com www.mozilla.org www.youtube.com; default-src 'self' *.mozilla.org; media-src 'self' assets.mozilla.net videos.cdn.mozilla.net www.mozilla.org
+content-security-policy-report-only: upgrade-insecure-requests; frame-ancestors 'none'; style-src 'self' 'unsafe-inline' cdn.transcend.io transcend-cdn.com www.mozilla.org; connect-src 'self' *.analytics.google.com *.google-analytics.com *.googletagmanager.com analytics.google.com cdn.transcend.io google-analytics.com googletagmanager.com gtm.mozilla.org https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org o1069899.ingest.sentry.io o1069899.sentry.io region1.google-analytics.com telemetry.transcend.io telemetry.us.transcend.io transcend-cdn.com www.mozilla.org/submit/bedrock/; img-src 'self' blog.mozilla.org data: images.ctfassets.net www.google-analytics.com www.googletagmanager.com www.mozilla.org; font-src 'self' www.mozilla.org; object-src 'none'; form-action 'self' https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org; base-uri 'none'; frame-src 'self' accounts.firefox.com gtm.mozilla.org js.stripe.com www.google-analytics.com www.googletagmanager.com www.youtube.com; script-src 'self' 'unsafe-eval' 'unsafe-inline' *.google-analytics.com *.googletagmanager.com cdn.transcend.io google-analytics.com googletagmanager.com js.stripe.com s.ytimg.com tagmanager.google.com transcend-cdn.com www.mozilla.org www.youtube.com; default-src 'self' *.mozilla.org; media-src 'self' assets.mozilla.net videos.cdn.mozilla.net www.mozilla.org
+content-type: text/html; charset=utf-8
+cross-origin-opener-policy: same-origin
+date: Sat, 05 Sep 2026 18:23:50 GMT
+etag: "08f3d52ca6942cab12ac2259d5cdf029"
+expires: Sat, 05 Sep 2026 18:33:50 GMT
+referrer-policy: strict-origin-when-cross-origin
+server: granian
+strict-transport-security: max-age=31536000
+vary: Accept-Encoding
+via: 1.1 google, 1.1 varnish, 1.1 varnish
+x-backend-server: bedrock-58fdcfd585-7d4dx.gcp-us-west1
+x-cache: MISS, MISS
+x-cache-hits: 0, 0
+x-clacks-overhead: GNU Terry Pratchett
+x-content-type-options: nosniff
+x-frame-options: DENY
+x-served-by: cache-bom-vanm7210045-BOM, cache-bom-vanm7210045-BOM, cache-bom-vanm7210072-BOM
+x-timer: S1788632630.384537,VS0,VE412
+
+
+
+
+
+
+
+
+
+
+<!doctype html>
+
+<html class="windows no-js" lang="en" dir="ltr" data-country-code="IN" data-needs-consent="False" data-latest-firefox="155.0.1" data-esr-versions="140.15.0 153.2.0" data-gtm-container-id="GTM-MW3R8V"  data-stub-attribution-rate="1.0" data-sentry-dsn="https://c3ab8514873549d5b3785ebc7fb83c80@o1069899.ingest.sentry.io/6260331" >
+  <head>
+    <meta charset="utf-8">
+
+    
+
+
+
+<script data-cfasync="false" src="https://transcend-cdn.com/cm/d556c3a1-e57c-4bdf-a490-390a1aebf6dd/airgap.js"></script>
+
+
+    <!--[if !IE]><!-->
+    <script src="https://www.mozilla.org/media/js/site.a6a07233d547.js"></script>
+
+    
+    <!--<![endif]-->
+
+    <!--[if IE 9]>
+    <script src="https://www.mozilla.org/media/js/site-ie.419ec4b57d17.js"></script>
+    <![endif]-->
+
+<!--
+
+
+             _.-~-.
+           7''  Q..\
+        _7         (_
+      _7  _/    _q.  /
+    _7 . ___  /VVvv-'_                                            .
+   7/ / /~- \_\\      '-._     .-'                      /       //
+  ./ ( /-~-/||'=.__  '::. '-~'' {             ___   /  //     ./{
+ V   V-~-~| ||   __''_   ':::.   ''~-~.___.-'' _/  // / {_   /  {  /
+  VV/-~-~-|/ \ .'__'. '.    '::                     _ _ _        ''.
+  / /~~~~||VVV/ /  \ )  \        _ __ ___   ___ ___(_) | | __ _   .::'
+ / (~-~-~\\.-' /    \'   \::::. | '_ ` _ \ / _ \_  / | | |/ _` | :::'
+/..\    /..\__/      '     '::: | | | | | | (_) / /| | | | (_| | ::'
+vVVv    vVVv                 ': |_| |_| |_|\___/___|_|_|_|\__,_| ''
+
+Hi there, nice to meet you!
+
+Interested in having a direct impact on hundreds of millions of users? Join
+Mozilla, and become part of a global community that’s helping to build a
+brighter future for the Web.
+
+Visit https://www.mozilla.org/careers to learn about our current job openings.
+Visit https://www.mozilla.org/contribute for more ways to get involved and
+help support Mozilla.
+-->
+
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+
+    
+    <title>Mozilla Leadership — Mozilla</title>
+    <meta name="description" content="">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Mozilla">
+    <meta property="og:locale" content="en_US">
+    <meta property="og:url" content="https://www.mozilla.org/en-US/about/leadership/">
+    <meta property="og:image" content="https://www.mozilla.org/media/img/m24/og.3a69dffad83e.png">
+    <meta property="og:title" content="Mozilla Leadership">
+    <meta property="og:description" content="">
+    <meta property="fb:page_id" content="262134952380">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:site" content="@mozilla">
+    <meta name="twitter:domain" content="mozilla.org">
+    <meta name="twitter:app:name:googleplay" content="Firefox">
+    <meta name="twitter:app:id:googleplay" content="org.mozilla.firefox">
+    <meta name="twitter:app:name:iphone" content="Firefox">
+    <meta name="twitter:app:id:iphone" content="989804926">
+    <meta name="twitter:app:name:ipad" content="Firefox">
+    <meta name="twitter:app:id:ipad" content="989804926">
+    <link rel="apple-touch-icon" type="image/png" sizes="180x180" href="https://www.mozilla.org/media/img/favicons/mozilla/apple-touch-icon.05aa000f6748.png">
+    <link rel="icon" type="image/png" sizes="196x196" href="https://www.mozilla.org/media/img/favicons/mozilla/favicon-196x196.e143075360ea.png">
+    <link rel="shortcut icon" href="https://www.mozilla.org/media/img/favicons/mozilla/favicon.d0be64e474b1.ico">
+    <link rel="canonical" href="https://www.mozilla.org/en-US/about/leadership/">
+    
+    <link rel="alternate" hreflang="en" href="https://www.mozilla.org/en-US/about/leadership/" title="English">
+        <link rel="alternate" hreflang="en-US" href="https://www.mozilla.org/en-US/about/leadership/" title="English (USA)">
+        
+    
+    
+    <link href="https://mastodon.social/@mozilla" rel="me">
+
+    <!--[if lt IE 9]>
+      
+      <script src="https://www.mozilla.org/media/js/ie/libs/html5shiv.a94a0b700fa2.js"></script>
+    <![endif]-->
+
+    <!--[if IE]>
+      
+      
+        <link href="https://www.mozilla.org/media/css/common-old-ie.4d14f7a84a19.css" rel="stylesheet" type="text/css">
+      
+    <![endif]-->
+
+    <!--[if !IE]><!-->
+    
+    
+      <link href="https://www.mozilla.org/media/css/protocol-mozilla.54ea44c214ed.css" rel="stylesheet" type="text/css">
+      
+        <link href="https://www.mozilla.org/media/css/m24-navigation-and-footer.038277dadfff.css" rel="stylesheet" type="text/css">
+      
+      
+    
+
+    
+    
+  <link href="https://www.mozilla.org/media/css/m24-base.cb7020016bcf.css" rel="stylesheet" type="text/css">
+  <link href="https://www.mozilla.org/media/css/about-org-leadership.9bb0bdc69687.css" rel="stylesheet" type="text/css">
+
+    <!--<![endif]-->
+
+    
+      
+    
+
+    
+    
+      <!--[if IE 9]><!-->
+        
+
+<!--
+Read more about our custom configuration and use of Google Analytics here:
+https://bugzilla.mozilla.org/show_bug.cgi?id=1122305#c8
+-->
+
+<!-- Google Tag Manager -->
+<!-- Customized for Mozilla.org-->
+<!-- Region Container: NONE -->
+<!-- Rollup Container: System Filtered -->
+<!-- Site Container: NONE -->
+
+
+    <script src="https://www.mozilla.org/media/js/gtm-snippet.cc9550e6b401.js"></script>
+
+<!-- End Google Tag Manager -->
+      <!--<![endif]-->
+    
+  </head>
+
+  <body class="html-ltr mzp-t-mozilla about-leadership" >
+    <div id="strings"
+      data-global-close="Close"
+      data-global-next="Next"
+      data-global-previous="Previous"
+      ></div>
+
+    
+      
+
+<aside class="moz-consent-banner" id="moz-consent-banner" role="region" aria-label="Cookie Banner" data-nosnippet="true" data-testid="consent-banner">
+  <div class="moz-consent-banner-content">
+    <h2 class="moz-consent-banner-heading">Help us improve your Mozilla experience</h2>
+    <div class="moz-consent-banner-copy">
+      <p>In addition to Cookies necessary for this site to function, we’d like your permission to set some additional Cookies to better understand your browsing needs and improve your experience. Rest assured — we value your privacy.</p>
+      <div class="moz-consent-banner-controls">
+        <button type="button" id="moz-consent-banner-button-accept" class="moz-consent-banner-button moz-consent-banner-button-accept" data-testid="consent-banner-accept-button">
+          Accept All Additional Cookies
+        </button>
+        <button type="button" id="moz-consent-banner-button-reject" class="moz-consent-banner-button moz-consent-banner-button-reject" data-testid="consent-banner-reject-button">
+          Reject All Additional Cookies
+        </button>
+        <a href="/en-US/privacy/websites/cookie-settings/">
+          Cookie settings
+        </a>
+      </div>
+    </div>
+  </div>
+</aside>
+    
+
+    
+      
+
+
+  
+
+ 
+
+
+  
+
+
+
+
+
+  
+
+
+
+ <nav class="m24-navigation-refresh enable-main-nav-sticky m24-mzp-is-sticky" aria-label="Primary">
+  <div class="m24-c-navigation-l-content">
+    <div class="m24-c-navigation-container">
+      <button class="m24-c-navigation-menu-button" type="button" aria-controls="m24-c-navigation-items" data-testid="m24-navigation-menu-button">Menu</button>
+      <a class="m24-c-navigation-logo-link" href="/en-US/" data-link-text="mozilla home icon" data-link-position="nav">
+        <img class="m24-c-navigation-logo-image" src="https://www.mozilla.org/media/img/logos/m24/lockup-black.f2ddba3f0724.svg" alt="Mozilla" width="101" height="24">
+      </a>
+      <div class="m24-c-navigation-items" id="m24-c-navigation-items" data-testid="m24-navigation-menu-items">
+        <div class="m24-c-navigation-menu">
+          <div class="m24-c-menu m24-mzp-is-basic">
+            <ul class="m24-c-menu-category-list">
+              
+
+
+
+<li class="m24-c-menu-category mzp-has-drop-down mzp-js-expandable">
+  <a class="m24-c-menu-title" href="/en-US/products/" aria-haspopup="true" aria-controls="m24-c-menu-panel-products" data-testid="m24-navigation-link-products">Products</a>
+  <div class="m24-c-menu-panel" id="m24-c-menu-panel-products" data-testid="m24-navigation-panel-products">
+    <div class="m24-c-menu-panel-container" data-testid="m24-navigation-menu-products">
+      <button class="m24-c-menu-button-close" type="button" aria-controls="m24-c-menu-panel-products">Close Products menu</button>
+      <div class="m24-c-menu-panel-content">
+        <ul class="m24-mzp-l-content">
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://www.firefox.com?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Firefox browsers" data-link-position="topnav - products" data-testid="m24-navigation-menu-link-firefox">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/firefox/browser/logo.eb1324e44442.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Firefox browsers</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="/en-US/products/vpn/" data-link-text="Mozilla VPN" data-link-position="topnav - products" data-testid="m24-navigation-menu-link-products-vpn">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/mozilla/vpn/logo.c648f487bfb8.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Mozilla VPN</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              
+                
+              
+              <a class="m24-c-menu-item-link" href="/en-US/products/monitor/" data-link-text="Mozilla Monitor" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/firefox/monitor/logo.d97e5516f9e6.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Mozilla Monitor</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://relay.firefox.com/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Firefox Relay" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/firefox/relay/logo.d42a8b52e44c.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Firefox Relay</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://developer.mozilla.org/plus?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="MDN Plus" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/mdn/mdn-plus-logo.c615b46ca4ce.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">MDN Plus</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://www.thunderbird.net/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Thunderbird" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/thunderbird/logo-thunderbird.121e9c0fed45.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Thunderbird</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://soloist.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Solo" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/solo/logo-solo.643cbd69b0d8.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Solo</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://0din.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="0DIN" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/0din/logo-0din.50589c5926d2.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">0DIN</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://tabstack.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Tabstack" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/tabstack/logo-tabstack.4551b75d8e6b.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Tabstack</h2>
+              </a>
+            </section>
+          </li>
+        </ul>
+        <p class="m24-c-menu-category-link">
+          <a href="/en-US/products/" data-link-text="Go to all browsers and products" data-link-position="topnav - products">
+            All products
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path fill="currentColor" d="m7.24 1.36 5.89 5.89H0v1.5h13.13l-5.89 5.89L8.3 15.7 16 8 8.3.3z"/></svg>
+          </a>
+        </p>
+      </div>
+    </div><!-- close .m24-c-menu-panel-container -->
+  </div><!-- close .m24-c-menu-panel -->
+</li><!-- close products -->
+              
+
+ 
+
+ <li class="m24-c-menu-category mzp-has-drop-down mzp-js-expandable">
+   <a class="m24-c-menu-title" href="/en-US/about/" aria-haspopup="true" aria-controls="m24-c-menu-panel-about" data-testid="m24-navigation-link-about-us">About us</a>
+   <div class="m24-c-menu-panel" id="m24-c-menu-panel-about" data-testid="m24-navigation-menu-about-us">
+     <div class="m24-c-menu-panel-container">
+       <button class="m24-c-menu-button-close" type="button" aria-controls="m24-c-menu-panel-about">Close About us menu</button>
+       <div class="m24-c-menu-panel-content multi-column">
+        <div class="m24-mzp-l-content-container">
+          <p>Our Mission</p>
+          <ul class="m24-mzp-l-content">
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/en-US/about/" data-link-text="About Mozilla" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">About Mozilla</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/en-US/about/manifesto/" data-link-text="The Mozilla manifesto" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">The Mozilla Manifesto</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/en-US/contribute/" data-link-text="Get Involved" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Get Involved</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://blog.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Blog" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Blog</h2>
+                </a>
+              </section>
+            </li>
+           </ul>
+        </div>
+        <div class="m24-mzp-l-content-container">
+          <p>Our Work</p>
+          <ul class="m24-mzp-l-content">
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://www.mozillafoundation.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla Foundation" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Foundation</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://www.mozilla.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla.ai" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla.ai</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://mozilla.vc/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla Ventures" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Ventures</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/en-US/advertising/" data-link-text="Mozilla Ads" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Advertising</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://builders.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla Builders" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Builders</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://newproducts.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla New Products" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla New Products</h2>
+                </a>
+              </section>
+            </li>
+           </ul>
+        </div>
+       </div>
+     </div><!-- close .m24-c-menu-panel-container -->
+   </div><!-- close .m24-c-menu-panel -->
+ </li><!-- close about us -->
+            </ul>
+          </div>
+        </div><!-- close .m24-c-navigation-menu -->
+      </div><!-- close .m24-c-navigation-items -->
+      <blink class="spacer-gif"></blink>
+    </div><!-- close .m24-c-navigation-container -->
+  </div><!-- close .m24-c-navigation-l-content -->
+</nav>
+
+    
+
+    
+
+    <div id="outer-wrapper">
+      
+  
+  
+  
+    
+  
+    
+  
+    
+  
+    
+  
+    
+  
+    
+  
+    
+  
+
+  <div class="m24-c-content mzp-has-sidebar mzp-l-sidebar-left">
+    <main class="mzp-l-main">
+      <h1>Mozilla Leadership</h1>
+
+      
+        <div class="intro mzp-u-rich-text">
+          
+
+
+<p data-block-key="5mtiy">The Mozilla Project is a global community of people who believe that openness, innovation, and opportunity are key to the continued health of the internet. Today the organizations within the Mozilla Project are led by diverse teams of exceptional leaders, guided by our Executive Leadership Council.</p>
+        </div>
+      
+
+      
+        <section class="c-group">
+          
+            <h2 id="executive-leadership-council" class="c-group-title">Executive Leadership Council</h2>
+          
+
+          
+            <div class="c-group-description mzp-u-rich-text">
+              
+
+
+<p data-block-key="rv3j3">The Executive Leadership Council includes the top leaders of each organization in the Mozilla family, as well as the Mozilla.org Executive Team. Along with our Boards of Directors, the Executive Leadership Council works collaboratively to ensure effective day-to-day coordination across Mozilla, and to drive Mozilla’s growth and progress as a double bottom line enterprise.</p>
+            </div>
+          
+
+          
+            <div class="c-group-gallery l-group-gallery-narrow">
+              
+                
+                
+                
+
+<div id="mark-surman"  class="vcard has-bio" itemscope itemtype="http://schema.org/Person">
+  <figure class="headshot">
+    
+      
+      <img alt="" class="photo" height="200" sizes="220px" src="https://www.mozilla.org/media/cms/images/Mark_1a.width-200.png" srcset="https://www.mozilla.org/media/cms/images/Mark_1a.width-200.png 200w, https://www.mozilla.org/media/cms/images/Mark_1a.width-400.png 200w, https://www.mozilla.org/media/cms/images/Mark_1a.width-600.png 200w" width="200">
+    
+    <figcaption>
+      <h3 class="fn" itemprop="name">Mark Surman</h3>
+    </figcaption>
+  </figure>
+
+  <div class="person-info">
+    
+      <p class="title" itemprop="jobTitle">President, Mozilla</p>
+    
+
+    
+      
+
+      <ul class="utility">
+        
+        <li><a class="link" href="https://www.mozilla.org/en-US/about/leadership/#mark-surman">Link to this bio</a></li>
+      </ul>
+    
+  </div>
+
+  
+    <div class="person-bio mzp-u-rich-text">
+      
+
+
+<p data-block-key="f2jat">Mark Surman has spent three decades building a better internet, from the advent of the web to the rise of artificial intelligence.</p><p data-block-key="4uc3g">Mark is President of <a href="http://www.mozilla.org/" rel="external noopener" target="_blank">Mozilla</a>, a non profit that works with companies and communities around the world to ensure the internet is built for people, not for profit. Mozilla's double bottom line portfolio includes the public benefit companies that make Firefox, Thunderbird and open source AI developer tools; a venture fund that invests in double bottom line tech companies; and a global foundation which backs the work of artists, educators and builders. Mark works across this whole portfolio to ensure Mozilla's people and resources are aimed at bending tech — and the tech industry — in a direction that serves all of humanity.</p><p data-block-key="2s8gv">Mark was Executive Director of Mozilla Foundation for 15 years. He grew the organization into an international movement-building force, renowned for its fellowships, philanthropy, advocacy, and insights work, launching projects including Common Voice, the world's largest open source voice data set, and the Mozilla Festival, a yearly conference that brings together technologists, activists, artists, and others to collaboratively shape a healthier and more just digital future.</p><p data-block-key="e2sit">Prior, Mark was the founding Director of telecentre.org, a $26M initiative connecting community technology centers in more than 30 countries. He ran the Commons Group, a boutique consulting firm specializing in open source and social enterprise. And he was awarded the prestigious Shuttleworth Fellowship to explore open source approaches to philanthropy.</p><p data-block-key="cash8">Mark serves on the Mozilla Foundation and Mozilla Corporation Boards, and on the Boards of <a href="https://www.ushahidi.com/" rel="external noopener" target="_blank">Ushahidi</a>, a global not-for-profit technology company that develops integrated tools and services to enable people to generate solutions and mobilize communities for good, and <a href="https://roost.tools/" rel="external noopener" target="_blank">ROOST</a>, a non-profit building open source tools that aim to radically improve the state of trust and safety across the tech industry. He is a professor of practice in the MacMaster University Masters in Public Policy program, and is engaged as a writer, speaker and thinker in global conversations about open source, trustworthy AI and the future of the internet.</p><p data-block-key="dqca9">Mark lives in Toronto. He holds a BA in the History of Community Media from the University of Toronto. You can keep up with Mark on <a href="https://www.linkedin.com/in/msurman/" rel="external noopener" target="_blank">Linkedin</a>, and<a href="https://www.youtube.com/playlist?list=PLnRGhgZaGeBv8a9VaiWgElbQfaI5teRiD" rel="external noopener" target="_blank"> see his recent talks here</a>.</p>
+    </div>
+  
+</div>
+              
+                
+                
+                
+
+<div id="nabiha-syed"  class="vcard has-bio" itemscope itemtype="http://schema.org/Person">
+  <figure class="headshot">
+    
+      
+      <img alt="" class="photo" height="200" sizes="220px" src="https://www.mozilla.org/media/cms/images/nabiha-2.width-200.png" srcset="https://www.mozilla.org/media/cms/images/nabiha-2.width-200.png 200w, https://www.mozilla.org/media/cms/images/nabiha-2.width-400.png 200w, https://www.mozilla.org/media/cms/images/nabiha-2.width-600.png 200w" width="200">
+    
+    <figcaption>
+      <h3 class="fn" itemprop="name">Nabiha Syed</h3>
+    </figcaption>
+  </figure>
+
+  <div class="person-info">
+    
+      <p class="title" itemprop="jobTitle">Executive Director, Mozilla Foundation</p>
+    
+
+    
+      
+
+      <ul class="utility">
+        
+        <li><a class="link" href="https://www.mozilla.org/en-US/about/leadership/#nabiha-syed">Link to this bio</a></li>
+      </ul>
+    
+  </div>
+
+  
+    <div class="person-bio mzp-u-rich-text">
+      
+
+
+<p data-block-key="as60n">Nabiha Syed is Executive Director of Mozilla Foundation, the global nonprofit that does everything from championing trustworthy AI to advocating for a more open, equitable internet.</p><p data-block-key="dj6e5">Formerly, Nabiha was the CEO of The Markup, an award-winning journalism non-profit that challenges technology to serve the public good. Under her leadership, The Markup’s unique approach was referenced by Congress 21 times, inspired dozens of class action lawsuits, won a national Murrow Award and a Loeb Award, and was recognized as “Most Innovative” by FastCompany in 2022.</p><p data-block-key="1f9ms">Prior to The Markup, Nabiha was a highly acclaimed media lawyer with a legal career spanning private practice and the New York Times First Amendment Fellowship. She led BuzzFeed’s libel and newsgathering matters, including the successful defense of several high-profile libel lawsuits.</p><p data-block-key="382up">Nabiha sits on the boards of the Scott Trust, the $1B+ British company that owns The Guardian newspaper, the New York Civil Liberties Union, the Reporters Committee for the Freedom of the Press, and the New Press. She also serves as an advisor to ex/ante, the first venture fund dedicated to agentic tech, and she is a current member of The World Economic Forum’s AI Governance Alliance. In 2023, Nabiha was awarded the NAACP/Archewell Digital Civil Rights Award for her work.</p>
+    </div>
+  
+</div>
+              
+                
+                
+                
+
+<div id="anthony-enzor-demeo"  class="vcard has-bio" itemscope itemtype="http://schema.org/Person">
+  <figure class="headshot">
+    
+      
+      <img alt="" class="photo" height="200" sizes="220px" src="https://www.mozilla.org/media/cms/images/anthony_photo_5.width-200.png" srcset="https://www.mozilla.org/media/cms/images/anthony_photo_5.width-200.png 200w, https://www.mozilla.org/media/cms/images/anthony_photo_5.width-400.png 200w, https://www.mozilla.org/media/cms/images/anthony_photo_5.width-600.png 200w" width="200">
+    
+    <figcaption>
+      <h3 class="fn" itemprop="name">Anthony Enzor-DeMeo</h3>
+    </figcaption>
+  </figure>
+
+  <div class="person-info">
+    
+      <p class="title" itemprop="jobTitle">CEO, Mozilla Corporation</p>
+    
+
+    
+      
+
+      <ul class="utility">
+        
+        <li><a class="link" href="https://www.mozilla.org/en-US/about/leadership/#anthony-enzor-demeo">Link to this bio</a></li>
+      </ul>
+    
+  </div>
+
+  
+    <div class="person-bio mzp-u-rich-text">
+      
+
+
+<p data-block-key="as60n"></p><p data-block-key="f3tce">As CEO of Mozilla Corporation, Anthony leads the vision and corporate strategy for the nonprofit-backed tech company behind the Firefox web browser. He is responsible for driving overall business growth, strengthening Mozilla’s market position, and advancing the company’s focus on becoming the world’s trusted software company for people who value openness, transparency, and control.</p><p data-block-key="dfuou">Anthony brings broad experience across real estate and prop tech, consumer fintech, e-commerce, and automotive. He joined Mozilla in 2024 as General Manager of Firefox, following his role as Chief Product and Technology Officer at Roofstock, where he oversaw the company-wide technology roadmap and multiple product and business lines. During his tenure, he guided the organization through a strategic acquisition that expanded and enhanced its offerings.</p><p data-block-key="ec8i4">Previously, as Chief Product Officer at Better, Anthony led product and design efforts across the business, with a focus on the mortgage application, real estate, title, and insurance sectors of consumer mortgage. Before that, he held product leadership roles at Wayfair, where he established B2B and B2C product divisions, launched a comprehensive API strategy, and led product for supply chain platforms. He advanced to General Manager of product, engineering, and design for Partner Home, Wayfair's two-sided marketplace. Earlier in his career, Anthony was part of the product team at Dealer.com, working across go-to-market strategy, product readiness, and general product management.</p><p data-block-key="481sq">Anthony holds an MBA from MIT Sloan, as well as an MS and BS from Champlain College. He is based in Boston with his family and enjoys spending time olympic lifting, watching horror movies and building computers.</p>
+    </div>
+  
+</div>
+              
+                
+                
+                
+
+<div id="ryan-sipes"  class="vcard has-bio" itemscope itemtype="http://schema.org/Person">
+  <figure class="headshot">
+    
+      
+      <img alt="" class="photo" height="218" sizes="220px" src="https://www.mozilla.org/media/cms/images/sipes_ryanresize_uNHFojh.width-200.jpg" srcset="https://www.mozilla.org/media/cms/images/sipes_ryanresize_uNHFojh.width-200.jpg 200w, https://www.mozilla.org/media/cms/images/sipes_ryanresize_w7npMeZ.width-400.jpg 400w, https://www.mozilla.org/media/cms/images/sipes_ryanresize_dieyeOd.width-600.jpg 600w" width="200">
+    
+    <figcaption>
+      <h3 class="fn" itemprop="name">Ryan Sipes</h3>
+    </figcaption>
+  </figure>
+
+  <div class="person-info">
+    
+      <p class="title" itemprop="jobTitle">CEO, Thunderbird</p>
+    
+
+    
+      
+
+      <ul class="utility">
+        
+        <li><a class="link" href="https://www.mozilla.org/en-US/about/leadership/#ryan-sipes">Link to this bio</a></li>
+      </ul>
+    
+  </div>
+
+  
+    <div class="person-bio mzp-u-rich-text">
+      
+
+
+<p data-block-key="0ulcx">Ryan Sipes has spent over a decade building technology that empowers people while protecting their privacy and freedom.</p><p data-block-key="vb5c">Ryan is CEO of MZLA Technologies Corp., the company that creates Thunderbird and productivity software for millions of users worldwide. In 2026, under his leadership, MZLA launched Thunderbolt - an open-source AI client that gives organizations full ownership of their data and AI infrastructure without vendor lock-in. Under his leadership since 2017, Thunderbird has experienced a remarkable transformation: growing annual revenue from $700,000 to over $12 million, expanding the team from a handful of contractors to more than 60 full-time employees, and bringing Thunderbird to mobile platforms with launches on Android and iOS alongside its desktop presence on Windows, macOS, and Linux.</p><p data-block-key="f4js4">Ryan was instrumental in Thunderbird's turnaround after the project was declared "dead" by many in 2012. As Managing Director and later CEO, he spearheaded major initiatives including Thunderbird 115 "Supernova," bringing Thunderbird to all platforms, the launch of Thundermail (Thunderbird's own email service), and the launch of Thunderbolt. His leadership emphasizes community-driven development, with transparent two-way conversations that have been central to Thunderbird's success and its unique community governance model.</p><p data-block-key="5n49c">Prior, Ryan was Co-Founder and CTO of Mycroft A.I., an early open source artificial intelligence platform for home automation. He served as Community Manager at System76, building community around Linux-based computer hardware and open source software. Ryan has also contributed to many open source projects for over 20 years including many different Linux distributions and the GNOME project.</p><p data-block-key="bu9pl">Ryan operates according to three core principles: keeping technology open, inclusive, and interoperable; designing for human-centered privacy and agency; and maintaining transparent, community-driven impact that prioritizes public benefit over profit.</p>
+    </div>
+  
+</div>
+              
+                
+                
+                
+
+<div id="mohamed-nanabhay"  class="vcard has-bio" itemscope itemtype="http://schema.org/Person">
+  <figure class="headshot">
+    
+      
+      <img alt="" class="photo" height="200" sizes="220px" src="https://www.mozilla.org/media/cms/images/Mohamed_1.width-200.png" srcset="https://www.mozilla.org/media/cms/images/Mohamed_1.width-200.png 200w, https://www.mozilla.org/media/cms/images/Mohamed_1.width-400.png 200w, https://www.mozilla.org/media/cms/images/Mohamed_1.width-600.png 200w" width="200">
+    
+    <figcaption>
+      <h3 class="fn" itemprop="name">Mohamed Nanabhay</h3>
+    </figcaption>
+  </figure>
+
+  <div class="person-info">
+    
+      <p class="title" itemprop="jobTitle">Managing Partner, Mozilla Ventures</p>
+    
+
+    
+      
+
+      <ul class="utility">
+        
+        <li><a class="link" href="https://www.mozilla.org/en-US/about/leadership/#mohamed-nanabhay">Link to this bio</a></li>
+      </ul>
+    
+  </div>
+
+  
+    <div class="person-bio mzp-u-rich-text">
+      
+
+
+<p data-block-key="as60n">Before Mozilla Ventures, Mohamed was the Deputy CEO of the Media Development Investment Fund (MDIF), which invests in independent media around the world providing the news, information and debate that people need to build free, thriving societies. He continues to serve on the Investment Committee of MDIF.</p><p data-block-key="2vomo">Mohamed spent nearly a decade at Al Jazeera, where he started the New Media department which focused on innovation and product development across internet, mobile, and social technologies. He then served as the Head of Online at Al Jazeera English where he led the team that produced the award-winning coverage of the Arab revolutions in 2011.</p><p data-block-key="7qtgu">In 2005 Mohamed founded QatarLiving.com (acquired in 2012), a listings and community website that quickly grew to be the largest site in Qatar. He also co-founded Signalnoi.se, a social analytics platform for newsrooms that won the Knight News Challenge.</p><p data-block-key="2vnhu">Mohamed previously served as a board member of the Mozilla Foundation, Media Development Investment, as the Board Chair of Global Voices Online, the Advisory Board of Creative Commons, and was a member of the World Economic Forum’s Global Agenda Council on Social Media.</p><p data-block-key="5htdm">He received his undergraduate degree in Computer Science at the University of the Witwatersrand and a master’s degree in International Relations from the University of Cambridge.</p>
+    </div>
+  
+</div>
+              
+                
+                
+                
+
+<div id="john-dickerson"  class="vcard has-bio" itemscope itemtype="http://schema.org/Person">
+  <figure class="headshot">
+    
+      
+      <img alt="" class="photo" height="200" sizes="220px" src="https://www.mozilla.org/media/cms/images/John_1.width-200.png" srcset="https://www.mozilla.org/media/cms/images/John_1.width-200.png 200w, https://www.mozilla.org/media/cms/images/John_1.width-400.png 200w, https://www.mozilla.org/media/cms/images/John_1.width-600.png 200w" width="200">
+    
+    <figcaption>
+      <h3 class="fn" itemprop="name">John Dickerson</h3>
+    </figcaption>
+  </figure>
+
+  <div class="person-info">
+    
+      <p class="title" itemprop="jobTitle">CEO, Mozilla.ai</p>
+    
+
+    
+      
+
+      <ul class="utility">
+        
+        <li><a class="link" href="https://www.mozilla.org/en-US/about/leadership/#john-dickerson">Link to this bio</a></li>
+      </ul>
+    
+  </div>
+
+  
+    <div class="person-bio mzp-u-rich-text">
+      
+
+
+<p data-block-key="iyc9o">John Dickerson is CEO of <a href="http://mozilla.ai/" rel="external noopener" target="_blank">Mozilla.ai</a>. He brings a wealth of experience in scaling startups, developing practical and robust machine learning methods, deploying AI-based products into the enterprise, as well as providing broad AI/ML thought leadership in industry, academia, non-profits, and governments.</p><p data-block-key="fvb0e">Previously, John was co-founder and Chief Scientist at <a href="https://www.arthur.ai/" rel="external noopener" target="_blank">Arthur</a> as well as a tenured professor at the University of Maryland in the Washington, DC area.</p><ul class="mzp-u-list-styled"><li data-block-key="5vape">At Arthur, he helped scale the company to 50+ employees, a presence in NYC, DC, and the US west coast, and $55 million raised from seed through Series B financing. Arthur develops industry-leading technology in data drift detection and mitigation, bias detection and mitigation, GenAI firewall features such as jailbreak and PII leakage detection, and explainability. Arthur’s ML-based products are deployed at some of the largest regulated enterprises in the US and worldwide.</li><li data-block-key="8m1sf">At Maryland, he founded and led a large lab researching the intersection of ML and economics, with a core focus of designing incentives that promote “good” participation in complex systems. That lab produced 16 PhD graduates and secured $10M+ in funding from NIST, NSA, DARPA, ARPA-E, NIH, NSF – including an NSF CAREER award – in addition to industry funding.</li></ul><p data-block-key="na5e">He has worked extensively on theoretical and empirical approaches to organ exchange where his work has set US-wide policy; worldwide blood donation markets with Meta; game-theoretic approaches to counter-terrorism and negotiation, where his models have been deployed; and market design problems in industry (e.g., online advertising) through various startups.</p><p data-block-key="e9gps">John holds a BS in mathematics and a BS in computer science from the University of Maryland, as well as a PhD in computer science from Carnegie Mellon University. He splits his time between Seattle, Washington, USA and Western Europe.</p>
+    </div>
+  
+</div>
+              
+                
+                
+                
+
+<div id="em-lewis-jong"  class="vcard has-bio" itemscope itemtype="http://schema.org/Person">
+  <figure class="headshot">
+    
+      
+      <img alt="" class="photo" height="200" sizes="220px" src="https://www.mozilla.org/media/cms/images/ZeeResizer4.2e16d0ba.fill-600x600.width-200.png" srcset="https://www.mozilla.org/media/cms/images/ZeeResizer4.2e16d0ba.fill-600x600.width-200.png 200w, https://www.mozilla.org/media/cms/images/ZeeResizer4.2e16d0ba.fill-600x600.width-400.png 200w, https://www.mozilla.org/media/cms/images/ZeeResizer4.2e16d0ba.fill-600x600.width-600.png 200w" width="200">
+    
+    <figcaption>
+      <h3 class="fn" itemprop="name">EM Lewis-Jong</h3>
+    </figcaption>
+  </figure>
+
+  <div class="person-info">
+    
+      <p class="title" itemprop="jobTitle">CEO, Mozilla Data Collective</p>
+    
+
+    
+      
+        <ul class="elsewhere">
+          
+            
+          
+        </ul>
+      
+
+      <ul class="utility">
+        
+        <li><a class="link" href="https://www.mozilla.org/en-US/about/leadership/#em-lewis-jong">Link to this bio</a></li>
+      </ul>
+    
+  </div>
+
+  
+    <div class="person-bio mzp-u-rich-text">
+      
+
+
+<p data-block-key="tfde7">EM is the Founder and CEO of Mozilla Data Collective: the data sharing platform for human agency and fair value exchange. They were previously a Vice President at Mozilla Foundation, and the Director at Common Voice, the world’s largest open crowdsourced speech corpus, spanning 300+ languages and 750,000 open community contributors. EM has led global language dataset creation, curation and community governance programs backed by the US National Science Foundation, NVIDIA, Gates Foundation, and GIZ. Before Mozilla, they were a founding executive in CivTech, working on sharing information, data and knowledge across borders, funded both by venture capital and philanthropy. </p><p data-block-key="api0b">They have been on the Natural Language Processing TAP for Google-backed Lacuna Fund, an Industry Board Advisor for Speech Technologies at the University of Groningen and an Advisor for the Caribbean Parliaments’ big data programme. Their first degree was from the University of Oxford (BA, MA), and their PhD research on AI agent privacy configuration is based at the University of Sussex's Creative Technology Lab.</p>
+    </div>
+  
+</div>
+              
+                
+                
+                
+
+<div id="amy-keating"  class="vcard has-bio" itemscope itemtype="http://schema.org/Person">
+  <figure class="headshot">
+    
+      
+      <img alt="" class="photo" height="200" sizes="220px" src="https://www.mozilla.org/media/cms/images/amy-keating-cropped.width-200.png" srcset="https://www.mozilla.org/media/cms/images/amy-keating-cropped.width-200.png 200w, https://www.mozilla.org/media/cms/images/amy-keating-cropped.width-400.png 400w, https://www.mozilla.org/media/cms/images/amy-keating-cropped.width-600.png 600w" width="200">
+    
+    <figcaption>
+      <h3 class="fn" itemprop="name">Amy Keating</h3>
+    </figcaption>
+  </figure>
+
+  <div class="person-info">
+    
+      <p class="title" itemprop="jobTitle">COO, Mozilla</p>
+    
+
+    
+      
+
+      <ul class="utility">
+        
+        <li><a class="link" href="https://www.mozilla.org/en-US/about/leadership/#amy-keating">Link to this bio</a></li>
+      </ul>
+    
+  </div>
+
+  
+    <div class="person-bio mzp-u-rich-text">
+      
+
+
+<p data-block-key="dh03g">Amy Keating is Chief Operating Officer for the Mozilla family of organizations, where she leads portfolio-wide investments and operational initiatives alongside leaders from across the Mozilla Project. The Mozilla Project’s nonprofit umbrella includes the organizations behind Firefox, Thunderbird and open source AI developer tools; the Mozilla Ventures fund dedicated to responsible technology; and Mozilla’s global foundation championing an open, equitable internet.</p><p data-block-key="f38eo">Amy previously served as Chief Administrative &amp; Legal Officer at Planet Labs PBC (NYSE:PL), an aerospace and data company operating the world's largest Earth-observation satellite fleet, which she helped take public in 2021. Amy also served as Chief Administrative Officer at Glean, a late stage private enterprise AI company.</p><p data-block-key="6nc62">Earlier in her career, Amy held roles as Chief Legal Officer &amp; Corporate Secretary at Mozilla Corporation, where she shaped global regulatory strategy and complex multi-party litigation, and VP &amp; Deputy General Counsel at Twitter, where she managed legal matters in more than 20 countries.</p><p data-block-key="4ugnf">Amy served on the Mozilla Foundation board from 2023 to 2026, and currently sits on the boards of Mozilla Ventures and the Mozilla Data Collective. She holds a JD and a BA from the University of California, Berkeley, and resides in the Bay Area with her family.</p>
+    </div>
+  
+</div>
+              
+                
+                
+                
+
+<div id="raffi-krikorian"  class="vcard has-bio" itemscope itemtype="http://schema.org/Person">
+  <figure class="headshot">
+    
+      
+      <img alt="" class="photo" height="200" sizes="220px" src="https://www.mozilla.org/media/cms/images/Raffi_1.width-200.png" srcset="https://www.mozilla.org/media/cms/images/Raffi_1.width-200.png 200w, https://www.mozilla.org/media/cms/images/Raffi_1.width-400.png 200w, https://www.mozilla.org/media/cms/images/Raffi_1.width-600.png 200w" width="200">
+    
+    <figcaption>
+      <h3 class="fn" itemprop="name">Raffi Krikorian</h3>
+    </figcaption>
+  </figure>
+
+  <div class="person-info">
+    
+      <p class="title" itemprop="jobTitle">CTO, Mozilla</p>
+    
+
+    
+      
+
+      <ul class="utility">
+        
+        <li><a class="link" href="https://www.mozilla.org/en-US/about/leadership/#raffi-krikorian">Link to this bio</a></li>
+      </ul>
+    
+  </div>
+
+  
+    <div class="person-bio mzp-u-rich-text">
+      
+
+
+<p data-block-key="5dyo1">Raffi Krikorian is Chief Technology Officer at Mozilla, where he leads efforts to build trustworthy technology that serves the public interest and strengthens human agency. A long-time member of the Mozilla community - serving on the Mozilla Foundation Board since 2023, Mozilla.ai’s Board since 2024, and the Mozilla.org Board since its inception - Raffi brings a record of impact across technology, politics, media, and philanthropy. </p><p data-block-key="8p22l">He previously served as CTO of Emerson Collective, where he focused on how technology and data can be used to drive solutions that promote social good; as the first CTO of the Democratic National Committee, where he built the technology, data, and security infrastructure that supported Democratic candidates nationwide; as Director of Uber’s Advanced Technologies Center, where he led the rollout of the first passenger-carrying self-driving car fleet; and as Vice President of Platform Engineering at Twitter, where he designed and scaled the systems that powered Twitter’s global platform.</p>
+    </div>
+  
+</div>
+              
+            </div>
+          
+          
+        </section>
+      
+
+      
+        <section class="c-subpages m24-t-green">
+          
+            <header class="c-subpages-intro">
+              <h2>Leadership teams for each organization</h2>
+              <p>Mozilla organizations operate with a significant degree of independence. See below for info on the board and executive team for each organization.</p>
+            </header>
+          
+          <div class="c-orglinks">
+            
+              <a href="/en-US/about/leadership/mozilla-org/" class="c-orglinks-link">
+                
+                  <img alt="Mozilla.org" height="222" sizes="(min-width: 1312px) 300px, (min-width: 768px) 25vw, 50vw" src="https://www.mozilla.org/media/cms/images/Mozilla.org-leadership.width-400.png" srcset="https://www.mozilla.org/media/cms/images/Mozilla.org-leadership.width-400.png 400w, https://www.mozilla.org/media/cms/images/Mozilla.org-leadership.width-600.png 432w, https://www.mozilla.org/media/cms/images/Mozilla.org-leadership.width-800.png 432w, https://www.mozilla.org/media/cms/images/Mozilla.org-leadership.width-1000.png 432w, https://www.mozilla.org/media/cms/images/Mozilla.org-leadership.width-1200.png 432w" width="400">
+                
+              </a>
+            
+              <a href="/en-US/about/leadership/mozilla-foundation/" class="c-orglinks-link">
+                
+                  <img alt="Mozilla Foundation" height="222" sizes="(min-width: 1312px) 300px, (min-width: 768px) 25vw, 50vw" src="https://www.mozilla.org/media/cms/images/Mozilla_Foundation-leadership.width-400.png" srcset="https://www.mozilla.org/media/cms/images/Mozilla_Foundation-leadership.width-400.png 400w, https://www.mozilla.org/media/cms/images/Mozilla_Foundation-leadership.width-600.png 432w, https://www.mozilla.org/media/cms/images/Mozilla_Foundation-leadership.width-800.png 432w, https://www.mozilla.org/media/cms/images/Mozilla_Foundation-leadership.width-1000.png 432w, https://www.mozilla.org/media/cms/images/Mozilla_Foundation-leadership.width-1200.png 432w" width="400">
+                
+              </a>
+            
+              <a href="/en-US/about/leadership/mozilla-corporation/" class="c-orglinks-link">
+                
+                  <img alt="Mozilla Corporation" height="222" sizes="(min-width: 1312px) 300px, (min-width: 768px) 25vw, 50vw" src="https://www.mozilla.org/media/cms/images/Firefox.width-400.png" srcset="https://www.mozilla.org/media/cms/images/Firefox.width-400.png 400w, https://www.mozilla.org/media/cms/images/Firefox.width-600.png 432w, https://www.mozilla.org/media/cms/images/Firefox.width-800.png 432w, https://www.mozilla.org/media/cms/images/Firefox.width-1000.png 432w, https://www.mozilla.org/media/cms/images/Firefox.width-1200.png 432w" width="400">
+                
+              </a>
+            
+              <a href="/en-US/about/leadership/mzla-technologies-corp/" class="c-orglinks-link">
+                
+                  <img alt="MZLA Technologies Corp." height="222" sizes="(min-width: 1312px) 300px, (min-width: 768px) 25vw, 50vw" src="https://www.mozilla.org/media/cms/images/Thunderbird-leadership.width-400.png" srcset="https://www.mozilla.org/media/cms/images/Thunderbird-leadership.width-400.png 400w, https://www.mozilla.org/media/cms/images/Thunderbird-leadership.width-600.png 432w, https://www.mozilla.org/media/cms/images/Thunderbird-leadership.width-800.png 432w, https://www.mozilla.org/media/cms/images/Thunderbird-leadership.width-1000.png 432w, https://www.mozilla.org/media/cms/images/Thunderbird-leadership.width-1200.png 432w" width="400">
+                
+              </a>
+            
+              <a href="/en-US/about/leadership/mozilla-ventures/" class="c-orglinks-link">
+                
+                  <img alt="Mozilla Ventures" height="222" sizes="(min-width: 1312px) 300px, (min-width: 768px) 25vw, 50vw" src="https://www.mozilla.org/media/cms/images/Mozilla_Ventures-leadership.width-400.png" srcset="https://www.mozilla.org/media/cms/images/Mozilla_Ventures-leadership.width-400.png 400w, https://www.mozilla.org/media/cms/images/Mozilla_Ventures-leadership.width-600.png 432w, https://www.mozilla.org/media/cms/images/Mozilla_Ventures-leadership.width-800.png 432w, https://www.mozilla.org/media/cms/images/Mozilla_Ventures-leadership.width-1000.png 432w, https://www.mozilla.org/media/cms/images/Mozilla_Ventures-leadership.width-1200.png 432w" width="400">
+                
+              </a>
+            
+              <a href="/en-US/about/leadership/mozilla-ai/" class="c-orglinks-link">
+                
+                  <img alt="Mozilla.ai" height="222" sizes="(min-width: 1312px) 300px, (min-width: 768px) 25vw, 50vw" src="https://www.mozilla.org/media/cms/images/Mozilla_ai-leadership.width-400.png" srcset="https://www.mozilla.org/media/cms/images/Mozilla_ai-leadership.width-400.png 400w, https://www.mozilla.org/media/cms/images/Mozilla_ai-leadership.width-600.png 432w, https://www.mozilla.org/media/cms/images/Mozilla_ai-leadership.width-800.png 432w, https://www.mozilla.org/media/cms/images/Mozilla_ai-leadership.width-1000.png 432w, https://www.mozilla.org/media/cms/images/Mozilla_ai-leadership.width-1200.png 432w" width="400">
+                
+              </a>
+            
+              <a href="/en-US/about/leadership/mozilla-data-collective/" class="c-orglinks-link">
+                
+                  <img alt="Mozilla Data Collective" height="222" sizes="(min-width: 1312px) 300px, (min-width: 768px) 25vw, 50vw" src="https://www.mozilla.org/media/cms/images/Mozilla_Data_Collective-leadership.width-400.png" srcset="https://www.mozilla.org/media/cms/images/Mozilla_Data_Collective-leadership.width-400.png 400w, https://www.mozilla.org/media/cms/images/Mozilla_Data_Collective-leadership.width-600.png 432w, https://www.mozilla.org/media/cms/images/Mozilla_Data_Collective-leadership.width-800.png 432w, https://www.mozilla.org/media/cms/images/Mozilla_Data_Collective-leadership.width-1000.png 432w, https://www.mozilla.org/media/cms/images/Mozilla_Data_Collective-leadership.width-1200.png 432w" width="400">
+                
+              </a>
+            
+          </div>
+        </section>
+      
+    </main>
+    <aside class="mzp-l-sidebar">
+      <nav class="mzp-c-sidemenu">
+
+    <div class="mzp-c-sidemenu-summary mzp-js-toggle" data-testid="sidebar-menu-toggle">
+      <h2 class="mzp-c-sidemenu-label">Menu</h2>
+      <ul>
+        <li>Mozilla Leadership</li>
+        
+          
+            
+          
+            
+          
+            
+          
+            
+          
+            
+          
+            
+          
+            
+          
+            
+          
+        
+      </ul>
+    </div>
+    <section class="mzp-c-sidemenu-main" id="sidebar-menu" data-testid="sidebar-menu-main">
+      
+
+        <h2 class="mzp-c-sidemenu-title ">
+          <a href="/en-US/about/leadership/">Mozilla Leadership</a>
+        </h2>
+
+        <ul>
+        
+          
+        
+          
+          <li >
+            <a href="/en-US/about/leadership/mozilla-org/">Mozilla.org</a>
+          </li>
+          
+        
+          
+          <li >
+            <a href="/en-US/about/leadership/mozilla-foundation/">Mozilla Foundation</a>
+          </li>
+          
+        
+          
+          <li >
+            <a href="/en-US/about/leadership/mozilla-corporation/">Mozilla Corporation</a>
+          </li>
+          
+        
+          
+          <li >
+            <a href="/en-US/about/leadership/mzla-technologies-corp/">MZLA Technologies Corp.</a>
+          </li>
+          
+        
+          
+          <li >
+            <a href="/en-US/about/leadership/mozilla-ventures/">Mozilla Ventures</a>
+          </li>
+          
+        
+          
+          <li >
+            <a href="/en-US/about/leadership/mozilla-ai/">Mozilla.ai</a>
+          </li>
+          
+        
+          
+          <li >
+            <a href="/en-US/about/leadership/mozilla-data-collective/">Mozilla Data Collective</a>
+          </li>
+          
+        
+        </ul>
+      
+    </section>
+  </nav>
+    </aside>
+  </div>
+
+  <div id="leadership-modal" class="mzp-u-modal-content"></div>
+
+
+      
+        
+
+
+
+
+  
+
+ <footer class="moz24-footer" id="colophon" role="contentinfo">
+  
+  <div class="moz24-footer-content">
+    
+    <div class="moz24-footer-primary">
+      <div class="moz24-footer-sections-container">
+        <div class="moz24-footer-advertising">
+          <div class="moz24-footer-advertising-wrapper">
+            <h2>
+              <img src="https://www.mozilla.org/media/img/logos/mozilla/ads/Mozilla_Ads_Logo.6ed26d0eac2b.svg" alt="Mozilla Ads" width="250" height="33" class="moz24-footer-advertising-logo">
+            </h2>
+            
+              <p>Add trust to your ad buy.</p>
+            
+            <a class="moz24-footer-advertising-link" href="/en-US/advertising/" data-link-position="footer" data-link-text="Learn more">
+              <span class="mzp-c-button-icon-text">Learn more <span>about Mozilla Ads</span></span>
+              <span class="mzp-c-button-icon-end">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path fill="currentColor" d="m7.24 1.36 5.89 5.89H0v1.5h13.13l-5.89 5.89L8.3 15.7 16 8 8.3.3z"/></svg>
+              </span>
+            </a>
+          </div>
+        </div>
+        <div class="moz24-footer-links">
+          <section>
+            <h2 class="moz24-footer-label" data-testid="footer-heading-company">
+              Company
+            </h2>
+            <ul class="moz24-footer-primary-list" data-testid="footer-list-company">
+              <li><a href="/en-US/about/leadership/" data-link-position="footer" data-link-text="Leadership">Leadership</a></li>
+              <li><a href="https://blog.mozilla.org/category/mozilla/news/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=company" data-link-position="footer" data-link-text="Press Center">Press Center</a></li>
+              <li><a href="/en-US/careers/" data-link-position="footer" data-link-text="Careers">Careers</a></li>
+              <li><a href="https://shop.mozilla.com/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=company" data-link-position="footer" data-link-text="Merch Store">Merch Store</a></li>
+              <li><a href="/en-US/contact/" data-link-position="footer" data-link-text="Contact">Contact</a></li>
+            
+            </ul>
+          </section>
+
+          <section>
+            <h2 class="moz24-footer-label" data-testid="footer-heading-support">
+              Support
+            </h2>
+            <ul class="moz24-footer-primary-list" data-testid="footer-list-support">
+              <li><a href="https://support.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=support" data-link-position="footer" data-link-text="Product Help">Product Help</a></li>
+              <li><a href="https://bugzilla.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=support" data-link-position="footer" data-link-text="File a Bug">File a Bug</a></li>
+              <li><a href="https://pontoon.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=support" data-link-position="footer" data-link-text="Localise Mozilla">Localize Mozilla</a></li>
+              <li><a href="/en-US/security/" data-link-position="footer" data-link-text="Security">Security</a></li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 class="moz24-footer-label" data-testid="footer-heading-developers">
+              Developers
+            </h2>
+            <ul class="moz24-footer-primary-list" data-testid="footer-list-developers">
+              <li><a href="https://www.firefox.com/channel/desktop/developer/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="Firefox Developer Edition">Developer Edition</a></li>
+              <li><a href="https://www.firefox.com/browsers/enterprise/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="Firefox for Enterprise">Enterprise</a></li>
+              <li><a href="https://firefox-source-docs.mozilla.org/devtools-user/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=developers" rel="external" data-link-position="footer" data-link-text="Tools">Tools</a></li>
+              <li><a href="https://developer.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="MDN">MDN</a></li>
+              <li><a href="https://www.firefox.com/firefox/155.0.1/releasenotes/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="Firefox Release Notes">Firefox Release Notes</a></li>
+            </ul>
+          </section>
+        </div>
+        <div class="moz24-footer-socials">
+          <div class="moz24-footer-refresh-social-wrapper">
+            <h2 class="moz24-footer-heading-social">Follow @Mozilla</h2>
+            <ul class="moz24-footer-social-links">
+              <li><a class="bluesky" href="https://bsky.app/profile/mozilla.org" data-link-position="footer" data-link-text="Bluesky (@mozilla.org)" translate="no">Bluesky<span> (@mozilla.org)</span></a></li>
+              <li><a class="instagram" href="https://www.instagram.com/mozilla/" data-link-position="footer" data-link-text="Instagram (@mozilla)">Instagram<span> (@mozilla)</span></a></li>
+              <li><a class="linkedin" href="https://www.linkedin.com/company/mozilla-corporation/" data-link-position="footer" data-link-text="LinkedIn (@mozilla)">LinkedIn<span> (@mozilla)</span></a></li>
+              <li><a class="tiktok" href="https://www.tiktok.com/@mozilla" data-link-position="footer" data-link-text="TikTok (@mozilla)">TikTok<span> (@mozilla)</span></a></li>
+              <li><a class="spotify" href="https://open.spotify.com/show/0vT7LJMeVDxyQ2ZamHKu08?si=_uDRD6bRR_6M5YZyISGXgA" data-link-position="footer" data-link-text="Spotify (@mozilla)">Spotify<span> (@mozilla)</span></a></li>
+            </ul>
+          </div>
+          <div class="moz24-footer-refresh-social-wrapper">
+            <h2 class="moz24-footer-heading-social">Follow @Firefox</h2>
+            <ul class="moz24-footer-social-links">
+              <li><a class="bluesky" href="https://bsky.app/profile/firefox.com" data-link-position="footer" data-link-text="Bluesky (@firefox.com)" translate="no">Bluesky<span> (@firefox.com)</span></a></li>
+              <li><a class="instagram" href="https://www.instagram.com/firefox/" data-link-position="footer" data-link-text="Instagram (@firefox)">Instagram<span> (@firefox)</span></a></li>
+              <li><a class="youtube" href="https://www.youtube.com/user/firefoxchannel" data-link-position="footer" data-link-text="YouTube (@firefoxchannel)">YouTube<span> (@firefoxchannel)</span></a></li>
+              <li><a class="tiktok" href="https://www.tiktok.com/@firefox" data-link-position="footer" data-link-text="TikTok (@firefox)">TikTok<span> (@firefox)</span></a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="moz24-footer-actions">
+      <a class="moz24-footer-donate" href="https://www.mozillafoundation.org/?form=moco-donate-footer" data-link-text="Donate">
+        <span class="mzp-c-button-icon-start">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><g clip-path="url(#a)"><path fill="currentColor" d="M14.8 8.25c.77-.77 1.2-1.8 1.2-2.9a4.094 4.094 0 0 0-4.1-4.1c-1.1 0-2.12.43-2.9 1.2L7.99 3.46 6.98 2.45c-.77-.77-1.8-1.2-2.9-1.2a4.094 4.094 0 0 0-4.1 4.1c0 1.1.43 2.12 1.2 2.9l6.8 6.8 6.8-6.8zM1.5 5.35c0-.7.27-1.35.76-1.83.49-.49 1.14-.76 1.84-.76s1.34.27 1.84.76l2.07 2.07 2.07-2.07c.98-.98 2.69-.98 3.67 0a2.595 2.595 0 0 1 0 3.67l-5.74 5.74-5.75-5.74c-.49-.49-.76-1.14-.76-1.84"/></g><defs><clipPath id="a"><path d="M0 0h16v16H0z"/></clipPath></defs></svg>
+        </span>
+        <span class="mzp-c-button-icon-text">Donate</span>
+      </a>
+      <div class="moz24-footer-language">
+        
+   <form id="lang_form" class="moz24-c-language-switcher" method="get" action="#">
+    <a class="mzp-c-language-switcher-link" href="/locales/">All languages</a>
+    <label for="page-language-select">Language</label>
+     <select id="page-language-select" class="mzp-js-language-switcher-select" name="lang" dir="ltr" data-testid="footer-language-select">
+       
+         <option lang="en-CA" value="en-CA">English (Canadian)</option>
+       
+         <option lang="en-GB" value="en-GB">English (British)</option>
+       
+         <option lang="en-US" value="en-US" selected>English</option>
+       
+     </select>
+   </form>
+ 
+       </div>
+    </div>
+    
+    <div class="moz24-footer-secondary">
+      <div class="moz24-footer-legal">
+        <p class="moz24-footer-license" rel="license">
+          
+          
+            Donate to the not-for-profit <a href="https://www.mozillafoundation.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" rel="external noopener" data-link-position="footer" data-link-text="Mozilla Foundation">Mozilla Foundation</a>.<br>
+          
+          Portions of this content are ©1998–2026 by individual mozilla.org contributors. Content available under a <a rel="license" href="/en-US/foundation/licensing/website-content/">Creative Commons license</a>.
+        </p>
+        <ul class="moz24-footer-terms">
+        
+          <li><a href="/en-US/privacy/websites/" data-link-position="footer" data-link-text="Privacy">Website Privacy Notice</a></li>
+          <li>
+            
+            <a href="/en-US/privacy/websites/cookie-settings/" data-link-position="footer" data-link-text="Cookies">Cookies</a>
+          </li>
+          <li><a href="/en-US/about/legal/" data-link-position="footer" data-link-text="Legal">Legal</a></li>
+          <li><a href="/en-US/about/governance/policies/participation/" data-link-position="footer" data-link-text="Community Participation Guidelines">Community Participation Guidelines</a></li>
+          
+            <li><a href="/en-US/about/this-site/" data-link-position="footer" data-link-text="About this site">About this site</a></li>
+          
+        
+        </ul>
+      </div>
+    </div>
+    <img loading="lazy" class="moz24-footer-logo-image-bottom" src="https://www.mozilla.org/media/img/logos/m24/wordmark-white.2d673bb5b33a.svg" alt="" width="1376" height="285">
+  </div>
+</footer>
+
+
+  
+
+
+      
+
+      
+      
+    </div>
+
+    
+    
+      
+        <!--[if !IE]><!-->
+          
+          <script src="https://www.mozilla.org/media/js/sentry.9f2fe29330f6.js"></script>
+        <!--<![endif]-->
+      
+    
+
+    
+      <!--[if !IE]><!-->
+        
+        <script src="https://www.mozilla.org/media/js/lib.f86d9ecbd086.js"></script>
+        <script src="https://www.mozilla.org/media/js/fxa.8c097c9145ff.js"></script>
+        <script src="https://www.mozilla.org/media/js/data.44609f062226.js"></script>
+        
+          <script src="https://www.mozilla.org/media/js/m24-ui.30741fa9d521.js"></script>
+        
+      <!--<![endif]-->
+
+      <!--[if IE 9]>
+        
+        <script src="https://www.mozilla.org/media/js/lib-ie.cf16e08599c3.js"></script>
+      <![endif]-->
+    
+
+    
+    
+
+    <!--[if !IE]><!-->
+    
+    
+      
+    
+
+    
+  <script src="https://www.mozilla.org/media/js/about-leadership.bc67403ef500.js"></script>
+
+
+    
+    <!--<![endif]-->
+
+    
+    <!--[if IE 9]><!-->
+      
+      <script src="https://www.mozilla.org/media/js/consent-banner.52b78cd4ba21.js"></script>
+    <!--<![endif]-->
+    
+  </body>
+</html>

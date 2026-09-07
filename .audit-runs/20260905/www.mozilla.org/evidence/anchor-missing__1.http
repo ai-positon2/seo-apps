@@ -1,0 +1,1064 @@
+HTTP/1.1 200 OK
+accept-ranges: bytes
+age: 0
+cache-control: max-age=600
+connection: keep-alive
+content-encoding: br
+content-language: en-US
+content-length: 10028
+content-security-policy: base-uri 'none'; default-src 'self' *.mozilla.org; connect-src 'self' *.analytics.google.com *.google-analytics.com *.googletagmanager.com analytics.google.com cdn.transcend.io google-analytics.com googletagmanager.com gtm.mozilla.org https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org o1069899.ingest.sentry.io o1069899.sentry.io region1.google-analytics.com telemetry.transcend.io telemetry.us.transcend.io transcend-cdn.com www.mozilla.org/submit/bedrock/; form-action 'self' https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org; upgrade-insecure-requests; img-src 'self' blog.mozilla.org data: images.ctfassets.net www.google-analytics.com www.googletagmanager.com www.mozilla.org; object-src 'none'; frame-src 'self' accounts.firefox.com gtm.mozilla.org js.stripe.com www.google-analytics.com www.googletagmanager.com www.youtube.com; script-src 'self' 'unsafe-eval' 'unsafe-inline' *.google-analytics.com *.googletagmanager.com cdn.transcend.io google-analytics.com googletagmanager.com js.stripe.com s.ytimg.com tagmanager.google.com transcend-cdn.com www.mozilla.org www.youtube.com; font-src 'self' www.mozilla.org; style-src 'self' 'unsafe-inline' cdn.transcend.io transcend-cdn.com www.mozilla.org; media-src 'self' assets.mozilla.net videos.cdn.mozilla.net www.mozilla.org; frame-ancestors 'none'
+content-security-policy-report-only: base-uri 'none'; default-src 'self' *.mozilla.org; connect-src 'self' *.analytics.google.com *.google-analytics.com *.googletagmanager.com analytics.google.com cdn.transcend.io google-analytics.com googletagmanager.com gtm.mozilla.org https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org o1069899.ingest.sentry.io o1069899.sentry.io region1.google-analytics.com telemetry.transcend.io telemetry.us.transcend.io transcend-cdn.com www.mozilla.org/submit/bedrock/; form-action 'self' https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org; upgrade-insecure-requests; img-src 'self' blog.mozilla.org data: images.ctfassets.net www.google-analytics.com www.googletagmanager.com www.mozilla.org; object-src 'none'; frame-src 'self' accounts.firefox.com gtm.mozilla.org js.stripe.com www.google-analytics.com www.googletagmanager.com www.youtube.com; script-src 'self' 'unsafe-eval' 'unsafe-inline' *.google-analytics.com *.googletagmanager.com cdn.transcend.io google-analytics.com googletagmanager.com js.stripe.com s.ytimg.com tagmanager.google.com transcend-cdn.com www.mozilla.org www.youtube.com; font-src 'self' www.mozilla.org; style-src 'self' 'unsafe-inline' cdn.transcend.io transcend-cdn.com www.mozilla.org; media-src 'self' assets.mozilla.net videos.cdn.mozilla.net www.mozilla.org; frame-ancestors 'none'
+content-type: text/html; charset=utf-8
+cross-origin-opener-policy: same-origin
+date: Sat, 05 Sep 2026 18:23:42 GMT
+etag: "ae2ce316d6afd19fc9c6c018dd20d32d"
+expires: Sat, 05 Sep 2026 18:33:42 GMT
+referrer-policy: strict-origin-when-cross-origin
+server: granian
+strict-transport-security: max-age=31536000
+vary: Accept-Encoding
+via: 1.1 google, 1.1 varnish, 1.1 varnish
+x-backend-server: bedrock-58fdcfd585-jbv22.gcp-us-west1
+x-cache: MISS, MISS
+x-cache-hits: 0, 0
+x-clacks-overhead: GNU Terry Pratchett
+x-content-type-options: nosniff
+x-frame-options: DENY
+x-served-by: cache-bom-vanm7210038-BOM, cache-bom-vanm7210038-BOM, cache-bom-vanm7210072-BOM
+x-timer: S1788632622.284891,VS0,VE574
+
+
+
+
+
+
+
+<!doctype html>
+
+<html class="windows no-js" lang="en" dir="ltr" data-country-code="IN" data-needs-consent="False" data-latest-firefox="155.0.1" data-esr-versions="140.15.0 153.2.0" data-gtm-container-id="GTM-MW3R8V"  data-stub-attribution-rate="1.0" data-sentry-dsn="https://c3ab8514873549d5b3785ebc7fb83c80@o1069899.ingest.sentry.io/6260331" >
+  <head>
+    <meta charset="utf-8">
+
+    
+
+
+
+<script data-cfasync="false" src="https://transcend-cdn.com/cm/d556c3a1-e57c-4bdf-a490-390a1aebf6dd/airgap.js"></script>
+
+
+    <!--[if !IE]><!-->
+    <script src="https://www.mozilla.org/media/js/site.a6a07233d547.js"></script>
+
+    
+    <!--<![endif]-->
+
+    <!--[if IE 9]>
+    <script src="https://www.mozilla.org/media/js/site-ie.419ec4b57d17.js"></script>
+    <![endif]-->
+
+<!--
+
+
+             _.-~-.
+           7''  Q..\
+        _7         (_
+      _7  _/    _q.  /
+    _7 . ___  /VVvv-'_                                            .
+   7/ / /~- \_\\      '-._     .-'                      /       //
+  ./ ( /-~-/||'=.__  '::. '-~'' {             ___   /  //     ./{
+ V   V-~-~| ||   __''_   ':::.   ''~-~.___.-'' _/  // / {_   /  {  /
+  VV/-~-~-|/ \ .'__'. '.    '::                     _ _ _        ''.
+  / /~~~~||VVV/ /  \ )  \        _ __ ___   ___ ___(_) | | __ _   .::'
+ / (~-~-~\\.-' /    \'   \::::. | '_ ` _ \ / _ \_  / | | |/ _` | :::'
+/..\    /..\__/      '     '::: | | | | | | (_) / /| | | | (_| | ::'
+vVVv    vVVv                 ': |_| |_| |_|\___/___|_|_|_|\__,_| ''
+
+Hi there, nice to meet you!
+
+Interested in having a direct impact on hundreds of millions of users? Join
+Mozilla, and become part of a global community that’s helping to build a
+brighter future for the Web.
+
+Visit https://www.mozilla.org/careers to learn about our current job openings.
+Visit https://www.mozilla.org/contribute for more ways to get involved and
+help support Mozilla.
+-->
+
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+
+    
+    <title>Advertising — Mozilla</title>
+    <meta name="description" content="">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Mozilla">
+    <meta property="og:locale" content="en_US">
+    <meta property="og:url" content="https://www.mozilla.org/en-US/advertising/">
+    <meta property="og:image" content="https://www.mozilla.org/media/img/m24/og.3a69dffad83e.png">
+    <meta property="og:title" content="Advertising">
+    <meta property="og:description" content="">
+    <meta property="fb:page_id" content="262134952380">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:site" content="@mozilla">
+    <meta name="twitter:domain" content="mozilla.org">
+    <meta name="twitter:app:name:googleplay" content="Firefox">
+    <meta name="twitter:app:id:googleplay" content="org.mozilla.firefox">
+    <meta name="twitter:app:name:iphone" content="Firefox">
+    <meta name="twitter:app:id:iphone" content="989804926">
+    <meta name="twitter:app:name:ipad" content="Firefox">
+    <meta name="twitter:app:id:ipad" content="989804926">
+    <link rel="apple-touch-icon" type="image/png" sizes="180x180" href="https://www.mozilla.org/media/img/favicons/mozilla/apple-touch-icon.05aa000f6748.png">
+    <link rel="icon" type="image/png" sizes="196x196" href="https://www.mozilla.org/media/img/favicons/mozilla/favicon-196x196.e143075360ea.png">
+    <link rel="shortcut icon" href="https://www.mozilla.org/media/img/favicons/mozilla/favicon.d0be64e474b1.ico">
+    <link rel="canonical" href="https://www.mozilla.org/en-US/advertising/">
+    
+    <link rel="alternate" hreflang="en" href="https://www.mozilla.org/en-US/advertising/" title="English">
+        <link rel="alternate" hreflang="en-US" href="https://www.mozilla.org/en-US/advertising/" title="English (USA)">
+        
+    
+    
+    <link href="https://mastodon.social/@mozilla" rel="me">
+
+    <!--[if lt IE 9]>
+      
+      <script src="https://www.mozilla.org/media/js/ie/libs/html5shiv.a94a0b700fa2.js"></script>
+    <![endif]-->
+
+    <!--[if IE]>
+      
+      
+        <link href="https://www.mozilla.org/media/css/common-old-ie.4d14f7a84a19.css" rel="stylesheet" type="text/css">
+      
+    <![endif]-->
+
+    <!--[if !IE]><!-->
+    
+    
+      <link href="https://www.mozilla.org/media/css/protocol-mozilla.54ea44c214ed.css" rel="stylesheet" type="text/css">
+      
+        <link href="https://www.mozilla.org/media/css/m24-navigation-and-footer.038277dadfff.css" rel="stylesheet" type="text/css">
+      
+      
+    
+
+    
+    
+  <link href="https://www.mozilla.org/media/css/mozilla-ads.2de1291c5e65.css" rel="stylesheet" type="text/css">
+
+    <!--<![endif]-->
+
+    
+      
+    
+
+    
+    
+      <!--[if IE 9]><!-->
+        
+
+<!--
+Read more about our custom configuration and use of Google Analytics here:
+https://bugzilla.mozilla.org/show_bug.cgi?id=1122305#c8
+-->
+
+<!-- Google Tag Manager -->
+<!-- Customized for Mozilla.org-->
+<!-- Region Container: NONE -->
+<!-- Rollup Container: System Filtered -->
+<!-- Site Container: NONE -->
+
+
+    <script src="https://www.mozilla.org/media/js/gtm-snippet.cc9550e6b401.js"></script>
+
+<!-- End Google Tag Manager -->
+      <!--<![endif]-->
+    
+  </head>
+
+  <body class="html-ltr mzp-t-mozilla advertising" >
+    <div id="strings"
+      data-global-close="Close"
+      data-global-next="Next"
+      data-global-previous="Previous"
+      ></div>
+
+    
+      
+
+<aside class="moz-consent-banner" id="moz-consent-banner" role="region" aria-label="Cookie Banner" data-nosnippet="true" data-testid="consent-banner">
+  <div class="moz-consent-banner-content">
+    <h2 class="moz-consent-banner-heading">Help us improve your Mozilla experience</h2>
+    <div class="moz-consent-banner-copy">
+      <p>In addition to Cookies necessary for this site to function, we’d like your permission to set some additional Cookies to better understand your browsing needs and improve your experience. Rest assured — we value your privacy.</p>
+      <div class="moz-consent-banner-controls">
+        <button type="button" id="moz-consent-banner-button-accept" class="moz-consent-banner-button moz-consent-banner-button-accept" data-testid="consent-banner-accept-button">
+          Accept All Additional Cookies
+        </button>
+        <button type="button" id="moz-consent-banner-button-reject" class="moz-consent-banner-button moz-consent-banner-button-reject" data-testid="consent-banner-reject-button">
+          Reject All Additional Cookies
+        </button>
+        <a href="/en-US/privacy/websites/cookie-settings/">
+          Cookie settings
+        </a>
+      </div>
+    </div>
+  </div>
+</aside>
+    
+
+    
+  
+    
+
+
+  
+
+ 
+
+
+  
+
+
+
+
+
+  
+
+
+
+ <nav class="m24-navigation-refresh " aria-label="Primary">
+  <div class="m24-c-navigation-l-content">
+    <div class="m24-c-navigation-container">
+      <button class="m24-c-navigation-menu-button" type="button" aria-controls="m24-c-navigation-items" data-testid="m24-navigation-menu-button">Menu</button>
+      <a class="m24-c-navigation-logo-link" href="/en-US/" data-link-text="mozilla home icon" data-link-position="nav">
+        <img class="m24-c-navigation-logo-image" src="https://www.mozilla.org/media/img/logos/m24/lockup-black.f2ddba3f0724.svg" alt="Mozilla" width="101" height="24">
+      </a>
+      <div class="m24-c-navigation-items" id="m24-c-navigation-items" data-testid="m24-navigation-menu-items">
+        <div class="m24-c-navigation-menu">
+          <div class="m24-c-menu m24-mzp-is-basic">
+            <ul class="m24-c-menu-category-list">
+              
+
+
+
+<li class="m24-c-menu-category mzp-has-drop-down mzp-js-expandable">
+  <a class="m24-c-menu-title" href="/en-US/products/" aria-haspopup="true" aria-controls="m24-c-menu-panel-products" data-testid="m24-navigation-link-products">Products</a>
+  <div class="m24-c-menu-panel" id="m24-c-menu-panel-products" data-testid="m24-navigation-panel-products">
+    <div class="m24-c-menu-panel-container" data-testid="m24-navigation-menu-products">
+      <button class="m24-c-menu-button-close" type="button" aria-controls="m24-c-menu-panel-products">Close Products menu</button>
+      <div class="m24-c-menu-panel-content">
+        <ul class="m24-mzp-l-content">
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://www.firefox.com?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Firefox browsers" data-link-position="topnav - products" data-testid="m24-navigation-menu-link-firefox">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/firefox/browser/logo.eb1324e44442.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Firefox browsers</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="/en-US/products/vpn/" data-link-text="Mozilla VPN" data-link-position="topnav - products" data-testid="m24-navigation-menu-link-products-vpn">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/mozilla/vpn/logo.c648f487bfb8.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Mozilla VPN</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              
+                
+              
+              <a class="m24-c-menu-item-link" href="/en-US/products/monitor/" data-link-text="Mozilla Monitor" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/firefox/monitor/logo.d97e5516f9e6.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Mozilla Monitor</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://relay.firefox.com/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Firefox Relay" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/firefox/relay/logo.d42a8b52e44c.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Firefox Relay</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://developer.mozilla.org/plus?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="MDN Plus" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/mdn/mdn-plus-logo.c615b46ca4ce.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">MDN Plus</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://www.thunderbird.net/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Thunderbird" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/thunderbird/logo-thunderbird.121e9c0fed45.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Thunderbird</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://soloist.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Solo" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/solo/logo-solo.643cbd69b0d8.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Solo</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://0din.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="0DIN" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/0din/logo-0din.50589c5926d2.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">0DIN</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://tabstack.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Tabstack" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/tabstack/logo-tabstack.4551b75d8e6b.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Tabstack</h2>
+              </a>
+            </section>
+          </li>
+        </ul>
+        <p class="m24-c-menu-category-link">
+          <a href="/en-US/products/" data-link-text="Go to all browsers and products" data-link-position="topnav - products">
+            All products
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path fill="currentColor" d="m7.24 1.36 5.89 5.89H0v1.5h13.13l-5.89 5.89L8.3 15.7 16 8 8.3.3z"/></svg>
+          </a>
+        </p>
+      </div>
+    </div><!-- close .m24-c-menu-panel-container -->
+  </div><!-- close .m24-c-menu-panel -->
+</li><!-- close products -->
+              
+
+ 
+
+ <li class="m24-c-menu-category mzp-has-drop-down mzp-js-expandable">
+   <a class="m24-c-menu-title" href="/en-US/about/" aria-haspopup="true" aria-controls="m24-c-menu-panel-about" data-testid="m24-navigation-link-about-us">About us</a>
+   <div class="m24-c-menu-panel" id="m24-c-menu-panel-about" data-testid="m24-navigation-menu-about-us">
+     <div class="m24-c-menu-panel-container">
+       <button class="m24-c-menu-button-close" type="button" aria-controls="m24-c-menu-panel-about">Close About us menu</button>
+       <div class="m24-c-menu-panel-content multi-column">
+        <div class="m24-mzp-l-content-container">
+          <p>Our Mission</p>
+          <ul class="m24-mzp-l-content">
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/en-US/about/" data-link-text="About Mozilla" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">About Mozilla</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/en-US/about/manifesto/" data-link-text="The Mozilla manifesto" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">The Mozilla Manifesto</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/en-US/contribute/" data-link-text="Get Involved" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Get Involved</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://blog.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Blog" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Blog</h2>
+                </a>
+              </section>
+            </li>
+           </ul>
+        </div>
+        <div class="m24-mzp-l-content-container">
+          <p>Our Work</p>
+          <ul class="m24-mzp-l-content">
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://www.mozillafoundation.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla Foundation" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Foundation</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://www.mozilla.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla.ai" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla.ai</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://mozilla.vc/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla Ventures" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Ventures</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/en-US/advertising/" data-link-text="Mozilla Ads" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Advertising</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://builders.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla Builders" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Builders</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://newproducts.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla New Products" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla New Products</h2>
+                </a>
+              </section>
+            </li>
+           </ul>
+        </div>
+       </div>
+     </div><!-- close .m24-c-menu-panel-container -->
+   </div><!-- close .m24-c-menu-panel -->
+ </li><!-- close about us -->
+            </ul>
+          </div>
+        </div><!-- close .m24-c-navigation-menu -->
+      </div><!-- close .m24-c-navigation-items -->
+      <blink class="spacer-gif"></blink>
+    </div><!-- close .m24-c-navigation-container -->
+  </div><!-- close .m24-c-navigation-l-content -->
+</nav>
+
+  
+
+
+    
+  
+    
+      
+
+<nav class="c-sub-navigation mza-c-sub-navigation is-sticky" aria-labelledby="c-sub-navigation-title">
+  <div class="mzp-l-content">
+    <div class="c-sub-navigation-content">
+      <h2 id="c-sub-navigation-title" class="c-sub-navigation-title">
+        <a
+          href="/en-US/advertising/"
+          data-link-position="subnav"
+          data-link-text="Mozilla Ads"
+          aria-label="Mozilla Ads"
+        >
+          <svg width="136" height="18" viewBox="0 0 136 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M27.8369 3.75684C32.068 3.75688 34.5194 6.27622 34.5195 10.8779C34.5195 15.4799 32.0681 18 27.8369 18C23.6057 18 21.1543 15.4799 21.1543 10.8779C21.1544 6.27618 23.6058 3.75684 27.8369 3.75684ZM77.5771 3.75684C79.6153 3.75685 80.9567 4.75957 81.3438 6.50781H82.1699V4.01367H86.5293V6.66211H85.0332V15.0947H86.5293V17.7432H84.4404C82.9699 17.7432 82.17 16.9458 82.1699 15.4805V15.249H81.3438C80.9567 16.9972 79.6153 18 77.5771 18C74.3521 18 72.082 15.2743 72.082 10.8779C72.0822 6.48184 74.3522 3.75684 77.5771 3.75684ZM121.247 15.0928H122.661V17.7412H120.321C119.584 17.7412 119.018 17.5436 118.624 17.1494C118.247 16.7553 118.059 16.1898 118.059 15.4531V14.9639H117.236C116.996 15.9578 116.551 16.7124 115.899 17.2266C115.265 17.7407 114.459 17.998 113.482 17.998C112.471 17.998 111.58 17.715 110.809 17.1494C110.037 16.5667 109.437 15.7442 109.009 14.6816C108.597 13.6018 108.392 12.3329 108.392 10.876C108.392 8.6651 108.846 6.92558 109.754 5.65723C110.679 4.38882 111.923 3.75391 113.482 3.75391C115.402 3.754 116.576 4.68016 117.005 6.53125H117.827C117.656 4.9886 117.57 3.90808 117.57 3.29102V2.64844H116.104V0H121.247V15.0928ZM129.87 3.75391C131.704 3.75391 133.102 4.13156 134.062 4.88574C135.021 5.6228 135.621 6.80536 135.861 8.43359H132.236V8.15039C132.236 7.65342 132.047 7.25912 131.67 6.96777C131.293 6.65943 130.693 6.50488 129.87 6.50488C128.396 6.50498 127.659 6.94233 127.659 7.81641C127.659 8.15921 127.771 8.43299 127.994 8.63867C128.234 8.82718 128.619 8.99082 129.15 9.12793L131.979 9.71875C133.35 10.0272 134.344 10.4905 134.961 11.1074C135.595 11.7245 135.913 12.556 135.913 13.6016C135.913 15.024 135.398 16.1121 134.37 16.8662C133.342 17.6204 131.859 17.998 129.922 17.998C128.071 17.998 126.657 17.6296 125.68 16.8926C124.703 16.1384 124.094 14.9467 123.854 13.3184H127.505V13.6016C127.505 14.0985 127.703 14.5011 128.097 14.8096C128.491 15.1009 129.099 15.2471 129.922 15.2471C131.447 15.2471 132.21 14.8097 132.21 13.9355C132.21 13.5929 132.09 13.3272 131.851 13.1387C131.628 12.933 131.233 12.7611 130.668 12.624L127.84 12.0332C126.486 11.7247 125.5 11.2616 124.883 10.6445C124.283 10.0275 123.982 9.18768 123.982 8.125C123.982 6.71948 124.489 5.63993 125.5 4.88574C126.511 4.13162 127.968 3.75397 129.87 3.75391ZM9.00391 11.2637H9.8291L12.126 0.00292969H18.834V17.7412H15.1699V3.11426H14.3447L11.1455 17.7412H7.68848L4.48926 3.11426H3.66309V17.7412H0V0.00292969H6.70801L9.00391 11.2637ZM47.3672 6.66113L40.376 15.0938H47.4707V17.7412H36.0156V15.0938L43.0068 6.66113H36.1191V4.0127H47.3672V6.66113ZM54.5391 17.7412H50.875V6.66113H49.3789V4.01367H54.5391V17.7412ZM62.124 17.7412H58.46V2.65137H56.9639V0.00292969H62.124V17.7412ZM69.709 17.7412H66.0459V2.65137H64.5488V0.00292969H69.709V17.7412ZM107.156 17.7412H103.248L102.322 13.8076H96.4346L95.5088 17.7412H91.7549L96.0488 0H102.862L107.156 17.7412ZM27.8369 6.58398C25.9278 6.58398 25.0245 7.61188 25.0244 9.87402V11.8799C25.0244 14.1423 25.9277 15.1709 27.8369 15.1709C29.746 15.1709 30.6494 14.1422 30.6494 11.8799V9.87402C30.6493 7.61192 29.7459 6.58402 27.8369 6.58398ZM78.6611 6.58398C76.8036 6.58398 75.9523 7.61188 75.9521 9.87402V11.8799C75.9522 14.1423 76.8035 15.1709 78.6611 15.1709C80.5184 15.1707 81.3701 14.1421 81.3701 11.8799V9.87402C81.37 7.61205 80.5183 6.58414 78.6611 6.58398ZM114.922 6.6084C113.996 6.60841 113.319 6.87392 112.891 7.40527C112.462 7.91945 112.248 8.74205 112.248 9.87305V11.8789C112.248 13.0102 112.462 13.8417 112.891 14.373C113.319 14.8872 113.996 15.1445 114.922 15.1445C115.83 15.1445 116.499 14.8873 116.928 14.373C117.356 13.8417 117.57 13.0101 117.57 11.8789V9.87305C117.57 8.74213 117.356 7.91946 116.928 7.40527C116.499 6.87391 115.83 6.6084 114.922 6.6084ZM97.0518 11.1846H101.68L99.7773 3.13672H98.9541L97.0518 11.1846ZM54.5391 2.65137H50.875V0.00292969H54.5391V2.65137Z" fill="#FAFAFA"/>
+          </svg>
+        </a>
+      </h2>
+      <div class="c-sub-navigation-mobile-toggle is-summary" data-testid="sub-navigation-mobile-toggle">
+        <span>Menu</span>
+      </div>
+      <ul class="c-sub-navigation-list is-details is-closed" data-testid="sub-navigation-menu">
+        
+          
+            <li class="c-sub-navigation-item">
+              <a
+                href="/en-US/advertising/solutions/"
+                data-link-position="subnav"
+                data-link-text="Solutions"
+                
+                
+              >
+                Solutions
+              </a>
+            </li>
+          
+        
+          
+            <li class="c-sub-navigation-item">
+              <a
+                href="/en-US/advertising/impact/"
+                data-link-position="subnav"
+                data-link-text="Impact"
+                
+                
+              >
+                Impact
+              </a>
+            </li>
+          
+        
+          
+            <li class="c-sub-navigation-item">
+              <a
+                href="/en-US/advertising/principles/"
+                data-link-position="subnav"
+                data-link-text="Principles"
+                
+                
+              >
+                Principles
+              </a>
+            </li>
+          
+        
+          
+            <li class="c-sub-navigation-item">
+              <a
+                href="https://mozilla.formstack.com/forms/advertising"
+                data-link-position="subnav"
+                data-link-text="Contact Sales"
+                class="mza-c-contact-sales-button"
+                
+              >
+                Contact Sales
+              </a>
+            </li>
+          
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+    
+  
+
+
+    <div id="outer-wrapper">
+      
+<main id="mza-main">
+  
+    
+<header class="mza-c-callout">
+    <div class="mza-c-callout-bg">
+
+      <div class="mza-c-callout-bg-inner">
+        <img class="image-1" role="presentation" src="https://www.mozilla.org/media/img/mozorg/advertising/callout/1.9bbed30a14f8.jpg"/>
+        <img class="image-2" role="presentation" src="https://www.mozilla.org/media/img/mozorg/advertising/callout/2.f3324de41806.jpg"/>
+        <img class="image-3" role="presentation" src="https://www.mozilla.org/media/img/mozorg/advertising/callout/3.41f4388006c5.jpg"/>
+        <img class="image-4 large-only" role="presentation" src="https://www.mozilla.org/media/img/mozorg/advertising/callout/4.dfb6ca82007e.jpg"/>
+        <img class="image-5 large-only" role="presentation" src="https://www.mozilla.org/media/img/mozorg/advertising/callout/5.b10c32fe07a6.jpg"/>
+        <img class="image-6 large-only" role="presentation" src="https://www.mozilla.org/media/img/mozorg/advertising/callout/6.b1b240d4d62a.jpg"/>
+        <img class="image-7" role="presentation" src="https://www.mozilla.org/media/img/mozorg/advertising/callout/7.a41597804148.jpg"/>
+        <img class="image-8 large-only rectangle-h" role="presentation" src="https://www.mozilla.org/media/img/mozorg/advertising/callout/rectangle-h.9f25fd181168.svg" />
+        <img class="image-9 rectangle-v" role="presentation" src="https://www.mozilla.org/media/img/mozorg/advertising/callout/rectangle-v.d8d80c98e307.svg" />
+      </div>
+    </div>
+
+    <div class="mza-c-callout-section">
+      <h1>
+        Add trust to your ad buy
+      </h1>
+
+      <a
+        href="https://mozilla.formstack.com/forms/advertising"
+        class="mza-c-callout-action"
+        
+      >
+        Contact Sales
+      </a>
+    </div>
+
+    <div class="middle-mobile-images">
+        <img class="image-4" role="presentation" src="https://www.mozilla.org/media/img/mozorg/advertising/callout/4.dfb6ca82007e.jpg"/>
+        <img class="image-5" role="presentation" src="https://www.mozilla.org/media/img/mozorg/advertising/callout/5.b10c32fe07a6.jpg"/>
+        <img class="image-6" role="presentation" src="https://www.mozilla.org/media/img/mozorg/advertising/callout/6.b1b240d4d62a.jpg"/>
+        <img class="image-8 large-only rectangle-h" role="presentation" src="https://www.mozilla.org/media/img/mozorg/advertising/callout/rectangle-h.9f25fd181168.svg" />
+    </div>
+
+    <div class="mza-c-callout-section is-bottom">
+      <div class="mza-c-callout-card">
+        <p>When you advertise on Mozilla’s Firefox and MDN Web Docs, you’ll connect with over 210 million selective, discerning, brand-loyal users. Because they trust us, they’ll trust you.</p>
+        <a class="mza-c-callout-action" href="/en-US/advertising/solutions/" >Our Solutions</a>
+      </div>
+    </div>
+  </header>
+  
+
+  
+    
+
+<section
+  class="
+    mza-c-section
+    
+    
+    "
+  
+  >
+
+    
+
+<div class="m24-c-content">
+  <div class="mza-section-header no-bottom-padding has-scroll-padding">
+    <div class="">
+      <hgroup class="mza-hgroup">
+        <p class="mza-eyebrow">Our Solutions</p>
+        <h2 class="mza-section-heading">Incremental audiences in brand-safe environments</h2>
+        
+      </hgroup>
+
+      
+    </div>
+  </div>
+</div>
+
+    
+        
+
+<div class="mza-c-home-solutions has-scroll-padding">
+    <div class="mza-figure-grid m24-c-content padding-top-0 no-bottom-padding reversed-on-large">
+      <div class="mza-stat">
+        <span class="mza-stat-text">
+          <span class="mza-stat-number is-smaller">210M+</span>
+          <span class="mza-stat-label">monthly active Firefox users</span>
+        </span>
+      </div>
+      <figure class="mza-figure">
+        <img alt="Stylized Firefox New Tab page." class="" height="651" loading="lazy" src="https://www.mozilla.org/media/cms/images/ads-solutions-page-1.width-1000.png" srcset="https://www.mozilla.org/media/cms/images/ads-solutions-page-1.width-1000.png 1000w, https://www.mozilla.org/media/cms/images/ads-solutions-page-1.width-1200.png 1200w, https://www.mozilla.org/media/cms/images/ads-solutions-page-1.width-1400.png 1400w" width="1000">
+        <figcaption class="mza-figcaption">
+          
+
+
+<p data-block-key="am22v"><b>Firefox</b> is the most trusted alternative to privacy-invading browsers.</p>
+        </figcaption>
+      </figure>
+    </div>
+</div>
+    
+        
+
+<div class="mza-c-home-solutions has-scroll-padding">
+    <div class="mza-figure-grid m24-c-content padding-top-0 no-bottom-padding ">
+      <div class="mza-stat">
+        <span class="mza-stat-text">
+          <span class="mza-stat-number is-smaller">16.2M</span>
+          <span class="mza-stat-label">monthly active MDN users</span>
+        </span>
+      </div>
+      <figure class="mza-figure">
+        <img alt="Stylized MDN Web Docs site." class="" height="605" loading="lazy" src="https://www.mozilla.org/media/cms/images/ads-solutions-page-2.width-1000.png" srcset="https://www.mozilla.org/media/cms/images/ads-solutions-page-2.width-1000.png 1000w, https://www.mozilla.org/media/cms/images/ads-solutions-page-2.width-1200.png 1200w, https://www.mozilla.org/media/cms/images/ads-solutions-page-2.width-1400.png 1400w" width="1000">
+        <figcaption class="mza-figcaption">
+          
+
+
+<p data-block-key="am22v"><b>MDN</b> is the go-to resource for millions of web developers.</p>
+        </figcaption>
+      </figure>
+    </div>
+</div>
+    
+
+    
+      
+        
+
+<div class="">
+    <div class="m24-c-content mza-section-footer">
+      <span></span>
+
+      
+        <a class="mza-large-link" href="/en-US/advertising/solutions/" >Our solutions</a>
+      
+    </div>
+</div>
+      
+    
+</section>
+  
+    
+
+<section
+  class="
+    mza-c-section
+    
+    
+    "
+  
+  >
+
+    
+
+<div class="m24-c-content">
+  <div class="mza-section-header no-bottom-padding has-scroll-padding">
+    <div class=" mza-half-grid">
+      <hgroup class="mza-hgroup">
+        
+        <h2 class="mza-section-heading">Why Mozilla</h2>
+        <p class="mza-highlight-text">When you advertise with Mozilla, you’ll reach more people in spaces they—and you—can trust.</p>
+      </hgroup>
+
+      
+        <figure class="mza-figure">
+          <img alt="woman looking casually at the sky" class="" height="996" src="https://www.mozilla.org/media/cms/images/ads-why-mozilla.width-1200.png" srcset="https://www.mozilla.org/media/cms/images/ads-why-mozilla.width-1200.png 1200w, https://www.mozilla.org/media/cms/images/ads-why-mozilla.width-1400.png 1360w, https://www.mozilla.org/media/cms/images/ads-why-mozilla.width-1600.png 1360w" width="1200">
+        </figure>
+      
+    </div>
+  </div>
+</div>
+
+    
+        
+
+
+  <div class="m24-c-content mza-c-home-why-moz has-scroll-padding">
+    <ol class="mza-home-big-list">
+      
+        
+
+
+  
+
+<li class="mza-half-grid is-list-item">
+  <h3 class="mza-home-big-list-heading">Our audience is incremental</h3>
+  <div class="mza-home-big-list-text">
+
+
+<p data-block-key="j6ghh">Mozilla’s 210M+ global users are typically hard to reach. They're usually hidden behind ad blockers, nearly half avoid dominant social media, and most say no to default platforms. They’re selective, tech savvy, and paying attention.</p></div>
+</li>
+
+      
+        
+
+
+  
+
+<li class="mza-half-grid is-list-item">
+  <h3 class="mza-home-big-list-heading">Our spaces are brand-safe</h3>
+  <div class="mza-home-big-list-text">
+
+
+<p data-block-key="udwe3">Mozilla has ridiculously high standards. We refuse to put clutter in front of our users. And there’s no unwanted surprise placements or sketchy content next to your ads. This lets you cut through the noise, make a big impact, and keep your brand squeaky clean.</p></div>
+</li>
+
+      
+        
+
+
+  
+
+<li class="mza-half-grid is-list-item">
+  <h3 class="mza-home-big-list-heading">Our mission drives everything</h3>
+  <div class="mza-home-big-list-text">
+
+
+<p data-block-key="udwe3">Mozilla is fixing what funds the internet, reinventing digital advertising from the inside. We’re creating an ad ecosystem built on trust, embedding respect, privacy, and performance into everything we do.</p></div>
+</li>
+
+      
+    </ol>
+  </div>
+
+    
+
+    
+</section>
+  
+
+  
+    
+      
+
+<section class="m24-c-content mza-c-home-contact has-scroll-padding" id="contact-sales">
+  <div class="mza-c-home-contact-grid">
+    <div class="cell justify-content">
+      <hgroup class="mza-hgroup">
+          <h2 class="mza-section-heading">Extend reach. Deepen trust. Start today.</h2>
+      </hgroup>
+
+      <div>
+
+        <a
+          href="https://mozilla.formstack.com/forms/advertising"
+          class="mzp-c-button mzp-t-xl mza-c-contact-button"
+        >
+          Contact Sales
+
+          <span class="mzp-c-button-icon-end">
+          <svg width="24px" height="24px" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd" stroke-linecap="round" stroke-linejoin="round">
+                <g transform="translate(4.000000, 4.000000)" stroke="currentColor" stroke-width="2">
+                    <polyline points="9 0 16 0 16 7"></polyline>
+                    <path d="M8,8 L16,0"></path>
+                    <path d="M4,-1.77635684e-15 L3,-1.77635684e-15 C1.34314575,-1.47199765e-15 -2.02906125e-16,1.34314575 0,3 L0,13 C2.02906125e-16,14.6568542 1.34314575,16 3,16 L13,16 C14.6568542,16 16,14.6568542 16,13 L16,12"></path>
+                </g>
+            </g>
+          </svg>
+        </span>
+        </a>
+      </div>
+    </div>
+
+    <figure class="mza-figure">
+      <img alt="ads-contact" class="" height="976" loading="lazy" role="presentation" src="https://www.mozilla.org/media/cms/images/ads-contact.width-1000.png" srcset="https://www.mozilla.org/media/cms/images/ads-contact.width-1000.png 896w, https://www.mozilla.org/media/cms/images/ads-contact.width-1200.png 896w, https://www.mozilla.org/media/cms/images/ads-contact.width-1400.png 896w" width="896">
+    </figure>
+
+</div>
+</section>
+    
+  
+
+  
+    
+      
+        
+          
+
+<div class="mza-notification">
+  <div class="mza-notification-container">
+    <div class="mza-notification-text">
+
+
+Follow Mozilla Ads to get the latest secure advertising trends.</div>
+
+    
+      <ul class="moz24-footer-social-links">
+        
+        <li>
+          <a class="linkedin" href="https://www.linkedin.com/showcase/mozilla-ads/"
+             data-cta-text="LinkedIn" data-cta-uid="a7227897-28cc-4393-a161-cee81d643726"
+          ></a>
+        </li>
+        
+        
+        
+        
+        
+        <li>
+          <a class="instagram" href="https://www.instagram.com/mozilla_ads/"
+             data-cta-text="Instagram" data-cta-uid="a7227897-28cc-4393-a161-cee81d643726"
+          ></a>
+        </li>
+        
+        
+        <li>
+          <a class="youtube" href="https://www.youtube.com/@mozilla_ads"
+             data-cta-text="YouTube" data-cta-uid="a7227897-28cc-4393-a161-cee81d643726"
+          ></a>
+        </li>
+        
+      </ul>
+    
+    </div>
+</div>
+        
+      
+    
+  
+
+  
+</main>
+
+
+      
+        
+
+
+
+
+  
+
+ <footer class="moz24-footer" id="colophon" role="contentinfo">
+  
+  <div class="moz24-footer-content">
+    
+    <div class="moz24-footer-primary">
+      <div class="moz24-footer-sections-container">
+        <div class="moz24-footer-advertising">
+          <div class="moz24-footer-advertising-wrapper">
+            <h2>
+              <img src="https://www.mozilla.org/media/img/logos/mozilla/ads/Mozilla_Ads_Logo.6ed26d0eac2b.svg" alt="Mozilla Ads" width="250" height="33" class="moz24-footer-advertising-logo">
+            </h2>
+            
+              <p>Add trust to your ad buy.</p>
+            
+            <a class="moz24-footer-advertising-link" href="/en-US/advertising/" data-link-position="footer" data-link-text="Learn more">
+              <span class="mzp-c-button-icon-text">Learn more <span>about Mozilla Ads</span></span>
+              <span class="mzp-c-button-icon-end">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path fill="currentColor" d="m7.24 1.36 5.89 5.89H0v1.5h13.13l-5.89 5.89L8.3 15.7 16 8 8.3.3z"/></svg>
+              </span>
+            </a>
+          </div>
+        </div>
+        <div class="moz24-footer-links">
+          <section>
+            <h2 class="moz24-footer-label" data-testid="footer-heading-company">
+              Company
+            </h2>
+            <ul class="moz24-footer-primary-list" data-testid="footer-list-company">
+              <li><a href="/en-US/about/leadership/" data-link-position="footer" data-link-text="Leadership">Leadership</a></li>
+              <li><a href="https://blog.mozilla.org/category/mozilla/news/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=company" data-link-position="footer" data-link-text="Press Center">Press Center</a></li>
+              <li><a href="/en-US/careers/" data-link-position="footer" data-link-text="Careers">Careers</a></li>
+              <li><a href="https://shop.mozilla.com/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=company" data-link-position="footer" data-link-text="Merch Store">Merch Store</a></li>
+              <li><a href="/en-US/contact/" data-link-position="footer" data-link-text="Contact">Contact</a></li>
+            
+            </ul>
+          </section>
+
+          <section>
+            <h2 class="moz24-footer-label" data-testid="footer-heading-support">
+              Support
+            </h2>
+            <ul class="moz24-footer-primary-list" data-testid="footer-list-support">
+              <li><a href="https://support.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=support" data-link-position="footer" data-link-text="Product Help">Product Help</a></li>
+              <li><a href="https://bugzilla.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=support" data-link-position="footer" data-link-text="File a Bug">File a Bug</a></li>
+              <li><a href="https://pontoon.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=support" data-link-position="footer" data-link-text="Localise Mozilla">Localize Mozilla</a></li>
+              <li><a href="/en-US/security/" data-link-position="footer" data-link-text="Security">Security</a></li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 class="moz24-footer-label" data-testid="footer-heading-developers">
+              Developers
+            </h2>
+            <ul class="moz24-footer-primary-list" data-testid="footer-list-developers">
+              <li><a href="https://www.firefox.com/channel/desktop/developer/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="Firefox Developer Edition">Developer Edition</a></li>
+              <li><a href="https://www.firefox.com/browsers/enterprise/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="Firefox for Enterprise">Enterprise</a></li>
+              <li><a href="https://firefox-source-docs.mozilla.org/devtools-user/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=developers" rel="external" data-link-position="footer" data-link-text="Tools">Tools</a></li>
+              <li><a href="https://developer.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="MDN">MDN</a></li>
+              <li><a href="https://www.firefox.com/firefox/155.0.1/releasenotes/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="Firefox Release Notes">Firefox Release Notes</a></li>
+            </ul>
+          </section>
+        </div>
+        <div class="moz24-footer-socials">
+          <div class="moz24-footer-refresh-social-wrapper">
+            <h2 class="moz24-footer-heading-social">Follow @Mozilla</h2>
+            <ul class="moz24-footer-social-links">
+              <li><a class="bluesky" href="https://bsky.app/profile/mozilla.org" data-link-position="footer" data-link-text="Bluesky (@mozilla.org)" translate="no">Bluesky<span> (@mozilla.org)</span></a></li>
+              <li><a class="instagram" href="https://www.instagram.com/mozilla/" data-link-position="footer" data-link-text="Instagram (@mozilla)">Instagram<span> (@mozilla)</span></a></li>
+              <li><a class="linkedin" href="https://www.linkedin.com/company/mozilla-corporation/" data-link-position="footer" data-link-text="LinkedIn (@mozilla)">LinkedIn<span> (@mozilla)</span></a></li>
+              <li><a class="tiktok" href="https://www.tiktok.com/@mozilla" data-link-position="footer" data-link-text="TikTok (@mozilla)">TikTok<span> (@mozilla)</span></a></li>
+              <li><a class="spotify" href="https://open.spotify.com/show/0vT7LJMeVDxyQ2ZamHKu08?si=_uDRD6bRR_6M5YZyISGXgA" data-link-position="footer" data-link-text="Spotify (@mozilla)">Spotify<span> (@mozilla)</span></a></li>
+            </ul>
+          </div>
+          <div class="moz24-footer-refresh-social-wrapper">
+            <h2 class="moz24-footer-heading-social">Follow @Firefox</h2>
+            <ul class="moz24-footer-social-links">
+              <li><a class="bluesky" href="https://bsky.app/profile/firefox.com" data-link-position="footer" data-link-text="Bluesky (@firefox.com)" translate="no">Bluesky<span> (@firefox.com)</span></a></li>
+              <li><a class="instagram" href="https://www.instagram.com/firefox/" data-link-position="footer" data-link-text="Instagram (@firefox)">Instagram<span> (@firefox)</span></a></li>
+              <li><a class="youtube" href="https://www.youtube.com/user/firefoxchannel" data-link-position="footer" data-link-text="YouTube (@firefoxchannel)">YouTube<span> (@firefoxchannel)</span></a></li>
+              <li><a class="tiktok" href="https://www.tiktok.com/@firefox" data-link-position="footer" data-link-text="TikTok (@firefox)">TikTok<span> (@firefox)</span></a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="moz24-footer-actions">
+      <a class="moz24-footer-donate" href="https://www.mozillafoundation.org/?form=moco-donate-footer" data-link-text="Donate">
+        <span class="mzp-c-button-icon-start">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><g clip-path="url(#a)"><path fill="currentColor" d="M14.8 8.25c.77-.77 1.2-1.8 1.2-2.9a4.094 4.094 0 0 0-4.1-4.1c-1.1 0-2.12.43-2.9 1.2L7.99 3.46 6.98 2.45c-.77-.77-1.8-1.2-2.9-1.2a4.094 4.094 0 0 0-4.1 4.1c0 1.1.43 2.12 1.2 2.9l6.8 6.8 6.8-6.8zM1.5 5.35c0-.7.27-1.35.76-1.83.49-.49 1.14-.76 1.84-.76s1.34.27 1.84.76l2.07 2.07 2.07-2.07c.98-.98 2.69-.98 3.67 0a2.595 2.595 0 0 1 0 3.67l-5.74 5.74-5.75-5.74c-.49-.49-.76-1.14-.76-1.84"/></g><defs><clipPath id="a"><path d="M0 0h16v16H0z"/></clipPath></defs></svg>
+        </span>
+        <span class="mzp-c-button-icon-text">Donate</span>
+      </a>
+      <div class="moz24-footer-language">
+        
+   <form id="lang_form" class="moz24-c-language-switcher" method="get" action="#">
+    <a class="mzp-c-language-switcher-link" href="/locales/">All languages</a>
+    <label for="page-language-select">Language</label>
+     <select id="page-language-select" class="mzp-js-language-switcher-select" name="lang" dir="ltr" data-testid="footer-language-select">
+       
+         <option lang="en-CA" value="en-CA">English (Canadian)</option>
+       
+         <option lang="en-GB" value="en-GB">English (British)</option>
+       
+         <option lang="en-US" value="en-US" selected>English</option>
+       
+     </select>
+   </form>
+ 
+       </div>
+    </div>
+    
+    <div class="moz24-footer-secondary">
+      <div class="moz24-footer-legal">
+        <p class="moz24-footer-license" rel="license">
+          
+          
+            Donate to the not-for-profit <a href="https://www.mozillafoundation.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" rel="external noopener" data-link-position="footer" data-link-text="Mozilla Foundation">Mozilla Foundation</a>.<br>
+          
+          Portions of this content are ©1998–2026 by individual mozilla.org contributors. Content available under a <a rel="license" href="/en-US/foundation/licensing/website-content/">Creative Commons license</a>.
+        </p>
+        <ul class="moz24-footer-terms">
+        
+          <li><a href="/en-US/privacy/websites/" data-link-position="footer" data-link-text="Privacy">Website Privacy Notice</a></li>
+          <li>
+            
+            <a href="/en-US/privacy/websites/cookie-settings/" data-link-position="footer" data-link-text="Cookies">Cookies</a>
+          </li>
+          <li><a href="/en-US/about/legal/" data-link-position="footer" data-link-text="Legal">Legal</a></li>
+          <li><a href="/en-US/about/governance/policies/participation/" data-link-position="footer" data-link-text="Community Participation Guidelines">Community Participation Guidelines</a></li>
+          
+            <li><a href="/en-US/about/this-site/" data-link-position="footer" data-link-text="About this site">About this site</a></li>
+          
+        
+        </ul>
+      </div>
+    </div>
+    <img loading="lazy" class="moz24-footer-logo-image-bottom" src="https://www.mozilla.org/media/img/logos/m24/wordmark-white.2d673bb5b33a.svg" alt="" width="1376" height="285">
+  </div>
+</footer>
+
+
+  
+
+
+      
+
+      
+      
+    </div>
+
+    
+    
+      
+        <!--[if !IE]><!-->
+          
+          <script src="https://www.mozilla.org/media/js/sentry.9f2fe29330f6.js"></script>
+        <!--<![endif]-->
+      
+    
+
+    
+      <!--[if !IE]><!-->
+        
+        <script src="https://www.mozilla.org/media/js/lib.f86d9ecbd086.js"></script>
+        <script src="https://www.mozilla.org/media/js/fxa.8c097c9145ff.js"></script>
+        <script src="https://www.mozilla.org/media/js/data.44609f062226.js"></script>
+        
+          <script src="https://www.mozilla.org/media/js/m24-ui.30741fa9d521.js"></script>
+        
+      <!--<![endif]-->
+
+      <!--[if IE 9]>
+        
+        <script src="https://www.mozilla.org/media/js/lib-ie.cf16e08599c3.js"></script>
+      <![endif]-->
+    
+
+    
+    
+
+    <!--[if !IE]><!-->
+    
+    
+      
+    
+
+    
+
+    
+    <!--<![endif]-->
+
+    
+    <!--[if IE 9]><!-->
+      
+      <script src="https://www.mozilla.org/media/js/consent-banner.52b78cd4ba21.js"></script>
+    <!--<![endif]-->
+    
+  </body>
+</html>

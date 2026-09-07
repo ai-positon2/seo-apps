@@ -21,7 +21,7 @@ export const muted = { fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5 };
  * night all rendered the identical string. The report looked frozen when it was
  * updating correctly.
  *
- * Period BOUNDARIES stay UTC (see fmtDay in ReportHeader) — those are genuine
+ * Period BOUNDARIES stay UTC — those are genuine
  * UTC calendar days, and re-basing them per viewer would move which captures
  * fall in which period, which §11 forbids. This is for instants only.
  */

@@ -80,7 +80,24 @@ async function streamRun(req, res, client, runId, viewer = null) {
 
       const run = await repo.getRunForViewer(client, runId, viewer);
       if (run) {
-        send("progress", run.progress || {});
+        // heartbeatAt and status ride along with progress.
+        //
+        // `state` is sent once, at connection, and never again — so a client
+        // watching a crawl had no way to learn that it had been paused, or had
+        // died, until the run reached a terminal state and `complete` arrived.
+        // Two consequences, both real: a "stop requested" notice stayed on
+        // screen forever because nothing told the page the stop had landed, and
+        // a page that computed staleness from the run row it fetched on mount
+        // declared a perfectly healthy crawl dead after four missed beats of a
+        // heartbeat value that was frozen at page load.
+        //
+        // This loop already re-reads the run every POLL_MS to check for a
+        // terminal status, so both fields are in hand and cost nothing to send.
+        send("progress", {
+          ...(run.progress || {}),
+          heartbeatAt: run.heartbeat_at || null,
+          status: run.status,
+        });
         if (TERMINAL.has(run.status)) {
           // Drain any final rows written after the last page.
           if (rows.data.length === PAGE) continue;

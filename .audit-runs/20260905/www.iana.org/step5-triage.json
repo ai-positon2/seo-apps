@@ -1,0 +1,626 @@
+[
+  {
+    "rule_id": "broken-internal-links",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "page-4xx",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero 4xx statuses across all 500 internal results (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "page-5xx",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "rare",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero 5xx statuses across all 500 internal results (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "crawl-failure",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "redirect-location-invalid",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "rare",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero 3xx responses across 500 internal results (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "broken-javascript",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "rare",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "mixed-content",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "base-url-ignored",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "fixture_only",
+    "verdict": "FIXTURE_ONLY",
+    "proof": "rarity fixture_only; not expected on a live public site"
+  },
+  {
+    "rule_id": "ssl-certificate-name",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "fixture_only",
+    "verdict": "FIXTURE_ONLY",
+    "proof": "rarity fixture_only; not expected on a live public site"
+  },
+  {
+    "rule_id": "sni-unsupported",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "fixture_only",
+    "verdict": "FIXTURE_ONLY",
+    "proof": "rarity fixture_only; not expected on a live public site"
+  },
+  {
+    "rule_id": "hsts-missing",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "robots-issue",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "blocked-resource",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "sitemap-incorrect-url",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "sitemap-redirect",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "sitemap-duplicate",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "noindex",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero noindex in robots meta or X-Robots-Tag across 500 results (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "noindex-nofollow",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero noindex directives across 500 results (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "nofollow-page",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "rare",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero robots-directive restrictions across 500 results (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "robots-blocked",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "orphan-page",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "single-inlink",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "deep-page",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "maximum depth reached was 2, below the 3-click threshold"
+  },
+  {
+    "rule_id": "link-to-redirect",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero 3xx responses across 500 internal results (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "permanent-redirect",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero 3xx responses across 500 internal results (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "temporary-redirect",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero 3xx responses across 500 internal results (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "meta-refresh",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "rare",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero meta-refresh tags across 500 results (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "http-refresh",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "fixture_only",
+    "verdict": "FIXTURE_ONLY",
+    "proof": "rarity fixture_only; not expected on a live public site"
+  },
+  {
+    "rule_id": "redirect-chain",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero 3xx responses across 500 internal results (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "redirect-loop",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "rare",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero 3xx responses across 500 internal results (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "redirect-limit-exceeded",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "rare",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero 3xx responses across 500 internal results (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "redirect-terminal-failure",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero 3xx responses across 500 internal results (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "redirect-terminal-indexability",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero 3xx responses across 500 internal results (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "mixed-incoming-follow",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "internal-nofollow-link",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "http-homepage",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "rare",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "hreflang-missing-return",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero hreflang attributes across all 500 internal results (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "hreflang-missing-self",
+    "severity": "notice",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero hreflang attributes across all 500 internal results (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "hreflang-invalid-code",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "rare",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero hreflang attributes across all 500 internal results (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "canonical-to-broken",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "canonical-to-redirect",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "canonical-chain",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "canonical-to-noindex",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "pagination-link-broken",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "rare",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero rel=next/prev links across 500 results (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "pagination-canonical-conflict",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero rel=next/prev links across 500 results (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "title-missing",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "all 484 HTML pages carry a non-empty <title> (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "title-duplicate",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "title-long",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "meta-duplicate",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "meta-long",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "meta-short",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "h1-missing",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "all 484 HTML pages carry at least one H1 (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "h1-multiple",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "no HTML page has more than one H1 (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "h1-duplicate",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "viewport-missing",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "all 484 HTML pages carry a viewport meta tag (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "viewport-not-responsive",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "rare",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "google-title-differs",
+    "severity": "warning",
+    "eval_class": "external_gsc",
+    "rarity": "common",
+    "verdict": "STRUCTURALLY_SILENT",
+    "proof": "eval class external_gsc; no such data source connected"
+  },
+  {
+    "rule_id": "metadata-changed",
+    "severity": "warning",
+    "eval_class": "delta",
+    "rarity": "common",
+    "verdict": "STRUCTURALLY_SILENT",
+    "proof": "eval class delta; no such data source connected"
+  },
+  {
+    "rule_id": "low-text-html-ratio",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "content-duplicate-exact",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "ai-content-signal",
+    "severity": "warning",
+    "eval_class": "model",
+    "rarity": "occasional",
+    "verdict": "STRUCTURALLY_SILENT",
+    "proof": "eval class model; no such data source connected"
+  },
+  {
+    "rule_id": "traffic-drop",
+    "severity": "warning",
+    "eval_class": "external_analytics",
+    "rarity": "occasional",
+    "verdict": "STRUCTURALLY_SILENT",
+    "proof": "eval class external_analytics; no such data source connected"
+  },
+  {
+    "rule_id": "top10-drop",
+    "severity": "warning",
+    "eval_class": "external_analytics",
+    "rarity": "occasional",
+    "verdict": "STRUCTURALLY_SILENT",
+    "proof": "eval class external_analytics; no such data source connected"
+  },
+  {
+    "rule_id": "referring-domains-drop",
+    "severity": "warning",
+    "eval_class": "external_analytics",
+    "rarity": "occasional",
+    "verdict": "STRUCTURALLY_SILENT",
+    "proof": "eval class external_analytics; no such data source connected"
+  },
+  {
+    "rule_id": "external-nofollow",
+    "severity": "notice",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "resource-as-link",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "image-oversized",
+    "severity": "notice",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "open-graph-description-missing",
+    "severity": "notice",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "open-graph-url-invalid",
+    "severity": "notice",
+    "eval_class": "crawl",
+    "rarity": "rare",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero og:url values present at all, so none can be invalid (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "open-graph-image-alt-missing",
+    "severity": "notice",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "no og:image present on any page (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "open-graph-canonical",
+    "severity": "notice",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero og:url values present, so none can disagree with a canonical (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "asset-uncached",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "asset-uncompressed",
+    "severity": "warning",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "schema-error",
+    "severity": "notice",
+    "eval_class": "crawl",
+    "rarity": "common",
+    "verdict": "NOT_APPLICABLE",
+    "proof": "zero schema errors, and zero schemaTypes, across 500 results — the site publishes no structured data (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+  },
+  {
+    "rule_id": "llms-format",
+    "severity": "notice",
+    "eval_class": "crawl",
+    "rarity": "rare",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "indexnow-submit",
+    "severity": "notice",
+    "eval_class": "action",
+    "rarity": "occasional",
+    "verdict": "STRUCTURALLY_SILENT",
+    "proof": "eval class action; no such data source connected"
+  },
+  {
+    "rule_id": "javascript-rendered-site",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  },
+  {
+    "rule_id": "crawl-trap",
+    "severity": "error",
+    "eval_class": "crawl",
+    "rarity": "occasional",
+    "verdict": "SUSPECTED_FALSE_NEGATIVE",
+    "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+  }
+]

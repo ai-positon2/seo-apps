@@ -1,0 +1,622 @@
+{
+  "verdicts": [
+    {
+      "rule_id": "broken-internal-links",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "NOT_APPLICABLE",
+      "proof": "shared precondition: zero 4xx internal responses (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+    },
+    {
+      "rule_id": "page-4xx",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "NOT_APPLICABLE",
+      "proof": "shared precondition: zero 4xx internal responses (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+    },
+    {
+      "rule_id": "page-5xx",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "rare",
+      "verdict": "NOT_APPLICABLE",
+      "proof": "shared precondition: zero 5xx internal responses (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+    },
+    {
+      "rule_id": "crawl-failure",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "occasional",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "redirect-location-invalid",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "rare",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "broken-javascript",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "rare",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "mixed-content",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "occasional",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "base-url-ignored",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "fixture_only",
+      "verdict": "FIXTURE_ONLY",
+      "proof": "rarity fixture_only; not expected on a live public site"
+    },
+    {
+      "rule_id": "ssl-certificate-name",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "fixture_only",
+      "verdict": "FIXTURE_ONLY",
+      "proof": "rarity fixture_only; not expected on a live public site"
+    },
+    {
+      "rule_id": "sni-unsupported",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "fixture_only",
+      "verdict": "FIXTURE_ONLY",
+      "proof": "rarity fixture_only; not expected on a live public site"
+    },
+    {
+      "rule_id": "hsts-missing",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "robots-issue",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "occasional",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "blocked-resource",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "sitemap-incorrect-url",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "occasional",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "sitemap-redirect",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "occasional",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "sitemap-duplicate",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "occasional",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "nofollow-page",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "rare",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "robots-blocked",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "orphan-page",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "single-inlink",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "deep-page",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "NOT_APPLICABLE",
+      "proof": "shared precondition: no page deeper than 3 clicks (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+    },
+    {
+      "rule_id": "meta-refresh",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "rare",
+      "verdict": "UNVERIFIABLE",
+      "proof": "precondition \"no meta-refresh or Refresh header\" measures 0, but no result in the run carries a non-null value for metaRefreshRaw/refreshHeaderRaw — cannot distinguish \"condition absent\" from \"field never populated\""
+    },
+    {
+      "rule_id": "http-refresh",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "fixture_only",
+      "verdict": "FIXTURE_ONLY",
+      "proof": "rarity fixture_only; not expected on a live public site"
+    },
+    {
+      "rule_id": "redirect-chain",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "redirect-loop",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "rare",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "redirect-limit-exceeded",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "rare",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "redirect-terminal-failure",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "occasional",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "mixed-incoming-follow",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "occasional",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "internal-nofollow-link",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "http-homepage",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "rare",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "hreflang-invalid-code",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "rare",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "canonical-to-broken",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "occasional",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "canonical-to-redirect",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "canonical-chain",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "occasional",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "canonical-to-noindex",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "occasional",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "pagination-link-broken",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "rare",
+      "verdict": "UNVERIFIABLE",
+      "proof": "precondition \"no rel=next/prev anywhere\" measures 0, but no result in the run carries a non-null value for paginationNext/paginationPrev — cannot distinguish \"condition absent\" from \"field never populated\""
+    },
+    {
+      "rule_id": "pagination-canonical-conflict",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "occasional",
+      "verdict": "UNVERIFIABLE",
+      "proof": "precondition \"no rel=next/prev anywhere\" measures 0, but no result in the run carries a non-null value for paginationNext/paginationPrev — cannot distinguish \"condition absent\" from \"field never populated\""
+    },
+    {
+      "rule_id": "title-missing",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "occasional",
+      "verdict": "NOT_APPLICABLE",
+      "proof": "shared precondition: every HTML page has a title (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+    },
+    {
+      "rule_id": "title-duplicate",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "title-multiple",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "rare",
+      "verdict": "NOT_APPLICABLE",
+      "proof": "shared precondition: no page has multiple titles (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+    },
+    {
+      "rule_id": "meta-duplicate",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "h1-duplicate",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "viewport-missing",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "occasional",
+      "verdict": "NOT_APPLICABLE",
+      "proof": "shared precondition: every HTML page has a viewport (cap was hit, so this covers the 500 crawled URLs, not the whole site)"
+    },
+    {
+      "rule_id": "viewport-not-responsive",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "rare",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "google-title-differs",
+      "severity": "warning",
+      "eval_class": "external_gsc",
+      "rarity": "common",
+      "verdict": "STRUCTURALLY_SILENT",
+      "proof": "eval class external_gsc; no such data source connected"
+    },
+    {
+      "rule_id": "metadata-changed",
+      "severity": "warning",
+      "eval_class": "delta",
+      "rarity": "common",
+      "verdict": "STRUCTURALLY_SILENT",
+      "proof": "eval class delta; no such data source connected"
+    },
+    {
+      "rule_id": "low-text-html-ratio",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "low-word-count",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "content-duplicate-exact",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "ai-content-signal",
+      "severity": "warning",
+      "eval_class": "model",
+      "rarity": "occasional",
+      "verdict": "STRUCTURALLY_SILENT",
+      "proof": "eval class model; no such data source connected"
+    },
+    {
+      "rule_id": "traffic-drop",
+      "severity": "warning",
+      "eval_class": "external_analytics",
+      "rarity": "occasional",
+      "verdict": "STRUCTURALLY_SILENT",
+      "proof": "eval class external_analytics; no such data source connected"
+    },
+    {
+      "rule_id": "top10-drop",
+      "severity": "warning",
+      "eval_class": "external_analytics",
+      "rarity": "occasional",
+      "verdict": "STRUCTURALLY_SILENT",
+      "proof": "eval class external_analytics; no such data source connected"
+    },
+    {
+      "rule_id": "referring-domains-drop",
+      "severity": "warning",
+      "eval_class": "external_analytics",
+      "rarity": "occasional",
+      "verdict": "STRUCTURALLY_SILENT",
+      "proof": "eval class external_analytics; no such data source connected"
+    },
+    {
+      "rule_id": "external-nofollow",
+      "severity": "notice",
+      "eval_class": "crawl",
+      "rarity": "occasional",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "resource-as-link",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "occasional",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "image-alt-missing",
+      "severity": "notice",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "open-graph-incomplete",
+      "severity": "notice",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "open-graph-url-invalid",
+      "severity": "notice",
+      "eval_class": "crawl",
+      "rarity": "rare",
+      "verdict": "UNVERIFIABLE",
+      "proof": "precondition \"no invalid Open Graph URLs\" measures 0, but no result in the run carries a non-null value for openGraphInvalidUrls — cannot distinguish \"condition absent\" from \"field never populated\""
+    },
+    {
+      "rule_id": "asset-uncached",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "asset-uncompressed",
+      "severity": "warning",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "schema-error",
+      "severity": "notice",
+      "eval_class": "crawl",
+      "rarity": "common",
+      "verdict": "UNVERIFIABLE",
+      "proof": "precondition \"no structured data published\" measures 0, but no result in the run carries a non-null value for schemaTypes/schemaErrors — cannot distinguish \"condition absent\" from \"field never populated\""
+    },
+    {
+      "rule_id": "llms-format",
+      "severity": "notice",
+      "eval_class": "crawl",
+      "rarity": "rare",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "indexnow-submit",
+      "severity": "notice",
+      "eval_class": "action",
+      "rarity": "occasional",
+      "verdict": "STRUCTURALLY_SILENT",
+      "proof": "eval class action; no such data source connected"
+    },
+    {
+      "rule_id": "javascript-rendered-site",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "occasional",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    },
+    {
+      "rule_id": "crawl-trap",
+      "severity": "error",
+      "eval_class": "crawl",
+      "rarity": "occasional",
+      "verdict": "SUSPECTED_FALSE_NEGATIVE",
+      "proof": "no proof of absence obtainable from the stored signals; not probed within this run's budget"
+    }
+  ],
+  "preconditions": {
+    "zero 4xx internal responses": {
+      "fields": [
+        "status"
+      ],
+      "count": 0,
+      "populated": true,
+      "dependants": [
+        "broken-internal-links",
+        "page-4xx"
+      ]
+    },
+    "zero 5xx internal responses": {
+      "fields": [
+        "status"
+      ],
+      "count": 0,
+      "populated": true,
+      "dependants": [
+        "page-5xx"
+      ]
+    },
+    "no page deeper than 3 clicks": {
+      "fields": [
+        "depth"
+      ],
+      "count": 0,
+      "populated": true,
+      "dependants": [
+        "deep-page"
+      ]
+    },
+    "no structured data published": {
+      "fields": [
+        "schemaTypes",
+        "schemaErrors"
+      ],
+      "count": 0,
+      "populated": false,
+      "dependants": []
+    },
+    "no rel=next/prev anywhere": {
+      "fields": [
+        "paginationNext",
+        "paginationPrev"
+      ],
+      "count": 0,
+      "populated": false,
+      "dependants": []
+    },
+    "no meta-refresh or Refresh header": {
+      "fields": [
+        "metaRefreshRaw",
+        "refreshHeaderRaw"
+      ],
+      "count": 0,
+      "populated": false,
+      "dependants": []
+    },
+    "every HTML page has a title": {
+      "fields": [
+        "title"
+      ],
+      "count": 0,
+      "populated": true,
+      "dependants": [
+        "title-missing"
+      ]
+    },
+    "no page has multiple titles": {
+      "fields": [
+        "titleCount"
+      ],
+      "count": 0,
+      "populated": true,
+      "dependants": [
+        "title-multiple"
+      ]
+    },
+    "every HTML page has a viewport": {
+      "fields": [
+        "viewport"
+      ],
+      "count": 0,
+      "populated": true,
+      "dependants": [
+        "viewport-missing"
+      ]
+    },
+    "no invalid Open Graph URLs": {
+      "fields": [
+        "openGraphInvalidUrls"
+      ],
+      "count": 0,
+      "populated": false,
+      "dependants": []
+    }
+  }
+}

@@ -22,6 +22,13 @@ import { muted } from './promptHelpers';
 const POLL_MS = 8_000;
 const DEADLINE_MS = 40 * 60 * 1000;
 
+// A run that has not reached a terminal state yet. `queued` belongs here: the
+// server puts this module on the worker queue rather than running it inside the
+// request, so the run this click creates is `queued` until a worker claims it —
+// seconds later, or longer if one is busy. Treating that as finished is exactly
+// what made a click report "Measuring finished" the instant it landed.
+const IN_FLIGHT = ['queued', 'running'];
+
 /**
  * @param {object} props
  * @param {object} props.project
@@ -34,10 +41,21 @@ export function RunMeasurementButton({
 }) {
   const toast = useToast();
   const [state, setState] = useState('idle'); // idle | starting | running
-  const [startedAt, setStartedAt] = useState(null);
+  const [elapsed, setElapsed] = useState(0); // whole minutes since the click
   const cancelled = useRef(false);
 
-  useEffect(() => () => { cancelled.current = true; }, []);
+  // Cleared on the way IN as well as set on the way out.
+  //
+  // React StrictMode mounts, unmounts and remounts every component once in
+  // development, so the cleanup latched this to true before anybody could click
+  // and nothing ever cleared it. The poll loop below is guarded on it, so it fell
+  // out on its first check and the button sat disabled on “Measuring…” for good:
+  // the run started and finished normally on the server, but nothing here ever
+  // saw it finish, re-enabled the button, or reloaded the questions.
+  useEffect(() => {
+    cancelled.current = false;
+    return () => { cancelled.current = true; };
+  }, []);
 
   // What this click actually costs, stated before it is clicked. Two surfaces
   // run in parallel, so wall clock is roughly one capture per prompt, plus
@@ -51,7 +69,7 @@ export function RunMeasurementButton({
     setState('starting');
     try {
       const { run: started } = await projectsApi.runModule(project.id, 'ai_visibility');
-      if (started?.status !== 'running') {
+      if (!IN_FLIGHT.includes(started?.status)) {
         toast.add({ title: 'Measuring finished', variant: 'success' });
         setState('idle');
         await onFinished?.();
@@ -59,7 +77,8 @@ export function RunMeasurementButton({
       }
 
       setState('running');
-      setStartedAt(Date.now());
+      const startedAt = Date.now();
+      setElapsed(0);
       toast.add({
         title: `Measuring ${measured} question${measured === 1 ? '' : 's'}`,
         description: `About ${minutes} minute(s). You can leave this screen — it keeps going.`,
@@ -70,6 +89,10 @@ export function RunMeasurementButton({
       while (Date.now() < deadline && !cancelled.current) {
         // eslint-disable-next-line no-await-in-loop
         await new Promise((r) => { setTimeout(r, POLL_MS); });
+        if (cancelled.current) return;
+        // The only render between the click and the finish. Without it the line
+        // beside the button reads “just started” for the whole run.
+        setElapsed(Math.round((Date.now() - startedAt) / 60000));
         let overview;
         try {
           // eslint-disable-next-line no-await-in-loop
@@ -78,7 +101,7 @@ export function RunMeasurementButton({
           continue; // a dropped poll is not a failed run
         }
         const still = (overview.modules || [])
-          .some((m) => m.key === 'ai_visibility' && m.status === 'running');
+          .some((m) => m.key === 'ai_visibility' && IN_FLIGHT.includes(m.status));
         if (!still) {
           if (!cancelled.current) {
             toast.add({ title: 'Measuring finished', variant: 'success' });
@@ -94,8 +117,6 @@ export function RunMeasurementButton({
       setState('idle');
     }
   }
-
-  const elapsed = startedAt ? Math.round((Date.now() - startedAt) / 60000) : 0;
 
   if (!approvedCount) {
     return (

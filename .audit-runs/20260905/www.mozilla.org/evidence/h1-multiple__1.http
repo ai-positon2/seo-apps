@@ -1,0 +1,1739 @@
+HTTP/1.1 200 OK
+accept-ranges: bytes
+age: 0
+cache-control: max-age=600
+connection: keep-alive
+content-encoding: br
+content-language: be
+content-length: 14836
+content-security-policy: upgrade-insecure-requests; media-src 'self' assets.mozilla.net videos.cdn.mozilla.net www.mozilla.org; script-src 'self' 'unsafe-eval' 'unsafe-inline' *.google-analytics.com *.googletagmanager.com cdn.transcend.io google-analytics.com googletagmanager.com js.stripe.com s.ytimg.com tagmanager.google.com transcend-cdn.com www.mozilla.org www.youtube.com; form-action 'self' https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; font-src 'self' www.mozilla.org; default-src 'self' *.mozilla.org; style-src 'self' 'unsafe-inline' cdn.transcend.io transcend-cdn.com www.mozilla.org; frame-src 'self' accounts.firefox.com gtm.mozilla.org js.stripe.com www.google-analytics.com www.googletagmanager.com www.youtube.com; connect-src 'self' *.analytics.google.com *.google-analytics.com *.googletagmanager.com analytics.google.com cdn.transcend.io google-analytics.com googletagmanager.com gtm.mozilla.org https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org o1069899.ingest.sentry.io o1069899.sentry.io region1.google-analytics.com telemetry.transcend.io telemetry.us.transcend.io transcend-cdn.com www.mozilla.org/submit/bedrock/; img-src 'self' blog.mozilla.org data: images.ctfassets.net www.google-analytics.com www.googletagmanager.com www.mozilla.org
+content-security-policy-report-only: upgrade-insecure-requests; media-src 'self' assets.mozilla.net videos.cdn.mozilla.net www.mozilla.org; script-src 'self' 'unsafe-eval' 'unsafe-inline' *.google-analytics.com *.googletagmanager.com cdn.transcend.io google-analytics.com googletagmanager.com js.stripe.com s.ytimg.com tagmanager.google.com transcend-cdn.com www.mozilla.org www.youtube.com; form-action 'self' https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; font-src 'self' www.mozilla.org; default-src 'self' *.mozilla.org; style-src 'self' 'unsafe-inline' cdn.transcend.io transcend-cdn.com www.mozilla.org; frame-src 'self' accounts.firefox.com gtm.mozilla.org js.stripe.com www.google-analytics.com www.googletagmanager.com www.youtube.com; connect-src 'self' *.analytics.google.com *.google-analytics.com *.googletagmanager.com analytics.google.com cdn.transcend.io google-analytics.com googletagmanager.com gtm.mozilla.org https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org o1069899.ingest.sentry.io o1069899.sentry.io region1.google-analytics.com telemetry.transcend.io telemetry.us.transcend.io transcend-cdn.com www.mozilla.org/submit/bedrock/; img-src 'self' blog.mozilla.org data: images.ctfassets.net www.google-analytics.com www.googletagmanager.com www.mozilla.org
+content-type: text/html; charset=utf-8
+cross-origin-opener-policy: same-origin
+date: Sat, 05 Sep 2026 18:23:47 GMT
+etag: "44ce0812b87d5f29ed645ebc5544e004"
+expires: Sat, 05 Sep 2026 18:33:47 GMT
+referrer-policy: strict-origin-when-cross-origin
+server: granian
+strict-transport-security: max-age=31536000
+vary: Accept-Encoding
+via: 1.1 google, 1.1 varnish, 1.1 varnish
+x-backend-server: bedrock-58fdcfd585-nvhdx.gcp-us-west1
+x-cache: MISS, MISS
+x-cache-hits: 0, 0
+x-clacks-overhead: GNU Terry Pratchett
+x-content-type-options: nosniff
+x-frame-options: DENY
+x-served-by: cache-bom-vanm7210080-BOM, cache-bom-vanm7210080-BOM, cache-bom-vanm7210072-BOM
+x-timer: S1788632627.260802,VS0,VE494
+
+
+
+
+
+
+
+
+
+<!doctype html>
+
+<html class="windows no-js" lang="be" dir="ltr" data-country-code="IN" data-needs-consent="False" data-latest-firefox="155.0.1" data-esr-versions="140.15.0 153.2.0" data-gtm-container-id="GTM-MW3R8V"  data-stub-attribution-rate="1.0" data-sentry-dsn="https://c3ab8514873549d5b3785ebc7fb83c80@o1069899.ingest.sentry.io/6260331" >
+  <head>
+    <meta charset="utf-8">
+
+    
+
+
+
+<script data-cfasync="false" src="https://transcend-cdn.com/cm/d556c3a1-e57c-4bdf-a490-390a1aebf6dd/airgap.js"></script>
+
+
+    <!--[if !IE]><!-->
+    <script src="https://www.mozilla.org/media/js/site.a6a07233d547.js"></script>
+
+    
+    <!--<![endif]-->
+
+    <!--[if IE 9]>
+    <script src="https://www.mozilla.org/media/js/site-ie.419ec4b57d17.js"></script>
+    <![endif]-->
+
+<!--
+
+
+             _.-~-.
+           7''  Q..\
+        _7         (_
+      _7  _/    _q.  /
+    _7 . ___  /VVvv-'_                                            .
+   7/ / /~- \_\\      '-._     .-'                      /       //
+  ./ ( /-~-/||'=.__  '::. '-~'' {             ___   /  //     ./{
+ V   V-~-~| ||   __''_   ':::.   ''~-~.___.-'' _/  // / {_   /  {  /
+  VV/-~-~-|/ \ .'__'. '.    '::                     _ _ _        ''.
+  / /~~~~||VVV/ /  \ )  \        _ __ ___   ___ ___(_) | | __ _   .::'
+ / (~-~-~\\.-' /    \'   \::::. | '_ ` _ \ / _ \_  / | | |/ _` | :::'
+/..\    /..\__/      '     '::: | | | | | | (_) / /| | | | (_| | ::'
+vVVv    vVVv                 ': |_| |_| |_|\___/___|_|_|_|\__,_| ''
+
+Hi there, nice to meet you!
+
+Interested in having a direct impact on hundreds of millions of users? Join
+Mozilla, and become part of a global community that’s helping to build a
+brighter future for the Web.
+
+Visit https://www.mozilla.org/careers to learn about our current job openings.
+Visit https://www.mozilla.org/contribute for more ways to get involved and
+help support Mozilla.
+-->
+
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+
+    
+    <title>Даведайцеся аб Mozilla — Mozilla</title>
+    <meta name="description" content="
+  Mozilla робіць браўзэры, праграмы, код і інструменты, якія ставяць інтарэсы людзей вышэй за прыбытак. Наша місія: трымаць Інтэрнэт адкрытым і даступным для ўсіх.
+">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Mozilla">
+    <meta property="og:locale" content="be">
+    <meta property="og:url" content="https://www.mozilla.org/be/about/">
+    <meta property="og:image" content="https://www.mozilla.org/media/img/m24/og.3a69dffad83e.png">
+    <meta property="og:title" content="Даведайцеся аб Mozilla">
+    <meta property="og:description" content="
+  Mozilla робіць браўзэры, праграмы, код і інструменты, якія ставяць інтарэсы людзей вышэй за прыбытак. Наша місія: трымаць Інтэрнэт адкрытым і даступным для ўсіх.
+">
+    <meta property="fb:page_id" content="262134952380">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:site" content="@mozilla">
+    <meta name="twitter:domain" content="mozilla.org">
+    <meta name="twitter:app:name:googleplay" content="Firefox">
+    <meta name="twitter:app:id:googleplay" content="org.mozilla.firefox">
+    <meta name="twitter:app:name:iphone" content="Firefox">
+    <meta name="twitter:app:id:iphone" content="989804926">
+    <meta name="twitter:app:name:ipad" content="Firefox">
+    <meta name="twitter:app:id:ipad" content="989804926">
+    <link rel="apple-touch-icon" type="image/png" sizes="180x180" href="https://www.mozilla.org/media/img/favicons/mozilla/apple-touch-icon.05aa000f6748.png">
+    <link rel="icon" type="image/png" sizes="196x196" href="https://www.mozilla.org/media/img/favicons/mozilla/favicon-196x196.e143075360ea.png">
+    <link rel="shortcut icon" href="https://www.mozilla.org/media/img/favicons/mozilla/favicon.d0be64e474b1.ico">
+    <link rel="canonical" href="https://www.mozilla.org/be/about/">
+    
+    <link rel="alternate" hreflang="ar" href="https://www.mozilla.org/ar/about/" title="عربي">
+        <link rel="alternate" hreflang="be" href="https://www.mozilla.org/be/about/" title="Беларуская">
+        <link rel="alternate" hreflang="bs" href="https://www.mozilla.org/bs/about/" title="Bosanski">
+        <link rel="alternate" hreflang="cs" href="https://www.mozilla.org/cs/about/" title="Čeština">
+        <link rel="alternate" hreflang="cy" href="https://www.mozilla.org/cy/about/" title="Cymraeg">
+        <link rel="alternate" hreflang="da" href="https://www.mozilla.org/da/about/" title="Dansk">
+        <link rel="alternate" hreflang="de" href="https://www.mozilla.org/de/about/" title="Deutsch">
+        <link rel="alternate" hreflang="el" href="https://www.mozilla.org/el/about/" title="Ελληνικά">
+        <link rel="alternate" hreflang="en-CA" href="https://www.mozilla.org/en-CA/about/" title="English (Canadian)">
+        <link rel="alternate" hreflang="en-GB" href="https://www.mozilla.org/en-GB/about/" title="English (British)">
+        <link rel="alternate" hreflang="en" href="https://www.mozilla.org/en-US/about/" title="English">
+        <link rel="alternate" hreflang="en-US" href="https://www.mozilla.org/en-US/about/" title="English (USA)">
+        <link rel="alternate" hreflang="es-AR" href="https://www.mozilla.org/es-AR/about/" title="Español (de Argentina)">
+        <link rel="alternate" hreflang="es-CL" href="https://www.mozilla.org/es-CL/about/" title="Español (de Chile)">
+        <link rel="alternate" hreflang="es" href="https://www.mozilla.org/es-ES/about/" title="Español">
+        <link rel="alternate" hreflang="es-ES" href="https://www.mozilla.org/es-ES/about/" title="Español (de España)">
+        <link rel="alternate" hreflang="es-MX" href="https://www.mozilla.org/es-MX/about/" title="Español (de México)">
+        <link rel="alternate" hreflang="eu" href="https://www.mozilla.org/eu/about/" title="Euskara">
+        <link rel="alternate" hreflang="fi" href="https://www.mozilla.org/fi/about/" title="suomi">
+        <link rel="alternate" hreflang="fr" href="https://www.mozilla.org/fr/about/" title="Français">
+        <link rel="alternate" hreflang="fy" href="https://www.mozilla.org/fy-NL/about/" title="Frysk">
+        <link rel="alternate" hreflang="fy-NL" href="https://www.mozilla.org/fy-NL/about/" title="Frysk">
+        <link rel="alternate" hreflang="gn" href="https://www.mozilla.org/gn/about/" title="Avañe'ẽ">
+        <link rel="alternate" hreflang="hi" href="https://www.mozilla.org/hi-IN/about/" title="हिन्दी">
+        <link rel="alternate" hreflang="hi-IN" href="https://www.mozilla.org/hi-IN/about/" title="हिन्दी (भारत)">
+        <link rel="alternate" hreflang="hr" href="https://www.mozilla.org/hr/about/" title="Hrvatski">
+        <link rel="alternate" hreflang="hu" href="https://www.mozilla.org/hu/about/" title="magyar">
+        <link rel="alternate" hreflang="ia" href="https://www.mozilla.org/ia/about/" title="Interlingua">
+        <link rel="alternate" hreflang="id" href="https://www.mozilla.org/id/about/" title="Bahasa Indonesia">
+        <link rel="alternate" hreflang="is" href="https://www.mozilla.org/is/about/" title="íslenska">
+        <link rel="alternate" hreflang="it" href="https://www.mozilla.org/it/about/" title="Italiano">
+        <link rel="alternate" hreflang="ja" href="https://www.mozilla.org/ja/about/" title="日本語">
+        <link rel="alternate" hreflang="ka" href="https://www.mozilla.org/ka/about/" title="ქართული">
+        <link rel="alternate" hreflang="kk" href="https://www.mozilla.org/kk/about/" title="Қазақ">
+        <link rel="alternate" hreflang="ko" href="https://www.mozilla.org/ko/about/" title="한국어">
+        <link rel="alternate" hreflang="lo" href="https://www.mozilla.org/lo/about/" title="ພາສາລາວ">
+        <link rel="alternate" hreflang="lt" href="https://www.mozilla.org/lt/about/" title="Lietuvių">
+        <link rel="alternate" hreflang="ms" href="https://www.mozilla.org/ms/about/" title="Melayu">
+        <link rel="alternate" hreflang="nb-NO" href="https://www.mozilla.org/nb-NO/about/" title="Norsk bokmål">
+        <link rel="alternate" hreflang="nl" href="https://www.mozilla.org/nl/about/" title="Nederlands">
+        <link rel="alternate" hreflang="nn-NO" href="https://www.mozilla.org/nn-NO/about/" title="Norsk nynorsk">
+        <link rel="alternate" hreflang="pl" href="https://www.mozilla.org/pl/about/" title="Polski">
+        <link rel="alternate" hreflang="pt" href="https://www.mozilla.org/pt-BR/about/" title="Português">
+        <link rel="alternate" hreflang="pt-BR" href="https://www.mozilla.org/pt-BR/about/" title="Português (do Brasil)">
+        <link rel="alternate" hreflang="pt-PT" href="https://www.mozilla.org/pt-PT/about/" title="Português (Europeu)">
+        <link rel="alternate" hreflang="rm" href="https://www.mozilla.org/rm/about/" title="rumantsch">
+        <link rel="alternate" hreflang="ro" href="https://www.mozilla.org/ro/about/" title="Română">
+        <link rel="alternate" hreflang="ru" href="https://www.mozilla.org/ru/about/" title="Русский">
+        <link rel="alternate" hreflang="sk" href="https://www.mozilla.org/sk/about/" title="slovenčina">
+        <link rel="alternate" hreflang="sl" href="https://www.mozilla.org/sl/about/" title="Slovenščina">
+        <link rel="alternate" hreflang="sq" href="https://www.mozilla.org/sq/about/" title="Shqip">
+        <link rel="alternate" hreflang="sr" href="https://www.mozilla.org/sr/about/" title="Српски">
+        <link rel="alternate" hreflang="sv" href="https://www.mozilla.org/sv-SE/about/" title="Svenska">
+        <link rel="alternate" hreflang="sv-SE" href="https://www.mozilla.org/sv-SE/about/" title="Svenska">
+        <link rel="alternate" hreflang="tg" href="https://www.mozilla.org/tg/about/" title="Тоҷикӣ">
+        <link rel="alternate" hreflang="th" href="https://www.mozilla.org/th/about/" title="ไทย">
+        <link rel="alternate" hreflang="tr" href="https://www.mozilla.org/tr/about/" title="Türkçe">
+        <link rel="alternate" hreflang="uk" href="https://www.mozilla.org/uk/about/" title="Українська">
+        <link rel="alternate" hreflang="vi" href="https://www.mozilla.org/vi/about/" title="Tiếng Việt">
+        <link rel="alternate" hreflang="zh" href="https://www.mozilla.org/zh-CN/about/" title="中文">
+        <link rel="alternate" hreflang="zh-CN" href="https://www.mozilla.org/zh-CN/about/" title="中文 (简体)">
+        <link rel="alternate" hreflang="zh-TW" href="https://www.mozilla.org/zh-TW/about/" title="正體中文 (繁體)">
+        
+    
+    
+    <link href="https://mastodon.social/@mozilla" rel="me">
+
+    <!--[if lt IE 9]>
+      
+      <script src="https://www.mozilla.org/media/js/ie/libs/html5shiv.a94a0b700fa2.js"></script>
+    <![endif]-->
+
+    <!--[if IE]>
+      
+      
+        <link href="https://www.mozilla.org/media/css/common-old-ie.4d14f7a84a19.css" rel="stylesheet" type="text/css">
+      
+    <![endif]-->
+
+    <!--[if !IE]><!-->
+    
+    
+      <link href="https://www.mozilla.org/media/css/protocol-mozilla.54ea44c214ed.css" rel="stylesheet" type="text/css">
+      
+        <link href="https://www.mozilla.org/media/css/m24-navigation-and-footer.038277dadfff.css" rel="stylesheet" type="text/css">
+      
+      
+    
+
+    
+    
+  <link href="https://www.mozilla.org/media/css/protocol-split.b2c741eb3ef3.css" rel="stylesheet" type="text/css">
+  <link href="https://www.mozilla.org/media/css/protocol-card.ed8d9c42bb74.css" rel="stylesheet" type="text/css">
+  <link href="https://www.mozilla.org/media/css/protocol-newsletter.0f68eb7e0134.css" rel="stylesheet" type="text/css">
+  <link href="https://www.mozilla.org/media/css/protocol-callout.036d0086522d.css" rel="stylesheet" type="text/css">
+  <link href="https://www.mozilla.org/media/css/about.2211d72a0805.css" rel="stylesheet" type="text/css">
+
+    <!--<![endif]-->
+
+    
+      
+    
+
+    
+    
+      <!--[if IE 9]><!-->
+        
+
+<!--
+Read more about our custom configuration and use of Google Analytics here:
+https://bugzilla.mozilla.org/show_bug.cgi?id=1122305#c8
+-->
+
+<!-- Google Tag Manager -->
+<!-- Customized for Mozilla.org-->
+<!-- Region Container: NONE -->
+<!-- Rollup Container: System Filtered -->
+<!-- Site Container: NONE -->
+
+
+    <script src="https://www.mozilla.org/media/js/gtm-snippet.cc9550e6b401.js"></script>
+
+<!-- End Google Tag Manager -->
+      <!--<![endif]-->
+    
+  </head>
+
+  <body id="about" class="html-ltr mzp-t-mozilla" >
+    <div id="strings"
+      data-global-close="Закрыць"
+      data-global-next="Далей"
+      data-global-previous="Назад"
+      ></div>
+
+    
+      
+
+<aside class="moz-consent-banner" id="moz-consent-banner" role="region" aria-label="Банер кукі" data-nosnippet="true" data-testid="consent-banner">
+  <div class="moz-consent-banner-content">
+    <h2 class="moz-consent-banner-heading">Help us improve your Mozilla experience</h2>
+    <div class="moz-consent-banner-copy">
+      <p>In addition to Cookies necessary for this site to function, we’d like your permission to set some additional Cookies to better understand your browsing needs and improve your experience. Rest assured — we value your privacy.</p>
+      <div class="moz-consent-banner-controls">
+        <button type="button" id="moz-consent-banner-button-accept" class="moz-consent-banner-button moz-consent-banner-button-accept" data-testid="consent-banner-accept-button">
+          Прыняць усе дадатковыя кукі
+        </button>
+        <button type="button" id="moz-consent-banner-button-reject" class="moz-consent-banner-button moz-consent-banner-button-reject" data-testid="consent-banner-reject-button">
+          Адхіліць усе дадатковыя кукі
+        </button>
+        <a href="/be/privacy/websites/cookie-settings/">
+          Налады файлаў кукі
+        </a>
+      </div>
+    </div>
+  </div>
+</aside>
+    
+
+    
+      
+
+
+  
+
+ 
+
+
+  
+
+
+
+
+
+  
+
+
+
+ <nav class="m24-navigation-refresh enable-main-nav-sticky m24-mzp-is-sticky" aria-label="Пачатковая">
+  <div class="m24-c-navigation-l-content">
+    <div class="m24-c-navigation-container">
+      <button class="m24-c-navigation-menu-button" type="button" aria-controls="m24-c-navigation-items" data-testid="m24-navigation-menu-button">Меню</button>
+      <a class="m24-c-navigation-logo-link" href="/be/" data-link-text="mozilla home icon" data-link-position="nav">
+        <img class="m24-c-navigation-logo-image" src="https://www.mozilla.org/media/img/logos/m24/lockup-black.f2ddba3f0724.svg" alt="Mozilla" width="101" height="24">
+      </a>
+      <div class="m24-c-navigation-items" id="m24-c-navigation-items" data-testid="m24-navigation-menu-items">
+        <div class="m24-c-navigation-menu">
+          <div class="m24-c-menu m24-mzp-is-basic">
+            <ul class="m24-c-menu-category-list">
+              
+
+
+
+<li class="m24-c-menu-category mzp-has-drop-down mzp-js-expandable">
+  <a class="m24-c-menu-title" href="/be/products/" aria-haspopup="true" aria-controls="m24-c-menu-panel-products" data-testid="m24-navigation-link-products">Прадукты</a>
+  <div class="m24-c-menu-panel" id="m24-c-menu-panel-products" data-testid="m24-navigation-panel-products">
+    <div class="m24-c-menu-panel-container" data-testid="m24-navigation-menu-products">
+      <button class="m24-c-menu-button-close" type="button" aria-controls="m24-c-menu-panel-products">Закрыць меню «Прадукты»</button>
+      <div class="m24-c-menu-panel-content">
+        <ul class="m24-mzp-l-content">
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://www.firefox.com?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Firefox browsers" data-link-position="topnav - products" data-testid="m24-navigation-menu-link-firefox">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/firefox/browser/logo.eb1324e44442.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Браўзеры Firefox</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="/be/products/vpn/" data-link-text="Mozilla VPN" data-link-position="topnav - products" data-testid="m24-navigation-menu-link-products-vpn">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/mozilla/vpn/logo.c648f487bfb8.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Mozilla VPN</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              
+                
+              
+              <a class="m24-c-menu-item-link" href="https://monitor.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Mozilla Monitor" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/firefox/monitor/logo.d97e5516f9e6.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Mozilla Monitor</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://relay.firefox.com/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Firefox Relay" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/firefox/relay/logo.d42a8b52e44c.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Firefox Relay</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://developer.mozilla.org/plus?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="MDN Plus" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/mdn/mdn-plus-logo.c615b46ca4ce.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">MDN Plus</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://www.thunderbird.net/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Thunderbird" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/thunderbird/logo-thunderbird.121e9c0fed45.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Thunderbird</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://soloist.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Solo" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/solo/logo-solo.643cbd69b0d8.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Solo</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://0din.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="0DIN" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/0din/logo-0din.50589c5926d2.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">0DIN</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://tabstack.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Tabstack" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/tabstack/logo-tabstack.4551b75d8e6b.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Tabstack</h2>
+              </a>
+            </section>
+          </li>
+        </ul>
+        <p class="m24-c-menu-category-link">
+          <a href="/be/products/" data-link-text="Go to all browsers and products" data-link-position="topnav - products">
+            Усе прадукты
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path fill="currentColor" d="m7.24 1.36 5.89 5.89H0v1.5h13.13l-5.89 5.89L8.3 15.7 16 8 8.3.3z"/></svg>
+          </a>
+        </p>
+      </div>
+    </div><!-- close .m24-c-menu-panel-container -->
+  </div><!-- close .m24-c-menu-panel -->
+</li><!-- close products -->
+              
+
+ 
+
+ <li class="m24-c-menu-category mzp-has-drop-down mzp-js-expandable">
+   <a class="m24-c-menu-title" href="/be/about/" aria-haspopup="true" aria-controls="m24-c-menu-panel-about" data-testid="m24-navigation-link-about-us">Пра нас</a>
+   <div class="m24-c-menu-panel" id="m24-c-menu-panel-about" data-testid="m24-navigation-menu-about-us">
+     <div class="m24-c-menu-panel-container">
+       <button class="m24-c-menu-button-close" type="button" aria-controls="m24-c-menu-panel-about">Закрыць меню «Пра нас»</button>
+       <div class="m24-c-menu-panel-content multi-column">
+        <div class="m24-mzp-l-content-container">
+          <p>Наша місія</p>
+          <ul class="m24-mzp-l-content">
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/be/about/" data-link-text="About Mozilla" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Пра Mozilla</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/be/about/manifesto/" data-link-text="The Mozilla manifesto" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Маніфест Mozilla</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/be/contribute/" data-link-text="Get Involved" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Далучыцца</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://blog.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Blog" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Блог</h2>
+                </a>
+              </section>
+            </li>
+           </ul>
+        </div>
+        <div class="m24-mzp-l-content-container">
+          <p>Наша праца</p>
+          <ul class="m24-mzp-l-content">
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://www.mozillafoundation.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla Foundation" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Foundation</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://www.mozilla.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla.ai" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla.ai</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://mozilla.vc/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla Ventures" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Ventures</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/be/advertising/" data-link-text="Mozilla Ads" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Рэклама Mozilla</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://builders.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla Builders" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Builders</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://newproducts.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla New Products" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Новыя прадукты Mozilla</h2>
+                </a>
+              </section>
+            </li>
+           </ul>
+        </div>
+       </div>
+     </div><!-- close .m24-c-menu-panel-container -->
+   </div><!-- close .m24-c-menu-panel -->
+ </li><!-- close about us -->
+            </ul>
+          </div>
+        </div><!-- close .m24-c-navigation-menu -->
+      </div><!-- close .m24-c-navigation-items -->
+      <blink class="spacer-gif"></blink>
+    </div><!-- close .m24-c-navigation-container -->
+  </div><!-- close .m24-c-navigation-l-content -->
+</nav>
+
+    
+
+    
+
+    <div id="outer-wrapper">
+      
+<main>
+<section class="mzp-c-callout mzp-t-hero" >
+  <div class="mzp-l-content">
+    <h1 class="mzp-c-callout-title">Mozilla робіць браўзеры, праграмы, код і інструменты, якія ставяць інтарэсы людзей вышэй за прыбытак.</h1>
+    <p class="mzp-c-callout-desc">Наша місія: трымаць Інтэрнэт адкрытым і даступным для ўсіх.</p>
+     <p class="c-callout-cta">
+        <a id="read-mission-button" class="mzp-c-button" href="/be/mission/" data-cta-text="Read Our Mission" data-cta-position="primary cta">
+          Чытайце нашу місію
+        </a>
+      </p>
+  </div>
+</section>
+
+<div class="t-shade">
+  <div class="mzp-l-content">
+    <h1 class="c-page-title">Наша місія ў дзеянні</h1>
+    <div class="mzp-l-card-half">
+      <section class="mzp-c-card mzp-c-card-medium mzp-has-aspect-3-2  " >
+  <a class="mzp-c-card-block-link" href="/be/about/leadership/" data-link-text="Pioneers of The Open Web" data-link-position="card"     >
+    
+      <div class="mzp-c-card-media-wrapper"><img loading="lazy" src="https://www.mozilla.org/media/img/mozorg/about/leaders.0c49728f29da.jpg" srcset="https://www.mozilla.org/media/img/mozorg/about/leaders-high-res.9dbd829893dd.jpg 2x" alt="" class="mzp-c-card-image"></div>
+    
+    <div class="mzp-c-card-content">
+    
+      <h2 class="mzp-c-card-title"><span>Піянеры адкрытага сеціва</span></h2>
+    
+      <p class="mzp-c-card-desc">Наша кіраўніцтва знаходзіцца на пярэднім краі будоўлі здаровага інтэрнэту з самага першага дня. Тое, што пачыналася як альтэрнатыва панаванню карпарацый, ператварылася ў глабальны рух за лепшае сеціва.</p>
+    
+    
+    
+    </div>
+  </a>
+  
+</section>
+      <section class="mzp-c-card mzp-c-card-medium mzp-has-aspect-3-2  " >
+  <a class="mzp-c-card-block-link" href="https://www.firefox.com/" data-link-text="Firefox: Fast for Good" data-link-position="card"     >
+    
+      <div class="mzp-c-card-media-wrapper"><img loading="lazy" src="https://www.mozilla.org/media/img/mozorg/about/firefox.7a5f6c0b5929.jpg" srcset="https://www.mozilla.org/media/img/mozorg/about/firefox-high-res.3bbec6d49e9e.jpg 2x" alt="" class="mzp-c-card-image"></div>
+    
+    <div class="mzp-c-card-content">
+    
+      <h2 class="mzp-c-card-title"><span>Firefox: Хуткі назаўсёды</span></h2>
+    
+      <p class="mzp-c-card-desc">Калі вы выкарыстоўваеце новы Firefox, вы атрымліваеце вокамгненны вэб-сёрфінг і адначасова падтрымліваеце місію Mozilla трымаць Інтэрнэт здаровым, дзіўным і гасцінным для ўсіх.</p>
+    
+    
+    
+    </div>
+  </a>
+  
+</section>
+      <section class="mzp-c-card mzp-c-card-medium mzp-has-aspect-3-2  " >
+  <a class="mzp-c-card-block-link" href="/be/about/webvision/" data-link-text="Mozilla’s vision for the Web" data-link-position="card"     >
+    
+      <div class="mzp-c-card-media-wrapper"><img loading="lazy" src="https://www.mozilla.org/media/img/mozorg/about/purple-bg.d6b93bdcffe3.jpg" alt="" class="mzp-c-card-image"></div>
+    
+    <div class="mzp-c-card-content">
+    
+      <h2 class="mzp-c-card-title"><span>Бачанне інтэрнэту ад Mozilla</span></h2>
+    
+      <p class="mzp-c-card-desc">Прачытайце пра наша бачанне Інтэрнэту і пра тое, як мы намерваемся ажыццяўляць гэтае бачанне.</p>
+    
+    
+    
+    </div>
+  </a>
+  
+</section>
+      <section class="mzp-c-card mzp-c-card-medium mzp-has-aspect-3-2  " >
+  <a class="mzp-c-card-block-link" href="https://irlpodcast.org/" data-link-text="Talking Internet Issues IRL" data-link-position="card"     >
+    
+      <div class="mzp-c-card-media-wrapper"><img loading="lazy" src="https://www.mozilla.org/media/img/mozorg/about/irl.3b390605c731.png" srcset="https://www.mozilla.org/media/img/mozorg/about/irl-high-res.c2be1cfe5753.png 2x" alt="" class="mzp-c-card-image"></div>
+    
+    <div class="mzp-c-card-content">
+    
+      <h2 class="mzp-c-card-title"><span>Talking Tech Issues IRL</span></h2>
+    
+      <p class="mzp-c-card-desc">In Mozilla's multi-award winning podcast, host Bridget Todd talks to the people shaping the future of the internet and AI.</p>
+    
+    
+    
+    </div>
+  </a>
+  
+</section>
+    </div>
+  </div>
+</div>
+
+  <section class="mzp-c-split mzp-t-split-nospace">
+  
+  <div class="mzp-c-split-container">
+    
+      
+        <div class="mzp-c-split-media mzp-l-split-h-center">
+          <img src="https://www.mozilla.org/media/img/mozorg/about/foundation.355f5031c47a.jpg" srcset="https://www.mozilla.org/media/img/mozorg/about/foundation-high-res.1d0e2fec3bb7.jpg 2x" alt="" class="mzp-c-split-media-asset">
+        </div>
+      
+    
+    <div class="mzp-c-split-body">
+      
+    <h2 class="mzp-u-title-sm">Карпарацыя. Фонд. Не дзеля прыбытку.</h2>
+    <p>Mozilla ставіць людзей вышэй за прыбытак ва ўсім, што мы кажам, будуем і робім. Насамрэч, некамерцыйны фонд знаходзіцца ў цэнтры нашай карпарацыі.</p>
+    <a class="mzp-c-cta-link" href="https://www.mozillafoundation.org/">Даведайцеся аб Mozilla Foundation</a>
+
+    </div>
+    
+  </div>
+  
+</section>
+
+<div class="mzp-l-content">
+  <section class="mzp-c-billboard mzp-l-billboard-right">
+  <div class="mzp-c-billboard-image-container">
+    <img src="https://www.mozilla.org/media/img/home/2018/billboard-healthy-internet.4c6fc8ad55a2.png" srcset="https://www.mozilla.org/media/img/home/2018/billboard-healthy-internet-high-res.56fc2c64c968.png 2x" alt="">
+  </div>
+  <div class="mzp-c-billboard-content">
+    <div class="mzp-c-billboard-content-container">
+      <div class="mzp-c-billboard-content-inner">
+        <h2 class="mzp-c-billboard-title">Маніфест Mozilla</h2>
+        <p class="mzp-c-billboard-desc">Прынцыпы, якія мы напісалі ў 1998 годзе, па-ранейшаму накіроўваюць нас сёння. А ў 2018 годзе, мы стварылі дадатак, каб падкрэсліць уключнасць, прыватнасць і бяспеку для ўсіх у Інтэрнэце.</p>
+        
+          <a class="mzp-c-cta-link" href="/be/about/manifesto/" data-link-text="The Mozilla Manifesto">Чытаць Маніфест</a>
+        
+      </div>
+    </div>
+  </div>
+</section>
+</div>
+
+<div class="mzp-l-content">
+  <section class="t-global">
+    <div class="mzp-l-content">
+      <div class="t-global-text">
+        <h2 class="t-global-title">Глабальны погляд</h2>
+        <div class="t-global-desc">
+          Маючы <a href="/be/contact/spaces/">офісы па ўсім свеце</a>, мы бачым інтэрнэт з боку розных культур і абставінаў.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="c-cities">
+    <div class="c-city c-city-sf">
+      <h3 class="c-city-title">Сан-Францыска</h3>
+      <p class="c-city-desc"><strong>2000</strong> гасцей вітаюцца кожны год</p>
+    </div>
+    <div class="c-city c-city-berlin">
+      <h3 class="c-city-title">Берлін</h3>
+      <p class="c-city-desc"><strong>500</strong> штогадовых удзельнікаў на серыі выступленняў у Берліне </p>
+    </div>
+    <div class="c-city c-city-toronto">
+      <h3 class="c-city-title">Таронта</h3>
+      <p class="c-city-desc"><strong>800</strong> бутэлек халоднай кавы спажываецца штогод.</p>
+    </div>
+  </section>
+
+  <div class="mzp-l-card-half">
+    <section class="mzp-c-card mzp-c-card-medium mzp-has-aspect-3-2  " >
+  <a class="mzp-c-card-block-link" href="/be/careers/" data-link-text="Work at Mozilla" data-link-position="card"     >
+    
+      <div class="mzp-c-card-media-wrapper"><img loading="lazy" src="https://www.mozilla.org/media/img/mozorg/about/careers.f2021184d65b.jpg" srcset="https://www.mozilla.org/media/img/mozorg/about/careers-high-res.230f0b0e6d02.jpg 2x" alt="" class="mzp-c-card-image"></div>
+    
+    <div class="mzp-c-card-content">
+    
+      <h2 class="mzp-c-card-title"><span>Праца ў Mozilla</span></h2>
+    
+      <p class="mzp-c-card-desc">Далучайцеся да арганізацыі з місіяй, будуйце прадукты, скіраваныя на мэту.</p>
+    
+    
+    
+      <p class="mzp-c-card-cta"><span class="mzp-c-card-cta-text">Кар'ера ў Mozilla</span></p>
+    
+    </div>
+  </a>
+  
+</section>
+    <section class="mzp-c-card mzp-c-card-medium mzp-has-aspect-3-2  " >
+  <a class="mzp-c-card-block-link" href="/be/contribute/" data-link-text="How You Can Help" data-link-position="card"     >
+    
+      <div class="mzp-c-card-media-wrapper"><img loading="lazy" src="https://www.mozilla.org/media/img/mozorg/about/involved.539b8a7bd123.jpg" srcset="https://www.mozilla.org/media/img/mozorg/about/involved-high-res.2540db8ae92d.jpg 2x" alt="" class="mzp-c-card-image"></div>
+    
+    <div class="mzp-c-card-content">
+    
+      <h2 class="mzp-c-card-title"><span>Як вы можаце дапамагчы</span></h2>
+    
+      <p class="mzp-c-card-desc">Ваш голас. Ваш код. Ваша падтрымка. Ёсць шмат спосабаў, каб уступіць у барацьбу за здаровы інтэрнэт.</p>
+    
+    
+    
+      <p class="mzp-c-card-cta"><span class="mzp-c-card-cta-text">Уцягвайцеся</span></p>
+    
+    </div>
+  </a>
+  
+</section>
+  </div>
+</div>
+<div class="mzp-l-content">
+  <aside class="mzp-c-newsletter">
+    <div class="mzp-c-newsletter-image">
+      <img src="https://www.mozilla.org/media/img/home/2018/newsletter-graphic.3debb24fbacc.png" srcset="https://www.mozilla.org/media/img/home/2018/newsletter-graphic-high-res.dfdd8a0a8b68.png 2x" alt="">
+    </div>
+
+    <div class="newsletter-content">
+      
+      
+
+
+
+
+  <form id="newsletter-form" class="mzp-c-newsletter-form" action="https://basket.mozilla.org/news/subscribe/" method="post" data-testid="newsletter-form">
+    
+      <div hidden>
+        <div id="id_newsletters"><div>
+    <label for="id_newsletters_0"><input type="checkbox" name="newsletters" value="mozilla-and-you" id="id_newsletters_0" checked>
+ Firefox</label>
+
+</div>
+</div>
+      </div>
+    
+    <input type="hidden" name="source_url" value="https://www.mozilla.org/be/about/">
+
+    
+    <header class="mzp-c-newsletter-header">
+      <h3 class="mzp-c-newsletter-title">Атрымліваць інфармацыйны бюлетэнь Mozilla</h3>
+      
+      
+      <p class="mzp-c-newsletter-desc">Будзьце ў курсе праблем, якія тычацца інтэрнэта, і даведайцеся, як вы можаце ўзяць удзел у абароне найноўшага грамадскага сусветнага рэсурсу.</p>
+      
+    </header>
+    
+
+    <fieldset class="mzp-c-newsletter-content">
+      <div class="mzp-c-form-errors hidden" id="newsletter-errors" data-testid="newsletter-error-message">
+        
+        <ul class="mzp-u-list-styled">
+          <li class="error-email-invalid hidden">
+            Калі ласка, увядзіце сапраўдны адрас электроннай пошты
+          </li>
+          <li class="error-select-country hidden">
+            Калі ласка, выберыце краіну або рэгіён
+          </li>
+          <li class="error-select-language hidden">
+            Калі ласка, абярыце мову
+          </li>
+          <li class="error-newsletter-checkbox hidden">
+            Калі ласка, пазначце хаця б адзін з варыянтаў рассылкі.
+          </li>
+          <li class="error-privacy-policy hidden">
+            Вы павінны пагадзіцца з паведамленнем аб прыватнасці
+          </li>
+          <li class="error-try-again-later hidden">
+            Нам шкада, але ў нашай сістэме ўзнікла праблема. Калі ласка, паспрабуйце пазней!
+          </li>
+        </ul>
+      </div>
+
+      <label for="id_email">Ваш электронны адрас:</label>
+      
+        
+      
+      <input type="email" name="email" required data-testid="newsletter-email-input" maxlength="320" placeholder="yourname@example.com" class="mzp-js-email-field" id="id_email">
+
+      <div id="newsletter-details" class="mzp-c-newsletter-details">
+        <div class="mzp-c-newsletter-details-inner">
+        
+          <label for="id_country">Выберыце краіну або рэгіён:</label>
+          <p><select name="country" required="required" aria-required="true" data-testid="newsletter-country-select" id="id_country">
+  <option value="" selected>Выберыце краіну або рэгіён</option>
+
+  <option value="yt">Mayotte</option>
+
+  <option value="jo">Іарданія</option>
+
+  <option value="il">Ізраіль</option>
+
+  <option value="id">Інданезія</option>
+
+  <option value="in">Індыя</option>
+
+  <option value="iq">Ірак</option>
+
+  <option value="ir">Іран</option>
+
+  <option value="ie">Ірландыя</option>
+
+  <option value="is">Ісландыя</option>
+
+  <option value="es">Іспанія</option>
+
+  <option value="it">Італія</option>
+
+  <option value="ae">А.А.Э.</option>
+
+  <option value="az">Азербайджан</option>
+
+  <option value="qz">Акраціры</option>
+
+  <option value="al">Албанія</option>
+
+  <option value="dz">Алжыр</option>
+
+  <option value="om">Аман</option>
+
+  <option value="as">Амерыканскія Самоа</option>
+
+  <option value="ao">Ангола</option>
+
+  <option value="ad">Андора</option>
+
+  <option value="ai">Анквіла</option>
+
+  <option value="aq">Антарктыка</option>
+
+  <option value="ag">Антыгуа і Барбуда</option>
+
+  <option value="ar">Аргенціна</option>
+
+  <option value="am">Арменія</option>
+
+  <option value="aw">Аруба</option>
+
+  <option value="xu">Атол Джонстан</option>
+
+  <option value="xl">Атол Пальміра</option>
+
+  <option value="af">Аўганістан</option>
+
+  <option value="au">Аўстралія</option>
+
+  <option value="at">Аўстрыя</option>
+
+  <option value="bs">Багамы</option>
+
+  <option value="bo">Балівія</option>
+
+  <option value="bd">Бангладэш</option>
+
+  <option value="bb">Барбадос</option>
+
+  <option value="qs">Басас-да-Індыя</option>
+
+  <option value="bh">Бахрэйн</option>
+
+  <option value="bg">Баўгарыя</option>
+
+  <option value="by">Беларусь</option>
+
+  <option value="be">Бельгія</option>
+
+  <option value="bz">Беліз</option>
+
+  <option value="bj">Бенін</option>
+
+  <option value="bm">Бермуды</option>
+
+  <option value="ba">Боснія і Герцэгавіна</option>
+
+  <option value="bw">Ботсвана</option>
+
+  <option value="br">Бразілія</option>
+
+  <option value="bn">Брунэй Дарусалам</option>
+
+  <option value="io">Брытанская Індыйская Акіянская тэрыторыя</option>
+
+  <option value="vg">Брытанскія Віргінскія выспы</option>
+
+  <option value="bf">Буркіна Фасо</option>
+
+  <option value="bi">Бурундзі</option>
+
+  <option value="bt">Бутан</option>
+
+  <option value="vn">В&#x27;етнам</option>
+
+  <option value="wf">Валіс і Футуна</option>
+
+  <option value="vu">Вануату</option>
+
+  <option value="ve">Венесуэла</option>
+
+  <option value="hu">Вугоршчына</option>
+
+  <option value="bv">Выспа Боўвет</option>
+
+  <option value="xb">Выспа Бэйкер</option>
+
+  <option value="qx">Выспа Глар&#x27;ез</option>
+
+  <option value="hm">Выспа Гіард і Выспы Мак-Дональда</option>
+
+  <option value="xq">Выспа Джэрвіс</option>
+
+  <option value="xe">Выспа Еўропа</option>
+
+  <option value="qu">Выспа Жуан-ды-Нова</option>
+
+  <option value="cp">Выспа Кліпертон</option>
+
+  <option value="im">Выспа Мэн</option>
+
+  <option value="xv">Выспа Наваса</option>
+
+  <option value="nf">Выспа Нарфолк</option>
+
+  <option value="xt">Выспа Тромлен</option>
+
+  <option value="qw">Выспа Уэйк</option>
+
+  <option value="xh">Выспа Хоўленд</option>
+
+  <option value="qm">Выспры Мідуэй</option>
+
+  <option value="xa">Выспы Ашмор і Карцье</option>
+
+  <option value="xc">Выспы Каралавага мора</option>
+
+  <option value="ck">Выспы Кука</option>
+
+  <option value="cx">Выспы Радздва</option>
+
+  <option value="xs">Выспы Спратлі</option>
+
+  <option value="tc">Выспы Туркс і Кайсос</option>
+
+  <option value="fo">Выспы Фароэ</option>
+
+  <option value="vi">Віргінскія выспы З.Ш.</option>
+
+  <option value="ga">Габон</option>
+
+  <option value="gy">Гайана</option>
+
+  <option value="gm">Гамбія</option>
+
+  <option value="gh">Гана</option>
+
+  <option value="hn">Гандурас</option>
+
+  <option value="ht">Гаіці</option>
+
+  <option value="gp">Гвадэлупа</option>
+
+  <option value="gt">Гватэмала</option>
+
+  <option value="gn">Гвінея</option>
+
+  <option value="gw">Гвінея-Бісау</option>
+
+  <option value="hk">Гон Конг</option>
+
+  <option value="va">Горад Ватыкан</option>
+
+  <option value="ge">Грузія</option>
+
+  <option value="gd">Грэнада</option>
+
+  <option value="gl">Грэнландыя</option>
+
+  <option value="gu">Гуам</option>
+
+  <option value="gg">Гуэрнсі</option>
+
+  <option value="gi">Гібралтар</option>
+
+  <option value="dm">Дамініка</option>
+
+  <option value="do">Дамініканская Рэспубліка</option>
+
+  <option value="dk">Данія</option>
+
+  <option value="dj">Джыбуці</option>
+
+  <option value="je">Джэрсі</option>
+
+  <option value="xd">Дзекелія</option>
+
+  <option value="dg">Дыега-Гарсія</option>
+
+  <option value="eg">Егіпет</option>
+
+  <option value="zm">Замбія</option>
+
+  <option value="eh">Заходняя Сахара</option>
+
+  <option value="xw">Заходні бераг ракі Іардан</option>
+
+  <option value="gb">Злучанае Каралеўства</option>
+
+  <option value="us">Злучаныя Штаты</option>
+
+  <option value="zw">Зімбабвэ</option>
+
+  <option value="ye">Йемен</option>
+
+  <option value="cv">Каба-Вердэ</option>
+
+  <option value="kz">Казахстан</option>
+
+  <option value="ky">Кайманавы выспы</option>
+
+  <option value="cc">Какосавыя выспы</option>
+
+  <option value="co">Калумбія</option>
+
+  <option value="kh">Камбоджа</option>
+
+  <option value="cm">Камерун</option>
+
+  <option value="km">Каморы</option>
+
+  <option value="ca">Канада</option>
+
+  <option value="bq">Карыбскія Нідэрланды</option>
+
+  <option value="qa">Катар</option>
+
+  <option value="ke">Кенія</option>
+
+  <option value="cg">Конга-Бразавіль</option>
+
+  <option value="cd">Конга-Кіншаса</option>
+
+  <option value="xk">Косава</option>
+
+  <option value="cr">Коста-Рыка</option>
+
+  <option value="ci">Кот-д&#x27;Івуар</option>
+
+  <option value="cu">Куба</option>
+
+  <option value="kw">Кувейт</option>
+
+  <option value="kg">Кыргызстан</option>
+
+  <option value="cw">Кюрасаа</option>
+
+  <option value="cy">Кіпр</option>
+
+  <option value="ki">Кірыбаці</option>
+
+  <option value="cn">Кітай</option>
+
+  <option value="la">Лаос</option>
+
+  <option value="lv">Латвія</option>
+
+  <option value="ls">Лесота</option>
+
+  <option value="lu">Люксембург</option>
+
+  <option value="lr">Ліберыя</option>
+
+  <option value="lb">Ліван</option>
+
+  <option value="ly">Лівія</option>
+
+  <option value="lt">Літва</option>
+
+  <option value="li">Ліхтэнштэйн</option>
+
+  <option value="mm">М&#x27;янма</option>
+
+  <option value="mg">Мадагаскар</option>
+
+  <option value="mz">Мазамбік</option>
+
+  <option value="mo">Макаа</option>
+
+  <option value="mw">Малаві</option>
+
+  <option value="my">Малайзія</option>
+
+  <option value="md">Малдова</option>
+
+  <option value="mv">Мальдывы</option>
+
+  <option value="mt">Мальта</option>
+
+  <option value="ml">Малі</option>
+
+  <option value="mc">Манака</option>
+
+  <option value="mn">Манголія</option>
+
+  <option value="ma">Марока</option>
+
+  <option value="mq">Мартыніка</option>
+
+  <option value="mh">Маршалавы выспы</option>
+
+  <option value="mu">Маўрыкій</option>
+
+  <option value="mr">Маўрытанія</option>
+
+  <option value="mx">Мексіка</option>
+
+  <option value="ms">Монтсерат</option>
+
+  <option value="fm">Мікранезія</option>
+
+  <option value="na">Намібія</option>
+
+  <option value="no">Нарвегія</option>
+
+  <option value="nr">Науру</option>
+
+  <option value="nz">Новая Зеландыя</option>
+
+  <option value="nc">Новая Каледонія</option>
+
+  <option value="de">Нямеччына</option>
+
+  <option value="np">Няпал</option>
+
+  <option value="ne">Нігер</option>
+
+  <option value="ng">Нігерыя</option>
+
+  <option value="nl">Нідэрланды</option>
+
+  <option value="ni">Нікарагуа</option>
+
+  <option value="nu">Ніў</option>
+
+  <option value="pk">Пакістан</option>
+
+  <option value="pw">Палаў</option>
+
+  <option value="pa">Панама</option>
+
+  <option value="pg">Папуа Новая Гвінея</option>
+
+  <option value="py">Парагвай</option>
+
+  <option value="xp">Парасельскія выспы</option>
+
+  <option value="pt">Партугалія</option>
+
+  <option value="za">Паўднёвая Афрыка</option>
+
+  <option value="gs">Паўднёвая Джорджыя і Паўднёвыя Сэндвічавы Выспы</option>
+
+  <option value="kr">Паўднёвая Карэя</option>
+
+  <option value="ss">Паўднёвы Судан</option>
+
+  <option value="kp">Паўночная Карэя</option>
+
+  <option value="mk">Паўночная Македонія</option>
+
+  <option value="mp">Паўночныя Марыянскія выспы</option>
+
+  <option value="pe">Перу</option>
+
+  <option value="pl">Польшча</option>
+
+  <option value="pr">Пуэрта Рыка</option>
+
+  <option value="pn">Піткэйрн</option>
+
+  <option value="ru">Расейская федэрацыя</option>
+
+  <option value="rw">Руанда</option>
+
+  <option value="ro">Румынія</option>
+
+  <option value="xm">Рыф Кінгмэн</option>
+
+  <option value="re">Рэюньён</option>
+
+  <option value="sb">Саламонавы выспы</option>
+
+  <option value="sv">Сальвадор</option>
+
+  <option value="so">Самалі</option>
+
+  <option value="ws">Самоа</option>
+
+  <option value="sm">Сан Марына</option>
+
+  <option value="st">Сао Томе і Прынсіпі</option>
+
+  <option value="sa">Саудаўская Аравія</option>
+
+  <option value="sh">Святая Алена</option>
+
+  <option value="lc">Святая Лючыя</option>
+
+  <option value="bl">Святы Барталамей</option>
+
+  <option value="vc">Святы Вінцэнт і Грэнадзіны</option>
+
+  <option value="kn">Святы Кітс і Невіс</option>
+
+  <option value="mf">Святы Мартын</option>
+
+  <option value="pm">Святы П&#x27;ер і Мікялон</option>
+
+  <option value="sc">Сейшэлы</option>
+
+  <option value="xg">Сектар Газа</option>
+
+  <option value="rs">Сербія</option>
+
+  <option value="sk">Славакія</option>
+
+  <option value="si">Славенія</option>
+
+  <option value="sd">Судан</option>
+
+  <option value="sr">Сурынам</option>
+
+  <option value="sl">Сьера Леоне</option>
+
+  <option value="sn">Сянегал</option>
+
+  <option value="cf">Сярэдне-Афрыканская Рэспубліка</option>
+
+  <option value="sg">Сінгапур</option>
+
+  <option value="sx">Сінт-Мартэн</option>
+
+  <option value="sy">Сірыя</option>
+
+  <option value="tj">Таджыкістан</option>
+
+  <option value="tw">Тайвань</option>
+
+  <option value="th">Тайланд</option>
+
+  <option value="tk">Такелау</option>
+
+  <option value="tz">Танзанія</option>
+
+  <option value="tg">Тога</option>
+
+  <option value="to">Тонга</option>
+
+  <option value="tt">Трынідад і Табага</option>
+
+  <option value="tv">Тувалу</option>
+
+  <option value="tn">Туніс</option>
+
+  <option value="tm">Туркменістан</option>
+
+  <option value="tr">Турцыя</option>
+
+  <option value="tl">Тымор-Лэстэ</option>
+
+  <option value="ug">Уганда</option>
+
+  <option value="uz">Узбекістан</option>
+
+  <option value="ua">Украіна</option>
+
+  <option value="uy">Уругвай</option>
+
+  <option value="fk">Фалклэндскія выспы (Мальвіны)</option>
+
+  <option value="gf">Французская Гвіяна</option>
+
+  <option value="pf">Французская Полінезія</option>
+
+  <option value="tf">Французскія Паўднёвыя тэрыторыі</option>
+
+  <option value="fr">Францыя</option>
+
+  <option value="fj">Фіджы</option>
+
+  <option value="ph">Філіпіны</option>
+
+  <option value="fi">Фінляндыя</option>
+
+  <option value="hr">Харватыя</option>
+
+  <option value="td">Чад</option>
+
+  <option value="me">Чарнагорыя</option>
+
+  <option value="cl">Чылі</option>
+
+  <option value="cz">Чэхія</option>
+
+  <option value="ch">Швейцарыя</option>
+
+  <option value="se">Швецыя</option>
+
+  <option value="xr">Шпіцберген</option>
+
+  <option value="lk">Шры Ланка</option>
+
+  <option value="ec">Эквадор</option>
+
+  <option value="gq">Экватарыяльная Гвінея</option>
+
+  <option value="gr">Элада</option>
+
+  <option value="er">Эрытрэя</option>
+
+  <option value="sz">Эсваціні</option>
+
+  <option value="ee">Эстонія</option>
+
+  <option value="et">Эфіопія</option>
+
+  <option value="jm">Ямайка</option>
+
+  <option value="xj">Ян-Маен</option>
+
+  <option value="jp">Японія</option>
+
+</select></p>
+        
+
+        
+          <label for="id_lang">Абраць мову:</label>
+          <p><select name="lang" required="required" aria-required="true" id="id_lang">
+  <option value="" selected>Даступныя мовы</option>
+
+  <option value="id">Bahasa Indonesia</option>
+
+  <option value="de">Deutsch</option>
+
+  <option value="en">English</option>
+
+  <option value="es">Español</option>
+
+  <option value="fr">Français</option>
+
+  <option value="pl">Polski</option>
+
+  <option value="pt">Português</option>
+
+  <option value="ru">Русский</option>
+
+  <option value="zh-TW">正體中文</option>
+
+</select></p>
+        
+
+        
+
+        <p>
+          <label for="privacy" class="mzp-u-inline">
+            <input type="checkbox" id="privacy" name="privacy" required aria-required="true" data-testid="newsletter-privacy-checkbox"> Я згодны з тым, як Mozilla звяртаецца з маімі дадзенымі згодна з <a href="/be/privacy/websites/">гэтым паведамленнем аб прыватнасцi</a>
+          </label>
+        </p>
+        </div>
+      </div>
+
+      <p class="mzp-c-form-submit">
+        <button type="submit" id="newsletter-submit" class="mzp-c-button button-dark" data-cta-text="Newsletter Sign Up" data-testid="newsletter-submit-button">
+          <span class="submit-text">
+          
+            Падпісацца
+          
+          </span>
+          <svg class="submit-loading" hidden fill="currentColor" width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <title>Sending</title>
+            <circle class="s1" cx="4" cy="12" r="3"/>
+            <circle class="s1 s2" cx="12" cy="12" r="3"/>
+            <circle class="s1 s3" cx="20" cy="12" r="3"/>
+          </svg>
+        </button>
+
+        
+            <span class="mzp-c-fieldnote">
+              
+              
+                We will only send you Firefox-related information. You can unsubscribe at any time.
+              
+            </span>
+        
+      </p>
+    </fieldset>
+  </form>
+
+  <div id="newsletter-thanks" class="mzp-c-newsletter-thanks hidden" data-testid="newsletter-thanks-message">
+    
+      
+  <h3>Дзякуй!</h3>
+  <p>Калі вы яшчэ не пацвердзілі падпіску на навіны аб Mozilla, вы яшчэ можаце гэта зрабіць. Праверце сваю пошту ці папку спаму на наяўнасць ліста ад нас.</p>
+
+    
+  </div>
+
+
+    </div>
+  </aside>
+</div>
+</main>
+
+
+
+      
+        
+
+
+
+
+  
+
+ <footer class="moz24-footer" id="colophon" role="contentinfo">
+  
+  <div class="moz24-footer-content">
+    
+    <div class="moz24-footer-primary">
+      <div class="moz24-footer-sections-container">
+        <div class="moz24-footer-advertising">
+          <div class="moz24-footer-advertising-wrapper">
+            <h2>
+              <img src="https://www.mozilla.org/media/img/logos/mozilla/ads/Mozilla_Ads_Logo.6ed26d0eac2b.svg" alt="Mozilla Ads" width="250" height="33" class="moz24-footer-advertising-logo">
+            </h2>
+            
+              <p>Дадайце давер да сваёй пакупкі рэкламы.</p>
+            
+            <a class="moz24-footer-advertising-link" href="/be/advertising/" data-link-position="footer" data-link-text="Learn more">
+              <span class="mzp-c-button-icon-text">Даведайцеся больш <span>пра Mozilla Ads</span></span>
+              <span class="mzp-c-button-icon-end">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path fill="currentColor" d="m7.24 1.36 5.89 5.89H0v1.5h13.13l-5.89 5.89L8.3 15.7 16 8 8.3.3z"/></svg>
+              </span>
+            </a>
+          </div>
+        </div>
+        <div class="moz24-footer-links">
+          <section>
+            <h2 class="moz24-footer-label" data-testid="footer-heading-company">
+              Арганізацыя
+            </h2>
+            <ul class="moz24-footer-primary-list" data-testid="footer-list-company">
+              <li><a href="/be/about/leadership/" data-link-position="footer" data-link-text="Leadership">Кіраўніцтва</a></li>
+              <li><a href="https://blog.mozilla.org/category/mozilla/news/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=company" data-link-position="footer" data-link-text="Press Center">Прэс-цэнтр</a></li>
+              <li><a href="/be/careers/" data-link-position="footer" data-link-text="Careers">Кар'ера</a></li>
+              <li><a href="https://shop.mozilla.com/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=company" data-link-position="footer" data-link-text="Merch Store">Merch Store</a></li>
+              <li><a href="/be/contact/" data-link-position="footer" data-link-text="Contact">Сувязь</a></li>
+            
+            </ul>
+          </section>
+
+          <section>
+            <h2 class="moz24-footer-label" data-testid="footer-heading-support">
+              Падтрымка
+            </h2>
+            <ul class="moz24-footer-primary-list" data-testid="footer-list-support">
+              <li><a href="https://support.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=support" data-link-position="footer" data-link-text="Product Help">Даведка пра прадукт</a></li>
+              <li><a href="https://bugzilla.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=support" data-link-position="footer" data-link-text="File a Bug">Паведаміць пра памылку</a></li>
+              <li><a href="https://pontoon.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=support" data-link-position="footer" data-link-text="Localise Mozilla">Лакалізаваць Mozilla</a></li>
+              <li><a href="/be/security/" data-link-position="footer" data-link-text="Security">Бяспека</a></li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 class="moz24-footer-label" data-testid="footer-heading-developers">
+              Распрацоўшчыкам
+            </h2>
+            <ul class="moz24-footer-primary-list" data-testid="footer-list-developers">
+              <li><a href="https://www.firefox.com/channel/desktop/developer/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="Firefox Developer Edition">Developer Edition</a></li>
+              <li><a href="https://www.firefox.com/browsers/enterprise/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="Firefox for Enterprise">Enterprise</a></li>
+              <li><a href="https://firefox-source-docs.mozilla.org/devtools-user/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=developers" rel="external" data-link-position="footer" data-link-text="Tools">Прылады</a></li>
+              <li><a href="https://developer.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="MDN">MDN</a></li>
+              <li><a href="https://www.firefox.com/firefox/155.0.1/releasenotes/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="Firefox Release Notes">Заўвагі да выпуску Firefox</a></li>
+            </ul>
+          </section>
+        </div>
+        <div class="moz24-footer-socials">
+          <div class="moz24-footer-refresh-social-wrapper">
+            <h2 class="moz24-footer-heading-social">Падпісацца на @Mozilla</h2>
+            <ul class="moz24-footer-social-links">
+              <li><a class="bluesky" href="https://bsky.app/profile/mozilla.org" data-link-position="footer" data-link-text="Bluesky (@mozilla.org)" translate="no">Bluesky<span> (@mozilla.org)</span></a></li>
+              <li><a class="instagram" href="https://www.instagram.com/mozilla/" data-link-position="footer" data-link-text="Instagram (@mozilla)">Instagram<span> (@mozilla)</span></a></li>
+              <li><a class="linkedin" href="https://www.linkedin.com/company/mozilla-corporation/" data-link-position="footer" data-link-text="LinkedIn (@mozilla)">LinkedIn<span> (@mozilla)</span></a></li>
+              <li><a class="tiktok" href="https://www.tiktok.com/@mozilla" data-link-position="footer" data-link-text="TikTok (@mozilla)">TikTok<span> (@mozilla)</span></a></li>
+              <li><a class="spotify" href="https://open.spotify.com/show/0vT7LJMeVDxyQ2ZamHKu08?si=_uDRD6bRR_6M5YZyISGXgA" data-link-position="footer" data-link-text="Spotify (@mozilla)">Spotify<span> (@mozilla)</span></a></li>
+            </ul>
+          </div>
+          <div class="moz24-footer-refresh-social-wrapper">
+            <h2 class="moz24-footer-heading-social">Падпісацца на @Firefox</h2>
+            <ul class="moz24-footer-social-links">
+              <li><a class="bluesky" href="https://bsky.app/profile/firefox.com" data-link-position="footer" data-link-text="Bluesky (@firefox.com)" translate="no">Bluesky<span> (@firefox.com)</span></a></li>
+              <li><a class="instagram" href="https://www.instagram.com/firefox/" data-link-position="footer" data-link-text="Instagram (@firefox)">Instagram<span> (@firefox)</span></a></li>
+              <li><a class="youtube" href="https://www.youtube.com/user/firefoxchannel" data-link-position="footer" data-link-text="YouTube (@firefoxchannel)">YouTube<span> (@firefoxchannel)</span></a></li>
+              <li><a class="tiktok" href="https://www.tiktok.com/@firefox" data-link-position="footer" data-link-text="TikTok (@firefox)">TikTok<span> (@firefox)</span></a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="moz24-footer-actions">
+      <a class="moz24-footer-donate" href="https://www.mozillafoundation.org/?form=moco-donate-footer" data-link-text="Donate">
+        <span class="mzp-c-button-icon-start">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><g clip-path="url(#a)"><path fill="currentColor" d="M14.8 8.25c.77-.77 1.2-1.8 1.2-2.9a4.094 4.094 0 0 0-4.1-4.1c-1.1 0-2.12.43-2.9 1.2L7.99 3.46 6.98 2.45c-.77-.77-1.8-1.2-2.9-1.2a4.094 4.094 0 0 0-4.1 4.1c0 1.1.43 2.12 1.2 2.9l6.8 6.8 6.8-6.8zM1.5 5.35c0-.7.27-1.35.76-1.83.49-.49 1.14-.76 1.84-.76s1.34.27 1.84.76l2.07 2.07 2.07-2.07c.98-.98 2.69-.98 3.67 0a2.595 2.595 0 0 1 0 3.67l-5.74 5.74-5.75-5.74c-.49-.49-.76-1.14-.76-1.84"/></g><defs><clipPath id="a"><path d="M0 0h16v16H0z"/></clipPath></defs></svg>
+        </span>
+        <span class="mzp-c-button-icon-text">Ахвяраваць</span>
+      </a>
+      <div class="moz24-footer-language">
+        
+   <form id="lang_form" class="moz24-c-language-switcher" method="get" action="#">
+    <a class="mzp-c-language-switcher-link" href="/locales/">Усе мовы</a>
+    <label for="page-language-select">Мова</label>
+     <select id="page-language-select" class="mzp-js-language-switcher-select" name="lang" dir="ltr" data-testid="footer-language-select">
+       
+         <option lang="ar" value="ar">عربي</option>
+       
+         <option lang="be" value="be" selected>Беларуская</option>
+       
+         <option lang="bs" value="bs">Bosanski</option>
+       
+         <option lang="cak" value="cak">Maya Kaqchikel</option>
+       
+         <option lang="cs" value="cs">Čeština</option>
+       
+         <option lang="cy" value="cy">Cymraeg</option>
+       
+         <option lang="da" value="da">Dansk</option>
+       
+         <option lang="de" value="de">Deutsch</option>
+       
+         <option lang="dsb" value="dsb">Dolnoserbšćina</option>
+       
+         <option lang="el" value="el">Ελληνικά</option>
+       
+         <option lang="en-CA" value="en-CA">English (Canadian)</option>
+       
+         <option lang="en-GB" value="en-GB">English (British)</option>
+       
+         <option lang="en-US" value="en-US">English</option>
+       
+         <option lang="es-AR" value="es-AR">Español (de Argentina)</option>
+       
+         <option lang="es-CL" value="es-CL">Español (de Chile)</option>
+       
+         <option lang="es-ES" value="es-ES">Español (de España)</option>
+       
+         <option lang="es-MX" value="es-MX">Español (de México)</option>
+       
+         <option lang="eu" value="eu">Euskara</option>
+       
+         <option lang="fi" value="fi">suomi</option>
+       
+         <option lang="fr" value="fr">Français</option>
+       
+         <option lang="fy-NL" value="fy-NL">Frysk</option>
+       
+         <option lang="gn" value="gn">Avañe'ẽ</option>
+       
+         <option lang="hi-IN" value="hi-IN">हिन्दी (भारत)</option>
+       
+         <option lang="hr" value="hr">Hrvatski</option>
+       
+         <option lang="hsb" value="hsb">Hornjoserbsce</option>
+       
+         <option lang="hu" value="hu">magyar</option>
+       
+         <option lang="ia" value="ia">Interlingua</option>
+       
+         <option lang="id" value="id">Bahasa Indonesia</option>
+       
+         <option lang="is" value="is">íslenska</option>
+       
+         <option lang="it" value="it">Italiano</option>
+       
+         <option lang="ja" value="ja">日本語</option>
+       
+         <option lang="ka" value="ka">ქართული</option>
+       
+         <option lang="kab" value="kab">Taqbaylit</option>
+       
+         <option lang="kk" value="kk">Қазақ</option>
+       
+         <option lang="ko" value="ko">한국어</option>
+       
+         <option lang="lo" value="lo">ພາສາລາວ</option>
+       
+         <option lang="lt" value="lt">Lietuvių</option>
+       
+         <option lang="ms" value="ms">Melayu</option>
+       
+         <option lang="nb-NO" value="nb-NO">Norsk bokmål</option>
+       
+         <option lang="nl" value="nl">Nederlands</option>
+       
+         <option lang="nn-NO" value="nn-NO">Norsk nynorsk</option>
+       
+         <option lang="pl" value="pl">Polski</option>
+       
+         <option lang="pt-BR" value="pt-BR">Português (do Brasil)</option>
+       
+         <option lang="pt-PT" value="pt-PT">Português (Europeu)</option>
+       
+         <option lang="rm" value="rm">rumantsch</option>
+       
+         <option lang="ro" value="ro">Română</option>
+       
+         <option lang="ru" value="ru">Русский</option>
+       
+         <option lang="sk" value="sk">slovenčina</option>
+       
+         <option lang="skr" value="skr">سرائیکی</option>
+       
+         <option lang="sl" value="sl">Slovenščina</option>
+       
+         <option lang="sq" value="sq">Shqip</option>
+       
+         <option lang="sr" value="sr">Српски</option>
+       
+         <option lang="sv-SE" value="sv-SE">Svenska</option>
+       
+         <option lang="tg" value="tg">Тоҷикӣ</option>
+       
+         <option lang="th" value="th">ไทย</option>
+       
+         <option lang="tr" value="tr">Türkçe</option>
+       
+         <option lang="trs" value="trs">Triqui</option>
+       
+         <option lang="uk" value="uk">Українська</option>
+       
+         <option lang="vi" value="vi">Tiếng Việt</option>
+       
+         <option lang="zh-CN" value="zh-CN">中文 (简体)</option>
+       
+         <option lang="zh-TW" value="zh-TW">正體中文 (繁體)</option>
+       
+     </select>
+   </form>
+ 
+       </div>
+    </div>
+    
+    <div class="moz24-footer-secondary">
+      <div class="moz24-footer-legal">
+        <p class="moz24-footer-license" rel="license">
+          
+          
+            
+            Наведайце сайт <a href="https://www.mozillafoundation.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" rel="external noopener" data-link-position="footer" data-link-text="Mozilla Foundation">Mozilla Foundation</a> — некамерцыйнай бацькоўскай кампаніі для <a href="/be/" data-link-position="footer" data-link-text="Mozilla Corporation">Mozilla Corporation</a>.<br>
+          
+          Часткі змесціва створаны асобнымі ўдзельнікамі mozilla.org ©1998–2026. Змесціва даступна ў адпаведнасці з <a rel="license" href="/be/foundation/licensing/website-content/">ліцэнзіяй Creative Commons</a>.
+        </p>
+        <ul class="moz24-footer-terms">
+        
+          <li><a href="/be/privacy/websites/" data-link-position="footer" data-link-text="Privacy">Паведамленні аб прыватнасці сайта</a></li>
+          <li>
+            
+            <a href="/be/privacy/websites/cookie-settings/" data-link-position="footer" data-link-text="Cookies">Кукі</a>
+          </li>
+          <li><a href="/be/about/legal/" data-link-position="footer" data-link-text="Legal">Прававыя звесткі</a></li>
+          <li><a href="/be/about/governance/policies/participation/" data-link-position="footer" data-link-text="Community Participation Guidelines">Правілы ўдзелу ў супольнасці</a></li>
+          
+            <li><a href="/be/about/this-site/" data-link-position="footer" data-link-text="About this site">Аб гэтым сайце</a></li>
+          
+        
+        </ul>
+      </div>
+    </div>
+    <img loading="lazy" class="moz24-footer-logo-image-bottom" src="https://www.mozilla.org/media/img/logos/m24/wordmark-white.2d673bb5b33a.svg" alt="" width="1376" height="285">
+  </div>
+</footer>
+
+
+  
+
+
+      
+
+      
+      
+    </div>
+
+    
+    
+      
+        <!--[if !IE]><!-->
+          
+          <script src="https://www.mozilla.org/media/js/sentry.9f2fe29330f6.js"></script>
+        <!--<![endif]-->
+      
+    
+
+    
+      <!--[if !IE]><!-->
+        
+        <script src="https://www.mozilla.org/media/js/lib.f86d9ecbd086.js"></script>
+        <script src="https://www.mozilla.org/media/js/fxa.8c097c9145ff.js"></script>
+        <script src="https://www.mozilla.org/media/js/data.44609f062226.js"></script>
+        
+          <script src="https://www.mozilla.org/media/js/m24-ui.30741fa9d521.js"></script>
+        
+      <!--<![endif]-->
+
+      <!--[if IE 9]>
+        
+        <script src="https://www.mozilla.org/media/js/lib-ie.cf16e08599c3.js"></script>
+      <![endif]-->
+    
+
+    
+    
+
+    <!--[if !IE]><!-->
+    
+    
+      
+    
+
+    
+  <script src="https://www.mozilla.org/media/js/newsletter.d35e22990f3b.js"></script>
+
+
+    
+    <!--<![endif]-->
+
+    
+    <!--[if IE 9]><!-->
+      
+      <script src="https://www.mozilla.org/media/js/consent-banner.52b78cd4ba21.js"></script>
+    <!--<![endif]-->
+    
+  </body>
+</html>

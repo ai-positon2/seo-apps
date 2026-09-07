@@ -101,6 +101,23 @@ function NewCrawl({ onStarted, onScheduleInstead }) {
 
       <div style={{ display: 'flex', gap: 8, marginTop: 16, alignItems: 'center', flexWrap: 'wrap' }}>
         <Button onClick={start} loading={starting} disabled={!canStart}>Start crawl</Button>
+        {/* How many URLs this will actually fetch, next to the button that
+            fetches them.
+            The number was only visible by opening Crawl settings, and its
+            consequences are not small: it is the ceiling on the pages every
+            score is computed over, and a crawl budgeted below the size of the
+            site produces an audit of the part it reached without saying so.
+            In list mode the budget is the list — the server pins maxUrls to
+            its length — so the label says that instead of a cap that does not
+            apply. */}
+        <span style={{ fontSize: 12.5, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
+          {mode === 'list'
+            ? `${listUrls.length.toLocaleString()} URL${listUrls.length === 1 ? '' : 's'} in the list`
+            : `up to ${Number(options.maxUrls || 0).toLocaleString()} pages`}
+          {mode !== 'list' && options.maxExternalUrls
+            ? ` · ${Number(options.maxExternalUrls).toLocaleString()} external links checked`
+            : ''}
+        </span>
         <Button variant="ghost" onClick={() => setShowSettings((v) => !v)}>
           {showSettings ? 'Hide settings' : 'Crawl settings'}
         </Button>

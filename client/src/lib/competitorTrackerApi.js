@@ -46,6 +46,11 @@ export const ct = {
   contentAnalysis: (clientId) => req(`/clients/${clientId}/content-analysis`),
   runContentAnalysis: (clientId) => req(`/clients/${clientId}/content-analysis/run`, { method: 'POST' }),
   runContentAnalysisStatus: (clientId) => req(`/clients/${clientId}/content-analysis/run/status`),
+  // Re-decides the top pages' TYPE column from the pages already stored — one
+  // model call, no SEMrush units. A stored analysis keeps whatever types it was
+  // given when it ran, so this is how an existing one picks up a better classifier
+  // without paying to fetch its pages again.
+  reclassifyTopPages: (clientId) => req(`/clients/${clientId}/content-analysis/reclassify`, { method: 'POST' }),
   regenerateTopPagesSummary: (clientId) => req(`/clients/${clientId}/content-analysis/summary/top-pages`, { method: 'POST' }),
   regenerateSitemapSummary: (clientId) => req(`/clients/${clientId}/content-analysis/summary/sitemap`, { method: 'POST' }),
   // Edit the folder → page-type mapping. edits: { "<template>": "<type>" }.

@@ -131,6 +131,20 @@ test('a platform administrator does not inherit ownership-only workspace acts', 
   assert.strictEqual(projectAccess.capabilityFor('contributor', 'restorePendingDeletion', { platformAdmin: true }), false);
 });
 
+test('permanently deleting a project stops at admin and owner', () => {
+  // Deliberately narrower than editProjectSettings, which an approver holds: an
+  // approver may delete a project, which a restore undoes, but not erase it.
+  assert.strictEqual(projectAccess.capabilityFor('owner', 'purgeProject'), true);
+  assert.strictEqual(projectAccess.capabilityFor('admin', 'purgeProject'), true);
+  assert.strictEqual(projectAccess.capabilityFor('approver', 'purgeProject'), false);
+  assert.strictEqual(projectAccess.capabilityFor('contributor', 'purgeProject'), false);
+  // And withheld from a platform administrator, like the workspace lifecycle
+  // acts above — seeing every workspace is not the same as being entitled to
+  // destroy a customer's crawl history.
+  assert.strictEqual(projectAccess.capabilityFor('owner', 'purgeProject', { platformAdmin: true }), true);
+  assert.strictEqual(projectAccess.capabilityFor('contributor', 'purgeProject', { platformAdmin: true }), false);
+});
+
 test('an unknown capability name denies instead of defaulting open', () => {
   assert.strictEqual(projectAccess.capabilityFor('owner', 'deleteEverything'), false);
   assert.strictEqual(projectAccess.capabilityFor('owner', 'aproveRecomendation'), false); // typo
@@ -166,7 +180,7 @@ console.log('\nAdmin limits — most restrictive wins');
 
 test('with no policies at all, the seeded defaults apply', () => {
   const { limits, sources } = adminLimits.combine([]);
-  assert.strictEqual(limits.maxUrlsPerCrawl, 5000);
+  assert.strictEqual(limits.maxUrlsPerCrawl, 10_000);
   assert.strictEqual(sources.maxUrlsPerCrawl, 'default');
 });
 
@@ -237,7 +251,7 @@ test('a non-numeric policy value is skipped rather than producing NaN', () => {
   const { limits, sources } = adminLimits.combine([
     { scope: 'platform', limits: { maxUrlsPerCrawl: 'lots' } },
   ]);
-  assert.strictEqual(limits.maxUrlsPerCrawl, 5000);
+  assert.strictEqual(limits.maxUrlsPerCrawl, 10_000);
   assert.strictEqual(sources.maxUrlsPerCrawl, 'default');
 });
 

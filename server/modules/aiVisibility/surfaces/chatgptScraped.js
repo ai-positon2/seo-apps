@@ -49,6 +49,38 @@ const ECHO_WAIT_MS = 12_000;
 
 const COMPOSER_SELECTOR = '#prompt-textarea, div[contenteditable="true"], textarea';
 
+/** What the composer currently holds, whichever element it is this month. */
+const composerText = (page) => page.evaluate((sel) => {
+  const el = document.querySelector(sel);
+  if (!el) return '';
+  return (el.value !== undefined && el.value !== null ? el.value : el.innerText) || '';
+}, COMPOSER_SELECTOR).catch(() => '');
+
+/**
+ * Put the question in the composer, if the page has not already done it.
+ *
+ * `?prompt=` used to arrive pre-filled, and this file relied on that rather than
+ * typing — the comment below the goto still explains why that was the more
+ * reliable of the two. chatgpt.com stopped honouring the parameter for
+ * logged-out visitors, and the logged-out composer became a plain <textarea>
+ * (no `#prompt-textarea`, no contenteditable). Nothing here noticed: the
+ * preflight only asks whether A composer exists, focus succeeded on the empty
+ * textarea, and Enter submitted nothing — so every ChatGPT capture failed as
+ * "the question was never submitted" while the run still spent its wall clock.
+ *
+ * Typed rather than assigned: the composer is React-controlled, and setting
+ * `.value` updates the DOM without telling React, so the send button stays
+ * disabled and Enter is ignored. Real key events are what the page listens for.
+ *
+ * Still conditional, so this costs nothing on the day the parameter works again.
+ */
+async function typeIfEmpty(page, text) {
+  const current = (await composerText(page)).trim();
+  if (current && text.startsWith(current.slice(0, 24))) return false;
+  await page.keyboard.type(text, { delay: 12 });
+  return true;
+}
+
 const clickByLabel = (page, wanted) => page.evaluate((w) => {
   const el = [...document.querySelectorAll('button,[role="button"],[role="menuitem"],[role="menuitemradio"],[tabindex]')]
     .map((b) => ({ b, t: (b.getAttribute('aria-label') || b.textContent || '').replace(/\s+/g, ' ').trim() }))
@@ -123,6 +155,7 @@ async function capture(prompt, { proxyUrl = null, proxyAuth = null } = {}) {
     });
 
     await settle.focusComposer(page, COMPOSER_SELECTOR);
+    await typeIfEmpty(page, text);
     await page.keyboard.press('Enter');
 
     // Did the question actually go in?
@@ -148,6 +181,7 @@ async function capture(prompt, { proxyUrl = null, proxyAuth = null } = {}) {
           .forEach((b) => b.click());
       }).catch(() => {});
       await settle.focusComposer(page, COMPOSER_SELECTOR);
+      await typeIfEmpty(page, text);
       const clicked = await clickByLabel(page, 'send prompt') || await clickByLabel(page, 'send*');
       if (!clicked) await page.keyboard.press('Enter');
       submitted = await settle.waitForEcho({

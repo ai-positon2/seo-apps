@@ -155,7 +155,7 @@ function CodeSnippet({ code }) {
 }
 
 // ─── ScoreRing component (animated) ──────────────────────────────────────────
-function ScoreRing({ score, checkCount }) {
+function ScoreRing({ score, checkCount, size = 128 }) {
   const [displayScore, setDisplayScore] = useState(0);
   const animationRef = useRef(null);
   const r = 52, cx = 64, cy = 64;
@@ -186,7 +186,7 @@ function ScoreRing({ score, checkCount }) {
   const ringColor = score >= 70 ? 'var(--success)' : score >= 45 ? 'var(--warning)' : 'var(--danger)';
 
   return (
-    <svg width="128" height="128" viewBox="0 0 128 128"
+    <svg width={size} height={size} viewBox="0 0 128 128"
       aria-label={`Agent readiness score: ${score} out of 100`} role="img">
       <title>Agent readiness score: {score} out of 100</title>
       <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--border)" strokeWidth="8" />
@@ -318,7 +318,6 @@ export default function AgentReadinessAuditPage() {
   const [pdfLoading, setPdfLoading]   = useState(false);
   const [error, setError]             = useState('');
   const [result, setResult]           = useState(null);
-  const [tab, setTab]                 = useState('findings');
   const [expanded, setExpanded]       = useState(null);
   const [filterCat, setFilterCat]     = useState('all');
 
@@ -326,6 +325,10 @@ export default function AgentReadinessAuditPage() {
   const [sortMode, setSortMode]               = useState('priority');
   const [scorePanelOpen, setScorePanelOpen]   = useState(false);
   const [levelTooltipOpen, setLevelTooltipOpen] = useState(false);
+  // The report answers to two readers. 'summary' is the one a CXO needs —
+  // score, what it costs, what a week of work buys. 'details' is the same
+  // audit for whoever has to do the work: every check, and the roadmap.
+  const [view, setView] = useState('summary');
   const [delta, setDelta]                     = useState(null);
   const [actionSuggestions, setActionSuggestions] = useState([]);
   const [formSuggestions, setFormSuggestions] = useState([]);
@@ -378,7 +381,7 @@ export default function AgentReadinessAuditPage() {
     setLoading(true);
     setError('');
     setResult(null);
-    setTab('findings');
+    setView('summary');
     setExpanded(null);
     setFilterCat('all');
     setDelta(null);
@@ -574,14 +577,15 @@ export default function AgentReadinessAuditPage() {
           onResolved={setReportState}
         />
 
-        {/* Agent importance one-liner */}
-        <div style={{ background: 'var(--primary)', borderRadius: 10, padding: '10px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+        {/* Agent importance one-liner — the report's summary tab makes this
+            same point in its own card, so it shows only before there is one. */}
+        {!result && <div style={{ background: 'var(--primary)', borderRadius: 10, padding: '10px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 16, flexShrink: 0 }}>⚡</span>
           <p style={{ fontSize: 13, color: '#fff', margin: 0, lineHeight: 1.5 }}>
             <strong style={{ color: '#fff' }}>AI agents are replacing browsers as the primary interface to the web.</strong>{' '}
             Sites optimized for agents get found, cited, and transacted with — those that aren't get bypassed entirely. By 2027, agents will initiate the majority of commercial queries.
           </p>
-        </div>
+        </div>}
 
         {/* URL Inputs */}
         <div style={{ background: 'var(--card)', borderRadius: 'var(--r-lg)', border: '1px solid var(--border)', padding: '1.5rem', marginBottom: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.07)' }}>
@@ -728,13 +732,14 @@ export default function AgentReadinessAuditPage() {
 
         {result && (
           <div style={{ paddingBottom: '1.5rem' }}>
-            {/* Site header */}
+            {/* Site header — the audit's identity, and the two things you do
+                with a finished one: take it elsewhere, or open the page. */}
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }} className="ara-header-row">
               <div>
-                <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500 }}>
+                <div style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 600, color: 'var(--primary-text)', marginBottom: 5 }}>
                   Agent Readiness Audit
                 </div>
-                <h1 style={{ fontSize: 22, fontWeight: 500, margin: '0 0 4px', color: 'var(--text)' }}>
+                <h1 style={{ fontSize: 28, fontWeight: 500, letterSpacing: '-0.02em', margin: '0 0 4px', color: 'var(--text)' }}>
                   {result.site.url}
                 </h1>
                 <div style={{ fontSize: 13, color: 'var(--text-2)', position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -745,13 +750,13 @@ export default function AgentReadinessAuditPage() {
                   >
                     {result.site.level}
                   </span>
-                  &nbsp;·&nbsp; Scanned {result.site.date}
+                  &nbsp;&middot;&nbsp; Scanned {result.site.date}
                   {hasOnPage && <span style={{ marginLeft: 6, fontSize: 11, background: 'var(--primary-soft)', color: 'var(--primary-text)', padding: '1px 7px', borderRadius: 10 }}>+10 on-page checks</span>}
                   {levelTooltipOpen && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, background: 'var(--card)', border: '0.5px solid var(--border)', borderRadius: 8, padding: '8px 12px', zIndex: 50, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 220 }}>
+                    <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, background: 'var(--card)', border: '0.5px solid var(--border)', borderRadius: 8, padding: '8px 12px', zIndex: 50, boxShadow: 'var(--shadow-md)', minWidth: 220 }}>
                       {LEVELS.map(l => (
                         <div key={l.level} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: result.site.level.includes(l.label) ? 'var(--primary)' : 'var(--text-2)', fontWeight: result.site.level.includes(l.label) ? 600 : 400 }}>
-                          <span>Level {l.level} — {l.label}</span>
+                          <span>Level {l.level} &mdash; {l.label}</span>
                           <span style={{ color: 'var(--text-3)' }}>{l.score}</span>
                         </div>
                       ))}
@@ -765,186 +770,241 @@ export default function AgentReadinessAuditPage() {
                   disabled={pdfLoading}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 6,
-                    fontSize: 12, color: 'var(--primary-text)', background: 'var(--primary-soft)',
-                    border: '0.5px solid var(--primary)', borderRadius: 7,
-                    padding: '6px 12px', cursor: 'pointer',
-                    opacity: pdfLoading ? 0.6 : 1,
+                    height: 34, padding: '0 14px',
+                    fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 500,
+                    color: 'var(--text)', background: 'transparent',
+                    border: '1px solid var(--border)', borderRadius: 8,
+                    cursor: 'pointer', opacity: pdfLoading ? 0.6 : 1,
                   }}
                 >
                   {pdfLoading
-                    ? <><span style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid var(--primary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} /> Generating…</>
-                    : <>⬇ Download PDF</>}
+                    ? <><span style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid var(--primary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} /> Generating&hellip;</>
+                    : <>Download PDF</>}
                 </button>
                 <a href={result.site.full} target="_blank" rel="noreferrer"
-                  style={{ fontSize: 12, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  {result.site.full} ↗
+                  style={{ fontSize: 12, color: 'var(--primary-text)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {result.site.full} &#8599;
                 </a>
               </div>
             </div>
 
-            {/* Sub-scores banner (only when on-page ran) */}
-            {hasOnPage && result.site.onPageScore !== null && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }} className="ara-sub-scores">
-                <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div>
-                    <div style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>HTTP readiness</div>
-                    <div style={{ fontSize: 20, fontWeight: 600, color: result.site.httpScore >= 70 ? 'var(--success)' : result.site.httpScore >= 45 ? 'var(--warning)' : 'var(--danger)' }}>
-                      {result.site.httpScore}<span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-3)' }}>/100</span>
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5 }}>robots, sitemap, headers,<br />bot access, MCP/OAuth</div>
-                </div>
-                <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div>
-                    <div style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>On-page readiness</div>
-                    <div style={{ fontSize: 20, fontWeight: 600, color: result.site.onPageScore >= 70 ? 'var(--success)' : result.site.onPageScore >= 45 ? 'var(--warning)' : 'var(--danger)' }}>
-                      {result.site.onPageScore}<span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-3)' }}>/100</span>
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5 }}>forms, schema, CAPTCHA,<br />rendering gap, interactivity</div>
-                </div>
-              </div>
-            )}
-
-            {/* Score + Category bars */}
-            <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 16, marginBottom: '1.25rem' }} className="ara-score-grid">
-              <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', padding: 16, textAlign: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.07)' }}>
-                <ScoreRing score={result.site.score} checkCount={checkCount} />
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, fontSize: 10, color: 'var(--text-3)', marginTop: 2, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  <span>overall score</span>
-                  <button type="button" aria-label="How is this score calculated?"
-                    onClick={() => setScorePanelOpen(o => !o)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: 13, padding: 0, lineHeight: 1 }}>ⓘ</button>
-                </div>
-                <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 6 }}>
-                  Based on {hasOnPage ? '23 checks (HTTP + on-page)' : '13 HTTP checks'}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                  <span style={{ fontSize: 11, background: 'var(--success-soft)', color: 'var(--success)', padding: '3px 8px', borderRadius: 4 }}>✓ {passCount} passed</span>
-                  <span style={{ fontSize: 11, background: 'var(--danger-soft)', color: 'var(--danger)', padding: '3px 8px', borderRadius: 4 }}>✗ {failCount} failed</span>
-                  {infoCount > 0 && (
-                    <span style={{ fontSize: 11, background: 'var(--warning-soft)', color: 'var(--warning)', padding: '3px 8px', borderRadius: 4 }}>i {infoCount} info</span>
-                  )}
-                </div>
-                {delta && (
-                  <div style={{ marginTop: 8, fontSize: 11, padding: '3px 8px', borderRadius: 6,
-                    background: delta.diff > 0 ? 'var(--success-soft)' : delta.diff < 0 ? 'var(--warning-soft)' : 'var(--surface)',
-                    color: delta.diff > 0 ? 'var(--success)' : delta.diff < 0 ? 'var(--warning)' : 'var(--text-2)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
-                    <span>{delta.diff > 0 ? `↑ ${delta.diff} pts` : delta.diff < 0 ? `↓ ${Math.abs(delta.diff)} pts` : 'No change'} since {delta.prevDate}</span>
-                    <button type="button" onClick={() => { setDelta(null); localStorage.removeItem(`ara_last_${new URL(result.site.full).hostname}`); }}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 12, padding: 0, lineHeight: 1 }}>×</button>
-                  </div>
-                )}
-              </div>
-
-              <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', padding: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.07)' }}>
-                <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 14, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  Score by category
-                </div>
-                {result.cats.map(cat => <CatBar key={cat.id} cat={cat} />)}
-                <div style={{ marginTop: 8, padding: '7px 10px', background: 'var(--primary-soft)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 12, color: 'var(--primary-text)' }}>
-                    Quick wins this week could raise your score to <strong>{Math.min(100, result.site.score + 16)}/100</strong>
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Score explanation panel — outside grid */}
-            {scorePanelOpen && (
-              <div style={{ background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 10, padding: 14, marginTop: -8, marginBottom: 16 }}>
-                <p style={{ fontSize: 12, color: 'var(--text)', margin: '0 0 10px', lineHeight: 1.7 }}>
-                  <strong>How this score is calculated</strong><br />
-                  The overall score combines up to 23 checks across 6 categories. Each check carries a weight based on its business impact. HTTP checks (13 total) run on every audit and form the foundation score. On-page checks (10 additional) only run when an action page or form URL is provided.
-                </p>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, marginBottom: 10 }}>
-                  <thead>
-                    <tr>{['Category', 'Checks', 'Total Weight'].map(h => <th key={h} style={{ textAlign: 'left', padding: '4px 8px', borderBottom: '1px solid var(--border)', color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>)}</tr>
-                  </thead>
-                  <tbody>
-                    {SCORE_WEIGHTS_TABLE.map(row => (
-                      <tr key={row.cat}>
-                        <td style={{ padding: '4px 8px', color: 'var(--text)' }}>{row.cat}</td>
-                        <td style={{ padding: '4px 8px', color: 'var(--text-2)' }}>{row.checks}</td>
-                        <td style={{ padding: '4px 8px', color: 'var(--text)', fontWeight: 500 }}>{row.weight}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <p style={{ fontSize: 11, color: 'var(--text-3)', margin: 0 }}>On-page checks add up to 63 points of possible additional signal. Add your action and form URLs to unlock the full audit.</p>
-              </div>
-            )}
-
-            {/* Executive Summary */}
-            <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', padding: 20, marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.07)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                  ✦ Executive Summary
-                </span>
-                {result.cmoBrief && (
-                  <button type="button" onClick={shareSummary}
-                    style={{ fontSize: 11, color: 'var(--primary-text)', background: 'var(--primary-soft)', border: '0.5px solid var(--primary)', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>
-                    {sharedBrief ? '✓ Link copied!' : '⬡ Share summary'}
-                  </button>
-                )}
-              </div>
-              {result.cmoBrief ? (
-                <>
-                  <p style={{ fontSize: 17, fontWeight: 500, color: 'var(--text)', margin: '0 0 10px', lineHeight: 1.4 }}>
-                    {result.cmoBrief.headline}
-                  </p>
-                  <p style={{ fontSize: 13, color: 'var(--text-2)', margin: '0 0 16px', lineHeight: 1.7 }}>
-                    {result.cmoBrief.summary}
-                  </p>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }} className="ara-brief-grid">
-                    <div style={{ background: 'var(--danger-soft)', borderRadius: 8, padding: '10px 12px' }}>
-                      <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--danger)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Top risk</div>
-                      <p style={{ fontSize: 12, color: 'var(--text)', margin: 0, lineHeight: 1.55 }}>{result.cmoBrief.risk}</p>
-                    </div>
-                    <div style={{ background: 'var(--success-soft)', borderRadius: 8, padding: '10px 12px' }}>
-                      <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--success)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>60-day opportunity</div>
-                      <p style={{ fontSize: 12, color: 'var(--text)', margin: 0, lineHeight: 1.55 }}>{result.cmoBrief.opportunity}</p>
-                    </div>
-                    <div style={{ background: 'var(--primary-soft)', borderRadius: 8, padding: '10px 12px' }}>
-                      <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--primary-text)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Competitive context</div>
-                      <p style={{ fontSize: 12, color: 'var(--text)', margin: 0, lineHeight: 1.55 }}>{result.cmoBrief.competitive}</p>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div>
-                  <SkeletonLine w="55%" />
-                  <div style={{ height: 8 }} />
-                  <SkeletonLine w="100%" /><SkeletonLine w="90%" /><SkeletonLine w="70%" />
-                  <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 8 }}>Executive Summary unavailable (check OPENAI_API_KEY)</div>
-                </div>
-              )}
-            </div>
-
-            {/* Tabs */}
-            <div role="tablist" style={{ display: 'flex', borderBottom: '0.5px solid var(--border)', marginBottom: '1rem' }}>
-              {[['findings', `Findings (${allChecks.length})`], ['roadmap', 'Priority roadmap']].map(([t, label]) => (
-                <button key={t} type="button"
+            {/* One audit, two readers. */}
+            <div role="tablist" style={{ display: 'flex', gap: 22, borderBottom: '1px solid var(--border)', marginBottom: 22 }}>
+              {[['summary', 'Summary'], ['details', 'More Tech Details']].map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
                   role="tab"
-                  aria-selected={tab === t}
-                  id={`tab-${t}`}
-                  onClick={() => setTab(t)}
+                  aria-selected={view === id}
+                  id={`view-${id}`}
+                  onClick={() => setView(id)}
                   style={{
+                    padding: '0 0 12px', marginBottom: -1,
+                    fontFamily: 'var(--font-sans)', fontSize: 15,
+                    fontWeight: view === id ? 600 : 400,
+                    color: view === id ? 'var(--text)' : 'var(--text-3)',
                     background: 'none', border: 'none',
-                    borderBottom: tab === t ? '2px solid var(--text)' : '2px solid transparent',
-                    padding: '8px 16px', cursor: 'pointer',
-                    fontSize: 14, fontWeight: tab === t ? 500 : 400,
-                    color: tab === t ? 'var(--text)' : 'var(--text-2)',
-                  }}>
+                    borderBottom: `2px solid ${view === id ? 'var(--primary)' : 'transparent'}`,
+                    cursor: 'pointer',
+                  }}
+                >
                   {label}
                 </button>
               ))}
             </div>
 
+            {/* ══════════════════════ SUMMARY ══════════════════════ */}
+            {view === 'summary' && (
+              <div role="tabpanel" aria-labelledby="view-summary" style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 20, alignItems: 'stretch' }} className="ara-score-grid">
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 20, borderRadius: 14, background: 'var(--card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-md)' }}>
+                    <ScoreRing score={result.site.score} checkCount={checkCount} size={140} />
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{result.site.level}</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-3)', textAlign: 'center' }}>
+                      Based on {hasOnPage ? '23 checks across 6 categories' : '13 HTTP checks across 4 categories'}
+                    </span>
+                    {/* Movement since the last audit of this host. */}
+                    {delta && (
+                      <div style={{ marginTop: 2, width: '100%', fontSize: 11, padding: '3px 8px', borderRadius: 6,
+                        background: delta.diff > 0 ? 'var(--success-soft)' : delta.diff < 0 ? 'var(--warning-soft)' : 'var(--surface)',
+                        color: delta.diff > 0 ? 'var(--success)' : delta.diff < 0 ? 'var(--warning)' : 'var(--text-2)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
+                        <span>{delta.diff > 0 ? `↑ ${delta.diff} pts` : delta.diff < 0 ? `↓ ${Math.abs(delta.diff)} pts` : 'No change'} since {delta.prevDate}</span>
+                        <button type="button" onClick={() => { setDelta(null); localStorage.removeItem(`ara_last_${new URL(result.site.full).hostname}`); }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 12, padding: 0, lineHeight: 1 }}>&times;</button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 12, padding: '22px 26px', borderRadius: 14, background: 'var(--primary)', boxShadow: 'var(--shadow-md)' }}>
+                    <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--text-on-primary)', opacity: 0.85 }}>
+                      Why this matters
+                    </span>
+                    <p style={{ margin: 0, fontSize: 15, color: 'var(--text-on-primary)', lineHeight: 1.55 }}>
+                      AI agents are replacing browsers as the primary interface to the web. Sites optimized
+                      for agents get found, cited, and transacted with &mdash; those that aren&rsquo;t get
+                      bypassed entirely. By 2027, agents will initiate the majority of commercial queries.
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '24px 26px', borderRadius: 14, background: 'var(--card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--primary-text)' }}>
+                      Executive summary
+                    </span>
+                    {result.cmoBrief && (
+                      <button type="button" onClick={shareSummary} className="ara-share-btn"
+                        style={{ fontSize: 11, color: 'var(--primary-text)', background: 'transparent', border: '1px solid var(--primary)', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>
+                        {sharedBrief ? '✓ Link copied!' : 'Share summary'}
+                      </button>
+                    )}
+                  </div>
+                  {result.cmoBrief ? (
+                    <>
+                      <p style={{ margin: 0, fontSize: 18, fontWeight: 500, color: 'var(--text)', lineHeight: 1.4 }}>
+                        {result.cmoBrief.headline}
+                      </p>
+                      <p style={{ margin: 0, fontSize: 14, color: 'var(--text-2)', lineHeight: 1.65 }}>
+                        {result.cmoBrief.summary}
+                      </p>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginTop: 4 }} className="ara-brief-grid">
+                        <div style={{ padding: '14px 16px', borderRadius: 10, background: 'color-mix(in srgb, var(--danger) 14%, transparent)', border: '1px solid color-mix(in srgb, var(--danger) 35%, transparent)' }}>
+                          <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--danger)' }}>Top risk</span>
+                          <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text)', lineHeight: 1.55 }}>{result.cmoBrief.risk}</p>
+                        </div>
+                        <div style={{ padding: '14px 16px', borderRadius: 10, background: 'color-mix(in srgb, var(--primary) 14%, transparent)', border: '1px solid color-mix(in srgb, var(--primary) 35%, transparent)' }}>
+                          <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--primary-text)' }}>60-day opportunity</span>
+                          <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text)', lineHeight: 1.55 }}>{result.cmoBrief.opportunity}</p>
+                        </div>
+                        <div style={{ padding: '14px 16px', borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border)' }}>
+                          <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-3)' }}>Competitive context</span>
+                          <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text)', lineHeight: 1.55 }}>{result.cmoBrief.competitive}</p>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div>
+                      <SkeletonLine w="55%" />
+                      <div style={{ height: 8 }} />
+                      <SkeletonLine w="100%" /><SkeletonLine w="90%" /><SkeletonLine w="70%" />
+                      <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 8 }}>Executive Summary unavailable (check OPENAI_API_KEY)</div>
+                    </div>
+                  )}
+                </div>
+
+                {/* The projection comes from the server, computed with the same
+                    weights and the same combined-score formula the score uses.
+                    It replaced a hard-coded "score + 16". */}
+                {result.site.quickWinCount > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '20px 24px', borderRadius: 14, background: 'var(--card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1, minWidth: 240 }}>
+                      <span style={{ fontSize: 14.5, fontWeight: 500, color: 'var(--text)' }}>
+                        Quick wins this week could raise the score to{' '}
+                        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--primary-text)', fontWeight: 700 }}>
+                          {result.site.quickWinScore}/100
+                        </span>
+                      </span>
+                      <span style={{ fontSize: 12.5, color: 'var(--text-3)' }}>
+                        {result.site.quickWinCount} {result.site.quickWinCount === 1 ? 'fix' : 'fixes'}, each under 2 hours &mdash; see More Tech Details for the roadmap.
+                      </span>
+                    </div>
+                    <button type="button" onClick={() => setView('details')}
+                      style={{ flexShrink: 0, height: 40, padding: '0 18px', fontFamily: 'var(--font-sans)', fontSize: 13.5, fontWeight: 600, color: 'var(--primary-text)', background: 'transparent', border: '1px solid var(--primary)', borderRadius: 8, cursor: 'pointer' }}>
+                      See the technical detail &rarr;
+                    </button>
+                  </div>
+                )}
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }} className="ara-sub-scores">
+                  {[
+                    { label: 'Checks passed', value: passCount, color: 'var(--primary-text)' },
+                    { label: 'Checks failed', value: failCount, color: 'var(--danger)' },
+                    { label: 'Advisory flags', value: infoCount, color: 'var(--warning)' },
+                  ].map(t => (
+                    <div key={t.label} style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 18, borderRadius: 12, background: 'var(--card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
+                      <span style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-3)' }}>{t.label}</span>
+                      <span style={{ fontSize: 28, fontWeight: 700, color: t.color, fontFamily: 'var(--font-mono)' }}>{t.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ══════════════════ MORE TECH DETAILS ══════════════════ */}
+            {view === 'details' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 22, marginBottom: 22 }}>
+                {/* The two halves of the score, when the on-page half ran. */}
+                {hasOnPage && result.site.onPageScore !== null && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }} className="ara-sub-scores">
+                    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-3)' }}>HTTP readiness</span>
+                        <span style={{ fontSize: 22, fontWeight: 700, color: result.site.httpScore >= 70 ? 'var(--success)' : result.site.httpScore >= 45 ? 'var(--warning)' : 'var(--danger)' }}>
+                          {result.site.httpScore}<span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-3)' }}>/100</span>
+                        </span>
+                      </div>
+                      <span style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5 }}>robots, sitemap, headers, bot access, MCP/OAuth</span>
+                    </div>
+                    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-3)' }}>On-page readiness</span>
+                        <span style={{ fontSize: 22, fontWeight: 700, color: result.site.onPageScore >= 70 ? 'var(--success)' : result.site.onPageScore >= 45 ? 'var(--warning)' : 'var(--danger)' }}>
+                          {result.site.onPageScore}<span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-3)' }}>/100</span>
+                        </span>
+                      </div>
+                      <span style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5 }}>forms, schema, CAPTCHA, rendering, interactivity</span>
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '22px 24px', borderRadius: 14, background: 'var(--card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                    <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>Score by category</span>
+                    <button type="button" aria-label="How is this score calculated?"
+                      onClick={() => setScorePanelOpen(o => !o)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: 13, padding: 0, lineHeight: 1 }}>
+                      How is this scored?
+                    </button>
+                  </div>
+                  {result.cats.map(cat => <CatBar key={cat.id} cat={cat} />)}
+                </div>
+
+                {/* What the score is made of — kept because a weighted score
+                    nobody can audit is a number to be argued with. */}
+                {scorePanelOpen && (
+                  <div style={{ background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 10, padding: 14 }}>
+                    <p style={{ fontSize: 12, color: 'var(--text)', margin: '0 0 10px', lineHeight: 1.7 }}>
+                      <strong>How this score is calculated</strong><br />
+                      The overall score combines up to 23 checks across 6 categories. Each check carries a weight based on its business impact. HTTP checks (13 total) run on every audit and form the foundation score. On-page checks (10 additional) only run when an action page or form URL is provided.
+                    </p>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, marginBottom: 10 }}>
+                      <thead>
+                        <tr>{['Category', 'Checks', 'Total Weight'].map(h => <th key={h} style={{ textAlign: 'left', padding: '4px 8px', borderBottom: '1px solid var(--border)', color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>)}</tr>
+                      </thead>
+                      <tbody>
+                        {SCORE_WEIGHTS_TABLE.map(row => (
+                          <tr key={row.cat}>
+                            <td style={{ padding: '4px 8px', color: 'var(--text)' }}>{row.cat}</td>
+                            <td style={{ padding: '4px 8px', color: 'var(--text-2)' }}>{row.checks}</td>
+                            <td style={{ padding: '4px 8px', color: 'var(--text)', fontWeight: 500 }}>{row.weight}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <p style={{ fontSize: 11, color: 'var(--text-3)', margin: 0 }}>On-page checks add up to 63 points of possible additional signal. Add your action and form URLs to unlock the full audit.</p>
+                  </div>
+                )}
+
+                <h6 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>
+                  Every check &mdash; {allChecks.length}
+                </h6>
+              </div>
+            )}
+
             {/* Findings tab */}
-            {tab === 'findings' && (
-              <div role="tabpanel" aria-labelledby="tab-findings">
+            {view === 'details' && (
+              <div>
                 {/* Sort controls + filter chips row */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -1018,10 +1078,12 @@ export default function AgentReadinessAuditPage() {
             )}
 
             {/* Roadmap tab */}
-            {tab === 'roadmap' && (
-              <div role="tabpanel" aria-labelledby="tab-roadmap">
-                {/* Copy as checklist button */}
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+            {view === 'details' && (
+              <div style={{ marginTop: 22 }}>
+                {/* The roadmap's own heading, sharing its row with the one
+                    thing you do with a roadmap: take it somewhere else. */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>Priority roadmap</span>
                   <button type="button" onClick={copyRoadmap}
                     style={{ fontSize: 12, color: 'var(--primary-text)', background: 'var(--primary-soft)', border: '0.5px solid var(--primary)', borderRadius: 7, padding: '6px 12px', cursor: 'pointer' }}>
                     {copiedRoadmap ? '✓ Copied!' : '⎘ Copy as checklist'}
@@ -1092,17 +1154,12 @@ export default function AgentReadinessAuditPage() {
         <ModuleRuns toolId="agent-readiness-audit" />
       </main>
 
+      {/* The 640px rules that used to live here now sit with the other report
+          modules in index.css, so this page's layout is findable in the same
+          place as the rest. The keyframe stays: it is used only by this page's
+          spinners and is defined nowhere else. */}
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
-        @media (max-width: 640px) {
-          .ara-score-grid { grid-template-columns: 1fr !important; }
-          .ara-sub-scores { grid-template-columns: 1fr !important; }
-          .ara-roadmap-grid { grid-template-columns: 1fr !important; }
-          .ara-header-row { flex-direction: column !important; align-items: flex-start !important; gap: 10px !important; }
-          .ara-brief-grid { grid-template-columns: 1fr !important; }
-          .ara-form-grid { grid-template-columns: 1fr !important; }
-          .ara-copy-btn, .ara-share-btn { width: 100%; justify-content: center; }
-        }
       `}</style>
     </>
   );

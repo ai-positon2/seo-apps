@@ -57,10 +57,20 @@ export const cs = {
   // ── Issue review ──────────────────────────────────────────────────────────
   // Findings come back with their persisted review status and notes merged in;
   // anything never touched reads as "Needs review".
+  /**
+   * Every finding for a run, with its review state merged in.
+   *
+   * Reads crawl_run_finding_instances (migration 0023), falling back to the
+   * legacy crawl_runs.summary.findings for runs finalized before it shipped.
+   *
+   * The rollup endpoint that used to live here is gone. It existed because the
+   * findings were embedded in one JSONB column that could not be written or
+   * read at scale — the crawl-completion UPDATE was timing out on a ~2,600-page
+   * site and the report received nothing. That is fixed at the source now:
+   * instances are chunk-inserted into their own table, so this endpoint can
+   * simply return them.
+   */
   findings: (id) => req(`/runs/${id}/findings`),
-  // One shape for a single edit and for a bulk action — see the PATCH handler.
-  saveReviews: (id, reviews) =>
-    req(`/runs/${id}/findings`, { method: 'PATCH', body: JSON.stringify({ reviews }) }),
 
   // ── Projects (scheduled crawls) ───────────────────────────────────────────
   projects: () => req('/projects'),

@@ -10,8 +10,8 @@
 const findingIndex = require('./findingIndex');
 const projectPages = require('../pages');
 const backlogModule = require('./backlog');
-const correlations = require('./correlations');
 const changes = require('./changes');
+const correlations = require('./correlations');
 
 /**
  * What the product cannot currently see, and what would fix it.
@@ -83,6 +83,37 @@ function buildGaps({ index, backlog, correlated }) {
 }
 
 /**
+ * The ranked backlog, and nothing else.
+ *
+ * What this DOESN'T build is the point. buildInsights used to assemble five
+ * layers here and hand all of them to the dashboard, which reads four numbers
+ * out of `backlog.totals` and drops the rest on the floor:
+ *
+ *   • `changes` — a second run read per module, walked one after another. On the
+ *     live Palo Alto project that was 2,451ms of a 3,685ms response, and no
+ *     screen in the product renders a word of it.
+ *   • `lead`, `insights`, `gaps`, `coverage`, `keywords` — the cross-module
+ *     answer and the account of what is not measured. Both had panels on the
+ *     dashboard; both panels were removed, and the layers went on being built
+ *     for a reader that no longer existed.
+ *
+ * The other caller, POST /insights/promote, rebuilds the backlog to check that
+ * the item somebody clicked is still in it — so it needs exactly this and no
+ * more either.
+ *
+ * None of the layers were deleted. changes.buildChanges,
+ * correlations.buildCorrelations and buildGaps below are all still here, still
+ * exported, still tested, and still take the same inputs they always did. What
+ * is gone is a request path computing them for nobody.
+ *
+ * changes.js in particular is kept deliberately, not left behind: SITE_AUDIT_SPEC
+ * §Phase 7 ("Compare Crawls") is written around reusing it, including the rule
+ * that makes it worth keeping — a fix is claimed only for a page audited in BOTH
+ * runs, and a crawl whose scope changed between runs produces "new" issues that
+ * are new COVERAGE rather than new defects. That reasoning is the expensive part
+ * to rebuild, and it is the part a fresh implementation would most likely get
+ * wrong. Whatever renders it calls buildChanges directly.
+ *
  * @param {object} input
  * @param {object} input.access  from projectAccess.requireProject
  * @param {object} [input.traffic]  Search Console metrics, when connected
@@ -101,39 +132,19 @@ async function buildInsights({ access, traffic = null }) {
     });
 
   const backlog = backlogModule.buildBacklog(index, { traffic, excludedKeys: excluded });
-  const correlated = correlations.buildCorrelations({ index, backlog });
-
-  // Change detection reads a second run per module and must never take the
-  // dashboard down with it — the rest of the answer is still worth having.
-  let changed = null;
-  let changesError = null;
-  try {
-    changed = await changes.buildChanges({ access });
-  } catch (e) {
-    changesError = e.message;
-    console.error('[insights.changes]', e.message);
-  }
 
   return {
     project: {
       id: access.project.id,
       name: access.project.name,
     },
-    lead: correlated.lead,
-    insights: correlated.insights,
     backlog: {
       actions: backlog.actions,
       needsReview: backlog.needsReview,
       ranking: backlog.ranking,
       totals: backlog.totals,
     },
-    changes: changed,
-    changesError,
-    coverage: index.coverage,
-    gaps: buildGaps({ index, backlog, correlated }),
     crawl: index.crawl,
-    keywords: index.keywords,
-    keywordRecovery: index.keywordRecovery,
     generatedAt: new Date().toISOString(),
   };
 }
@@ -144,5 +155,7 @@ module.exports = {
   findingIndex,
   backlog: backlogModule,
   correlations,
+  // Off the dashboard's path, on the module's surface: see the note on
+  // buildInsights above for why this is kept rather than deleted.
   changes,
 };

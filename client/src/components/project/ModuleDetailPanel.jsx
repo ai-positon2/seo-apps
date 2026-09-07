@@ -17,7 +17,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Badge, Button, Card, DataTable, EmptyState, MetricCard, ScoreRing, SectionHeader,
 } from '../../ui';
-import { projectsApi, relativeTime, MODULE_STATUS_LABEL, MODULE_STATUS_TONE } from '../../lib/projectsApi';
+import { projectsApi, relativeTime, MODULE_STATUS_LABEL, MODULE_STATUS_TONE, isModuleInFlight } from '../../lib/projectsApi';
 import { useActiveProjectId } from '../../lib/activeProject';
 import { cs } from '../../lib/crawlScopeApi';
 import ModuleDetailSection, { Caveats } from './moduleDetailSections';
@@ -56,6 +56,17 @@ const TONE_TO_VARIANT = {
   warn: 'warning',
   neg: 'danger',
   muted: 'neutral',
+};
+
+// What put a run on the board. Worth naming rather than printing the raw
+// column: "auto_setup" is the one a reader is most likely to be surprised by —
+// a metered comparison they did not press a button for — and "domains added" is
+// the answer to the question they will actually be asking.
+const TRIGGER_LABEL = {
+  audit_all: 'full audit',
+  auto_setup: 'domains added',
+  manual: 'manual',
+  schedule: 'schedule',
 };
 
 const SEVERITY_VARIANT = {
@@ -178,7 +189,7 @@ export default function ModuleDetailPanel({ moduleKey, onOpenReport }) {
   const { card, run: lastRun, inFlightRun, findings, payload, history, cost, module } = detail;
   const scored = Boolean(card.scored);
   const counts = card.evidence?.counts || lastRun?.counts || {};
-  const running = card.status === 'running' || Boolean(inFlightRun);
+  const running = isModuleInFlight(card.status) || Boolean(inFlightRun);
 
   const visibleFindings = showAllFindings ? findings : findings.slice(0, 25);
   // The same helper the dashboard card uses, fed the payload's ref so the panel
@@ -357,7 +368,7 @@ export default function ModuleDetailPanel({ moduleKey, onOpenReport }) {
               // An em dash, not a 0: these modules do not all score.
               score: h.score === null || h.score === undefined ? '—' : h.score,
               findings: h.findingCount,
-              trigger: h.trigger === 'audit_all' ? 'full audit' : (h.trigger || 'manual'),
+              trigger: TRIGGER_LABEL[h.trigger] || h.trigger || 'manual',
             }))}
           />
         )}

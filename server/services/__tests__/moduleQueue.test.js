@@ -168,12 +168,32 @@ const queued = (over = {}) => ({
 
   section('findStale — the NULL heartbeat arm');
 
-  await test('a running row with a NULL heartbeat is found, not skipped', async () => {
+  await test('a QUEUE-owned running row with a NULL heartbeat is found, not skipped', async () => {
     const old = new Date(Date.now() - 3600_000).toISOString();
-    db.rows = [queued({ status: 'running', heartbeat_at: null, started_at: old })];
+    db.rows = [queued({
+      status: 'running', worker_id: 'w1', heartbeat_at: null, started_at: old,
+    })];
     const stale = await queue.findStale();
     assert.strictEqual(stale.length, 1,
       '`heartbeat_at < x` is NULL for a NULL column, so this row would be invisible for ever');
+  });
+
+  await test('an INLINE running row is left to moduleEvidence, not reclaimed by the queue', async () => {
+    // worker_id null is the signature of a run opened by
+    // moduleEvidence.startRun() and executed in the request process, rather than
+    // claimed by a worker (claimNext always stamps worker_id AND heartbeat_at).
+    //
+    // These were being reclaimed at the flat 10-minute STALE_AFTER_MS even though
+    // each records its own deadline: a healthy 10-page SEO & GEO audit runs ~22
+    // minutes, so "Run Full Audit" was flipped back to 'queued' mid-flight and
+    // then re-run by the worker. They belong to moduleEvidence.sweepStaleRuns(),
+    // which judges each row against its own payload.deadlineAt.
+    const old = new Date(Date.now() - 3600_000).toISOString();
+    db.rows = [queued({
+      status: 'running', worker_id: null, heartbeat_at: null, started_at: old,
+    })];
+    assert.strictEqual((await queue.findStale()).length, 0,
+      'an inline run must not be reclaimed by the queue reaper, however long it has been running');
   });
 
   await test('a running row with a recent heartbeat is left alone', async () => {

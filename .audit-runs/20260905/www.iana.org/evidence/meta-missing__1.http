@@ -1,0 +1,257 @@
+HTTP/1.1 200 OK
+cache-control: public, max-age=3600
+cf-cache-status: REVALIDATED
+cf-ray: a3668335a90bff9a-BOM
+connection: keep-alive
+content-encoding: br
+content-security-policy: upgrade-insecure-requests; default-src 'self' https://*.iana.org; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.google.com https://cse.google.com https://clients1.google.com; style-src 'self' 'unsafe-inline' https://www.google.com; child-src 'self' https://www.youtube.com https://clients1.google.com https://cse.google.com https://www.google.com/; img-src 'self' https://data.iana.org https://www.iana.org https://www.google.com https://www.googleapis.com https://clients1.google.com https://*.gstatic.com;
+content-type: text/html; charset=UTF-8
+cross-origin-opener-policy: same-origin
+date: Sat, 05 Sep 2026 16:11:55 GMT
+expires: Sat, 05 Sep 2026 17:11:55 GMT
+last-modified: Fri, 04 Sep 2026 16:54:42 GMT
+referrer-policy: same-origin
+server: cloudflare
+strict-transport-security: max-age=48211200; preload
+transfer-encoding: chunked
+vary: Accept-Encoding
+x-content-type-options: nosniff, nosniff
+x-frame-options: DENY
+
+
+<!doctype html>
+<html>
+<head>
+	<title>About us</title>
+
+	<meta charset="utf-8" />
+	<meta http-equiv="Content-type" content="text/html; charset=utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	
+    <link rel="stylesheet" href="/static/css/iana_website.0feeb53883fa.css"/>
+    <link rel="shortcut icon" type="image/ico" href="/static/img/bookmark_icon.e14a2530b3e9.ico"/>
+    <script type="text/javascript" src="/static/js/jquery.a8e7cabd4d49.js"></script>
+    <script type="text/javascript" src="/static/js/dtable.46ee921d4414.js" defer></script>
+    <script type="text/javascript" src="/static/js/relative-time.79f0e30be3b8.js" defer></script>
+
+	
+</head>
+
+<body>
+
+
+
+<header>
+    <div id="header">
+        <div id="logo">
+            <a href="/"><img src="/static/img/iana-logo-header.426b3ac01d35.svg" alt="Homepage"/></a>
+        </div>
+        <div class="navigation">
+            <ul>
+                <li><a href="/domains">Domains</a></li>
+                <li><a href="/protocols">Protocols</a></li>
+                <li><a href="/numbers">Numbers</a></li>
+                <li><a href="/about">About</a></li>
+            </ul>
+        </div>
+    </div>
+    
+    
+</header>
+
+
+<div id="body">
+
+
+<article class="hemmed sidenav">
+
+    <main>
+    
+
+	<h1>About IANA</h1>
+
+	<p>For the Internet to work as a single seamless network, technical
+		identifiers must mean the same thing everywhere: network identifiers
+        like domain names and IP addresses must be assigned to a single party
+        and have the same meaning globally, and communication protocols
+        must use codes that have the same interpretation by every software implementation.
+		The Internet Assigned Numbers Authority (IANA) maintains the authoritative
+        public registries that record these allocations and definitions,
+        providing a common global point of reference.</p>
+
+	<p>Although the Internet is decentralized by design, a limited set of its
+        technical elements require this globally coordinated administration.
+        The IANA role is a public service. The registries we maintain are
+        openly published, our services are provided without charge, and we act
+        as a neutral steward implementing policies developed by the communities
+        we serve. Much of our work involves processing requests for identifiers
+        arising from technical standardization processes or submitted directly
+        by users of IANA services. We assess each request carefully against
+        the established policies governing the identifier’s allocation and use.</p>
+
+	<p>Our responsibilities extend beyond maintaining the registries themselves. We
+        also operate the systems used to publish the registries and their
+        associated data, together with supporting operational services. These include
+        infrastructure and events involved in producing, securing, and distributing
+        key aspects of the DNS.</p>
+
+    <p>The need for the IANA functions dates to the record-keeping activities that
+        accompanied the earliest experiments leading to today’s Internet, and their
+        origins can be traced to the 1970s. Today, the functions are performed by
+        <a href="https://pti.icann.org/">Public Technical Identifiers</a>, a
+        purpose-built affiliate of <a href="https://www.icann.org">ICANN</a> dedicated
+        exclusively to delivering the IANA services.</p>
+
+    <h2>Explore</h2>
+
+	<ul class="tile-grid">
+		<li>
+			<a class="tile" href="/news">
+				<img class="tile-icon" src="/static/icons/atom-feed.svg" alt="">
+				<h2>News</h2>
+				<p>Announcements, publications and consultations from across the IANA
+					functions.</p>
+			</a>
+		</li>
+		<li>
+			<a class="tile" href="/performance">
+				<img class="tile-icon" src="/static/icons/dashboard.svg" alt="">
+				<h2>Performance</h2>
+				<p>How we are performing against our service level commitments, at a
+					glance and in monthly reports.</p>
+			</a>
+		</li>
+		<li>
+			<a class="tile" href="/about/organization">
+				<img class="tile-icon" src="/static/icons/building.svg" alt="">
+				<h2>The Organization</h2>
+				<p>How the IANA functions are governed, overseen, planned, and
+					continuously improved.</p>
+			</a>
+		</li>
+		<li>
+			<a class="tile" href="/archive">
+				<img class="tile-icon" src="/static/icons/archive.svg" alt="">
+				<h2>Archive</h2>
+				<p>Historical documents from prior projects and services, and the master
+					index of published reports.</p>
+			</a>
+		</li>
+		<li>
+			<a class="tile" href="/contact">
+				<img class="tile-icon" src="/static/icons/mail.svg" alt="">
+				<h2>Contact us</h2>
+				<p>How to reach us with questions, requests, and feedback.</p>
+			</a>
+		</li>
+	</ul>
+
+
+    </main>
+
+    <nav id="sidenav">
+    
+
+<div class="navigation_box">
+    <h2>About us</h2>
+    <ul>
+        <li id="nav_about_top"><a href="/about">Overview</a></li>
+        <li id="nav_about_news"><a href="/news">News</a></li>
+        <li id="nav_about_performance"><a href="/performance">Performance</a></li>
+        <li id="nav_about_org"><a href="/about/organization">The Organization</a></li>
+        <ul id="nav_about_org_sub">
+            <li id="nav_about_governance"><a href="/about/governance">Governance</a></li>
+            <li id="nav_about_oversight"><a href="/about/oversight">Oversight</a></li>
+            <li id="nav_about_planning"><a href="/about/planning">Strategy &amp; Planning</a></li>
+            <li id="nav_about_excellence"><a href="/about/excellence">Continuous Improvement</a></li>
+            <li id="nav_about_audits"><a href="/about/audits">Audits</a></li>
+        </ul>
+        <li id="nav_about_archive"><a href="/archive">Archive</a></li>
+        <ul id="nav_about_archive_sub">
+            <li id="nav_about_reports"><a href="/reports">Reports</a></li>
+        </ul>
+        <li id="nav_about_contact"><a href="/contact">Contact us</a></li>
+    </ul>
+</div>
+
+
+    </nav>
+
+</article>
+
+
+</div>
+
+<footer>
+    <div id="footer">
+        <table class="navigation">
+            <tr>
+                <td class="section"><a href="/domains">Domain&nbsp;Names</a></td>
+                <td class="subsection">
+                    <ul>
+                        <li><a href="/domains/root">Root Zone Registry</a></li>
+                        <li><a href="/domains/int">.INT Registry</a></li>
+                        <li><a href="/domains/arpa">.ARPA Registry</a></li>
+                        <li><a href="/domains/idn-tables">IDN Repository</a></li>
+                    </ul>
+                </td>
+            </tr>
+            <tr>
+                <td class="section"><a href="/numbers">Number&nbsp;Resources</a></td>
+                <td class="subsection">
+                    <ul>
+                        <li><a href="/numbers/registries">Number Registries</a></li>
+                        <li><a href="/numbers/allocations/">RIR Allocation Data</a></li>
+                        <li><a href="/help/abuse">Abuse Information</a></li>
+                    </ul>
+                </td>
+            </tr>
+            <tr>
+                <td class="section"><a href="/protocols">Protocols</a></td>
+                <td class="subsection">
+                    <ul>
+                        <li><a href="/protocols">Protocol Registries</a></li>
+                        <li><a href="/time-zones">Time Zone Database</a></li>
+                    </ul>
+                </td>
+            </tr>
+            <tr>
+                <td class="section"><a href="/about">About&nbsp;Us</a></td>
+                <td class="subsection">
+                    <ul>
+                        <li><a href="/news">News</a></li>
+                        <li><a href="/performance">Performance</a></li>
+                        <li><a href="/about/organization">The Organization</a></li>
+                        <li><a href="/archive">Archive</a></li>
+                        <li><a href="/contact">Contact Us</a></li>
+                    </ul>
+                </td>
+            </tr>
+        </table>
+        <div id="custodian">
+            <p>The IANA functions coordinate the Internet’s globally unique identifiers, and
+                are provided by <a href="https://pti.icann.org">Public Technical Identifiers</a>, an affiliate of
+                <a href="https://www.icann.org/">ICANN</a>.</p>
+        </div>
+        <div id="legalnotice">
+            <ul>
+                <li><a href="https://www.icann.org/privacy/policy">Privacy Policy</a></li>
+                <li><a href="https://www.icann.org/privacy/tos">Terms of Service</a></li>
+                
+            </ul>
+        </div>
+    </div>
+</footer>
+
+
+
+<script>
+$(document).ready(function() {
+	$("#nav_about_top").addClass("selected")	
+});
+</script>
+
+
+</body>
+
+</html>

@@ -15,7 +15,58 @@ function isPosition2Email(email) {
   return String(email || '').toLowerCase().endsWith('@' + POSITION2_DOMAIN);
 }
 
+// A failure that is about the database being unreachable, not about the user.
+// Carries a flag so callers can tell "we could not check" from "we checked and
+// the answer is no" — the login path in routes/auth.js turns the two into
+// different messages, because telling someone to try again is only useful when
+// trying again can work.
+class UpstreamUnavailableError extends Error {
+  constructor(op, cause) {
+    super(`[identityStore.${op}] upstream unavailable: ${cause}`);
+    this.name = "UpstreamUnavailableError";
+    this.upstreamUnavailable = true;
+  }
+}
+
+// Supabase behind Cloudflare does not fail cleanly. A project that is down
+// returns an HTML error page with a 5xx, and supabase-js surfaces the entire
+// page as `error.message` — which is how a server log ends up containing
+// "<!DOCTYPE html>" where a diagnosis should be.
+function isTransientUpstream(error) {
+  const msg = String(error?.message || error || "");
+  return (
+    /^s*<!DOCTYPE html/i.test(msg) ||
+    /<html[s>]/i.test(msg) ||
+    /gateway timeout|bad gateway|service unavailable|connection timed out/i.test(msg) ||
+    /ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|fetch failed|socket hang up/i.test(msg) ||
+    ["502", "503", "504", "520", "521", "522", "523", "524"].includes(String(error?.status || ""))
+  );
+}
+
+const RETRY_ATTEMPTS = 3;
+const RETRY_BASE_MS = 250;
+
+// Retries only what is worth retrying. A unique-constraint violation or a
+// permission error is not going to change on the second attempt, and retrying
+// it just makes the user wait longer for the same answer.
+async function withRetry(op, run) {
+  let last;
+  for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt += 1) {
+    const { data, error } = await run();
+    if (!error) return data;
+    last = error;
+    if (!isTransientUpstream(error)) fail(op, error);
+    if (attempt < RETRY_ATTEMPTS - 1) {
+      await new Promise((r) => setTimeout(r, RETRY_BASE_MS * 2 ** attempt));
+    }
+  }
+  throw new UpstreamUnavailableError(op, String(last?.message || last).slice(0, 120));
+}
+
 function fail(op, error) {
+  if (isTransientUpstream(error)) {
+    throw new UpstreamUnavailableError(op, String(error.message || error).slice(0, 120));
+  }
   throw new Error(`[identityStore.${op}] ${error.message || error}`);
 }
 
@@ -25,22 +76,17 @@ function fail(op, error) {
 // login, bumps last_login_at on every subsequent one.
 async function getOrCreateUser(email) {
   const sb = getSupabase();
-  const { data: existing, error: findErr } = await sb
-    .from('app_users').select('*').eq('email', email).maybeSingle();
-  if (findErr) fail('getOrCreateUser(find)', findErr);
+  const existing = await withRetry('getOrCreateUser(find)', () =>
+    sb.from('app_users').select('*').eq('email', email).maybeSingle());
 
   if (existing) {
-    const { data, error } = await sb
-      .from('app_users').update({ last_login_at: new Date().toISOString() })
-      .eq('id', existing.id).select('*').single();
-    if (error) fail('getOrCreateUser(touch)', error);
-    return data;
+    return withRetry('getOrCreateUser(touch)', () =>
+      sb.from('app_users').update({ last_login_at: new Date().toISOString() })
+        .eq('id', existing.id).select('*').single());
   }
 
-  const { data, error } = await sb
-    .from('app_users').insert({ email }).select('*').single();
-  if (error) fail('getOrCreateUser(insert)', error);
-  return data;
+  return withRetry('getOrCreateUser(insert)', () =>
+    sb.from('app_users').insert({ email }).select('*').single());
 }
 
 async function getUserById(userId) {
@@ -284,6 +330,8 @@ async function recordActivity({ userId, workspaceId, method, path }) {
 }
 
 module.exports = {
+  UpstreamUnavailableError,
+  isTransientUpstream,
   isPosition2Email,
   getOrCreateUser, getUserById,
   getProfile, upsertProfile,

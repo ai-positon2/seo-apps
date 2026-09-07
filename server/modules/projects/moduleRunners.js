@@ -1154,6 +1154,70 @@ const RUNNERS = {
 };
 
 /**
+ * Runs a module against an ALREADY-OPEN run row and closes it.
+ *
+ * Split out of runModule because the queue opens the row itself: a worker's
+ * claim is the compare-and-swap that sets `status = 'running'`, so an executor
+ * must never open a second row — it executes into the one it is holding and
+ * closes that. Both paths therefore share one place where a result is
+ * normalised and one place where a failure is recorded, instead of the worker
+ * growing a second, slightly different copy of it.
+ *
+ * @param {object} input
+ * @param {object} input.access
+ * @param {string} input.moduleKey
+ * @param {object} input.run        the open project_module_runs row
+ * @param {object} [input.target]   { origin, host } — resolved by the caller
+ * @param {object} input.project    the raw crawl_projects row
+ * @param {Array}  input.domains    project_domains rows
+ * @param {Function} [input.isStillOurs]  a queue worker's liveness check. When
+ *   it goes false a reaper decided this worker was dead and someone else owns
+ *   the row, so the CLOSING WRITE is abandoned — the work itself is already
+ *   stored, and writing anyway would overwrite a result that has already been
+ *   reported. Returns null in that case, and never touches the row.
+ */
+async function executeOpenRun({
+  access, moduleKey, run, target = null, project, domains = [], keywords = null,
+  isStillOurs = null,
+}) {
+  const runner = RUNNERS[moduleKey];
+  if (!runner) throw invalid(`No runner for "${moduleKey}".`, 'module_not_runnable');
+
+  const lost = () => Boolean(isStillOurs) && !isStillOurs();
+
+  try {
+    const result = await runner({
+      access,
+      run,
+      target: target || { origin: run.target_url || null, host: null, fromLegacyColumn: false },
+      project,
+      domains,
+      keywords,
+    });
+    if (lost()) {
+      console.warn(`[moduleRunners.executeOpenRun] run ${run.id} was reclaimed; not closing it.`);
+      return null;
+    }
+    return await moduleEvidence.completeRun({
+      access,
+      runId: run.id,
+      status: result.status || 'completed',
+      score: result.score ?? null,
+      scoreMax: result.scoreMax ?? 100,
+      scoreBasis: result.scoreBasis ?? null,
+      band: result.band ?? null,
+      findings: result.findings || [],
+      payload: result.note ? { ...(result.payload || {}), note: result.note } : result.payload,
+    });
+  } catch (error) {
+    // Same rule for the failure write: a row we no longer own is not ours to
+    // mark failed, and the owner will record whatever actually happens to it.
+    if (!lost()) await moduleEvidence.failRun({ access, runId: run.id, error });
+    throw error;
+  }
+}
+
+/**
  * Runs one module against one project and stores the result.
  *
  * The evidence row is opened before the module starts and closed whatever
@@ -1219,27 +1283,9 @@ async function runModule({
     pageBudget,
   });
 
-  const finish = async () => {
-    try {
-      const result = await RUNNERS[moduleKey]({
-        access, run, target, project, domains, keywords: requestKeywords,
-      });
-      return await moduleEvidence.completeRun({
-        access,
-        runId: run.id,
-        status: result.status || 'completed',
-        score: result.score ?? null,
-        scoreMax: result.scoreMax ?? 100,
-        scoreBasis: result.scoreBasis ?? null,
-        band: result.band ?? null,
-        findings: result.findings || [],
-        payload: result.note ? { ...(result.payload || {}), note: result.note } : result.payload,
-      });
-    } catch (error) {
-      await moduleEvidence.failRun({ access, runId: run.id, error });
-      throw error;
-    }
-  };
+  const finish = () => executeOpenRun({
+    access, moduleKey, run, target, project, domains, keywords: requestKeywords,
+  });
 
   if (detached) {
     finish().catch((e) => console.error(`[moduleRunners.runModule] ${moduleKey} failed to close cleanly:`, e.message));
@@ -1280,5 +1326,6 @@ module.exports = {
   RUNNERS,
   targetFor,
   runModule,
+  executeOpenRun,
   autoDiscoverCompetitors,
 };

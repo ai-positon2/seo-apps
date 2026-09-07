@@ -2,7 +2,12 @@ node_modules/
 server/node_modules/
 client/node_modules/
 client/dist/
+# Every environment file, not just the exact name `.env`. Timestamped backups
+# (.env.bak-*, .env.save, .env.production) hold the same live credentials and
+# were previously unignored, so a `git add -A` would have committed them.
 .env
+.env.*
+!.env.example
 env
 *.local
 .DS_Store

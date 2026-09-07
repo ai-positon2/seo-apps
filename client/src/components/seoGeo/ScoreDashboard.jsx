@@ -400,7 +400,7 @@ function ReadinessHero({ findings, breakdown }) {
   const checksRun = findings.meta?.total_checks_run;
 
   return (
-    <div style={{ ...CARD, gridColumn: 'span 3' }}>
+    <div style={CARD}>
       <p style={CAPTION}>Readiness</p>
       <p style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', lineHeight: 1.3, marginTop: 6, marginBottom: 16 }}>
         {verdict}
@@ -803,7 +803,20 @@ export default function ScoreDashboard({ findings, ai }) {
   const overall = Number.isFinite(scores.overall) ? scores.overall : 0;
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+    // One column, not a three-column grid.
+    //
+    // The grid put the composition card (nine bucket bars, a points-lost
+    // waterfall and an expandable detail panel per bar) into one third of the
+    // width beside a stack of four cards in the other two thirds. The bars were
+    // 180px wide with their labels ellipsed, and the reading order down the page
+    // was: verdict, then the arithmetic, then — back at the top of the next
+    // column — the rubric the verdict was half about.
+    //
+    // Stacked, each block gets the full measure and the order is the order of
+    // the argument: what the two scores are, how the search score was built,
+    // how the answerability score was built, what to do, and what a machine can
+    // currently extract.
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
       <ReadinessHero findings={findings} breakdown={breakdown} />
 
@@ -811,7 +824,7 @@ export default function ScoreDashboard({ findings, ai }) {
           beside this ring are gone: geo_readiness now lives in the hero next to the rubric
           it actually describes, and the E-E-A-T pill is below, attributed to the model —
           it was rendering a red "weak" directly beside an 84/100 E-E-A-T bucket bar. */}
-      <div style={{ ...CARD, gridColumn: 'span 1' }}>
+      <div style={CARD}>
         <p style={{ ...CAPTION, marginBottom: 16 }}>Search Readiness — Composition</p>
 
         {scores.cap?.applied
@@ -862,8 +875,13 @@ export default function ScoreDashboard({ findings, ai }) {
         )}
       </div>
 
-      {/* Quick wins + keyword analysis + answerability + GEO signals */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, gridColumn: 'span 2' }}>
+      {/* How the answerability score was built, then what to do, then what a
+          machine can extract today. The rubric card moved ABOVE quick wins: the
+          design puts it directly under the composition it is the counterpart to,
+          and half the verdict sentence at the top of the page is about it. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+        <AnswerabilityCard findings={findings} aiIndex={aiIndex} aiMissing={aiMissing} />
 
         {aiSummary?.quick_wins?.length > 0 && (
           <div style={CARD}>
@@ -879,7 +897,14 @@ export default function ScoreDashboard({ findings, ai }) {
           </div>
         )}
 
-        {/* Keyword Analysis */}
+        <GeoSignalsCard findings={findings} aiIndex={aiIndex} aiMissing={aiMissing} />
+
+        {/* Keyword Analysis.
+            Not in the design, kept anyway: it is the only place in the report
+            that says whether the page targets the keyword it was audited
+            against, and nine of its checks have nowhere else to be read. It
+            sits last because it answers a narrower question than everything
+            above it. */}
         {findings.meta.keywords?.length > 0 && findings.kwChecks?.length > 0 && (
           <div style={CARD}>
             <p style={{ ...CAPTION, marginBottom: 12 }}>
@@ -920,9 +945,6 @@ export default function ScoreDashboard({ findings, ai }) {
             )}
           </div>
         )}
-
-        <AnswerabilityCard findings={findings} aiIndex={aiIndex} aiMissing={aiMissing} />
-        <GeoSignalsCard findings={findings} aiIndex={aiIndex} aiMissing={aiMissing} />
       </div>
     </div>
   );

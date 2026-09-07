@@ -21,6 +21,13 @@
  * prints the discovered count next to it — the bar is progress against the
  * limit, and it does not pretend to know the total.
  *
+ * And the ceiling is URLs, not pages: crawler._progress() reports
+ * options.maxUrls + options.maxExternalUrls, so a project budgeted for 150
+ * pages shows a ceiling of 300 once the 150-URL external link budget is added.
+ * The label says "URLs" for that reason. Do not shorten it back to a bare
+ * number — read as a page limit it sends people looking for a cap that is not
+ * there, which is exactly what happened.
+ *
  * ── On the four states ──────────────────────────────────────────────────────
  * queued/pending, running, paused and stalled look different on purpose. A
  * stalled crawl used to be indistinguishable from a slow one, which is the
@@ -51,7 +58,16 @@ const KEYFRAMES = `
 function countsLine({ crawled, discovered, ceiling }) {
   const parts = [];
   if (crawled !== null && crawled !== undefined) {
-    parts.push(ceiling ? `${crawled} of up to ${ceiling}` : `${crawled} crawled`);
+    // "of up to N URLs", not "of up to N" — and never "pages".
+    //
+    // The ceiling is the crawler's own progress.maxUrls, which is
+    // options.maxUrls PLUS options.maxExternalUrls (crawler.js _progress):
+    // the page budget plus the separate budget for outbound links fetched to
+    // check they are alive. Deliberate for the bar, whose fill must only ever
+    // advance — but labelled as a bare number it reads as the page limit, and
+    // a project set to crawl 150 pages showed "up to 300", which is how an
+    // afternoon went into hunting a cap that did not exist.
+    parts.push(ceiling ? `${crawled} of up to ${ceiling} URLs` : `${crawled} crawled`);
   }
   if (discovered !== null && discovered !== undefined) {
     parts.push(`${discovered} discovered`);

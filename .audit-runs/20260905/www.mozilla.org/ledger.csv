@@ -1,0 +1,97 @@
+rule_id,category,severity,eval_class,rarity,fired,instance_count
+broken-internal-links,Technical,error,crawl,common,false,0
+page-4xx,Technical,error,crawl,common,false,0
+page-5xx,Technical,error,crawl,rare,false,0
+crawl-failure,Technical,error,crawl,occasional,false,0
+redirect-location-invalid,Indexability,error,crawl,rare,false,0
+broken-javascript,Technical,error,crawl,rare,false,0
+mixed-content,Technical,error,crawl,occasional,false,0
+base-url-ignored,Technical,warning,crawl,fixture_only,false,0
+ssl-certificate-name,Technical,error,crawl,fixture_only,false,0
+sni-unsupported,Technical,error,crawl,fixture_only,false,0
+hsts-missing,Technical,error,crawl,common,false,0
+robots-issue,Technical,error,crawl,occasional,false,0
+blocked-resource,Technical,error,crawl,common,false,0
+sitemap-incorrect-url,Technical,error,crawl,occasional,false,0
+sitemap-redirect,Technical,error,crawl,occasional,false,0
+sitemap-missing-indexable,Technical,error,crawl,common,true,162
+sitemap-duplicate,Technical,error,crawl,occasional,false,0
+sitemap-robots-config,Technical,error,crawl,occasional,true,1
+noindex,Indexability,warning,crawl,common,true,15
+noindex-nofollow,Indexability,warning,crawl,occasional,true,7
+nofollow-page,Indexability,warning,crawl,rare,false,0
+robots-blocked,Indexability,warning,crawl,common,false,0
+orphan-page,Indexability,warning,crawl,common,false,0
+single-inlink,Indexability,warning,crawl,common,false,0
+deep-page,Indexability,warning,crawl,common,false,0
+link-to-redirect,Indexability,warning,crawl,common,true,1070
+permanent-redirect,Indexability,warning,crawl,common,true,33
+temporary-redirect,Indexability,warning,crawl,occasional,true,196
+meta-refresh,Indexability,warning,crawl,rare,false,0
+http-refresh,Indexability,warning,crawl,fixture_only,false,0
+redirect-chain,Indexability,warning,crawl,common,false,0
+redirect-loop,Indexability,error,crawl,rare,false,0
+redirect-limit-exceeded,Indexability,error,crawl,rare,false,0
+redirect-terminal-failure,Indexability,error,crawl,occasional,false,0
+redirect-terminal-indexability,Indexability,warning,crawl,occasional,true,3
+mixed-incoming-follow,Indexability,warning,crawl,occasional,false,0
+internal-nofollow-link,Indexability,warning,crawl,common,false,0
+http-homepage,Indexability,warning,crawl,rare,false,0
+hreflang-missing-return,Indexability,warning,crawl,occasional,true,124
+hreflang-missing-self,Indexability,notice,crawl,occasional,true,6
+hreflang-invalid-code,Indexability,warning,crawl,rare,false,0
+canonical-to-broken,Indexability,error,crawl,occasional,false,0
+canonical-to-redirect,Indexability,warning,crawl,common,false,0
+canonical-chain,Indexability,warning,crawl,occasional,false,0
+canonical-to-noindex,Indexability,error,crawl,occasional,false,0
+pagination-link-broken,Indexability,warning,crawl,rare,false,0
+pagination-canonical-conflict,Indexability,warning,crawl,occasional,false,0
+title-missing,Metadata,error,crawl,occasional,false,0
+title-duplicate,Metadata,warning,crawl,common,false,0
+title-multiple,Metadata,warning,crawl,rare,false,0
+title-long,Metadata,warning,crawl,common,true,13
+meta-duplicate,Metadata,warning,crawl,common,false,0
+meta-missing,Metadata,warning,crawl,common,true,29
+meta-long,Metadata,warning,crawl,common,true,22
+meta-short,Metadata,warning,crawl,common,true,9
+h1-missing,Metadata,warning,crawl,common,true,22
+h1-multiple,Metadata,warning,crawl,common,true,2
+heading-hierarchy-skipped,Accessibility & Social,notice,crawl,common,true,39
+h1-duplicate,Metadata,warning,crawl,common,false,0
+h1-title-duplicate,Metadata,warning,crawl,common,true,18
+viewport-missing,Metadata,error,crawl,occasional,false,0
+viewport-not-responsive,Metadata,warning,crawl,rare,false,0
+google-title-differs,Metadata,warning,external_gsc,common,false,0
+metadata-changed,Metadata,warning,delta,common,false,0
+low-text-html-ratio,Content,warning,crawl,common,false,0
+low-word-count,Content,warning,crawl,common,false,0
+content-duplicate-exact,Content,warning,crawl,common,false,0
+ai-content-signal,Content,warning,model,occasional,false,0
+traffic-drop,Content,warning,external_analytics,occasional,false,0
+top10-drop,Content,warning,external_analytics,occasional,false,0
+referring-domains-drop,Content,warning,external_analytics,occasional,false,0
+anchor-missing,Links,warning,crawl,common,true,3
+anchor-nondescriptive,Links,warning,crawl,common,true,13
+broken-external-link,Links,warning,crawl,common,true,722
+external-403,Links,notice,crawl,common,true,559
+external-nofollow,Links,notice,crawl,occasional,false,0
+https-to-http-link,Links,warning,crawl,occasional,true,15
+resource-as-link,Links,warning,crawl,occasional,false,0
+image-alt-missing,Accessibility & Social,notice,crawl,common,false,0
+image-oversized,Accessibility & Social,notice,crawl,common,true,1
+open-graph-incomplete,Accessibility & Social,notice,crawl,common,false,0
+open-graph-description-missing,Accessibility & Social,notice,crawl,common,true,29
+open-graph-url-invalid,Accessibility & Social,notice,crawl,rare,false,0
+open-graph-image-alt-missing,Accessibility & Social,notice,crawl,common,true,184
+open-graph-canonical,Accessibility & Social,notice,crawl,occasional,true,7
+slow-page,Performance,warning,crawl,common,true,112
+asset-uncached,Performance,warning,crawl,common,false,0
+asset-unminified,Performance,warning,crawl,common,true,2
+asset-uncompressed,Performance,warning,crawl,common,false,0
+schema-error,Structured Data,notice,crawl,common,false,0
+llms-missing,Structured Data,notice,crawl,common,true,1
+llms-format,Structured Data,notice,crawl,rare,false,0
+indexnow-submit,Structured Data,notice,action,occasional,false,0
+javascript-rendered-site,Technical,error,crawl,occasional,false,0
+crawl-trap,Technical,error,crawl,occasional,false,0
+sitemap-unreadable,Technical,error,crawl,rare,true,1

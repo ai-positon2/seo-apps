@@ -1,0 +1,1074 @@
+HTTP/1.1 200 OK
+accept-ranges: bytes
+age: 0
+cache-control: max-age=600
+connection: keep-alive
+content-encoding: br
+content-language: en-US
+content-length: 11043
+content-security-policy: frame-src 'self' accounts.firefox.com gtm.mozilla.org js.stripe.com www.google-analytics.com www.googletagmanager.com www.youtube.com; default-src 'self' *.mozilla.org; media-src 'self' assets.mozilla.net videos.cdn.mozilla.net www.mozilla.org; font-src 'self' www.mozilla.org; frame-ancestors 'none'; upgrade-insecure-requests; object-src 'none'; script-src 'self' 'unsafe-eval' 'unsafe-inline' *.google-analytics.com *.googletagmanager.com cdn.transcend.io google-analytics.com googletagmanager.com js.stripe.com s.ytimg.com tagmanager.google.com transcend-cdn.com www.mozilla.org www.youtube.com; style-src 'self' 'unsafe-inline' cdn.transcend.io transcend-cdn.com www.mozilla.org; img-src 'self' blog.mozilla.org data: images.ctfassets.net www.google-analytics.com www.googletagmanager.com www.mozilla.org; connect-src 'self' *.analytics.google.com *.google-analytics.com *.googletagmanager.com analytics.google.com cdn.transcend.io google-analytics.com googletagmanager.com gtm.mozilla.org https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org o1069899.ingest.sentry.io o1069899.sentry.io region1.google-analytics.com telemetry.transcend.io telemetry.us.transcend.io transcend-cdn.com www.mozilla.org/submit/bedrock/; base-uri 'none'; form-action 'self' https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org
+content-security-policy-report-only: frame-src 'self' accounts.firefox.com gtm.mozilla.org js.stripe.com www.google-analytics.com www.googletagmanager.com www.youtube.com; default-src 'self' *.mozilla.org; media-src 'self' assets.mozilla.net videos.cdn.mozilla.net www.mozilla.org; font-src 'self' www.mozilla.org; frame-ancestors 'none'; upgrade-insecure-requests; object-src 'none'; script-src 'self' 'unsafe-eval' 'unsafe-inline' *.google-analytics.com *.googletagmanager.com cdn.transcend.io google-analytics.com googletagmanager.com js.stripe.com s.ytimg.com tagmanager.google.com transcend-cdn.com www.mozilla.org www.youtube.com; style-src 'self' 'unsafe-inline' cdn.transcend.io transcend-cdn.com www.mozilla.org; img-src 'self' blog.mozilla.org data: images.ctfassets.net www.google-analytics.com www.googletagmanager.com www.mozilla.org; connect-src 'self' *.analytics.google.com *.google-analytics.com *.googletagmanager.com analytics.google.com cdn.transcend.io google-analytics.com googletagmanager.com gtm.mozilla.org https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org o1069899.ingest.sentry.io o1069899.sentry.io region1.google-analytics.com telemetry.transcend.io telemetry.us.transcend.io transcend-cdn.com www.mozilla.org/submit/bedrock/; base-uri 'none'; form-action 'self' https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org
+content-type: text/html; charset=utf-8
+cross-origin-opener-policy: same-origin
+date: Sat, 05 Sep 2026 18:23:48 GMT
+etag: "e5a1cbb34381aacd7f81400a73f78d9f"
+expires: Sat, 05 Sep 2026 18:33:48 GMT
+referrer-policy: strict-origin-when-cross-origin
+server: granian
+strict-transport-security: max-age=31536000
+vary: Accept-Encoding
+via: 1.1 google, 1.1 varnish, 1.1 varnish
+x-backend-server: bedrock-58fdcfd585-2mpxr.gcp-us-west1
+x-cache: MISS, MISS
+x-cache-hits: 0, 0
+x-clacks-overhead: GNU Terry Pratchett
+x-content-type-options: nosniff
+x-frame-options: DENY
+x-served-by: cache-bom-vanm7210045-BOM, cache-bom-vanm7210045-BOM, cache-bom-vanm7210072-BOM
+x-timer: S1788632628.003213,VS0,VE586
+
+
+
+
+
+
+
+<!doctype html>
+
+<html class="windows no-js" lang="en" dir="ltr" data-country-code="IN" data-needs-consent="False" data-latest-firefox="155.0.1" data-esr-versions="140.15.0 153.2.0" data-gtm-container-id="GTM-MW3R8V"  data-stub-attribution-rate="1.0" data-sentry-dsn="https://c3ab8514873549d5b3785ebc7fb83c80@o1069899.ingest.sentry.io/6260331" >
+  <head>
+    <meta charset="utf-8">
+
+    
+
+
+
+<script data-cfasync="false" src="https://transcend-cdn.com/cm/d556c3a1-e57c-4bdf-a490-390a1aebf6dd/airgap.js"></script>
+
+
+    <!--[if !IE]><!-->
+    <script src="https://www.mozilla.org/media/js/site.a6a07233d547.js"></script>
+
+    
+    <!--<![endif]-->
+
+    <!--[if IE 9]>
+    <script src="https://www.mozilla.org/media/js/site-ie.419ec4b57d17.js"></script>
+    <![endif]-->
+
+<!--
+
+
+             _.-~-.
+           7''  Q..\
+        _7         (_
+      _7  _/    _q.  /
+    _7 . ___  /VVvv-'_                                            .
+   7/ / /~- \_\\      '-._     .-'                      /       //
+  ./ ( /-~-/||'=.__  '::. '-~'' {             ___   /  //     ./{
+ V   V-~-~| ||   __''_   ':::.   ''~-~.___.-'' _/  // / {_   /  {  /
+  VV/-~-~-|/ \ .'__'. '.    '::                     _ _ _        ''.
+  / /~~~~||VVV/ /  \ )  \        _ __ ___   ___ ___(_) | | __ _   .::'
+ / (~-~-~\\.-' /    \'   \::::. | '_ ` _ \ / _ \_  / | | |/ _` | :::'
+/..\    /..\__/      '     '::: | | | | | | (_) / /| | | | (_| | ::'
+vVVv    vVVv                 ': |_| |_| |_|\___/___|_|_|_|\__,_| ''
+
+Hi there, nice to meet you!
+
+Interested in having a direct impact on hundreds of millions of users? Join
+Mozilla, and become part of a global community that’s helping to build a
+brighter future for the Web.
+
+Visit https://www.mozilla.org/careers to learn about our current job openings.
+Visit https://www.mozilla.org/contribute for more ways to get involved and
+help support Mozilla.
+-->
+
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+
+    
+    <title>The Mozilla Manifesto</title>
+    <meta name="description" content="
+  These are the principles that guide our mission to promote openness, innovation &amp; opportunity on the web.
+">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Mozilla">
+    <meta property="og:locale" content="en_US">
+    <meta property="og:url" content="https://www.mozilla.org/en-US/about/manifesto/">
+    <meta property="og:image" content="https://www.mozilla.org/media/img/m24/og.3a69dffad83e.png">
+    <meta property="og:title" content="The Mozilla Manifesto">
+    <meta property="og:description" content="
+  These are the principles that guide our mission to promote openness, innovation &amp; opportunity on the web.
+">
+    <meta property="fb:page_id" content="262134952380">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:site" content="@mozilla">
+    <meta name="twitter:domain" content="mozilla.org">
+    <meta name="twitter:app:name:googleplay" content="Firefox">
+    <meta name="twitter:app:id:googleplay" content="org.mozilla.firefox">
+    <meta name="twitter:app:name:iphone" content="Firefox">
+    <meta name="twitter:app:id:iphone" content="989804926">
+    <meta name="twitter:app:name:ipad" content="Firefox">
+    <meta name="twitter:app:id:ipad" content="989804926">
+    <link rel="apple-touch-icon" type="image/png" sizes="180x180" href="https://www.mozilla.org/media/img/favicons/mozilla/apple-touch-icon.05aa000f6748.png">
+    <link rel="icon" type="image/png" sizes="196x196" href="https://www.mozilla.org/media/img/favicons/mozilla/favicon-196x196.e143075360ea.png">
+    <link rel="shortcut icon" href="https://www.mozilla.org/media/img/favicons/mozilla/favicon.d0be64e474b1.ico">
+    <link rel="canonical" href="https://www.mozilla.org/en-US/about/manifesto/">
+    
+    <link rel="alternate" hreflang="an" href="https://www.mozilla.org/an/about/manifesto/" title="aragonés">
+        <link rel="alternate" hreflang="ar" href="https://www.mozilla.org/ar/about/manifesto/" title="عربي">
+        <link rel="alternate" hreflang="be" href="https://www.mozilla.org/be/about/manifesto/" title="Беларуская">
+        <link rel="alternate" hreflang="bg" href="https://www.mozilla.org/bg/about/manifesto/" title="Български">
+        <link rel="alternate" hreflang="bn" href="https://www.mozilla.org/bn/about/manifesto/" title="বাংলা">
+        <link rel="alternate" hreflang="bs" href="https://www.mozilla.org/bs/about/manifesto/" title="Bosanski">
+        <link rel="alternate" hreflang="ca" href="https://www.mozilla.org/ca/about/manifesto/" title="Català">
+        <link rel="alternate" hreflang="cs" href="https://www.mozilla.org/cs/about/manifesto/" title="Čeština">
+        <link rel="alternate" hreflang="cy" href="https://www.mozilla.org/cy/about/manifesto/" title="Cymraeg">
+        <link rel="alternate" hreflang="da" href="https://www.mozilla.org/da/about/manifesto/" title="Dansk">
+        <link rel="alternate" hreflang="de" href="https://www.mozilla.org/de/about/manifesto/" title="Deutsch">
+        <link rel="alternate" hreflang="el" href="https://www.mozilla.org/el/about/manifesto/" title="Ελληνικά">
+        <link rel="alternate" hreflang="en-CA" href="https://www.mozilla.org/en-CA/about/manifesto/" title="English (Canadian)">
+        <link rel="alternate" hreflang="en-GB" href="https://www.mozilla.org/en-GB/about/manifesto/" title="English (British)">
+        <link rel="alternate" hreflang="en" href="https://www.mozilla.org/en-US/about/manifesto/" title="English">
+        <link rel="alternate" hreflang="en-US" href="https://www.mozilla.org/en-US/about/manifesto/" title="English (USA)">
+        <link rel="alternate" hreflang="eo" href="https://www.mozilla.org/eo/about/manifesto/" title="Esperanto">
+        <link rel="alternate" hreflang="es-AR" href="https://www.mozilla.org/es-AR/about/manifesto/" title="Español (de Argentina)">
+        <link rel="alternate" hreflang="es-CL" href="https://www.mozilla.org/es-CL/about/manifesto/" title="Español (de Chile)">
+        <link rel="alternate" hreflang="es" href="https://www.mozilla.org/es-ES/about/manifesto/" title="Español">
+        <link rel="alternate" hreflang="es-ES" href="https://www.mozilla.org/es-ES/about/manifesto/" title="Español (de España)">
+        <link rel="alternate" hreflang="es-MX" href="https://www.mozilla.org/es-MX/about/manifesto/" title="Español (de México)">
+        <link rel="alternate" hreflang="eu" href="https://www.mozilla.org/eu/about/manifesto/" title="Euskara">
+        <link rel="alternate" hreflang="fa" href="https://www.mozilla.org/fa/about/manifesto/" title="فارسی">
+        <link rel="alternate" hreflang="fi" href="https://www.mozilla.org/fi/about/manifesto/" title="suomi">
+        <link rel="alternate" hreflang="fr" href="https://www.mozilla.org/fr/about/manifesto/" title="Français">
+        <link rel="alternate" hreflang="fy" href="https://www.mozilla.org/fy-NL/about/manifesto/" title="Frysk">
+        <link rel="alternate" hreflang="fy-NL" href="https://www.mozilla.org/fy-NL/about/manifesto/" title="Frysk">
+        <link rel="alternate" hreflang="gn" href="https://www.mozilla.org/gn/about/manifesto/" title="Avañe'ẽ">
+        <link rel="alternate" hreflang="gu" href="https://www.mozilla.org/gu-IN/about/manifesto/" title="ગુજરાતી">
+        <link rel="alternate" hreflang="gu-IN" href="https://www.mozilla.org/gu-IN/about/manifesto/" title="ગુજરાતી (ભારત)">
+        <link rel="alternate" hreflang="hi" href="https://www.mozilla.org/hi-IN/about/manifesto/" title="हिन्दी">
+        <link rel="alternate" hreflang="hi-IN" href="https://www.mozilla.org/hi-IN/about/manifesto/" title="हिन्दी (भारत)">
+        <link rel="alternate" hreflang="hr" href="https://www.mozilla.org/hr/about/manifesto/" title="Hrvatski">
+        <link rel="alternate" hreflang="hu" href="https://www.mozilla.org/hu/about/manifesto/" title="magyar">
+        <link rel="alternate" hreflang="ia" href="https://www.mozilla.org/ia/about/manifesto/" title="Interlingua">
+        <link rel="alternate" hreflang="id" href="https://www.mozilla.org/id/about/manifesto/" title="Bahasa Indonesia">
+        <link rel="alternate" hreflang="is" href="https://www.mozilla.org/is/about/manifesto/" title="íslenska">
+        <link rel="alternate" hreflang="it" href="https://www.mozilla.org/it/about/manifesto/" title="Italiano">
+        <link rel="alternate" hreflang="ja" href="https://www.mozilla.org/ja/about/manifesto/" title="日本語">
+        <link rel="alternate" hreflang="ka" href="https://www.mozilla.org/ka/about/manifesto/" title="ქართული">
+        <link rel="alternate" hreflang="kk" href="https://www.mozilla.org/kk/about/manifesto/" title="Қазақ">
+        <link rel="alternate" hreflang="ko" href="https://www.mozilla.org/ko/about/manifesto/" title="한국어">
+        <link rel="alternate" hreflang="lo" href="https://www.mozilla.org/lo/about/manifesto/" title="ພາສາລາວ">
+        <link rel="alternate" hreflang="lt" href="https://www.mozilla.org/lt/about/manifesto/" title="Lietuvių">
+        <link rel="alternate" hreflang="ml" href="https://www.mozilla.org/ml/about/manifesto/" title="മലയാളം">
+        <link rel="alternate" hreflang="mr" href="https://www.mozilla.org/mr/about/manifesto/" title="मराठी">
+        <link rel="alternate" hreflang="ms" href="https://www.mozilla.org/ms/about/manifesto/" title="Melayu">
+        <link rel="alternate" hreflang="nb-NO" href="https://www.mozilla.org/nb-NO/about/manifesto/" title="Norsk bokmål">
+        <link rel="alternate" hreflang="nl" href="https://www.mozilla.org/nl/about/manifesto/" title="Nederlands">
+        <link rel="alternate" hreflang="nn-NO" href="https://www.mozilla.org/nn-NO/about/manifesto/" title="Norsk nynorsk">
+        <link rel="alternate" hreflang="pa" href="https://www.mozilla.org/pa-IN/about/manifesto/" title="ਪੰਜਾਬੀ">
+        <link rel="alternate" hreflang="pa-IN" href="https://www.mozilla.org/pa-IN/about/manifesto/" title="ਪੰਜਾਬੀ (ਭਾਰਤ)">
+        <link rel="alternate" hreflang="pl" href="https://www.mozilla.org/pl/about/manifesto/" title="Polski">
+        <link rel="alternate" hreflang="pt" href="https://www.mozilla.org/pt-BR/about/manifesto/" title="Português">
+        <link rel="alternate" hreflang="pt-BR" href="https://www.mozilla.org/pt-BR/about/manifesto/" title="Português (do Brasil)">
+        <link rel="alternate" hreflang="pt-PT" href="https://www.mozilla.org/pt-PT/about/manifesto/" title="Português (Europeu)">
+        <link rel="alternate" hreflang="rm" href="https://www.mozilla.org/rm/about/manifesto/" title="rumantsch">
+        <link rel="alternate" hreflang="ro" href="https://www.mozilla.org/ro/about/manifesto/" title="Română">
+        <link rel="alternate" hreflang="ru" href="https://www.mozilla.org/ru/about/manifesto/" title="Русский">
+        <link rel="alternate" hreflang="sk" href="https://www.mozilla.org/sk/about/manifesto/" title="slovenčina">
+        <link rel="alternate" hreflang="sl" href="https://www.mozilla.org/sl/about/manifesto/" title="Slovenščina">
+        <link rel="alternate" hreflang="sq" href="https://www.mozilla.org/sq/about/manifesto/" title="Shqip">
+        <link rel="alternate" hreflang="sr" href="https://www.mozilla.org/sr/about/manifesto/" title="Српски">
+        <link rel="alternate" hreflang="sv" href="https://www.mozilla.org/sv-SE/about/manifesto/" title="Svenska">
+        <link rel="alternate" hreflang="sv-SE" href="https://www.mozilla.org/sv-SE/about/manifesto/" title="Svenska">
+        <link rel="alternate" hreflang="ta" href="https://www.mozilla.org/ta/about/manifesto/" title="தமிழ்">
+        <link rel="alternate" hreflang="th" href="https://www.mozilla.org/th/about/manifesto/" title="ไทย">
+        <link rel="alternate" hreflang="tr" href="https://www.mozilla.org/tr/about/manifesto/" title="Türkçe">
+        <link rel="alternate" hreflang="uk" href="https://www.mozilla.org/uk/about/manifesto/" title="Українська">
+        <link rel="alternate" hreflang="ur" href="https://www.mozilla.org/ur/about/manifesto/" title="اُردو">
+        <link rel="alternate" hreflang="vi" href="https://www.mozilla.org/vi/about/manifesto/" title="Tiếng Việt">
+        <link rel="alternate" hreflang="zh" href="https://www.mozilla.org/zh-CN/about/manifesto/" title="中文">
+        <link rel="alternate" hreflang="zh-CN" href="https://www.mozilla.org/zh-CN/about/manifesto/" title="中文 (简体)">
+        <link rel="alternate" hreflang="zh-TW" href="https://www.mozilla.org/zh-TW/about/manifesto/" title="正體中文 (繁體)">
+        
+    
+    
+    <link href="https://mastodon.social/@mozilla" rel="me">
+
+    <!--[if lt IE 9]>
+      
+      <script src="https://www.mozilla.org/media/js/ie/libs/html5shiv.a94a0b700fa2.js"></script>
+    <![endif]-->
+
+    <!--[if IE]>
+      
+      
+        <link href="https://www.mozilla.org/media/css/common-old-ie.4d14f7a84a19.css" rel="stylesheet" type="text/css">
+      
+    <![endif]-->
+
+    <!--[if !IE]><!-->
+    
+    
+      <link href="https://www.mozilla.org/media/css/protocol-mozilla.54ea44c214ed.css" rel="stylesheet" type="text/css">
+      
+        <link href="https://www.mozilla.org/media/css/m24-navigation-and-footer.038277dadfff.css" rel="stylesheet" type="text/css">
+      
+      
+    
+
+    
+    
+  <link href="https://www.mozilla.org/media/css/m24-root.c79048453ab7.css" rel="stylesheet" type="text/css">
+  <link href="https://www.mozilla.org/media/css/m24-base.cb7020016bcf.css" rel="stylesheet" type="text/css">
+  <link href="https://www.mozilla.org/media/css/m24-manifesto.80dcbffe36ff.css" rel="stylesheet" type="text/css">
+
+    <!--<![endif]-->
+
+    
+      
+    
+
+    
+    
+      <!--[if IE 9]><!-->
+        
+
+<!--
+Read more about our custom configuration and use of Google Analytics here:
+https://bugzilla.mozilla.org/show_bug.cgi?id=1122305#c8
+-->
+
+<!-- Google Tag Manager -->
+<!-- Customized for Mozilla.org-->
+<!-- Region Container: NONE -->
+<!-- Rollup Container: System Filtered -->
+<!-- Site Container: NONE -->
+
+
+    <script src="https://www.mozilla.org/media/js/gtm-snippet.cc9550e6b401.js"></script>
+
+<!-- End Google Tag Manager -->
+      <!--<![endif]-->
+    
+  </head>
+
+  <body id="manifesto" class="html-ltr mzp-t-mozilla" >
+    <div id="strings"
+      data-global-close="Close"
+      data-global-next="Next"
+      data-global-previous="Previous"
+      ></div>
+
+    
+      
+
+<aside class="moz-consent-banner" id="moz-consent-banner" role="region" aria-label="Cookie Banner" data-nosnippet="true" data-testid="consent-banner">
+  <div class="moz-consent-banner-content">
+    <h2 class="moz-consent-banner-heading">Help us improve your Mozilla experience</h2>
+    <div class="moz-consent-banner-copy">
+      <p>In addition to Cookies necessary for this site to function, we’d like your permission to set some additional Cookies to better understand your browsing needs and improve your experience. Rest assured — we value your privacy.</p>
+      <div class="moz-consent-banner-controls">
+        <button type="button" id="moz-consent-banner-button-accept" class="moz-consent-banner-button moz-consent-banner-button-accept" data-testid="consent-banner-accept-button">
+          Accept All Additional Cookies
+        </button>
+        <button type="button" id="moz-consent-banner-button-reject" class="moz-consent-banner-button moz-consent-banner-button-reject" data-testid="consent-banner-reject-button">
+          Reject All Additional Cookies
+        </button>
+        <a href="/en-US/privacy/websites/cookie-settings/">
+          Cookie settings
+        </a>
+      </div>
+    </div>
+  </div>
+</aside>
+    
+
+    
+      
+
+
+  
+
+ 
+
+
+  
+
+
+
+
+
+  
+
+
+
+ <nav class="m24-navigation-refresh enable-main-nav-sticky m24-mzp-is-sticky" aria-label="Primary">
+  <div class="m24-c-navigation-l-content">
+    <div class="m24-c-navigation-container">
+      <button class="m24-c-navigation-menu-button" type="button" aria-controls="m24-c-navigation-items" data-testid="m24-navigation-menu-button">Menu</button>
+      <a class="m24-c-navigation-logo-link" href="/en-US/" data-link-text="mozilla home icon" data-link-position="nav">
+        <img class="m24-c-navigation-logo-image" src="https://www.mozilla.org/media/img/logos/m24/lockup-black.f2ddba3f0724.svg" alt="Mozilla" width="101" height="24">
+      </a>
+      <div class="m24-c-navigation-items" id="m24-c-navigation-items" data-testid="m24-navigation-menu-items">
+        <div class="m24-c-navigation-menu">
+          <div class="m24-c-menu m24-mzp-is-basic">
+            <ul class="m24-c-menu-category-list">
+              
+
+
+
+<li class="m24-c-menu-category mzp-has-drop-down mzp-js-expandable">
+  <a class="m24-c-menu-title" href="/en-US/products/" aria-haspopup="true" aria-controls="m24-c-menu-panel-products" data-testid="m24-navigation-link-products">Products</a>
+  <div class="m24-c-menu-panel" id="m24-c-menu-panel-products" data-testid="m24-navigation-panel-products">
+    <div class="m24-c-menu-panel-container" data-testid="m24-navigation-menu-products">
+      <button class="m24-c-menu-button-close" type="button" aria-controls="m24-c-menu-panel-products">Close Products menu</button>
+      <div class="m24-c-menu-panel-content">
+        <ul class="m24-mzp-l-content">
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://www.firefox.com?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Firefox browsers" data-link-position="topnav - products" data-testid="m24-navigation-menu-link-firefox">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/firefox/browser/logo.eb1324e44442.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Firefox browsers</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="/en-US/products/vpn/" data-link-text="Mozilla VPN" data-link-position="topnav - products" data-testid="m24-navigation-menu-link-products-vpn">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/mozilla/vpn/logo.c648f487bfb8.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Mozilla VPN</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              
+                
+              
+              <a class="m24-c-menu-item-link" href="/en-US/products/monitor/" data-link-text="Mozilla Monitor" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/firefox/monitor/logo.d97e5516f9e6.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Mozilla Monitor</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://relay.firefox.com/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Firefox Relay" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/firefox/relay/logo.d42a8b52e44c.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Firefox Relay</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://developer.mozilla.org/plus?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="MDN Plus" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/mdn/mdn-plus-logo.c615b46ca4ce.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">MDN Plus</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://www.thunderbird.net/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Thunderbird" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/thunderbird/logo-thunderbird.121e9c0fed45.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Thunderbird</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://soloist.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Solo" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/solo/logo-solo.643cbd69b0d8.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Solo</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://0din.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="0DIN" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/0din/logo-0din.50589c5926d2.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">0DIN</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://tabstack.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Tabstack" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/tabstack/logo-tabstack.4551b75d8e6b.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Tabstack</h2>
+              </a>
+            </section>
+          </li>
+        </ul>
+        <p class="m24-c-menu-category-link">
+          <a href="/en-US/products/" data-link-text="Go to all browsers and products" data-link-position="topnav - products">
+            All products
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path fill="currentColor" d="m7.24 1.36 5.89 5.89H0v1.5h13.13l-5.89 5.89L8.3 15.7 16 8 8.3.3z"/></svg>
+          </a>
+        </p>
+      </div>
+    </div><!-- close .m24-c-menu-panel-container -->
+  </div><!-- close .m24-c-menu-panel -->
+</li><!-- close products -->
+              
+
+ 
+
+ <li class="m24-c-menu-category mzp-has-drop-down mzp-js-expandable">
+   <a class="m24-c-menu-title" href="/en-US/about/" aria-haspopup="true" aria-controls="m24-c-menu-panel-about" data-testid="m24-navigation-link-about-us">About us</a>
+   <div class="m24-c-menu-panel" id="m24-c-menu-panel-about" data-testid="m24-navigation-menu-about-us">
+     <div class="m24-c-menu-panel-container">
+       <button class="m24-c-menu-button-close" type="button" aria-controls="m24-c-menu-panel-about">Close About us menu</button>
+       <div class="m24-c-menu-panel-content multi-column">
+        <div class="m24-mzp-l-content-container">
+          <p>Our Mission</p>
+          <ul class="m24-mzp-l-content">
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/en-US/about/" data-link-text="About Mozilla" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">About Mozilla</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/en-US/about/manifesto/" data-link-text="The Mozilla manifesto" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">The Mozilla Manifesto</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/en-US/contribute/" data-link-text="Get Involved" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Get Involved</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://blog.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Blog" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Blog</h2>
+                </a>
+              </section>
+            </li>
+           </ul>
+        </div>
+        <div class="m24-mzp-l-content-container">
+          <p>Our Work</p>
+          <ul class="m24-mzp-l-content">
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://www.mozillafoundation.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla Foundation" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Foundation</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://www.mozilla.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla.ai" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla.ai</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://mozilla.vc/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla Ventures" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Ventures</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/en-US/advertising/" data-link-text="Mozilla Ads" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Advertising</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://builders.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla Builders" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Builders</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://newproducts.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla New Products" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla New Products</h2>
+                </a>
+              </section>
+            </li>
+           </ul>
+        </div>
+       </div>
+     </div><!-- close .m24-c-menu-panel-container -->
+   </div><!-- close .m24-c-menu-panel -->
+ </li><!-- close about us -->
+            </ul>
+          </div>
+        </div><!-- close .m24-c-navigation-menu -->
+      </div><!-- close .m24-c-navigation-items -->
+      <blink class="spacer-gif"></blink>
+    </div><!-- close .m24-c-navigation-container -->
+  </div><!-- close .m24-c-navigation-l-content -->
+</nav>
+
+    
+
+    
+
+    <div id="outer-wrapper">
+      
+<main>
+  <header class="m24-c-content">
+    <div class="m24-c-intro m24-t-intro-snug">
+      <h1 class="m24-c-intro-title">The Mozilla Manifesto</h1>
+      
+      <p>The Mozilla Manifesto, written in 2007, outlines our core principles. The Pledge for a Healthy Internet was written as an addendum to the Manifesto in 2017 to reflect our deep commitment to ensuring the internet serves the needs of humans and humanity as a whole. Together, these two documents guide all work across Mozilla — what we build, what we fund and how we work together as a community.</p>
+      
+    </div>
+  </header>
+
+  <section class="m24-t-alt">
+    <div class="m24-c-content">
+      <div class="m24-c-prose m24-l-two-columns">
+        <div class="m24-c-prose-hgroup">
+          <h2 class="m24-c-prose-heading">Introduction</h2>
+        </div>
+        <div class="m24-c-prose-body">
+          <p>The internet is becoming an increasingly important part of our lives.</p>
+          <p>The Mozilla project is a global community of people who believe that openness, innovation, and opportunity are key to the continued health of the internet. We have worked together since 1998 to ensure that the internet is developed in a way that benefits everyone. We are best known for creating the Mozilla Firefox web browser.</p>
+          <p>The Mozilla project uses a community-based approach to create world-class open source software and to develop new types of collaborative activities. We create communities of people involved in making the internet experience better for all of us.</p>
+          <p>As a result of these efforts, we have distilled a set of principles that we believe are critical for the internet to continue to benefit the public good as well as commercial aspects of life. We set out these principles below.</p>
+          <p>The goals for the Manifesto are to:</p>
+          <ol class="mzp-u-list-styled">
+            <li>articulate a vision for the internet that Mozilla participants want Mozilla Foundation to pursue;</li>
+            <li>speak to people whether or not they have a technical background;</li>
+            <li>make Mozilla contributors proud of what we’re doing and motivate us to continue; and</li>
+            <li>provide a framework for other people to advance this vision of the internet.</li>
+          </ol>
+          <p>These principles will not come to life on their own. People are needed to make the internet open and participatory - people acting as individuals, working together in groups, and leading others. Mozilla Foundation is committed to advancing the principles set out in the Mozilla Manifesto. We invite others to join us and make the internet an ever better place for everyone.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="m24-t-dark">
+    <div class="m24-c-content">
+      <div class="m24-c-intro">
+          <h2 class="m24-c-intro-title">Principles</h2>
+      </div>
+      <ol class="c-points">
+        <li id="principles-01">
+          <div class="c-point-number">
+  <a href="#principles-01">Principle 1<span class="c-point-link-icon" ><svg class="c-point-anchor-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><g fill="currentColor"><path d="M13.443 7.012c1.103-1.104 1.09-3.02-.172-4.282s-3.18-1.276-4.283-.173l-.861.862-1.061-1.06.862-.863c1.752-1.752 4.62-1.61 6.404.173s1.924 4.65.172 6.403l-.862.862-1.06-1.06z"/><path d="m12.03 5.03-7 7-1.06-1.06 7-7z"/><path d="m1.497 7.928.861-.862 1.061 1.06-.862.862c-1.103 1.104-1.09 3.02.173 4.283s3.179 1.275 4.282.172l.862-.862 1.06 1.06-.861.863c-1.753 1.752-4.62 1.61-6.404-.172-1.783-1.784-1.925-4.652-.172-6.404"/></g></svg></span></a>
+</div>
+          <div class="c-point-text">The internet is an integral part of modern life—a key component in education, communication, collaboration, business, entertainment and society as a whole.</div>
+        </li>
+        <li id="principles-02">
+          <div class="c-point-number">
+  <a href="#principles-02">Principle 2<span class="c-point-link-icon" ><svg class="c-point-anchor-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><g fill="currentColor"><path d="M13.443 7.012c1.103-1.104 1.09-3.02-.172-4.282s-3.18-1.276-4.283-.173l-.861.862-1.061-1.06.862-.863c1.752-1.752 4.62-1.61 6.404.173s1.924 4.65.172 6.403l-.862.862-1.06-1.06z"/><path d="m12.03 5.03-7 7-1.06-1.06 7-7z"/><path d="m1.497 7.928.861-.862 1.061 1.06-.862.862c-1.103 1.104-1.09 3.02.173 4.283s3.179 1.275 4.282.172l.862-.862 1.06 1.06-.861.863c-1.753 1.752-4.62 1.61-6.404-.172-1.783-1.784-1.925-4.652-.172-6.404"/></g></svg></span></a>
+</div>
+          <div class="c-point-text">The internet is a global public resource that must remain open and accessible.</div>
+        </li>
+        <li id="principles-03">
+          <div class="c-point-number">
+  <a href="#principles-03">Principle 3<span class="c-point-link-icon" ><svg class="c-point-anchor-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><g fill="currentColor"><path d="M13.443 7.012c1.103-1.104 1.09-3.02-.172-4.282s-3.18-1.276-4.283-.173l-.861.862-1.061-1.06.862-.863c1.752-1.752 4.62-1.61 6.404.173s1.924 4.65.172 6.403l-.862.862-1.06-1.06z"/><path d="m12.03 5.03-7 7-1.06-1.06 7-7z"/><path d="m1.497 7.928.861-.862 1.061 1.06-.862.862c-1.103 1.104-1.09 3.02.173 4.283s3.179 1.275 4.282.172l.862-.862 1.06 1.06-.861.863c-1.753 1.752-4.62 1.61-6.404-.172-1.783-1.784-1.925-4.652-.172-6.404"/></g></svg></span></a>
+</div>
+          <div class="c-point-text">The internet must enrich the lives of individual human beings.</div>
+        </li>
+        <li id="principles-04">
+          <div class="c-point-number">
+  <a href="#principles-04">Principle 4<span class="c-point-link-icon" ><svg class="c-point-anchor-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><g fill="currentColor"><path d="M13.443 7.012c1.103-1.104 1.09-3.02-.172-4.282s-3.18-1.276-4.283-.173l-.861.862-1.061-1.06.862-.863c1.752-1.752 4.62-1.61 6.404.173s1.924 4.65.172 6.403l-.862.862-1.06-1.06z"/><path d="m12.03 5.03-7 7-1.06-1.06 7-7z"/><path d="m1.497 7.928.861-.862 1.061 1.06-.862.862c-1.103 1.104-1.09 3.02.173 4.283s3.179 1.275 4.282.172l.862-.862 1.06 1.06-.861.863c-1.753 1.752-4.62 1.61-6.404-.172-1.783-1.784-1.925-4.652-.172-6.404"/></g></svg></span></a>
+</div>
+          <div class="c-point-text">Individuals’ security and privacy on the internet are fundamental and must not be treated as optional.</div>
+        </li>
+        <li id="principles-05">
+          <div class="c-point-number">
+  <a href="#principles-05">Principle 5<span class="c-point-link-icon" ><svg class="c-point-anchor-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><g fill="currentColor"><path d="M13.443 7.012c1.103-1.104 1.09-3.02-.172-4.282s-3.18-1.276-4.283-.173l-.861.862-1.061-1.06.862-.863c1.752-1.752 4.62-1.61 6.404.173s1.924 4.65.172 6.403l-.862.862-1.06-1.06z"/><path d="m12.03 5.03-7 7-1.06-1.06 7-7z"/><path d="m1.497 7.928.861-.862 1.061 1.06-.862.862c-1.103 1.104-1.09 3.02.173 4.283s3.179 1.275 4.282.172l.862-.862 1.06 1.06-.861.863c-1.753 1.752-4.62 1.61-6.404-.172-1.783-1.784-1.925-4.652-.172-6.404"/></g></svg></span></a>
+</div>
+          <div class="c-point-text">Individuals must have the ability to shape the internet and their own experiences on it.</div>
+        </li>
+        <li id="principles-06">
+          <div class="c-point-number">
+  <a href="#principles-06">Principle 6<span class="c-point-link-icon" ><svg class="c-point-anchor-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><g fill="currentColor"><path d="M13.443 7.012c1.103-1.104 1.09-3.02-.172-4.282s-3.18-1.276-4.283-.173l-.861.862-1.061-1.06.862-.863c1.752-1.752 4.62-1.61 6.404.173s1.924 4.65.172 6.403l-.862.862-1.06-1.06z"/><path d="m12.03 5.03-7 7-1.06-1.06 7-7z"/><path d="m1.497 7.928.861-.862 1.061 1.06-.862.862c-1.103 1.104-1.09 3.02.173 4.283s3.179 1.275 4.282.172l.862-.862 1.06 1.06-.861.863c-1.753 1.752-4.62 1.61-6.404-.172-1.783-1.784-1.925-4.652-.172-6.404"/></g></svg></span></a>
+</div>
+          <div class="c-point-text">The effectiveness of the internet as a public resource depends upon interoperability (protocols, data formats, content), innovation and decentralized participation worldwide.</div>
+        </li>
+        <li id="principles-07">
+          <div class="c-point-number">
+  <a href="#principles-07">Principle 7<span class="c-point-link-icon" ><svg class="c-point-anchor-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><g fill="currentColor"><path d="M13.443 7.012c1.103-1.104 1.09-3.02-.172-4.282s-3.18-1.276-4.283-.173l-.861.862-1.061-1.06.862-.863c1.752-1.752 4.62-1.61 6.404.173s1.924 4.65.172 6.403l-.862.862-1.06-1.06z"/><path d="m12.03 5.03-7 7-1.06-1.06 7-7z"/><path d="m1.497 7.928.861-.862 1.061 1.06-.862.862c-1.103 1.104-1.09 3.02.173 4.283s3.179 1.275 4.282.172l.862-.862 1.06 1.06-.861.863c-1.753 1.752-4.62 1.61-6.404-.172-1.783-1.784-1.925-4.652-.172-6.404"/></g></svg></span></a>
+</div>
+          <div class="c-point-text">Free and open source software promotes the development of the internet as a public resource.</div>
+        </li>
+        <li id="principles-08">
+          <div class="c-point-number">
+  <a href="#principles-08">Principle 8<span class="c-point-link-icon" ><svg class="c-point-anchor-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><g fill="currentColor"><path d="M13.443 7.012c1.103-1.104 1.09-3.02-.172-4.282s-3.18-1.276-4.283-.173l-.861.862-1.061-1.06.862-.863c1.752-1.752 4.62-1.61 6.404.173s1.924 4.65.172 6.403l-.862.862-1.06-1.06z"/><path d="m12.03 5.03-7 7-1.06-1.06 7-7z"/><path d="m1.497 7.928.861-.862 1.061 1.06-.862.862c-1.103 1.104-1.09 3.02.173 4.283s3.179 1.275 4.282.172l.862-.862 1.06 1.06-.861.863c-1.753 1.752-4.62 1.61-6.404-.172-1.783-1.784-1.925-4.652-.172-6.404"/></g></svg></span></a>
+</div>
+          <div class="c-point-text">Transparent community-based processes promote participation, accountability and trust.</div>
+        </li>
+        <li id="principles-09">
+          <div class="c-point-number">
+  <a href="#principles-09">Principle 9<span class="c-point-link-icon" ><svg class="c-point-anchor-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><g fill="currentColor"><path d="M13.443 7.012c1.103-1.104 1.09-3.02-.172-4.282s-3.18-1.276-4.283-.173l-.861.862-1.061-1.06.862-.863c1.752-1.752 4.62-1.61 6.404.173s1.924 4.65.172 6.403l-.862.862-1.06-1.06z"/><path d="m12.03 5.03-7 7-1.06-1.06 7-7z"/><path d="m1.497 7.928.861-.862 1.061 1.06-.862.862c-1.103 1.104-1.09 3.02.173 4.283s3.179 1.275 4.282.172l.862-.862 1.06 1.06-.861.863c-1.753 1.752-4.62 1.61-6.404-.172-1.783-1.784-1.925-4.652-.172-6.404"/></g></svg></span></a>
+</div>
+          <div class="c-point-text">Commercial involvement in the development of the internet brings many benefits; a balance between commercial profit and public benefit is critical.</div>
+        </li>
+        <li id="principles-10">
+          <div class="c-point-number">
+  <a href="#principles-10">Principle 10<span class="c-point-link-icon" ><svg class="c-point-anchor-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><g fill="currentColor"><path d="M13.443 7.012c1.103-1.104 1.09-3.02-.172-4.282s-3.18-1.276-4.283-.173l-.861.862-1.061-1.06.862-.863c1.752-1.752 4.62-1.61 6.404.173s1.924 4.65.172 6.403l-.862.862-1.06-1.06z"/><path d="m12.03 5.03-7 7-1.06-1.06 7-7z"/><path d="m1.497 7.928.861-.862 1.061 1.06-.862.862c-1.103 1.104-1.09 3.02.173 4.283s3.179 1.275 4.282.172l.862-.862 1.06 1.06-.861.863c-1.753 1.752-4.62 1.61-6.404-.172-1.783-1.784-1.925-4.652-.172-6.404"/></g></svg></span></a>
+</div>
+          <div class="c-point-text">Magnifying the public benefit aspects of the internet is an important goal, worthy of time, attention and commitment.</div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="m24-t-green">
+    <div class="m24-c-content">
+      <div class="m24-c-prose m24-l-two-columns">
+        <div class="m24-c-prose-hgroup">
+          <h2 class="m24-c-prose-heading">Pledge for a Healthy Internet</h2>
+        </div>
+        <div class="m24-c-prose-body">
+          <p>The open, global internet is the most powerful communication and collaboration resource we have ever seen. It embodies some of our deepest hopes for human progress. It enables new opportunities for learning, building a sense of shared humanity, and solving the pressing problems facing people everywhere.</p>
+          <p>Over the last decade we have seen this promise fulfilled in many ways. We have also seen the power of the internet used to magnify divisiveness, incite violence, promote hatred, and intentionally manipulate fact and reality. We have learned that we should more explicitly set out our aspirations for the human experience of the internet. We do so now.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="m24-t-dark">
+    <div class="m24-c-content">
+      <div class="m24-c-intro">
+        <h2 class="m24-c-intro-title">Our Commitments</h2>
+      </div>
+      <ol class="c-points">
+        <li id="commitment-01">
+          <div class="c-point-number">
+  <a href="#commitment-01">Commitment 1<span class="c-point-link-icon" ><svg class="c-point-anchor-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><g fill="currentColor"><path d="M13.443 7.012c1.103-1.104 1.09-3.02-.172-4.282s-3.18-1.276-4.283-.173l-.861.862-1.061-1.06.862-.863c1.752-1.752 4.62-1.61 6.404.173s1.924 4.65.172 6.403l-.862.862-1.06-1.06z"/><path d="m12.03 5.03-7 7-1.06-1.06 7-7z"/><path d="m1.497 7.928.861-.862 1.061 1.06-.862.862c-1.103 1.104-1.09 3.02.173 4.283s3.179 1.275 4.282.172l.862-.862 1.06 1.06-.861.863c-1.753 1.752-4.62 1.61-6.404-.172-1.783-1.784-1.925-4.652-.172-6.404"/></g></svg></span></a>
+</div>
+          <div class="c-point-text">We are committed to an internet that includes all the peoples of the earth — where a person’s demographic characteristics do not determine their online access, opportunities, or quality of experience.</div>
+        </li>
+        <li id="commitment-02">
+          <div class="c-point-number">
+  <a href="#commitment-02">Commitment 2<span class="c-point-link-icon" ><svg class="c-point-anchor-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><g fill="currentColor"><path d="M13.443 7.012c1.103-1.104 1.09-3.02-.172-4.282s-3.18-1.276-4.283-.173l-.861.862-1.061-1.06.862-.863c1.752-1.752 4.62-1.61 6.404.173s1.924 4.65.172 6.403l-.862.862-1.06-1.06z"/><path d="m12.03 5.03-7 7-1.06-1.06 7-7z"/><path d="m1.497 7.928.861-.862 1.061 1.06-.862.862c-1.103 1.104-1.09 3.02.173 4.283s3.179 1.275 4.282.172l.862-.862 1.06 1.06-.861.863c-1.753 1.752-4.62 1.61-6.404-.172-1.783-1.784-1.925-4.652-.172-6.404"/></g></svg></span></a>
+</div>
+          <div class="c-point-text">We are committed to an internet that promotes civil discourse, human dignity, and individual expression.</div>
+        </li>
+        <li id="commitment-03">
+          <div class="c-point-number">
+  <a href="#commitment-03">Commitment 3<span class="c-point-link-icon" ><svg class="c-point-anchor-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><g fill="currentColor"><path d="M13.443 7.012c1.103-1.104 1.09-3.02-.172-4.282s-3.18-1.276-4.283-.173l-.861.862-1.061-1.06.862-.863c1.752-1.752 4.62-1.61 6.404.173s1.924 4.65.172 6.403l-.862.862-1.06-1.06z"/><path d="m12.03 5.03-7 7-1.06-1.06 7-7z"/><path d="m1.497 7.928.861-.862 1.061 1.06-.862.862c-1.103 1.104-1.09 3.02.173 4.283s3.179 1.275 4.282.172l.862-.862 1.06 1.06-.861.863c-1.753 1.752-4.62 1.61-6.404-.172-1.783-1.784-1.925-4.652-.172-6.404"/></g></svg></span></a>
+</div>
+          <div class="c-point-text">We are committed to an internet that elevates critical thinking, reasoned argument, shared knowledge, and verifiable facts.</div>
+        </li>
+        <li id="commitment-04">
+          <div class="c-point-number">
+  <a href="#commitment-04">Commitment 4<span class="c-point-link-icon" ><svg class="c-point-anchor-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><g fill="currentColor"><path d="M13.443 7.012c1.103-1.104 1.09-3.02-.172-4.282s-3.18-1.276-4.283-.173l-.861.862-1.061-1.06.862-.863c1.752-1.752 4.62-1.61 6.404.173s1.924 4.65.172 6.403l-.862.862-1.06-1.06z"/><path d="m12.03 5.03-7 7-1.06-1.06 7-7z"/><path d="m1.497 7.928.861-.862 1.061 1.06-.862.862c-1.103 1.104-1.09 3.02.173 4.283s3.179 1.275 4.282.172l.862-.862 1.06 1.06-.861.863c-1.753 1.752-4.62 1.61-6.404-.172-1.783-1.784-1.925-4.652-.172-6.404"/></g></svg></span></a>
+</div>
+          <div class="c-point-text">We are committed to an internet that catalyzes collaboration among diverse communities working together for the common good.</div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="m24-t-green">
+    <div class="m24-c-content">
+      <div class="m24-c-prose m24-l-two-columns">
+        <div class="m24-c-prose-hgroup">
+          <h2 class="m24-c-prose-heading">Mozilla's Pledge</h2>
+        </div>
+        <div class="m24-c-prose-body">
+          <p>Across the Mozilla Project and every organization in the Mozilla family, we pledge to support the Mozilla Manifesto in its activities. Specifically, we will:</p>
+          <ul class="mzp-u-list-styled">
+            <li>build and enable open-source technologies and communities that support the Manifesto’s principles;</li>
+            <li>build and deliver great consumer products that support the Manifesto’s principles;</li>
+            <li>use the Mozilla assets (intellectual property such as copyrights and trademarks, infrastructure, funds, and reputation) to keep the internet an open platform;</li>
+            <li>promote models for creating economic value for the public benefit; and</li>
+            <li>promote the Mozilla Manifesto principles in public discourse and within the internet industry.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="m24-t-alt">
+    <div class="m24-c-content">
+      <div class="m24-c-prose m24-l-two-columns">
+        <div class="m24-c-prose-hgroup">
+          <h2 class="m24-c-prose-heading">We Need You To Advance the Manifesto</h2>
+        </div>
+        <div class="m24-c-prose-body">
+        <p>An internet with these qualities will not come to life on its own. People and organizations must embed these aspirations into internet technology and into the human experience with the internet. The Mozilla Manifesto and Addendum represent Mozilla's commitment to advancing these aspirations. Mozilla works with people and organizations everywhere who want to make the internet an even better place for everyone.</p>
+        
+        
+        
+        
+        
+        
+        
+        
+        
+          <p>If you share this goal, let us know how we can help.</p>
+          <ul class="mzp-u-list-styled">
+            <li>We create <a href="https://github.com/mozilla?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=manifesto" rel="external noopener" data-link-text="GitHub">open source software</a> you can build on.</li>
+            <li>We <a href="https://www.mozillafoundation.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=manifesto" rel="external noopener" data-link-text="Mozilla Foundation">fund fellows and incubate projects</a> aimed at creating a better future online.</li>
+            <li>We <a href="https://www.mozilla.ai?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=manifesto" rel="external noopener" data-link-text="Mozilla.ai">build open source AI tools</a> that give developers choice — and help them save money.</li>
+            <li>We <a href="https://mozilla.vc?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=manifesto" rel="external noopener" data-link-text="Mozilla Ventures">invest in responsible tech startups</a>.</li>
+            <li>We <a href="https://mozilladatacollective.com/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=manifesto" rel="external noopener" data-link-text="Mozilla Data Collective">run a global community</a> for fair data exchange.</li>
+            <li>We <a href="https://www.mozillafoundation.org/festival/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=manifesto" rel="external noopener" data-link-text="MozFest">host a yearly global gathering</a> for people building anything and everything to advance the Manifesto.</li>
+          </ul>
+          <p>And, of course, we make <a href="https://www.firefox.com/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=manifesto" rel="external noopener" data-link-text="Firefox">Firefox</a> and <a href="https://www.thunderbird.net/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=manifesto" rel="external noopener" data-link-text="Thunderbird">Thunderbird</a>. All of this is aimed at helping people make the internet a healthy place.</p>
+        
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+
+      
+        
+
+
+
+
+  
+
+ <footer class="moz24-footer" id="colophon" role="contentinfo">
+  
+  <div class="moz24-footer-content">
+    
+    <div class="moz24-footer-primary">
+      <div class="moz24-footer-sections-container">
+        <div class="moz24-footer-advertising">
+          <div class="moz24-footer-advertising-wrapper">
+            <h2>
+              <img src="https://www.mozilla.org/media/img/logos/mozilla/ads/Mozilla_Ads_Logo.6ed26d0eac2b.svg" alt="Mozilla Ads" width="250" height="33" class="moz24-footer-advertising-logo">
+            </h2>
+            
+              <p>Add trust to your ad buy.</p>
+            
+            <a class="moz24-footer-advertising-link" href="/en-US/advertising/" data-link-position="footer" data-link-text="Learn more">
+              <span class="mzp-c-button-icon-text">Learn more <span>about Mozilla Ads</span></span>
+              <span class="mzp-c-button-icon-end">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path fill="currentColor" d="m7.24 1.36 5.89 5.89H0v1.5h13.13l-5.89 5.89L8.3 15.7 16 8 8.3.3z"/></svg>
+              </span>
+            </a>
+          </div>
+        </div>
+        <div class="moz24-footer-links">
+          <section>
+            <h2 class="moz24-footer-label" data-testid="footer-heading-company">
+              Company
+            </h2>
+            <ul class="moz24-footer-primary-list" data-testid="footer-list-company">
+              <li><a href="/en-US/about/leadership/" data-link-position="footer" data-link-text="Leadership">Leadership</a></li>
+              <li><a href="https://blog.mozilla.org/category/mozilla/news/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=company" data-link-position="footer" data-link-text="Press Center">Press Center</a></li>
+              <li><a href="/en-US/careers/" data-link-position="footer" data-link-text="Careers">Careers</a></li>
+              <li><a href="https://shop.mozilla.com/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=company" data-link-position="footer" data-link-text="Merch Store">Merch Store</a></li>
+              <li><a href="/en-US/contact/" data-link-position="footer" data-link-text="Contact">Contact</a></li>
+            
+            </ul>
+          </section>
+
+          <section>
+            <h2 class="moz24-footer-label" data-testid="footer-heading-support">
+              Support
+            </h2>
+            <ul class="moz24-footer-primary-list" data-testid="footer-list-support">
+              <li><a href="https://support.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=support" data-link-position="footer" data-link-text="Product Help">Product Help</a></li>
+              <li><a href="https://bugzilla.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=support" data-link-position="footer" data-link-text="File a Bug">File a Bug</a></li>
+              <li><a href="https://pontoon.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=support" data-link-position="footer" data-link-text="Localise Mozilla">Localize Mozilla</a></li>
+              <li><a href="/en-US/security/" data-link-position="footer" data-link-text="Security">Security</a></li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 class="moz24-footer-label" data-testid="footer-heading-developers">
+              Developers
+            </h2>
+            <ul class="moz24-footer-primary-list" data-testid="footer-list-developers">
+              <li><a href="https://www.firefox.com/channel/desktop/developer/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="Firefox Developer Edition">Developer Edition</a></li>
+              <li><a href="https://www.firefox.com/browsers/enterprise/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="Firefox for Enterprise">Enterprise</a></li>
+              <li><a href="https://firefox-source-docs.mozilla.org/devtools-user/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=developers" rel="external" data-link-position="footer" data-link-text="Tools">Tools</a></li>
+              <li><a href="https://developer.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="MDN">MDN</a></li>
+              <li><a href="https://www.firefox.com/firefox/155.0.1/releasenotes/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="Firefox Release Notes">Firefox Release Notes</a></li>
+            </ul>
+          </section>
+        </div>
+        <div class="moz24-footer-socials">
+          <div class="moz24-footer-refresh-social-wrapper">
+            <h2 class="moz24-footer-heading-social">Follow @Mozilla</h2>
+            <ul class="moz24-footer-social-links">
+              <li><a class="bluesky" href="https://bsky.app/profile/mozilla.org" data-link-position="footer" data-link-text="Bluesky (@mozilla.org)" translate="no">Bluesky<span> (@mozilla.org)</span></a></li>
+              <li><a class="instagram" href="https://www.instagram.com/mozilla/" data-link-position="footer" data-link-text="Instagram (@mozilla)">Instagram<span> (@mozilla)</span></a></li>
+              <li><a class="linkedin" href="https://www.linkedin.com/company/mozilla-corporation/" data-link-position="footer" data-link-text="LinkedIn (@mozilla)">LinkedIn<span> (@mozilla)</span></a></li>
+              <li><a class="tiktok" href="https://www.tiktok.com/@mozilla" data-link-position="footer" data-link-text="TikTok (@mozilla)">TikTok<span> (@mozilla)</span></a></li>
+              <li><a class="spotify" href="https://open.spotify.com/show/0vT7LJMeVDxyQ2ZamHKu08?si=_uDRD6bRR_6M5YZyISGXgA" data-link-position="footer" data-link-text="Spotify (@mozilla)">Spotify<span> (@mozilla)</span></a></li>
+            </ul>
+          </div>
+          <div class="moz24-footer-refresh-social-wrapper">
+            <h2 class="moz24-footer-heading-social">Follow @Firefox</h2>
+            <ul class="moz24-footer-social-links">
+              <li><a class="bluesky" href="https://bsky.app/profile/firefox.com" data-link-position="footer" data-link-text="Bluesky (@firefox.com)" translate="no">Bluesky<span> (@firefox.com)</span></a></li>
+              <li><a class="instagram" href="https://www.instagram.com/firefox/" data-link-position="footer" data-link-text="Instagram (@firefox)">Instagram<span> (@firefox)</span></a></li>
+              <li><a class="youtube" href="https://www.youtube.com/user/firefoxchannel" data-link-position="footer" data-link-text="YouTube (@firefoxchannel)">YouTube<span> (@firefoxchannel)</span></a></li>
+              <li><a class="tiktok" href="https://www.tiktok.com/@firefox" data-link-position="footer" data-link-text="TikTok (@firefox)">TikTok<span> (@firefox)</span></a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="moz24-footer-actions">
+      <a class="moz24-footer-donate" href="https://www.mozillafoundation.org/?form=moco-donate-footer" data-link-text="Donate">
+        <span class="mzp-c-button-icon-start">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><g clip-path="url(#a)"><path fill="currentColor" d="M14.8 8.25c.77-.77 1.2-1.8 1.2-2.9a4.094 4.094 0 0 0-4.1-4.1c-1.1 0-2.12.43-2.9 1.2L7.99 3.46 6.98 2.45c-.77-.77-1.8-1.2-2.9-1.2a4.094 4.094 0 0 0-4.1 4.1c0 1.1.43 2.12 1.2 2.9l6.8 6.8 6.8-6.8zM1.5 5.35c0-.7.27-1.35.76-1.83.49-.49 1.14-.76 1.84-.76s1.34.27 1.84.76l2.07 2.07 2.07-2.07c.98-.98 2.69-.98 3.67 0a2.595 2.595 0 0 1 0 3.67l-5.74 5.74-5.75-5.74c-.49-.49-.76-1.14-.76-1.84"/></g><defs><clipPath id="a"><path d="M0 0h16v16H0z"/></clipPath></defs></svg>
+        </span>
+        <span class="mzp-c-button-icon-text">Donate</span>
+      </a>
+      <div class="moz24-footer-language">
+        
+   <form id="lang_form" class="moz24-c-language-switcher" method="get" action="#">
+    <a class="mzp-c-language-switcher-link" href="/locales/">All languages</a>
+    <label for="page-language-select">Language</label>
+     <select id="page-language-select" class="mzp-js-language-switcher-select" name="lang" dir="ltr" data-testid="footer-language-select">
+       
+         <option lang="an" value="an">aragonés</option>
+       
+         <option lang="ar" value="ar">عربي</option>
+       
+         <option lang="be" value="be">Беларуская</option>
+       
+         <option lang="bg" value="bg">Български</option>
+       
+         <option lang="bn" value="bn">বাংলা</option>
+       
+         <option lang="bs" value="bs">Bosanski</option>
+       
+         <option lang="ca" value="ca">Català</option>
+       
+         <option lang="cak" value="cak">Maya Kaqchikel</option>
+       
+         <option lang="cs" value="cs">Čeština</option>
+       
+         <option lang="cy" value="cy">Cymraeg</option>
+       
+         <option lang="da" value="da">Dansk</option>
+       
+         <option lang="de" value="de">Deutsch</option>
+       
+         <option lang="dsb" value="dsb">Dolnoserbšćina</option>
+       
+         <option lang="el" value="el">Ελληνικά</option>
+       
+         <option lang="en-CA" value="en-CA">English (Canadian)</option>
+       
+         <option lang="en-GB" value="en-GB">English (British)</option>
+       
+         <option lang="en-US" value="en-US" selected>English</option>
+       
+         <option lang="eo" value="eo">Esperanto</option>
+       
+         <option lang="es-AR" value="es-AR">Español (de Argentina)</option>
+       
+         <option lang="es-CL" value="es-CL">Español (de Chile)</option>
+       
+         <option lang="es-ES" value="es-ES">Español (de España)</option>
+       
+         <option lang="es-MX" value="es-MX">Español (de México)</option>
+       
+         <option lang="eu" value="eu">Euskara</option>
+       
+         <option lang="fa" value="fa">فارسی</option>
+       
+         <option lang="fi" value="fi">suomi</option>
+       
+         <option lang="fr" value="fr">Français</option>
+       
+         <option lang="fy-NL" value="fy-NL">Frysk</option>
+       
+         <option lang="gn" value="gn">Avañe'ẽ</option>
+       
+         <option lang="gu-IN" value="gu-IN">ગુજરાતી (ભારત)</option>
+       
+         <option lang="hi-IN" value="hi-IN">हिन्दी (भारत)</option>
+       
+         <option lang="hr" value="hr">Hrvatski</option>
+       
+         <option lang="hsb" value="hsb">Hornjoserbsce</option>
+       
+         <option lang="hu" value="hu">magyar</option>
+       
+         <option lang="ia" value="ia">Interlingua</option>
+       
+         <option lang="id" value="id">Bahasa Indonesia</option>
+       
+         <option lang="is" value="is">íslenska</option>
+       
+         <option lang="it" value="it">Italiano</option>
+       
+         <option lang="ja" value="ja">日本語</option>
+       
+         <option lang="ka" value="ka">ქართული</option>
+       
+         <option lang="kab" value="kab">Taqbaylit</option>
+       
+         <option lang="kk" value="kk">Қазақ</option>
+       
+         <option lang="ko" value="ko">한국어</option>
+       
+         <option lang="lo" value="lo">ພາສາລາວ</option>
+       
+         <option lang="lt" value="lt">Lietuvių</option>
+       
+         <option lang="ml" value="ml">മലയാളം</option>
+       
+         <option lang="mr" value="mr">मराठी</option>
+       
+         <option lang="ms" value="ms">Melayu</option>
+       
+         <option lang="nb-NO" value="nb-NO">Norsk bokmål</option>
+       
+         <option lang="nl" value="nl">Nederlands</option>
+       
+         <option lang="nn-NO" value="nn-NO">Norsk nynorsk</option>
+       
+         <option lang="pa-IN" value="pa-IN">ਪੰਜਾਬੀ (ਭਾਰਤ)</option>
+       
+         <option lang="pl" value="pl">Polski</option>
+       
+         <option lang="pt-BR" value="pt-BR">Português (do Brasil)</option>
+       
+         <option lang="pt-PT" value="pt-PT">Português (Europeu)</option>
+       
+         <option lang="rm" value="rm">rumantsch</option>
+       
+         <option lang="ro" value="ro">Română</option>
+       
+         <option lang="ru" value="ru">Русский</option>
+       
+         <option lang="sk" value="sk">slovenčina</option>
+       
+         <option lang="skr" value="skr">سرائیکی</option>
+       
+         <option lang="sl" value="sl">Slovenščina</option>
+       
+         <option lang="sq" value="sq">Shqip</option>
+       
+         <option lang="sr" value="sr">Српски</option>
+       
+         <option lang="sv-SE" value="sv-SE">Svenska</option>
+       
+         <option lang="ta" value="ta">தமிழ்</option>
+       
+         <option lang="th" value="th">ไทย</option>
+       
+         <option lang="tr" value="tr">Türkçe</option>
+       
+         <option lang="uk" value="uk">Українська</option>
+       
+         <option lang="ur" value="ur">اُردو</option>
+       
+         <option lang="vi" value="vi">Tiếng Việt</option>
+       
+         <option lang="zh-CN" value="zh-CN">中文 (简体)</option>
+       
+         <option lang="zh-TW" value="zh-TW">正體中文 (繁體)</option>
+       
+     </select>
+   </form>
+ 
+       </div>
+    </div>
+    
+    <div class="moz24-footer-secondary">
+      <div class="moz24-footer-legal">
+        <p class="moz24-footer-license" rel="license">
+          
+          
+            Donate to the not-for-profit <a href="https://www.mozillafoundation.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" rel="external noopener" data-link-position="footer" data-link-text="Mozilla Foundation">Mozilla Foundation</a>.<br>
+          
+          Portions of this content are ©1998–2026 by individual mozilla.org contributors. Content available under a <a rel="license" href="/en-US/foundation/licensing/website-content/">Creative Commons license</a>.
+        </p>
+        <ul class="moz24-footer-terms">
+        
+          <li><a href="/en-US/privacy/websites/" data-link-position="footer" data-link-text="Privacy">Website Privacy Notice</a></li>
+          <li>
+            
+            <a href="/en-US/privacy/websites/cookie-settings/" data-link-position="footer" data-link-text="Cookies">Cookies</a>
+          </li>
+          <li><a href="/en-US/about/legal/" data-link-position="footer" data-link-text="Legal">Legal</a></li>
+          <li><a href="/en-US/about/governance/policies/participation/" data-link-position="footer" data-link-text="Community Participation Guidelines">Community Participation Guidelines</a></li>
+          
+            <li><a href="/en-US/about/this-site/" data-link-position="footer" data-link-text="About this site">About this site</a></li>
+          
+        
+        </ul>
+      </div>
+    </div>
+    <img loading="lazy" class="moz24-footer-logo-image-bottom" src="https://www.mozilla.org/media/img/logos/m24/wordmark-white.2d673bb5b33a.svg" alt="" width="1376" height="285">
+  </div>
+</footer>
+
+
+  
+
+
+      
+
+      
+      
+    </div>
+
+    
+    
+      
+        <!--[if !IE]><!-->
+          
+          <script src="https://www.mozilla.org/media/js/sentry.9f2fe29330f6.js"></script>
+        <!--<![endif]-->
+      
+    
+
+    
+      <!--[if !IE]><!-->
+        
+        <script src="https://www.mozilla.org/media/js/lib.f86d9ecbd086.js"></script>
+        <script src="https://www.mozilla.org/media/js/fxa.8c097c9145ff.js"></script>
+        <script src="https://www.mozilla.org/media/js/data.44609f062226.js"></script>
+        
+          <script src="https://www.mozilla.org/media/js/m24-ui.30741fa9d521.js"></script>
+        
+      <!--<![endif]-->
+
+      <!--[if IE 9]>
+        
+        <script src="https://www.mozilla.org/media/js/lib-ie.cf16e08599c3.js"></script>
+      <![endif]-->
+    
+
+    
+    
+
+    <!--[if !IE]><!-->
+    
+    
+      
+    
+
+    
+
+    
+    <!--<![endif]-->
+
+    
+    <!--[if IE 9]><!-->
+      
+      <script src="https://www.mozilla.org/media/js/consent-banner.52b78cd4ba21.js"></script>
+    <!--<![endif]-->
+    
+  </body>
+</html>

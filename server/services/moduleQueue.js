@@ -200,8 +200,21 @@ async function findStale({ staleAfterMs = STALE_AFTER_MS, limit = 20 } = {}) {
     db.from('project_module_runs').select(RUN_COLUMNS)
       .eq('status', 'running').lt('heartbeat_at', threshold)
       .order('heartbeat_at', { ascending: true }).limit(limit),
+    // Only rows the QUEUE owns. claimNext() always stamps both worker_id and
+    // heartbeat_at when it moves a run to 'running', so a queue-owned run can
+    // never sit here with a null heartbeat -- but an INLINE run can, because
+    // moduleEvidence.startRun() inserts status:'running' with neither field set.
+    //
+    // Without this filter every inline run was reclaimed at the flat 10-minute
+    // STALE_AFTER_MS, regardless of the deadline it recorded for itself: a
+    // healthy 10-page SEO & GEO audit takes ~22 minutes, so "Run Full Audit" was
+    // silently flipped back to 'queued' mid-flight and then re-run by the worker.
+    // Inline runs are swept by moduleEvidence.sweepStaleRuns(), which judges each
+    // row against its own payload.deadlineAt -- the allowance model this table
+    // was designed around.
     db.from('project_module_runs').select(RUN_COLUMNS)
       .eq('status', 'running').is('heartbeat_at', null)
+      .not('worker_id', 'is', null)
       .lt('started_at', threshold)
       .order('started_at', { ascending: true }).limit(limit),
   ]);

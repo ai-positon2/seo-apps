@@ -25,7 +25,7 @@ export const TOOL_GROUPS = [
     label: 'Optimize',
     tools: [
       { id: 'article-enhancement',    path: '/article-enhancement',    label: 'Enhance Existing Article', icon: '✍️', tag: 'internal' },
-      { id: 'article-enhancement-lite', path: '/article-enhancement-lite', label: 'Article Enhancer', icon: '📝' },
+      { id: 'article-enhancement-lite', path: '/article-enhancement-lite', label: 'Article Enhancer', icon: '📝', hidden: true },
       { id: 'ai-visibility',          path: '/ai-visibility',          label: 'AI Visibility',          icon: '📡', tag: 'beta' },
       { id: 'seo-geo-audit',          path: '/seo-geo-audit',          label: 'SEO & GEO Audit',        icon: '🌐', tag: 'beta' },
       { id: 'agent-readiness-audit',  path: '/agent-readiness-audit',  label: 'Agent Readiness Audit',  icon: '🤖' },
@@ -49,6 +49,14 @@ export const TOOL_GROUPS = [
 ];
 
 export const ALL_TOOLS = TOOL_GROUPS.flatMap(g => g.tools);
+
+// What the sidebar walks: same groups, minus the tools marked `hidden` (and
+// minus any group left empty by that). `hidden: true` takes a tool out of the
+// nav while leaving its route, its page title and its run-history label
+// intact — it stays reachable by URL, it just isn't advertised.
+export const NAV_GROUPS = TOOL_GROUPS
+  .map(g => ({ ...g, tools: g.tools.filter(t => !t.hidden) }))
+  .filter(g => g.tools.length > 0);
 
 export function getToolByPath(pathname) {
   return ALL_TOOLS.find(t => pathname === t.path || pathname.startsWith(t.path + '/'));

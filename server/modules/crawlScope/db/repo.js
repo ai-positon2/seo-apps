@@ -75,11 +75,19 @@ async function updateProject(client, id, patch, owner = null) {
   return firstRow(unwrap(await query.select()));
 }
 
-async function deleteProject(client, id, owner = null) {
-  let query = client.from("crawl_projects").delete().eq("id", id);
-  if (owner) query = query.eq("owner", owner);
-  return firstRow(unwrap(await query.select()));
-}
+// deleteProject was removed deliberately, not moved.
+//
+// It was a permanent DELETE on crawl_projects gated only by the optional `owner`
+// column, and it had exactly one caller — DELETE /api/crawl-scope/projects/:id —
+// which now performs the governed soft delete via modules/projects/store instead
+// (see the note on that route). Destroying a project row directly skips the
+// capability check, the audit event, the soft-delete precondition, the
+// confirm-the-name step, and PROJECT_PURGE_ORDER's crawl_runs-first ordering,
+// which 0010 requires because crawl_runs.project_id is ON DELETE SET NULL rather
+// than a cascade. Keeping the primitive around exported would just invite that
+// bypass to be reintroduced by the next caller who wanted a one-line delete.
+//
+// Permanent destruction lives in modules/projects/store.purgeProject().
 
 // Enabled projects whose next_run_at is due (service client only).
 // Ordered so the most overdue fires first, and bounded so one tick cannot pull the
@@ -269,6 +277,12 @@ async function listRunsForViewer(client, viewer, { limit = 50, projectId = null 
   return unwrap(await query.order("created_at", { ascending: false }).limit(limit));
 }
 
+// "Deleted" in this product is a soft delete: modules/projects flips
+// crawl_projects.lifecycle_status to 'deleted' and leaves the row in place so it
+// can be restored. CrawlScope read none of that, so a project deleted from the
+// projects UI kept appearing in the CrawlScope list and stayed crawlable.
+// lifecycle_status is NOT NULL DEFAULT 'active' (0011), so a plain neq is safe
+// here — no NULL rows to lose — and index 0011:364 covers exactly this predicate.
 async function listProjectsForViewer(client, viewer) {
   const filter = viewerFilter(viewer);
   if (!filter) return [];
@@ -277,6 +291,7 @@ async function listProjectsForViewer(client, viewer) {
       .from("crawl_projects")
       .select("*")
       .or(filter)
+      .neq("lifecycle_status", "deleted")
       .order("created_at", { ascending: false }),
   );
 }
@@ -285,6 +300,9 @@ async function getProjectForViewer(client, id, viewer) {
   const row = unwrap(
     await client.from("crawl_projects").select("*").eq("id", id).maybeSingle(),
   );
+  // A deleted project reads as absent, matching projectAccess.requireProject,
+  // which answers notFound for it rather than confirming the id exists.
+  if (!row || row.lifecycle_status === "deleted") return null;
   return canViewRow(row, viewer) ? row : null;
 }
 
@@ -346,6 +364,45 @@ async function claimNextQueuedRun(serviceClient, { triggers, trigger, workerId }
     if (claimed) return claimed;
   }
   return null;
+}
+
+// ── The control channel (migration 0025) ───────────────────────────────────
+//
+// Pause/resume/stop reach the RunManager in the process that receives the
+// request, and every project or scheduled crawl executes in the worker — so the
+// web process records the request on the run and the worker collects it here.
+//
+// Two functions rather than one because PostgREST returns the NEW row from an
+// UPDATE, so there is no read-and-clear in a single round trip. The split is
+// what makes it cheap in the common case: the poll is one narrow read of one
+// primary-key row and nothing is written unless a request is actually waiting.
+
+/** The outstanding request for this run, or null. Two columns, one row. */
+async function readControlRequest(client, id) {
+  const row = unwrap(
+    await client
+      .from("crawl_runs")
+      .select("control_request")
+      .eq("id", id)
+      .maybeSingle(),
+  );
+  return row?.control_request || null;
+}
+
+/**
+ * Clears a request, but only if it is still the one that was read.
+ *
+ * Compare-and-clear, not a blind null: between the read above and this write
+ * the web process may have recorded a NEWER request (a pause followed by a
+ * stop), and clearing unconditionally would swallow it. The `eq` on the value
+ * makes the update a no-op in that case, so the next poll picks the new one up.
+ */
+async function clearControlRequest(client, id, expected) {
+  await client
+    .from("crawl_runs")
+    .update({ control_request: null, control_requested_at: null })
+    .eq("id", id)
+    .eq("control_request", expected);
 }
 
 async function updateRun(client, id, patch) {
@@ -546,6 +603,36 @@ async function listRunFindingRollup(client, runId) {
   );
 }
 
+// One page of instances. The unpaged reader below holds every row in memory,
+// then mergeReviews() maps a second full copy, then res.json() serialises a
+// third — roughly 150MB transient for a 46,000-finding run, per concurrent
+// caller. The 50,000 cap is what stands between a 10,000-page crawl and an OOM,
+// so the answer at scale is to page rather than to raise it.
+async function listRunFindingInstancesPage(client, runId, { offset = 0, limit = 1_000 } = {}) {
+  // Capped at 1,000 because that is PostgREST's own max-rows ceiling on
+  // Supabase: asking for more returns a SHORT page, and a caller that pages on
+  // "did I get what I asked for" then stops after the first one. That is the
+  // bug this module already fixed once in listAllRunFindingInstances, and it
+  // came straight back the moment a second paged reader was written — a run of
+  // 3,420 findings served 1,000 and the ledger reconciliation was the only
+  // thing that noticed.
+  //
+  // So the ceiling is enforced here, and the response reports what was actually
+  // RETURNED, not what was requested. A caller pages on `returned`, and stops
+  // when it is zero.
+  const size = Math.max(1, Math.min(Number(limit) || 1_000, 1_000));
+  const from = Math.max(0, Number(offset) || 0);
+  const rows = unwrap(
+    await client
+      .from("crawl_run_finding_instances")
+      .select("data")
+      .eq("run_id", runId)
+      .order("id", { ascending: true })
+      .range(from, from + size - 1),
+  );
+  return { rows: rows.map((r) => r.data), offset: from, limit: size, returned: rows.length };
+}
+
 async function listAllRunFindingInstances(client, runId, { cap = 50_000 } = {}) {
   // PostgREST applies its own `max-rows` ceiling (1,000 on Supabase) and
   // silently returns a SHORT page when asked for more. So "fewer rows than I
@@ -630,6 +717,7 @@ async function listRunLinks(client, runId, { limit = 20000 } = {}) {
 async function deleteRunResults(serviceClient, runId) {
   unwrap(await serviceClient.from("crawl_run_results").delete().eq("run_id", runId));
   unwrap(await serviceClient.from("crawl_run_findings").delete().eq("run_id", runId));
+  unwrap(await serviceClient.from("crawl_run_finding_instances").delete().eq("run_id", runId));
   // A retry re-derives the graph from scratch; leaving the previous attempt's
   // edges would double every count in the clustering.
   unwrap(await serviceClient.from("crawl_run_links").delete().eq("run_id", runId));
@@ -785,7 +873,6 @@ module.exports = {
   getProject,
   createProject,
   updateProject,
-  deleteProject,
   dueProjects,
   dormantProjects,
   advanceProjectFrom,
@@ -812,6 +899,7 @@ module.exports = {
   insertRunFindingInstances,
   listAllRunFindingInstances,
   listRunFindingRollup,
+  listRunFindingInstancesPage,
   deleteRunResults,
   listResults,
   updateResultPagespeed,

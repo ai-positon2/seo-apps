@@ -1,0 +1,188 @@
+[
+  {
+    "rule": "anchor-missing",
+    "url": "https://www.mozilla.org/en-US/advertising/",
+    "verdict": "TRUE_POSITIVE",
+    "note": "re-parsed independently (HTTP 200)"
+  },
+  {
+    "rule": "anchor-nondescriptive",
+    "url": "https://www.mozilla.org/en-US/products/",
+    "verdict": "UNVERIFIABLE",
+    "note": "fetched and stored (HTTP 200); no independent programmatic check for this rule"
+  },
+  {
+    "rule": "asset-unminified",
+    "url": "https://www.mozilla.org/media/css/l10n/ar/intl.ecbece6a7dce.css",
+    "verdict": "UNVERIFIABLE",
+    "note": "fetched and stored (HTTP 200); no independent programmatic check for this rule"
+  },
+  {
+    "rule": "broken-external-link",
+    "url": "https://www.mozilla.org/en-US/",
+    "verdict": "UNVERIFIABLE",
+    "note": "fetched and stored (HTTP 200); no independent programmatic check for this rule"
+  },
+  {
+    "rule": "external-403",
+    "url": "https://www.mozillafoundation.org/",
+    "verdict": "TRUE_POSITIVE",
+    "note": "live status 403"
+  },
+  {
+    "rule": "h1-missing",
+    "url": "https://www.mozilla.org/an/",
+    "verdict": "TRUE_POSITIVE",
+    "note": "re-parsed independently (HTTP 200)"
+  },
+  {
+    "rule": "h1-multiple",
+    "url": "https://www.mozilla.org/be/about/",
+    "verdict": "TRUE_POSITIVE",
+    "note": "re-parsed independently (HTTP 200)"
+  },
+  {
+    "rule": "h1-title-duplicate",
+    "url": "https://www.mozilla.org/en-US/about/manifesto/",
+    "verdict": "UNVERIFIABLE",
+    "note": "fetched and stored (HTTP 200); no independent programmatic check for this rule"
+  },
+  {
+    "rule": "heading-hierarchy-skipped",
+    "url": "https://www.mozilla.org/an/",
+    "verdict": "UNVERIFIABLE",
+    "note": "fetched and stored (HTTP 200); no independent programmatic check for this rule"
+  },
+  {
+    "rule": "hreflang-missing-return",
+    "url": "https://www.mozilla.org/an/",
+    "verdict": "UNVERIFIABLE",
+    "note": "fetched and stored (HTTP 200); no independent programmatic check for this rule"
+  },
+  {
+    "rule": "hreflang-missing-self",
+    "url": "https://www.mozilla.org/en-CA/",
+    "verdict": "TRUE_POSITIVE",
+    "note": "re-parsed independently (HTTP 200)"
+  },
+  {
+    "rule": "https-to-http-link",
+    "url": "https://www.mozilla.org/en-US/about/leadership/",
+    "verdict": "UNVERIFIABLE",
+    "note": "fetched and stored (HTTP 200); no independent programmatic check for this rule"
+  },
+  {
+    "rule": "image-oversized",
+    "url": "https://www.mozilla.org/media/img/home/2024/donate-1450.87d1ed669993.jpg",
+    "verdict": "UNVERIFIABLE",
+    "note": "fetched and stored (HTTP 200); no independent programmatic check for this rule"
+  },
+  {
+    "rule": "link-to-redirect",
+    "url": "https://www.mozilla.org/an/",
+    "verdict": "UNVERIFIABLE",
+    "note": "fetched and stored (HTTP 200); no independent programmatic check for this rule"
+  },
+  {
+    "rule": "llms-missing",
+    "url": "https://www.mozilla.org/llms.txt",
+    "verdict": "UNVERIFIABLE",
+    "note": "fetched and stored (HTTP 302); no independent programmatic check for this rule"
+  },
+  {
+    "rule": "meta-long",
+    "url": "https://www.mozilla.org/gd/",
+    "verdict": "TRUE_POSITIVE",
+    "note": "re-parsed independently (HTTP 200)"
+  },
+  {
+    "rule": "meta-missing",
+    "url": "https://www.mozilla.org/en-US/products/monitor/",
+    "verdict": "TRUE_POSITIVE",
+    "note": "re-parsed independently (HTTP 200)"
+  },
+  {
+    "rule": "meta-short",
+    "url": "https://www.mozilla.org/ar/",
+    "verdict": "TRUE_POSITIVE",
+    "note": "re-parsed independently (HTTP 200)"
+  },
+  {
+    "rule": "noindex",
+    "url": "https://www.mozilla.org/en-US/about/this-site/",
+    "verdict": "TRUE_POSITIVE",
+    "note": "re-parsed independently (HTTP 200)"
+  },
+  {
+    "rule": "noindex-nofollow",
+    "url": "https://www.mozilla.org/an/firefox/all/desktop-esr/",
+    "verdict": "UNVERIFIABLE",
+    "note": "fetched and stored (HTTP 200); no independent programmatic check for this rule"
+  },
+  {
+    "rule": "open-graph-canonical",
+    "url": "https://www.mozilla.org/locales/",
+    "verdict": "UNVERIFIABLE",
+    "note": "fetched and stored (HTTP 200); no independent programmatic check for this rule"
+  },
+  {
+    "rule": "open-graph-description-missing",
+    "url": "https://www.mozilla.org/en-US/products/monitor/",
+    "verdict": "TRUE_POSITIVE",
+    "note": "re-parsed independently (HTTP 200)"
+  },
+  {
+    "rule": "open-graph-image-alt-missing",
+    "url": "https://www.mozilla.org/en-US/",
+    "verdict": "TRUE_POSITIVE",
+    "note": "re-parsed independently (HTTP 200)"
+  },
+  {
+    "rule": "permanent-redirect",
+    "url": "https://www.mozilla.org/an/firefox/developer/",
+    "verdict": "TRUE_POSITIVE",
+    "note": "live status 301"
+  },
+  {
+    "rule": "redirect-terminal-indexability",
+    "url": "https://www.mozilla.org/bg/about/this-site/",
+    "verdict": "UNVERIFIABLE",
+    "note": "fetched and stored (HTTP 302); no independent programmatic check for this rule"
+  },
+  {
+    "rule": "sitemap-missing-indexable",
+    "url": "https://www.mozilla.org/en-US/",
+    "verdict": "UNVERIFIABLE",
+    "note": "fetched and stored (HTTP 200); no independent programmatic check for this rule"
+  },
+  {
+    "rule": "sitemap-robots-config",
+    "url": "https://www.mozilla.org/robots.txt",
+    "verdict": "UNVERIFIABLE",
+    "note": "fetched and stored (HTTP 200); no independent programmatic check for this rule"
+  },
+  {
+    "rule": "sitemap-unreadable",
+    "url": "https://www.mozilla.org/robots.txt",
+    "verdict": "UNVERIFIABLE",
+    "note": "fetched and stored (HTTP 200); no independent programmatic check for this rule"
+  },
+  {
+    "rule": "slow-page",
+    "url": "https://www.mozilla.org/az/",
+    "verdict": "UNVERIFIABLE",
+    "note": "fetched and stored (HTTP 200); no independent programmatic check for this rule"
+  },
+  {
+    "rule": "temporary-redirect",
+    "url": "https://www.mozilla.org/",
+    "verdict": "TRUE_POSITIVE",
+    "note": "live status 302"
+  },
+  {
+    "rule": "title-long",
+    "url": "https://www.mozilla.org/gd/",
+    "verdict": "TRUE_POSITIVE",
+    "note": "re-parsed independently (HTTP 200)"
+  }
+]

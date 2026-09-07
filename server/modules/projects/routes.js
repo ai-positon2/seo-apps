@@ -44,6 +44,8 @@ const projectAccess = require('../../services/projectAccess');
 const overview = require('./overview');
 const moduleEvidence = require('./moduleEvidence');
 const moduleRunners = require('./moduleRunners');
+const moduleQueue = require('../../services/moduleQueue');
+const competitorAutostart = require('./competitorAutostart');
 const moduleDetail = require('./moduleDetail');
 const insights = require('./insights');
 const pages = require('./pages');
@@ -67,6 +69,28 @@ function handleError(res, e, where) {
   }
   console.error(`[projects.${where}]`, e?.stack || e?.message || e);
   res.status(500).json({ error: 'Something went wrong handling that project request.' });
+}
+
+/**
+ * Queue Competitor Research after a route has changed a project's domains.
+ *
+ * Reads the domains back rather than taking the caller's copy: the row that was
+ * just written has to be in the set, and a competitor added by a different
+ * request a second ago has to be too — that is what makes one queued run cover
+ * everything tracked when it starts.
+ *
+ * Never throws. The domain write the caller was asked for has already
+ * succeeded, and failing its response because a follow-on could not be queued
+ * would report the opposite of what happened.
+ */
+async function autostartAfterDomainChange(access, delayMs) {
+  try {
+    const domains = await store.listDomains(access.project.id);
+    return await competitorAutostart.scheduleCompetitorResearch({ access, domains, delayMs });
+  } catch (e) {
+    console.error('[projects] competitor autostart skipped:', e.message);
+    return { scheduled: false, reason: 'not_started', runId: null, note: null };
+  }
 }
 
 function requireConfigured(res) {
@@ -188,7 +212,35 @@ router.post('/', async (req, res) => {
       access, name, primaryDomain, country, competitors, schedule, recipients, crawlOptions,
       autoFindCompetitors: Boolean(autoFindCompetitors),
     });
-    res.status(201).json({ project });
+
+    // The comparison starts itself: a project with a primary domain and
+    // something to compare it against has everything Competitor Research needs,
+    // and a card that says "not run yet" next to a button whose only job is to
+    // say "yes, now" is a step nobody chose. It is queued, not run here — this
+    // is a metered module (see competitorAutostart.js for what that costs and
+    // how it is kept from being spent twice for one setup).
+    //
+    // Re-authorized through requireProject rather than reusing the
+    // workspace-level context above: `startRun` is a different capability from
+    // the one that created the project, and the runner needs the raw project
+    // row that context does not carry.
+    const competitorResearch = await projectAccess
+      .requireProject(req, project.id, 'startRun')
+      .then((runAccess) => store.listDomains(project.id).then((domains) => (
+        competitorAutostart.scheduleCompetitorResearch({
+          access: runAccess,
+          domains,
+          delayMs: competitorAutostart.SETUP_DELAY_MS,
+        })
+      )))
+      .catch((e) => {
+        // Creating the project succeeded. Failing the response because the
+        // comparison could not be queued would report the opposite.
+        console.error('[projects.create] competitor autostart skipped:', e.message);
+        return { scheduled: false, reason: 'not_started', note: null };
+      });
+
+    res.status(201).json({ project, competitorResearch });
   } catch (e) { handleError(res, e, 'create'); }
 });
 
@@ -239,6 +291,28 @@ router.post('/:projectId/restore', async (req, res) => {
   } catch (e) { handleError(res, e, 'restore'); }
 });
 
+// POST, not DELETE: the DELETE verb on this resource is already the recoverable
+// soft delete (§4.3.1), and overloading it on a body flag would make the
+// difference between "hidden" and "gone forever" a payload detail. A purge is a
+// distinct, named act with its own capability and its own URL.
+//
+// `confirmName` must equal the project's name and the project must already be
+// soft-deleted — both enforced in store.purgeProject, which explains why.
+router.post('/:projectId/purge', async (req, res) => {
+  if (!requireConfigured(res)) return;
+  try {
+    const access = await projectAccess.requireProject(req, req.params.projectId, 'purgeProject', {
+      includeDeleted: true,
+    });
+    const result = await store.purgeProject({
+      access,
+      reason: req.body?.reason,
+      confirmName: req.body?.confirmName,
+    });
+    res.json(result);
+  } catch (e) { handleError(res, e, 'purge'); }
+});
+
 // ── Domains ─────────────────────────────────────────────────────────────────
 
 router.get('/:projectId/domains', async (req, res) => {
@@ -266,12 +340,22 @@ router.post('/:projectId/domains/competitors', async (req, res) => {
       domain: req.body?.domain,
       status: verdict === 'propose' ? 'proposed' : 'active',
     });
+
+    // Same rule as at setup: the comparison starts itself once there is
+    // something to compare against. Queued with a coalescing window, so adding
+    // three competitors in a row produces one run that compares all three
+    // rather than three runs that each bill the full amount. A proposed
+    // competitor is not tracked yet and starts nothing — the decision, and the
+    // sentence explaining it, are in competitorAutostart.js.
+    const competitorResearch = await autostartAfterDomainChange(access);
+
     res.status(201).json({
       domain,
       proposed: verdict === 'propose',
+      competitorResearch,
       message: verdict === 'propose'
         ? 'Proposed. An approver or administrator has to accept it before it is tracked.'
-        : undefined,
+        : competitorResearch.note || undefined,
     });
   } catch (e) { handleError(res, e, 'addCompetitor'); }
 });
@@ -306,10 +390,17 @@ router.post('/:projectId/domains/competitors/discover', async (req, res) => {
     const discovered = await moduleRunners.autoDiscoverCompetitors({
       access, project: access.project, primary, existingCompetitors,
     });
+
+    // Discovery just added the domains, so the comparison has what it needs.
+    const competitorResearch = discovered.competitors.length
+      ? await autostartAfterDomainChange(access)
+      : { scheduled: false, reason: discovered.reason || 'no_competitors_tracked', note: null };
+
     res.status(discovered.competitors.length ? 201 : 200).json({
       competitors: discovered.competitors,
       proposed: discovered.reason === 'competitors_pending_approval',
-      message: discovered.note,
+      competitorResearch,
+      message: `${discovered.note || ''}${competitorResearch.note || ''}`.trim() || undefined,
     });
   } catch (e) { handleError(res, e, 'discoverCompetitors'); }
 });
@@ -713,15 +804,28 @@ router.post('/:projectId/pages/:pageId/include', async (req, res) => {
 
 // GET /api/projects/:projectId/insights
 //
-// What the six modules say when read together: the ranked backlog, the
-// cross-module insights, what changed since the previous run, and an explicit
-// account of what is not measured. Reads stored evidence only — it runs no
-// audits, so two calls against an unchanged project return the same answer.
+// The backlog's totals: how much there is to fix, how much of it is one template
+// change, how many pages it touches, how many were crawled. Reads stored
+// evidence only — it runs no audits, so two calls against an unchanged project
+// return the same answer.
+//
+// The ranked items themselves are NOT sent. They are built — POST
+// insights/promote rebuilds the same backlog to verify the item somebody clicked
+// is still in it — but the dashboard reads four numbers off `totals` and nothing
+// else, and shipping 41 fully-worded actions to be discarded on arrival cost
+// 123KB a load on the live Palo Alto project. Restoring them is one line here,
+// for whatever renders them next.
 router.get('/:projectId/insights', async (req, res) => {
   if (!requireConfigured(res)) return;
   try {
     const access = await projectAccess.requireProject(req, req.params.projectId, 'view');
-    res.json(await insights.buildInsights({ access }));
+    const built = await insights.buildInsights({ access });
+    res.json({
+      project: built.project,
+      backlog: { totals: built.backlog.totals, ranking: built.backlog.ranking },
+      crawl: built.crawl,
+      generatedAt: built.generatedAt,
+    });
   } catch (e) { handleError(res, e, 'insights'); }
 });
 
@@ -827,38 +931,76 @@ router.get('/:projectId/audit-events', async (req, res) => {
 // them in one request cannot — see the audit route below.
 //
 // ai_visibility is the one exception: its own runner documents 25-110s PER
-// capture, run serially (10-35 minutes for a full set) — nothing this route
-// can hold open. A real run against a client with approved prompts was
-// confirmed to fail exactly this way: it does the real work and then dies
-// trying to answer a request whose connection a proxy already gave up on
-// (this repo's dev Vite proxy times out at 120s; a production load balancer
-// usually sooner), which reads as "Something went wrong" even though the
-// measurement itself succeeded. Detached, like the audit route below.
+// capture (10-35 minutes for a full set) — nothing this route can hold open.
+// It goes on the QUEUE, and services/moduleWorker.js executes it.
 //
-// The evidence row is opened before the work starts, so a request that dies
-// mid-flight still leaves a run the sweeper can fail honestly.
-const DETACHED_MODULES = ['ai_visibility'];
+// It used to run here instead, detached: the request opened a `running` row
+// and left an in-process promise working on it. That shape is not merely
+// redundant now the worker exists, it is actively broken by it. Only a
+// worker's claim stamps `worker_id`/`heartbeat_at`, so a row opened here
+// heartbeats NEVER — which is exactly what moduleQueue.reap()'s second arm
+// (running, heartbeat_at IS NULL, started_at older than the threshold) exists
+// to catch. The threshold is ten minutes and a real measurement is 10-35, so
+// EVERY manual run was reclaimed while it was still working:
+//
+//   • the row went back to `queued`, so the dashboard's poll saw the module
+//     leave `running` and reported "Measuring finished" with nothing measured
+//   • the worker then claimed the requeued row and captured the whole set a
+//     SECOND time, billing the client twice for one click
+//   • three reclaims burned `attempts` and failed the run for good, with an
+//     error blaming a worker that had never been near it
+//
+// Enqueuing puts the one mechanism that heartbeats in charge of the one
+// module that runs long enough to need it, and makes a manual run take the
+// same path the scheduler already uses (services/moduleScheduler.js).
+const QUEUED_MODULES = ['ai_visibility'];
 
 router.post('/:projectId/modules/:moduleKey/run', async (req, res) => {
   if (!requireConfigured(res)) return;
   try {
     const access = await projectAccess.requireProject(req, req.params.projectId, 'startRun');
+    const { moduleKey } = req.params;
+
+    if (QUEUED_MODULES.includes(moduleKey)) {
+      // Checked here rather than left to the worker: an unrunnable key has to
+      // fail the click. Queued, it would sit there until something claimed it
+      // and threw, and the person who clicked would be told nothing.
+      if (!moduleRunners.RUNNABLE.includes(moduleKey)) {
+        return res.status(400).json({
+          error: `${moduleKey} cannot be run from here. `
+            + `Runnable modules: ${moduleRunners.RUNNABLE.join(', ')}.`,
+          code: 'module_not_runnable',
+        });
+      }
+
+      const run = await moduleQueue.enqueue({
+        projectId: access.project.id,
+        workspaceId: access.project.workspace_id || null,
+        moduleKey,
+        trigger: 'manual',
+        createdBy: access.userId || null,
+        countryCode: access.project.country_code || null,
+      });
+
+      // 202 with the run still `queued`. The caller polls the overview, which
+      // reports a queued run as `running` (moduleEvidence classes anything
+      // non-terminal as in-flight) — so a click reads as under way from the
+      // moment it lands, whether or not a worker has picked it up yet.
+      return res.status(202).json({
+        run,
+        poll: `/api/projects/${req.params.projectId}/modules/${moduleKey}/runs?limit=1`,
+      });
+    }
+
     const domains = await store.listDomains(req.params.projectId);
-    const detached = DETACHED_MODULES.includes(req.params.moduleKey);
     const run = await moduleRunners.runModule({
       access,
-      moduleKey: req.params.moduleKey,
+      moduleKey,
       domains,
       trigger: 'manual',
       keywords: req.body?.keywords || null,
-      detached,
     });
-    res.status(detached ? 202 : 201).json({
-      run,
-      ...(detached ? {
-        poll: `/api/projects/${req.params.projectId}/modules/${req.params.moduleKey}/runs?limit=1`,
-      } : {}),
-    });
+    res.status(201).json({ run });
   } catch (e) { handleError(res, e, 'runModule'); }
 });
 
@@ -905,8 +1047,38 @@ router.post('/:projectId/audit', async (req, res) => {
     // route used to do, silently reporting last week's pages as today's audit.
     const crawlRunId = req.body?.crawlRunId || null;
 
-    const perPage = requested.filter((m) => moduleEvidence.PAGE_MODULE_KEYS.includes(m));
-    const siteLevel = requested.filter((m) => !moduleEvidence.PAGE_MODULE_KEYS.includes(m));
+    // The long ones go on the queue and leave this loop alone.
+    //
+    // ai_visibility is in the default audit set and takes 10-35 minutes. Run in
+    // the loop below it opens a `running` row nothing heartbeats, and
+    // moduleQueue.reap() reclaims exactly that after ten minutes — requeueing a
+    // run that is still working, which then executes a second time on the
+    // worker. Same defect as the single-module route above, same fix: the
+    // module that runs long enough to need a heartbeat is run by the thing that
+    // stamps one.
+    const queued = requested.filter((m) => QUEUED_MODULES.includes(m));
+    const inline = requested.filter((m) => !QUEUED_MODULES.includes(m));
+
+    for (const moduleKey of queued) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await moduleQueue.enqueue({
+          projectId: access.project.id,
+          workspaceId: access.project.workspace_id || null,
+          moduleKey,
+          trigger: 'audit_all',
+          createdBy: access.userId || null,
+          countryCode: access.project.country_code || null,
+        });
+      } catch (e) {
+        // One module that could not be queued must not sink the rest of the
+        // audit — the others are still worth running.
+        console.error(`[projects.audit] could not queue ${moduleKey}:`, e.message);
+      }
+    }
+
+    const perPage = inline.filter((m) => moduleEvidence.PAGE_MODULE_KEYS.includes(m));
+    const siteLevel = inline.filter((m) => !moduleEvidence.PAGE_MODULE_KEYS.includes(m));
     const following = Boolean(crawlRunId && perPage.length);
 
     // Detached on purpose. Nothing awaits this, and it must never reject into an

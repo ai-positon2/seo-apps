@@ -1,0 +1,1870 @@
+HTTP/1.1 200 OK
+accept-ranges: bytes
+age: 2
+cache-control: max-age=600
+connection: keep-alive
+content-encoding: br
+content-language: an
+content-length: 15213
+content-security-policy: frame-src 'self' accounts.firefox.com gtm.mozilla.org js.stripe.com www.google-analytics.com www.googletagmanager.com www.youtube.com; font-src 'self' www.mozilla.org; script-src 'self' 'unsafe-eval' 'unsafe-inline' *.google-analytics.com *.googletagmanager.com cdn.transcend.io google-analytics.com googletagmanager.com js.stripe.com s.ytimg.com tagmanager.google.com transcend-cdn.com www.mozilla.org www.youtube.com; frame-ancestors 'none'; default-src 'self' *.mozilla.org; upgrade-insecure-requests; style-src 'self' 'unsafe-inline' cdn.transcend.io transcend-cdn.com www.mozilla.org; img-src 'self' blog.mozilla.org data: images.ctfassets.net www.google-analytics.com www.googletagmanager.com www.mozilla.org; connect-src 'self' *.analytics.google.com *.google-analytics.com *.googletagmanager.com analytics.google.com cdn.transcend.io google-analytics.com googletagmanager.com gtm.mozilla.org https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org o1069899.ingest.sentry.io o1069899.sentry.io region1.google-analytics.com telemetry.transcend.io telemetry.us.transcend.io transcend-cdn.com www.mozilla.org/submit/bedrock/; object-src 'none'; base-uri 'none'; form-action 'self' https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org; media-src 'self' assets.mozilla.net videos.cdn.mozilla.net www.mozilla.org
+content-security-policy-report-only: frame-src 'self' accounts.firefox.com gtm.mozilla.org js.stripe.com www.google-analytics.com www.googletagmanager.com www.youtube.com; font-src 'self' www.mozilla.org; script-src 'self' 'unsafe-eval' 'unsafe-inline' *.google-analytics.com *.googletagmanager.com cdn.transcend.io google-analytics.com googletagmanager.com js.stripe.com s.ytimg.com tagmanager.google.com transcend-cdn.com www.mozilla.org www.youtube.com; frame-ancestors 'none'; default-src 'self' *.mozilla.org; upgrade-insecure-requests; style-src 'self' 'unsafe-inline' cdn.transcend.io transcend-cdn.com www.mozilla.org; img-src 'self' blog.mozilla.org data: images.ctfassets.net www.google-analytics.com www.googletagmanager.com www.mozilla.org; connect-src 'self' *.analytics.google.com *.google-analytics.com *.googletagmanager.com analytics.google.com cdn.transcend.io google-analytics.com googletagmanager.com gtm.mozilla.org https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org o1069899.ingest.sentry.io o1069899.sentry.io region1.google-analytics.com telemetry.transcend.io telemetry.us.transcend.io transcend-cdn.com www.mozilla.org/submit/bedrock/; object-src 'none'; base-uri 'none'; form-action 'self' https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org; media-src 'self' assets.mozilla.net videos.cdn.mozilla.net www.mozilla.org
+content-type: text/html; charset=utf-8
+cross-origin-opener-policy: same-origin
+date: Sat, 05 Sep 2026 18:23:48 GMT
+etag: "a493ea9b152103116a7c05b4772b3c67"
+expires: Sat, 05 Sep 2026 18:33:46 GMT
+referrer-policy: strict-origin-when-cross-origin
+server: granian
+strict-transport-security: max-age=31536000
+vary: Accept-Encoding
+via: 1.1 google, 1.1 varnish, 1.1 varnish
+x-backend-server: bedrock-58fdcfd585-k7bxn.gcp-us-west1
+x-cache: MISS, HIT
+x-cache-hits: 0, 1
+x-clacks-overhead: GNU Terry Pratchett
+x-content-type-options: nosniff
+x-frame-options: DENY
+x-served-by: cache-bom-vanm7210024-BOM, cache-bom-vanm7210024-BOM, cache-bom-vanm7210072-BOM
+x-timer: S1788632629.839422,VS0,VE1
+
+
+
+
+
+
+
+
+
+
+
+<!doctype html>
+
+<html class="windows no-js" lang="an" dir="ltr" data-country-code="IN" data-needs-consent="False" data-latest-firefox="155.0.1" data-esr-versions="140.15.0 153.2.0" data-gtm-container-id="GTM-MW3R8V"  data-stub-attribution-rate="1.0" data-sentry-dsn="https://c3ab8514873549d5b3785ebc7fb83c80@o1069899.ingest.sentry.io/6260331" >
+  <head>
+    <meta charset="utf-8">
+
+    
+
+
+
+<script data-cfasync="false" src="https://transcend-cdn.com/cm/d556c3a1-e57c-4bdf-a490-390a1aebf6dd/airgap.js"></script>
+
+
+    <!--[if !IE]><!-->
+    <script src="https://www.mozilla.org/media/js/site.a6a07233d547.js"></script>
+
+    
+    <!--<![endif]-->
+
+    <!--[if IE 9]>
+    <script src="https://www.mozilla.org/media/js/site-ie.419ec4b57d17.js"></script>
+    <![endif]-->
+
+<!--
+
+
+             _.-~-.
+           7''  Q..\
+        _7         (_
+      _7  _/    _q.  /
+    _7 . ___  /VVvv-'_                                            .
+   7/ / /~- \_\\      '-._     .-'                      /       //
+  ./ ( /-~-/||'=.__  '::. '-~'' {             ___   /  //     ./{
+ V   V-~-~| ||   __''_   ':::.   ''~-~.___.-'' _/  // / {_   /  {  /
+  VV/-~-~-|/ \ .'__'. '.    '::                     _ _ _        ''.
+  / /~~~~||VVV/ /  \ )  \        _ __ ___   ___ ___(_) | | __ _   .::'
+ / (~-~-~\\.-' /    \'   \::::. | '_ ` _ \ / _ \_  / | | |/ _` | :::'
+/..\    /..\__/      '     '::: | | | | | | (_) / /| | | | (_| | ::'
+vVVv    vVVv                 ': |_| |_| |_|\___/___|_|_|_|\__,_| ''
+
+Hi there, nice to meet you!
+
+Interested in having a direct impact on hundreds of millions of users? Join
+Mozilla, and become part of a global community that’s helping to build a
+brighter future for the Web.
+
+Visit https://www.mozilla.org/careers to learn about our current job openings.
+Visit https://www.mozilla.org/contribute for more ways to get involved and
+help support Mozilla.
+-->
+
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+<!-- validates bing webmaster tools -->
+<meta name="msvalidate.01" content="B7B177115A634927D608514DA17B2574">
+<!-- YouTube Verification -->
+<meta name="google-site-verification" content="U9a6gH32vLIykvntaDToj-ytYhlZ1AfAgVEKstixQIE">
+
+
+    
+    <title>Internet pa la chent, sin animo de lucro — Mozilla</title>
+    <meta name="description" content="Lo sabebas? Mozilla — la creadora de Firefox — luita pa mantener l'Internet como recurso publico global, ubierto y accesible a totz.">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Mozilla">
+    <meta property="og:locale" content="an">
+    <meta property="og:url" content="https://www.mozilla.org/an/">
+    <meta property="og:image" content="https://www.mozilla.org/media/img/m24/og.3a69dffad83e.png">
+    <meta property="og:title" content="Internet pa la chent, sin animo de lucro">
+    <meta property="og:description" content="Lo sabebas? Mozilla — la creadora de Firefox — luita pa mantener l'Internet como recurso publico global, ubierto y accesible a totz.">
+    <meta property="fb:page_id" content="262134952380">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:site" content="@mozilla">
+    <meta name="twitter:domain" content="mozilla.org">
+    <meta name="twitter:app:name:googleplay" content="Firefox">
+    <meta name="twitter:app:id:googleplay" content="org.mozilla.firefox">
+    <meta name="twitter:app:name:iphone" content="Firefox">
+    <meta name="twitter:app:id:iphone" content="989804926">
+    <meta name="twitter:app:name:ipad" content="Firefox">
+    <meta name="twitter:app:id:ipad" content="989804926">
+    <link rel="apple-touch-icon" type="image/png" sizes="180x180" href="https://www.mozilla.org/media/img/favicons/mozilla/apple-touch-icon.05aa000f6748.png">
+    <link rel="icon" type="image/png" sizes="196x196" href="https://www.mozilla.org/media/img/favicons/mozilla/favicon-196x196.e143075360ea.png">
+    <link rel="shortcut icon" href="https://www.mozilla.org/media/img/favicons/mozilla/favicon.d0be64e474b1.ico">
+    <link rel="canonical" href="https://www.mozilla.org/an/">
+    <link rel="alternate" hreflang="x-default" href="https://www.mozilla.org/">
+    <link rel="alternate" hreflang="an" href="https://www.mozilla.org/an/" title="aragonés">
+        <link rel="alternate" hreflang="ar" href="https://www.mozilla.org/ar/" title="عربي">
+        <link rel="alternate" hreflang="az" href="https://www.mozilla.org/az/" title="Azərbaycanca">
+        <link rel="alternate" hreflang="be" href="https://www.mozilla.org/be/" title="Беларуская">
+        <link rel="alternate" hreflang="bg" href="https://www.mozilla.org/bg/" title="Български">
+        <link rel="alternate" hreflang="bn" href="https://www.mozilla.org/bn/" title="বাংলা">
+        <link rel="alternate" hreflang="bs" href="https://www.mozilla.org/bs/" title="Bosanski">
+        <link rel="alternate" hreflang="ca" href="https://www.mozilla.org/ca/" title="Català">
+        <link rel="alternate" hreflang="cs" href="https://www.mozilla.org/cs/" title="Čeština">
+        <link rel="alternate" hreflang="cy" href="https://www.mozilla.org/cy/" title="Cymraeg">
+        <link rel="alternate" hreflang="da" href="https://www.mozilla.org/da/" title="Dansk">
+        <link rel="alternate" hreflang="de" href="https://www.mozilla.org/de/" title="Deutsch">
+        <link rel="alternate" hreflang="el" href="https://www.mozilla.org/el/" title="Ελληνικά">
+        <link rel="alternate" hreflang="en-CA" href="https://www.mozilla.org/en-CA/" title="English (Canadian)">
+        <link rel="alternate" hreflang="en-GB" href="https://www.mozilla.org/en-GB/" title="English (British)">
+        <link rel="alternate" hreflang="en" href="https://www.mozilla.org/en-US/" title="English">
+        <link rel="alternate" hreflang="en-US" href="https://www.mozilla.org/en-US/" title="English (USA)">
+        <link rel="alternate" hreflang="eo" href="https://www.mozilla.org/eo/" title="Esperanto">
+        <link rel="alternate" hreflang="es-AR" href="https://www.mozilla.org/es-AR/" title="Español (de Argentina)">
+        <link rel="alternate" hreflang="es-CL" href="https://www.mozilla.org/es-CL/" title="Español (de Chile)">
+        <link rel="alternate" hreflang="es" href="https://www.mozilla.org/es-ES/" title="Español">
+        <link rel="alternate" hreflang="es-ES" href="https://www.mozilla.org/es-ES/" title="Español (de España)">
+        <link rel="alternate" hreflang="es-MX" href="https://www.mozilla.org/es-MX/" title="Español (de México)">
+        <link rel="alternate" hreflang="et" href="https://www.mozilla.org/et/" title="Eesti keel">
+        <link rel="alternate" hreflang="eu" href="https://www.mozilla.org/eu/" title="Euskara">
+        <link rel="alternate" hreflang="fa" href="https://www.mozilla.org/fa/" title="فارسی">
+        <link rel="alternate" hreflang="fi" href="https://www.mozilla.org/fi/" title="suomi">
+        <link rel="alternate" hreflang="fr" href="https://www.mozilla.org/fr/" title="Français">
+        <link rel="alternate" hreflang="fy" href="https://www.mozilla.org/fy-NL/" title="Frysk">
+        <link rel="alternate" hreflang="fy-NL" href="https://www.mozilla.org/fy-NL/" title="Frysk">
+        <link rel="alternate" hreflang="gd" href="https://www.mozilla.org/gd/" title="Gàidhlig">
+        <link rel="alternate" hreflang="gl" href="https://www.mozilla.org/gl/" title="Galego">
+        <link rel="alternate" hreflang="gn" href="https://www.mozilla.org/gn/" title="Avañe'ẽ">
+        <link rel="alternate" hreflang="gu" href="https://www.mozilla.org/gu-IN/" title="ગુજરાતી">
+        <link rel="alternate" hreflang="gu-IN" href="https://www.mozilla.org/gu-IN/" title="ગુજરાતી (ભારત)">
+        <link rel="alternate" hreflang="he" href="https://www.mozilla.org/he/" title="עברית">
+        <link rel="alternate" hreflang="hi" href="https://www.mozilla.org/hi-IN/" title="हिन्दी">
+        <link rel="alternate" hreflang="hi-IN" href="https://www.mozilla.org/hi-IN/" title="हिन्दी (भारत)">
+        <link rel="alternate" hreflang="hr" href="https://www.mozilla.org/hr/" title="Hrvatski">
+        <link rel="alternate" hreflang="hu" href="https://www.mozilla.org/hu/" title="magyar">
+        <link rel="alternate" hreflang="hy" href="https://www.mozilla.org/hy-AM/" title="Հայերեն">
+        <link rel="alternate" hreflang="hy-AM" href="https://www.mozilla.org/hy-AM/" title="Հայերեն">
+        <link rel="alternate" hreflang="ia" href="https://www.mozilla.org/ia/" title="Interlingua">
+        <link rel="alternate" hreflang="id" href="https://www.mozilla.org/id/" title="Bahasa Indonesia">
+        <link rel="alternate" hreflang="is" href="https://www.mozilla.org/is/" title="íslenska">
+        <link rel="alternate" hreflang="it" href="https://www.mozilla.org/it/" title="Italiano">
+        <link rel="alternate" hreflang="ja" href="https://www.mozilla.org/ja/" title="日本語">
+        <link rel="alternate" hreflang="ka" href="https://www.mozilla.org/ka/" title="ქართული">
+        <link rel="alternate" hreflang="kk" href="https://www.mozilla.org/kk/" title="Қазақ">
+        <link rel="alternate" hreflang="ko" href="https://www.mozilla.org/ko/" title="한국어">
+        <link rel="alternate" hreflang="lo" href="https://www.mozilla.org/lo/" title="ພາສາລາວ">
+        <link rel="alternate" hreflang="lt" href="https://www.mozilla.org/lt/" title="Lietuvių">
+        <link rel="alternate" hreflang="ml" href="https://www.mozilla.org/ml/" title="മലയാളം">
+        <link rel="alternate" hreflang="mr" href="https://www.mozilla.org/mr/" title="मराठी">
+        <link rel="alternate" hreflang="ms" href="https://www.mozilla.org/ms/" title="Melayu">
+        <link rel="alternate" hreflang="my" href="https://www.mozilla.org/my/" title="မြန်မာဘာသာ">
+        <link rel="alternate" hreflang="nb-NO" href="https://www.mozilla.org/nb-NO/" title="Norsk bokmål">
+        <link rel="alternate" hreflang="nl" href="https://www.mozilla.org/nl/" title="Nederlands">
+        <link rel="alternate" hreflang="nn-NO" href="https://www.mozilla.org/nn-NO/" title="Norsk nynorsk">
+        <link rel="alternate" hreflang="pa" href="https://www.mozilla.org/pa-IN/" title="ਪੰਜਾਬੀ">
+        <link rel="alternate" hreflang="pa-IN" href="https://www.mozilla.org/pa-IN/" title="ਪੰਜਾਬੀ (ਭਾਰਤ)">
+        <link rel="alternate" hreflang="pl" href="https://www.mozilla.org/pl/" title="Polski">
+        <link rel="alternate" hreflang="pt" href="https://www.mozilla.org/pt-BR/" title="Português">
+        <link rel="alternate" hreflang="pt-BR" href="https://www.mozilla.org/pt-BR/" title="Português (do Brasil)">
+        <link rel="alternate" hreflang="pt-PT" href="https://www.mozilla.org/pt-PT/" title="Português (Europeu)">
+        <link rel="alternate" hreflang="rm" href="https://www.mozilla.org/rm/" title="rumantsch">
+        <link rel="alternate" hreflang="ro" href="https://www.mozilla.org/ro/" title="Română">
+        <link rel="alternate" hreflang="ru" href="https://www.mozilla.org/ru/" title="Русский">
+        <link rel="alternate" hreflang="si" href="https://www.mozilla.org/si/" title="සිංහල">
+        <link rel="alternate" hreflang="sk" href="https://www.mozilla.org/sk/" title="slovenčina">
+        <link rel="alternate" hreflang="sl" href="https://www.mozilla.org/sl/" title="Slovenščina">
+        <link rel="alternate" hreflang="sq" href="https://www.mozilla.org/sq/" title="Shqip">
+        <link rel="alternate" hreflang="sr" href="https://www.mozilla.org/sr/" title="Српски">
+        <link rel="alternate" hreflang="sv" href="https://www.mozilla.org/sv-SE/" title="Svenska">
+        <link rel="alternate" hreflang="sv-SE" href="https://www.mozilla.org/sv-SE/" title="Svenska">
+        <link rel="alternate" hreflang="ta" href="https://www.mozilla.org/ta/" title="தமிழ்">
+        <link rel="alternate" hreflang="tg" href="https://www.mozilla.org/tg/" title="Тоҷикӣ">
+        <link rel="alternate" hreflang="th" href="https://www.mozilla.org/th/" title="ไทย">
+        <link rel="alternate" hreflang="tr" href="https://www.mozilla.org/tr/" title="Türkçe">
+        <link rel="alternate" hreflang="uk" href="https://www.mozilla.org/uk/" title="Українська">
+        <link rel="alternate" hreflang="ur" href="https://www.mozilla.org/ur/" title="اُردو">
+        <link rel="alternate" hreflang="vi" href="https://www.mozilla.org/vi/" title="Tiếng Việt">
+        <link rel="alternate" hreflang="zh" href="https://www.mozilla.org/zh-CN/" title="中文">
+        <link rel="alternate" hreflang="zh-CN" href="https://www.mozilla.org/zh-CN/" title="中文 (简体)">
+        <link rel="alternate" hreflang="zh-TW" href="https://www.mozilla.org/zh-TW/" title="正體中文 (繁體)">
+        
+    
+    
+    <link href="https://mastodon.social/@mozilla" rel="me">
+
+    <!--[if lt IE 9]>
+      
+      <script src="https://www.mozilla.org/media/js/ie/libs/html5shiv.a94a0b700fa2.js"></script>
+    <![endif]-->
+
+    <!--[if IE]>
+      
+      
+        <link href="https://www.mozilla.org/media/css/common-old-ie.4d14f7a84a19.css" rel="stylesheet" type="text/css">
+      
+    <![endif]-->
+
+    <!--[if !IE]><!-->
+    
+    
+      <link href="https://www.mozilla.org/media/css/protocol-mozilla.54ea44c214ed.css" rel="stylesheet" type="text/css">
+      
+        <link href="https://www.mozilla.org/media/css/legacy-navigation-and-footer.c8995f2ceb12.css" rel="stylesheet" type="text/css">
+      
+      
+    
+
+    
+    
+  <link href="https://www.mozilla.org/media/css/protocol-split.b2c741eb3ef3.css" rel="stylesheet" type="text/css">
+  <link href="https://www.mozilla.org/media/css/protocol-picto.cfee40a3cd36.css" rel="stylesheet" type="text/css">
+  <link href="https://www.mozilla.org/media/css/protocol-newsletter.0f68eb7e0134.css" rel="stylesheet" type="text/css">
+  <link href="https://www.mozilla.org/media/css/home-old.1592e52ae347.css" rel="stylesheet" type="text/css">
+
+  
+
+    <!--<![endif]-->
+
+    
+      
+    
+
+    
+    
+      <!--[if IE 9]><!-->
+        
+
+<!--
+Read more about our custom configuration and use of Google Analytics here:
+https://bugzilla.mozilla.org/show_bug.cgi?id=1122305#c8
+-->
+
+<!-- Google Tag Manager -->
+<!-- Customized for Mozilla.org-->
+<!-- Region Container: NONE -->
+<!-- Rollup Container: System Filtered -->
+<!-- Site Container: NONE -->
+
+
+    <script src="https://www.mozilla.org/media/js/gtm-snippet.cc9550e6b401.js"></script>
+
+<!-- End Google Tag Manager -->
+      <!--<![endif]-->
+    
+  </head>
+
+  <body id="home" class="html-ltr lang-an" >
+    <div id="strings"
+      data-global-close="Zarrar"
+      data-global-next="Siguient"
+      data-global-previous="Anterior"
+      ></div>
+
+    
+      
+
+<aside class="moz-consent-banner" id="moz-consent-banner" role="region" aria-label="Cookie Banner" data-nosnippet="true" data-testid="consent-banner">
+  <div class="moz-consent-banner-content">
+    <h2 class="moz-consent-banner-heading">Help us improve your Mozilla experience</h2>
+    <div class="moz-consent-banner-copy">
+      <p>In addition to Cookies necessary for this site to function, we’d like your permission to set some additional Cookies to better understand your browsing needs and improve your experience. Rest assured — we value your privacy.</p>
+      <div class="moz-consent-banner-controls">
+        <button type="button" id="moz-consent-banner-button-accept" class="moz-consent-banner-button moz-consent-banner-button-accept" data-testid="consent-banner-accept-button">
+          Accept All Additional Cookies
+        </button>
+        <button type="button" id="moz-consent-banner-button-reject" class="moz-consent-banner-button moz-consent-banner-button-reject" data-testid="consent-banner-reject-button">
+          Reject All Additional Cookies
+        </button>
+        <a href="/an/privacy/websites/cookie-settings/">
+          Cookie settings
+        </a>
+      </div>
+    </div>
+  </div>
+</aside>
+    
+
+    
+      
+
+
+  
+  
+    
+  
+
+  <div class="c-navigation top-header-navigation">
+    <div class="c-navigation-l-content">
+      <div class="c-navigation-container">
+        <button class="c-navigation-menu-button" type="button" aria-controls="c-navigation-items" data-testid="navigation-menu-button">Menu</button>
+        <div class="c-navigation-logo">
+          <a href="/an/" data-link-text="mozilla home icon" data-link-position="nav">
+            <img class="c-navigation-logo-image" src="https://www.mozilla.org/media/img/logos/m24/lockup-black.f2ddba3f0724.svg" alt="Mozilla" width="88" height="21">
+          </a>
+        </div>
+
+        <div class="c-navigation-items" id="c-navigation-items" data-testid="navigation-menu-items">
+          
+
+
+  <div class="c-navigation-shoulder">
+    
+      
+        
+
+<div id="protocol-nav-download-firefox" class="mzp-c-button-download-container c-button-download-thanks">
+  <a href="https://www.firefox.com/thanks/"
+     class="download-link c-button-download-thanks-link mzp-c-button mzp-t-product mzp-t-secondary mzp-t-md"
+     data-direct-link="https://download.mozilla.org/?product=firefox-stub&amp;os=win&amp;lang=an"
+     data-testid="protocol-nav-download-firefox"
+     data-cta-text="Download Firefox"
+     data-cta-position="nav">
+    
+      Descargar lo Firefox
+    
+  </a>
+
+  
+  
+
+
+  
+
+
+
+
+
+<div class="fx-unsupported-message win" data-nosnippet="true">
+  <p><strong>Firefox is <a href="https://support.mozilla.org/kb/firefox-users-windows-7-8-and-81-moving-extended-support">no longer supported</a> on Windows 8.1 and below.</strong></p>
+  <p>Please download Firefox ESR (Extended Support Release) to use Firefox.</p>
+  <div class="download-platform-list">
+    <p>
+      <a class="mzp-c-button mzp-t-product download-link os_win64 ga-product-download" href="https://download.mozilla.org/?product=firefox-esr115-latest-ssl&os=win64&lang=an" data-download-version="win64" data-cta-text="Download Firefox Extended Support Release 64-bit" data-cta-type="firefox">
+        Download Firefox ESR 64-bit
+      </a>
+    </p>
+    <p>
+      <a class="mzp-c-button mzp-t-product download-link os_win ga-product-download" href="https://download.mozilla.org/?product=firefox-esr115-latest-ssl&os=win&lang=an" data-download-version="win" data-cta-text="Download Firefox Extended Support Release 32-bit" data-cta-type="firefox">
+        Download Firefox ESR 32-bit
+      </a>
+    </p>
+
+    <small class="fx-unsupported-message-all-link">
+      <a href="/an/firefox/all/desktop-esr/">
+        Download a different build
+      </a>
+    </small>
+  </div>
+</div>
+
+<div class="fx-unsupported-message mac" data-nosnippet="true">
+  <p><strong>Firefox is <a href="https://support.mozilla.org/kb/firefox-users-macos-1012-1013-1014-moving-to-extended-support">no longer supported</a> on macOS 10.14 and below.</strong></p>
+  <p>Please download Firefox ESR (Extended Support Release) to use Firefox.</p>
+
+  <div class="download-platform-list">
+    <a class="mzp-c-button mzp-t-product download-link ga-product-download" href="https://download.mozilla.org/?product=firefox-esr115-latest-ssl&os=osx&lang=an" data-download-version="osx" data-cta-text="Firefox Extended Support Release MacOS" data-cta-type="firefox">
+      Download Firefox ESR
+    </a>
+  </div>
+</div>
+
+  <small class="mzp-c-button-download-privacy-link">
+    <a href="/an/privacy/firefox/">
+      Aviso de privacidat de Firefox
+    </a>
+  </small>
+</div>
+      
+      
+      <div class="c-navigation-vpn-cta-container">
+        <a href="/an/products/vpn/#pricing" class="mzp-c-button js-fxa-product-referral-link mzp-t-product mzp-t-secondary mzp-t-md" data-referral-id="navigation" data-cta-text="Get Mozilla VPN" data-cta-type="vpn" data-cta-position="navigation">Get Mozilla VPN</a>
+      </div>
+      
+    
+  </div>
+
+          <div class="c-navigation-menu">
+            <nav class="c-menu mzp-is-basic">
+              <ul class="c-menu-category-list">
+                
+
+
+
+
+<li class="c-menu-category">
+  <a class="c-menu-title" href="https://www.firefox.com?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=firefox" data-testid="m24-navigation-link-firefox">
+    <img src="https://www.mozilla.org/media/protocol/img/logos/firefox/browser/logo.eb1324e44442.svg" class="c-menu-title-icon" width="16" height="16" alt="">
+    Firefox Browsers
+  </a>
+</li>
+                
+
+
+
+<li class="c-menu-category mzp-has-drop-down mzp-js-expandable">
+  <a class="c-menu-title" href="/an/products/" aria-haspopup="true" aria-controls="c-menu-panel-products" data-testid="navigation-link-products">Products</a>
+  <div class="c-menu-panel" id="c-menu-panel-products" data-testid="navigation-menu-products">
+    <div class="c-menu-panel-container">
+      <button class="c-menu-button-close" type="button" aria-controls="c-menu-panel-products">Close Products menu</button>
+      <div class="c-menu-panel-content">
+        <ul class="mzp-l-rows-four">
+          <li>
+            <section class="c-menu-item mzp-has-icon">
+              <a class="c-menu-item-link" href="https://monitor.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Mozilla Monitor" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/firefox/monitor/logo.d97e5516f9e6.svg" class="c-menu-item-icon" width="32" height="32" alt="">
+                <h4 class="c-menu-item-title">Mozilla Monitor</h4>
+                <p class="c-menu-item-desc">See if your email has appeared in a company’s data breach.</p>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="c-menu-item mzp-has-icon">
+              <a class="c-menu-item-link" href="/an/products/vpn/" data-link-text="Mozilla VPN" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/mozilla/vpn/logo.c648f487bfb8.svg" class="c-menu-item-icon" width="32" height="32" alt="">
+                <h4 class="c-menu-item-title">Mozilla VPN</h4>
+                <p class="c-menu-item-desc">Get protection beyond your browser, on all your devices.</p>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="c-menu-item mzp-has-icon">
+              <a class="c-menu-item-link" href="https://relay.firefox.com/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Firefox Relay" data-link-position="topnav - projects">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/firefox/relay/logo.d42a8b52e44c.svg" class="c-menu-item-icon" width="32" height="32" alt="">
+                <h4 class="c-menu-item-title">Firefox Relay</h4>
+                <p class="c-menu-item-desc">Sign up for new accounts without handing over your email address.</p>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="c-menu-item mzp-has-icon">
+              <a class="c-menu-item-link" href="https://developer.mozilla.org/plus?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="MDN Plus" data-link-position="topnav - projects">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/mdn/mdn-plus-logo.c615b46ca4ce.svg" class="c-menu-item-icon" width="32" height="32" alt="">
+                <h4 class="c-menu-item-title">MDN Plus</h4>
+                <p class="c-menu-item-desc">New features and tools for a customized MDN experience</p>
+              </a>
+            </section>
+          </li>
+        </ul>
+        <p class="c-menu-category-link"><a href="/an/products/" data-link-text="View all Products" data-link-position="topnav - products">View all Products</a></p>
+      </div>
+    </div><!-- close .c-menu-panel-container -->
+  </div><!-- close .c-menu-panel -->
+</li><!-- close products -->
+                
+
+
+
+<li class="c-menu-category mzp-has-drop-down mzp-js-expandable">
+  <a class="c-menu-title" href="/an/about/" aria-haspopup="true" aria-controls="c-menu-panel-about" data-testid="navigation-link-who-we-are">Who We Are</a>
+  <div class="c-menu-panel" id="c-menu-panel-about" data-testid="navigation-menu-who-we-are">
+    <div class="c-menu-panel-container">
+      <button class="c-menu-button-close" type="button" aria-controls="c-menu-panel-about">Close Who We Are menu</button>
+      <div class="c-menu-panel-content">
+        <ul class="mzp-l-rows-four">
+          <li>
+            <section class="c-menu-item mzp-has-icon">
+              <a class="c-menu-item-link" href="/an/about/manifesto/" data-link-text="Mozilla Manifesto" data-link-position="topnav - who-we-are">
+                <svg class="c-menu-item-icon" xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path fill="#42435a" d="M9.5 28.6h13.1c2.6 0 4.6-2.1 4.6-4.6V8.1c0-2.6-2.1-4.6-4.6-4.6H9.5c-2.6 0-4.6 2.1-4.6 4.6V24c-.1 2.5 2 4.6 4.6 4.6zM7.6 8.1c0-1 .8-1.8 1.8-1.8h13.1c1 0 1.8.8 1.8 1.8V24c0 1-.8 1.8-1.8 1.8h-13c-1 0-1.8-.8-1.8-1.8V8.1zm12.6 2.3h-8.4c-.4 0-.7-.3-.7-.7 0-.4.3-.7.7-.7h8.4c.4 0 .7.3.7.7 0 .4-.3.7-.7.7zm-8.4 4.2h8.4c.4 0 .7-.3.7-.7s-.3-.7-.7-.7h-8.4c-.4 0-.7.3-.7.7s.3.7.7.7zm8.4 4.2h-8.4c-.4 0-.7-.3-.7-.7s.3-.7.7-.7h8.4c.4 0 .7.3.7.7s-.3.7-.7.7zM11.8 23h3.6c.4 0 .7-.3.7-.7s-.3-.7-.7-.7h-3.6c-.4 0-.7.3-.7.7s.3.7.7.7z"></path></svg>
+                <h4 class="c-menu-item-title">Mozilla Manifesto</h4>
+              
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="c-menu-item mzp-has-icon">
+              <a class="c-menu-item-link" href="https://www.mozillafoundation.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=who-we-are" data-link-text="Mozilla Foundation" data-link-position="topnav - who-we-are">
+                <svg class="c-menu-item-icon" xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path fill="#42435a" d="M16 9.3V4H2.7v24h26.7V9.3H16zm-8 16H5.3v-2.7H8v2.7zM8 20H5.3v-2.7H8V20zm0-5.3H5.3V12H8v2.7zm0-5.4H5.3V6.7H8v2.6zm5.3 16h-2.7v-2.7h2.7v2.7zm0-5.3h-2.7v-2.7h2.7V20zm0-5.3h-2.7V12h2.7v2.7zm0-5.4h-2.7V6.7h2.7v2.6zm13.4 16H16v-2.7h2.7V20H16v-2.7h2.7v-2.7H16V12h10.7v13.3zM24 14.7h-2.7v2.7H24v-2.7zm0 5.3h-2.7v2.7H24V20z"></path></svg>
+                <h4 class="c-menu-item-title">Mozilla Foundation</h4>
+                <p class="c-menu-item-desc">Meet the not-for-profit behind Firefox that stands for a better web.</p>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="c-menu-item mzp-has-icon">
+              <a class="c-menu-item-link" href="/an/about/leadership/" data-link-text="Leadership" data-link-position="topnav - who-we-are">
+                <svg class="c-menu-item-icon" xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path fill="#42435a" d="M22.7 13.9V2.7H9.3v11.2c0 .5.2.9.7 1.1l5.6 3.3-1.3 3.1-4.5.4 3.5 3-1.1 4.4L16 27l3.9 2.4-1-4.4 3.5-3-4.5-.4-1.3-3.1 5.6-3.3c.2-.4.5-.8.5-1.3zm-5.4 2.4l-1.3.8-1.3-.8V4h2.7v12.3z"></path></svg>
+                <h4 class="c-menu-item-title">Leadership</h4>
+              
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="c-menu-item mzp-has-icon">
+              <a class="c-menu-item-link" href="/an/contribute/" data-link-text="Get Involved" data-link-position="topnav - who-we-are">
+                <svg class="c-menu-item-icon" xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path fill="#42435a" d="M12 22.7l4-3.9c-.5-.1-.9-.1-1.3-.1C11.1 18.7 4 20.5 4 24v2.7h12l-4-4zm2.7-6.7c2.9 0 5.3-2.4 5.3-5.3s-2.4-5.3-5.3-5.3-5.3 2.4-5.3 5.3c-.1 2.9 2.3 5.3 5.3 5.3z"></path><path fill="#42435a" d="M20.6 27.3L16 22.7l1.9-1.9 2.8 2.8 6.8-6.9 1.9 1.9-8.8 8.7z"></path></svg>
+                <h4 class="c-menu-item-title">Get involved</h4>
+                <p class="c-menu-item-desc">Join the fight for a healthy internet.</p>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="c-menu-item mzp-has-icon">
+              <a class="c-menu-item-link" href="/an/careers/" data-link-text="Careers" data-link-position="topnav - who-we-are">
+                <svg class="c-menu-item-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"><path fill="#42435a" d="M13.3 21.3V20H4v5.3C4 26.8 5.2 28 6.7 28h18.7c1.5 0 2.7-1.2 2.7-2.7V20h-9.3v1.3h-5.5zm13.4-12h-5.3V6.7L18.7 4h-5.3l-2.7 2.7v2.7H5.3c-1.5 0-2.7 1.2-2.7 2.7v4c0 1.5 1.2 2.7 2.7 2.7h8V16h5.3v2.7h8c1.5 0 2.7-1.2 2.7-2.7v-4c0-1.5-1.2-2.7-2.6-2.7zm-8 0h-5.3V6.7h5.3v2.6z"></path></svg>
+                <h4 class="c-menu-item-title">Careers</h4>
+                <p class="c-menu-item-desc">Work for a mission-driven organization that makes people-first products.</p>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="c-menu-item mzp-has-icon">
+              <a class="c-menu-item-link" href="https://blog.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=who-we-are" data-link-text="Mozilla Blog" data-link-position="topnav - who-we-are">
+                <svg class="c-menu-item-icon" xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path fill="#42435a" d="M21.1 7.5c-.2-.2-.2-.5 0-.7l.5-.5c.8-.8 2.1-.8 2.9 0l1.2 1.2c.8.8.8 2.1 0 2.9l-.5.5c-.2.2-.5.2-.7 0l-3.4-3.4zm2.3 4.5c.2.2.2.5 0 .7L12.7 23.4c-.2.2-.4.3-.6.4l-5.7 2.4c-.3.1-.6 0-.7-.3-.1-.1-.1-.3 0-.4L8.1 20c.1-.2.3-.5.4-.6L19.2 8.6c.2-.2.5-.2.7 0l3.5 3.4zM11.5 22.7l-3.9 1.7 1.7-3.9c0-.1.1-.2.2-.2l2.3 2.3c-.1 0-.2.1-.3.1z"></path></svg>
+                <h4 class="c-menu-item-title">Mozilla Blog</h4>
+              
+              </a>
+            </section>
+          </li>
+        
+        </ul>
+        <p class="c-menu-category-link">
+          <a href="/an/about/" data-link-text="More About Mozilla" data-link-position="topnav - who-we-are">More About Mozilla</a>
+        </p>
+      </div>
+    </div><!-- close .c-menu-panel-container -->
+  </div><!-- close .c-menu-panel -->
+</li><!-- close who we are -->
+                
+
+
+
+<li class="c-menu-category mzp-has-drop-down mzp-js-expandable">
+  <a class="c-menu-title" href="https://future.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=innovation" aria-haspopup="true" aria-controls="c-menu-panel-innovation" data-testid="navigation-link-innovation">Innovation</a>
+  <div class="c-menu-panel" id="c-menu-panel-innovation" data-testid="navigation-menu-innovation">
+    <div class="c-menu-panel-container">
+      <button class="c-menu-button-close" type="button" aria-controls="c-menu-panel-innovation">Close Innovation menu</button>
+      <div class="c-menu-panel-content">
+        <ul class="mzp-l-rows-two">
+          <li>
+            <section class="c-menu-item mzp-has-icon">
+              <a class="c-menu-item-link" href="/an/firefox/developer/" data-link-text="Firefox Developer Edition" data-link-position="topnav - innovation">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/firefox/browser/developer/logo.41d42822c8fb.svg" class="c-menu-item-icon" width="32" height="32" alt="">
+                <h4 class="c-menu-item-title">Firefox Developer Edition</h4>
+                <p class="c-menu-item-desc">Get the Firefox browser built just for developers.</p>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="c-menu-item mzp-has-icon">
+              <a class="c-menu-item-link" href="https://developer.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=innovation" data-link-text="MDN Web Docs" data-link-position="topnav - innovation">
+                <img loading="lazy" class="c-menu-item-icon" src="https://www.mozilla.org/media/img/nav/icons/icon-mdn-web-docs.9ed01cfe71c7.svg" alt="">
+                <h4 class="c-menu-item-title">MDN Web Docs</h4>
+                <p class="c-menu-item-desc">Check out the home for web developer resources.</p>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="c-menu-item mzp-has-icon">
+              <a class="c-menu-item-link" href="https://future.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=innovation" data-link-text="Mozilla Innovation Projects" data-link-position="topnav - innovation">
+                <img loading="lazy" class="c-menu-item-icon" src="https://www.mozilla.org/media/img/nav/icons/icon-innovation-projects.11f189479119.svg" alt="">
+                <h4 class="c-menu-item-title">Mozilla Innovation Projects</h4>
+                <p class="c-menu-item-desc">Discover ways to bring bright ideas to life.</p>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="c-menu-item mzp-has-icon">
+              <a class="c-menu-item-link" href="https://commonvoice.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=innovation" data-link-text="Common Voice" data-link-position="topnav - innovation">
+                <img loading="lazy" class="c-menu-item-icon" src="https://www.mozilla.org/media/img/nav/icons/icon-common-voice.127fa3f5dcb0.svg" alt="">
+                <h4 class="c-menu-item-title">Common Voice</h4>
+                <p class="c-menu-item-desc">Donate your voice so the future of the web can hear everyone.</p>
+              </a>
+            </section>
+          </li>
+        </ul>
+      </div>
+    </div><!-- close .c-menu-panel-container -->
+  </div><!-- close .c-menu-panel -->
+</li><!-- close innovation -->
+              </ul>
+            </nav>
+          </div><!-- close .c-navigation-menu -->
+        </div><!-- close .c-navigation-items -->
+      </div><!-- close .c-navigation-container -->
+    </div><!-- close .c-navigation-l-content -->
+  </div><!-- close .c-navigation -->
+
+    
+
+    
+
+    <div id="outer-wrapper">
+      
+<main>
+    <section class="mzp-c-split c-home-hero mzp-l-split-center-on-sm-md mzp-t-split-nospace">
+  
+  <div class="mzp-c-split-container">
+    
+    <div class="mzp-c-split-body">
+      
+      <div class="mzp-c-wordmark mzp-t-wordmark-md mzp-t-product-firefox">Firefox Browser</div>
+      <h2 class="c-home-hero-title">Mas rapido y millor.</h2>
+
+      <p class="c-home-hero-desc">
+        Con o doble de velocidat, protección de datos integrada y Mozilla dezaga d'ell, lo nuevo Firefox nuevo ye la millor manera de navegar.
+      </p>
+
+      
+
+<div id="download-primary" class="mzp-c-button-download-container c-button-download-thanks">
+  <a href="https://www.firefox.com/thanks/"
+     class="download-link c-button-download-thanks-link mzp-c-button mzp-t-product mzp-t-xl"
+     data-direct-link="https://download.mozilla.org/?product=firefox-stub&amp;os=win&amp;lang=an"
+     data-testid="download-primary"
+     data-cta-text="Download Firefox"
+     data-cta-position="primary cta">
+    
+      Descargar lo Firefox
+    
+  </a>
+
+  
+  
+
+
+  
+
+
+
+
+
+<div class="fx-unsupported-message win" data-nosnippet="true">
+  <p><strong>Firefox is <a href="https://support.mozilla.org/kb/firefox-users-windows-7-8-and-81-moving-extended-support">no longer supported</a> on Windows 8.1 and below.</strong></p>
+  <p>Please download Firefox ESR (Extended Support Release) to use Firefox.</p>
+  <div class="download-platform-list">
+    <p>
+      <a class="mzp-c-button mzp-t-product download-link os_win64 ga-product-download" href="https://download.mozilla.org/?product=firefox-esr115-latest-ssl&os=win64&lang=an" data-download-version="win64" data-cta-text="Download Firefox Extended Support Release 64-bit" data-cta-type="firefox">
+        Download Firefox ESR 64-bit
+      </a>
+    </p>
+    <p>
+      <a class="mzp-c-button mzp-t-product download-link os_win ga-product-download" href="https://download.mozilla.org/?product=firefox-esr115-latest-ssl&os=win&lang=an" data-download-version="win" data-cta-text="Download Firefox Extended Support Release 32-bit" data-cta-type="firefox">
+        Download Firefox ESR 32-bit
+      </a>
+    </p>
+
+    <small class="fx-unsupported-message-all-link">
+      <a href="/an/firefox/all/desktop-esr/">
+        Download a different build
+      </a>
+    </small>
+  </div>
+</div>
+
+<div class="fx-unsupported-message mac" data-nosnippet="true">
+  <p><strong>Firefox is <a href="https://support.mozilla.org/kb/firefox-users-macos-1012-1013-1014-moving-to-extended-support">no longer supported</a> on macOS 10.14 and below.</strong></p>
+  <p>Please download Firefox ESR (Extended Support Release) to use Firefox.</p>
+
+  <div class="download-platform-list">
+    <a class="mzp-c-button mzp-t-product download-link ga-product-download" href="https://download.mozilla.org/?product=firefox-esr115-latest-ssl&os=osx&lang=an" data-download-version="osx" data-cta-text="Firefox Extended Support Release MacOS" data-cta-type="firefox">
+      Download Firefox ESR
+    </a>
+  </div>
+</div>
+
+  <small class="mzp-c-button-download-privacy-link">
+    <a href="/an/privacy/firefox/">
+      Aviso de privacidat de Firefox
+    </a>
+  </small>
+</div>
+    
+    </div>
+    
+      
+        <div class="mzp-c-split-media">
+          <img src="https://www.mozilla.org/media/img/home/laptop.cad96eee9ddb.png" srcset="https://www.mozilla.org/media/img/home/laptop-high-res.24205e247e92.png 2x" alt="" class="mzp-c-split-media-asset">
+        </div>
+      
+    
+  </div>
+  
+</section>
+
+  <div class="mzp-l-content mzp-t-mozilla">
+    <section class="mzp-c-billboard mzp-l-billboard-right">
+  <div class="mzp-c-billboard-image-container">
+    <img src="https://www.mozilla.org/media/img/home/dino.d58f2ed768f7.svg" alt="" width="346">
+  </div>
+  <div class="mzp-c-billboard-content">
+    <div class="mzp-c-billboard-content-container">
+      <div class="mzp-c-billboard-content-inner">
+        <h2 class="mzp-c-billboard-title">Femos que internet siga mas seguro, sano y rapido, pa fer bien.</h2>
+        <p class="mzp-c-billboard-desc">Mozilla ye la organización sin animo de lucro que ye dezaga de Firefox, lo navegador alternativo orichinal. Creamos productos y politicas pa mantener internet a lo servicio d'a chent, no pas d'o lucro.</p>
+        
+      </div>
+    </div>
+  </div>
+</section>
+    <section class="c-column-container">
+      <div class="c-column">
+        <div class="c-column-content">
+          <h2>La nuestra influencia</h2>
+          <p>Quan fas servir lo Firefox, aduyas a Mozilla a luitar contra la desinformación en linia, a amostrar competencias dichitals y fer las seccions comentarios mas humanas. Compreba lo que aduya a crear una Internet mas sana.</p>
+
+          <ul class="mzp-u-list-styled">
+            <li>
+              <a class="mzp-c-cta-link" rel="external" href="https://blog.mozilla.org/blog/2017/08/08/mozilla-information-trust-initiative-building-movement-fight-misinformation-online/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=homepage">Iniciativa Mozilla Information Trust</a>
+            </li>
+            <li>
+              <a class="mzp-c-cta-link" rel="external" href="https://blog.mozilla.org/foundation-archive/mozilla-learning/new-partnership-with-un-women-to-teach-key-digital-skills-to-women/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=homepage">Empoderando a las mullers en linia</a>
+            </li>
+            <li>
+              <a class="mzp-c-cta-link" rel="external" href="https://blog.mozilla.org/blog/2017/09/06/mozilla-washington-post-reinventing-online-comments/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=homepage">Lo prochecto Coral</a>
+            </li>
+            <li>
+              <a class="mzp-c-cta-link" rel="external" href="https://internethealthreport.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=homepage">Leye lo nuestro Reporte sobre la salut d'Internet</a>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="c-column">
+        <div class="c-column-content">
+          <h2>Las nuestras innovacions</h2>
+          <p>
+            Fendo servir la web como plataforma, femos tecnolochías ubiertas y innovativas que permiten a los desenvolvedors treballar libres de ecosistemas zarraus u corporativos y crear experiencias web mas rapidas y mas seguras pa totz nusatros.
+          </p>
+
+          <ul class="mzp-u-list-styled">
+            <li>
+              <a class="mzp-c-cta-link" rel="external" href="https://voice.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=homepage">Common Voice</a>
+            </li>
+            <li>
+              <a class="mzp-c-cta-link" rel="external" href="https://vr.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=homepage">Plataforma de realidat virtual</a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="externals">
+      <ul class="mzp-l-content mzp-l-columns mzp-t-columns-three mzp-t-picto-center">
+          <li class="mzp-c-picto">
+  
+    <img loading="lazy" src="https://www.mozilla.org/media/img/home/extensions.62adb1d0c427.png" srcset="https://www.mozilla.org/media/img/home/extensions-high-res.17d85f35fe27.png 2x" alt="" class="mzp-c-picto-image" width="100">
+  
+  
+  
+  <div class="mzp-c-picto-body">
+    
+            <a class="mzp-c-cta-link" rel="external" href="https://addons.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=homepage">
+              <h2 class="mzp-c-picto-heading">Extensions</h2>
+            </a>
+            <p>Personaliza lo Firefox con os tuyos extras favoritos como chestors de claus, blocadors d'anuncions y mas.</p>
+          
+  </div>
+  
+</li>
+
+          <li class="mzp-c-picto">
+  
+    <img loading="lazy" src="https://www.mozilla.org/media/img/home/careers.6a62e49c184c.png" srcset="https://www.mozilla.org/media/img/home/careers-high-res.2e5870d6d0ba.png 2x" alt="" class="mzp-c-picto-image" width="100">
+  
+  
+  
+  <div class="mzp-c-picto-body">
+    
+            <a class="mzp-c-cta-link" rel="external" href="/an/careers/">
+              <h2 class="mzp-c-picto-heading">Emplegos</h2>
+            </a>
+            <p>Conoixe los beneficios de treballar en Mozilla y mira si i ha posicions ubiertas arredol d'o mundo.</p>
+          
+  </div>
+  
+</li>
+
+          <li class="mzp-c-picto">
+  
+    <img loading="lazy" src="https://www.mozilla.org/media/img/home/help.4f6ef4787df1.png" srcset="https://www.mozilla.org/media/img/home/help-high-res.0c0248ccc636.png 2x" alt="" class="mzp-c-picto-image" width="100">
+  
+  
+  
+  <div class="mzp-c-picto-body">
+    
+            <a class="mzp-c-cta-link" rel="external" href="https://support.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=homepage">
+              <h2 class="mzp-c-picto-heading">Te cal aduya?</h2>
+            </a>
+            <p>Obtiene respuestas a las tuyas qüestions sobre Firefox y totz os productos de Mozilla d'o nuestro equipo de soporte. </p>
+          
+  </div>
+  
+</li>
+      </ul>
+    </section>
+
+    <aside class="mzp-c-newsletter">
+      <div class="mzp-c-newsletter-image">
+      <img src="https://www.mozilla.org/media/img/home/2018/newsletter-graphic.3debb24fbacc.png" srcset="https://www.mozilla.org/media/img/home/2018/newsletter-graphic-high-res.dfdd8a0a8b68.png 2x" alt="">
+    </div>
+
+      <div class="newsletter-content">
+        
+          
+
+
+
+
+  <form id="newsletter-form" class="mzp-c-newsletter-form" action="https://basket.mozilla.org/news/subscribe/" method="post" data-testid="newsletter-form">
+    
+      <div hidden>
+        <div id="id_newsletters"><div>
+    <label for="id_newsletters_0"><input type="checkbox" name="newsletters" value="mozilla-and-you" id="id_newsletters_0" checked>
+ Firefox</label>
+
+</div>
+</div>
+      </div>
+    
+    <input type="hidden" name="source_url" value="https://www.mozilla.org/an/">
+
+    
+    <header class="mzp-c-newsletter-header">
+      <h3 class="mzp-c-newsletter-title">Obtiene lo boletín de Firefox</h3>
+      
+      
+    </header>
+    
+
+    <fieldset class="mzp-c-newsletter-content">
+      <div class="mzp-c-form-errors hidden" id="newsletter-errors" data-testid="newsletter-error-message">
+        
+        <ul class="mzp-u-list-styled">
+          <li class="error-email-invalid hidden">
+            Escribe una adreza de correu electronico valida
+          </li>
+          <li class="error-select-country hidden">
+            Please select a country or region
+          </li>
+          <li class="error-select-language hidden">
+            Please select a language
+          </li>
+          <li class="error-newsletter-checkbox hidden">
+            Please check at least one of the newsletter options.
+          </li>
+          <li class="error-privacy-policy hidden">
+            Has d'estar d'acuerdo con a nota de privacidat
+          </li>
+          <li class="error-try-again-later hidden">
+            We are sorry, but there was a problem with our system. Please try again later!
+          </li>
+        </ul>
+      </div>
+
+      <label for="id_email">La tuya adreza de correu electronico:</label>
+      
+        
+      
+      <input type="email" name="email" required data-testid="newsletter-email-input" maxlength="320" placeholder="lotuyonombre@eixemplo.com" class="mzp-js-email-field" id="id_email">
+
+      <div id="newsletter-details" class="mzp-c-newsletter-details">
+        <div class="mzp-c-newsletter-details-inner">
+        
+          <label for="id_country">Tría lo tuyo país u rechión:</label>
+          <p><select name="country" required="required" aria-required="true" data-testid="newsletter-country-select" id="id_country">
+  <option value="" selected>Tría lo tuyo país u rechión</option>
+
+  <option value="af">Afganistán</option>
+
+  <option value="qz">Akrotiri</option>
+
+  <option value="al">Albania</option>
+
+  <option value="dz">Alcheria</option>
+
+  <option value="de">Alemanya</option>
+
+  <option value="ad">Andorra</option>
+
+  <option value="ao">Angola</option>
+
+  <option value="ai">Anguilla</option>
+
+  <option value="aq">Antarctida</option>
+
+  <option value="ag">Antigua y Barbuda</option>
+
+  <option value="sa">Arabia Saudí</option>
+
+  <option value="ar">Archentina</option>
+
+  <option value="am">Armenia</option>
+
+  <option value="xm">Arrecife de Kingman</option>
+
+  <option value="aw">Aruba</option>
+
+  <option value="xu">Atolón Johnston</option>
+
+  <option value="xl">Atolón de Palmira</option>
+
+  <option value="au">Australia</option>
+
+  <option value="at">Austria</option>
+
+  <option value="az">Azerbaichán</option>
+
+  <option value="bs">Bahamas</option>
+
+  <option value="bh">Bahrain</option>
+
+  <option value="bd">Bangladesh</option>
+
+  <option value="bb">Barbados</option>
+
+  <option value="qs">Bassas da India</option>
+
+  <option value="by">Belarrusia</option>
+
+  <option value="be">Belchica</option>
+
+  <option value="bz">Belice</option>
+
+  <option value="bj">Benin</option>
+
+  <option value="bm">Bermuda</option>
+
+  <option value="bt">Bhutan</option>
+
+  <option value="bo">Bolivia</option>
+
+  <option value="bq">Bonaire, Sint Eustatius, and Saba</option>
+
+  <option value="ba">Bosnia-Herzegovina</option>
+
+  <option value="bw">Botswana</option>
+
+  <option value="br">Brasil</option>
+
+  <option value="bn">Brunei</option>
+
+  <option value="bg">Bulgaria</option>
+
+  <option value="bf">Burkina Faso</option>
+
+  <option value="mm">Burma</option>
+
+  <option value="bi">Burundi</option>
+
+  <option value="cv">Cabo Verde</option>
+
+  <option value="kh">Cambocha</option>
+
+  <option value="cm">Camerún</option>
+
+  <option value="ca">Canadá</option>
+
+  <option value="td">Chad</option>
+
+  <option value="jm">Chamaica</option>
+
+  <option value="jp">Chapón</option>
+
+  <option value="ge">Cheorchia</option>
+
+  <option value="gs">Cheorchia d&#x27;o Sud y las Islas Sandwich d&#x27;o Sud</option>
+
+  <option value="gi">Chibraltar</option>
+
+  <option value="dj">Chibuti</option>
+
+  <option value="cl">Chile</option>
+
+  <option value="cn">China</option>
+
+  <option value="cy">Chipre</option>
+
+  <option value="jo">Chordania</option>
+
+  <option value="xw">Cischordania</option>
+
+  <option value="va">Ciudat d&#x27;o Vaticano</option>
+
+  <option value="cp">Clipperton Island</option>
+
+  <option value="co">Colombia</option>
+
+  <option value="km">Comoros</option>
+
+  <option value="cg">Congo (Brazzaville)</option>
+
+  <option value="cd">Congo (Kinshasa)</option>
+
+  <option value="cr">Costa Rica</option>
+
+  <option value="ci">Costa de Vori</option>
+
+  <option value="hr">Croacia</option>
+
+  <option value="cu">Cuba</option>
+
+  <option value="cw">Curaçao</option>
+
+  <option value="xd">Dhekelia</option>
+
+  <option value="dg">Diego Garcia</option>
+
+  <option value="dk">Dinamarca</option>
+
+  <option value="dm">Dominica</option>
+
+  <option value="eg">Echipto</option>
+
+  <option value="ec">Ecuador</option>
+
+  <option value="sv">El Salvador</option>
+
+  <option value="ae">Emiratos Arabes Unius</option>
+
+  <option value="er">Eritrea</option>
+
+  <option value="sk">Eslovaquia</option>
+
+  <option value="si">Eslovenia</option>
+
+  <option value="es">Espanya</option>
+
+  <option value="us">Estaus Unius</option>
+
+  <option value="ee">Estonia</option>
+
+  <option value="et">Etiopía</option>
+
+  <option value="xg">Faixa de Gaza</option>
+
+  <option value="fj">Fichi</option>
+
+  <option value="ph">Filipinas</option>
+
+  <option value="fi">Finlandia</option>
+
+  <option value="fr">Francia</option>
+
+  <option value="ga">Gabón</option>
+
+  <option value="gm">Gambia</option>
+
+  <option value="gh">Ghana</option>
+
+  <option value="gr">Grecia</option>
+
+  <option value="gd">Grenada</option>
+
+  <option value="gl">Gronlandia</option>
+
+  <option value="gp">Guadalupe</option>
+
+  <option value="gu">Guam</option>
+
+  <option value="gt">Guatemala</option>
+
+  <option value="gf">Guayana francesa</option>
+
+  <option value="gg">Guernesi</option>
+
+  <option value="gn">Guinea</option>
+
+  <option value="gq">Guinea Equatorial</option>
+
+  <option value="gw">Guinea-Bissau</option>
+
+  <option value="gy">Guyana</option>
+
+  <option value="ht">Haití</option>
+
+  <option value="hn">Honduras</option>
+
+  <option value="hk">Hong Kong</option>
+
+  <option value="hu">Hongría</option>
+
+  <option value="in">India</option>
+
+  <option value="id">Indonesia</option>
+
+  <option value="iq">Iraq</option>
+
+  <option value="ie">Irlanda</option>
+
+  <option value="ir">Irán</option>
+
+  <option value="xb">Isla Baker</option>
+
+  <option value="bv">Isla Bouvet</option>
+
+  <option value="cx">Isla Christmas</option>
+
+  <option value="xe">Isla Europa</option>
+
+  <option value="xh">Isla Howland</option>
+
+  <option value="qu">Isla Juan de Nova</option>
+
+  <option value="xv">Isla Navassa</option>
+
+  <option value="nf">Isla Norfolk</option>
+
+  <option value="xt">Isla Tromelin</option>
+
+  <option value="qw">Isla Wake</option>
+
+  <option value="im">Isla de Man</option>
+
+  <option value="is">Islandia</option>
+
+  <option value="xa">Islas Aschmore y Cartier</option>
+
+  <option value="ky">Islas Caimán</option>
+
+  <option value="cc">Islas Cocos (Keeling)</option>
+
+  <option value="ck">Islas Cook</option>
+
+  <option value="fo">Islas Feroe</option>
+
+  <option value="qx">Islas Glorioso</option>
+
+  <option value="hm">Islas Heard y Islas McDonald</option>
+
+  <option value="fk">Islas Malvinas (Falkland)</option>
+
+  <option value="mp">Islas Marianas d&#x27;o Norte</option>
+
+  <option value="mh">Islas Marshall</option>
+
+  <option value="qm">Islas Midway</option>
+
+  <option value="xp">Islas Paracel</option>
+
+  <option value="pn">Islas Pitcairn</option>
+
+  <option value="sb">Islas Salomón</option>
+
+  <option value="xs">Islas Spratly</option>
+
+  <option value="tc">Islas Turcas y Caicos</option>
+
+  <option value="vg">Islas Virchens Britanicas</option>
+
+  <option value="vi">Islas Virchens, E.U.A.</option>
+
+  <option value="xc">Islas d&#x27;a Mar de Coral</option>
+
+  <option value="il">Israel</option>
+
+  <option value="it">Italia</option>
+
+  <option value="xj">Jan Mayen</option>
+
+  <option value="xq">Jarvis Island</option>
+
+  <option value="je">Jèrri</option>
+
+  <option value="kz">Kazakhstán</option>
+
+  <option value="ke">Kenia</option>
+
+  <option value="kg">Kirguizistán</option>
+
+  <option value="ki">Kiribati</option>
+
+  <option value="kp">Korea d&#x27;o Nord</option>
+
+  <option value="kr">Korea d&#x27;o Sud</option>
+
+  <option value="xk">Kosovo</option>
+
+  <option value="kw">Kuwait</option>
+
+  <option value="la">Laos</option>
+
+  <option value="ls">Lesotho</option>
+
+  <option value="lv">Letonia</option>
+
+  <option value="lb">Libano</option>
+
+  <option value="lr">Liberia</option>
+
+  <option value="ly">Libia</option>
+
+  <option value="li">Liechtenstein</option>
+
+  <option value="lt">Lituania</option>
+
+  <option value="lu">Luxemburgo</option>
+
+  <option value="mo">Macau</option>
+
+  <option value="mk">Macedonia</option>
+
+  <option value="mg">Madagascar</option>
+
+  <option value="my">Malasia</option>
+
+  <option value="mw">Malawi</option>
+
+  <option value="mv">Maldivas</option>
+
+  <option value="ml">Mali</option>
+
+  <option value="mt">Malta</option>
+
+  <option value="ma">Marruecos</option>
+
+  <option value="mq">Martinica</option>
+
+  <option value="mu">Mauricio</option>
+
+  <option value="mr">Mauritania</option>
+
+  <option value="yt">Mayotte</option>
+
+  <option value="mx">Mexico</option>
+
+  <option value="fm">Micronesia, Estaus Federaus d&#x27;a</option>
+
+  <option value="md">Moldavia</option>
+
+  <option value="mc">Monaco</option>
+
+  <option value="mn">Mongolia</option>
+
+  <option value="me">Montenegro</option>
+
+  <option value="ms">Montserrat</option>
+
+  <option value="mz">Mozambique</option>
+
+  <option value="na">Namibia</option>
+
+  <option value="nr">Nauru</option>
+
+  <option value="np">Nepal</option>
+
+  <option value="ni">Nicaragua</option>
+
+  <option value="ng">Nicheria</option>
+
+  <option value="nu">Niue</option>
+
+  <option value="no">Noruega</option>
+
+  <option value="nc">Nueva Caledonia</option>
+
+  <option value="nz">Nueva Zelanda</option>
+
+  <option value="ne">Nícher</option>
+
+  <option value="om">Omán</option>
+
+  <option value="pk">Pakistán</option>
+
+  <option value="pw">Palau</option>
+
+  <option value="pa">Panamá</option>
+
+  <option value="pg">Papúa Nueva Guinea</option>
+
+  <option value="py">Paraguay</option>
+
+  <option value="nl">Países Baixos</option>
+
+  <option value="pe">Perú</option>
+
+  <option value="pf">Polinesia Francesa</option>
+
+  <option value="pl">Polonia</option>
+
+  <option value="pt">Portugal</option>
+
+  <option value="pr">Puerto Rico</option>
+
+  <option value="qa">Qatar</option>
+
+  <option value="gb">Reino Uniu</option>
+
+  <option value="cf">Republica Centroafricana</option>
+
+  <option value="cz">Republica Checa</option>
+
+  <option value="do">Republica Dominicana</option>
+
+  <option value="re">Reunión</option>
+
+  <option value="ro">Romanía</option>
+
+  <option value="rw">Ruanda</option>
+
+  <option value="ru">Rusia</option>
+
+  <option value="eh">Sahara Occidental</option>
+
+  <option value="bl">Saint Barthelemy</option>
+
+  <option value="kn">Saint Kitts y Nevis</option>
+
+  <option value="ws">Samoa</option>
+
+  <option value="as">Samoa americana</option>
+
+  <option value="sm">San Marino</option>
+
+  <option value="mf">Sant Martín</option>
+
+  <option value="pm">Sant Pero y Miquelón</option>
+
+  <option value="vc">Sant Vicente y las Granadinas</option>
+
+  <option value="sh">Santa Helena, Ascensión y Tristán da Cunha</option>
+
+  <option value="lc">Santa Lucía</option>
+
+  <option value="st">Santo Tome y Principe</option>
+
+  <option value="sn">Senegal</option>
+
+  <option value="rs">Serbia</option>
+
+  <option value="sc">Seychelles</option>
+
+  <option value="sl">Sierra Leona</option>
+
+  <option value="sg">Singapur</option>
+
+  <option value="sx">Sint Maarten</option>
+
+  <option value="sy">Siria</option>
+
+  <option value="so">Somalia</option>
+
+  <option value="lk">Sri Lanka</option>
+
+  <option value="za">Sudafrica</option>
+
+  <option value="sd">Sudán</option>
+
+  <option value="ss">Sudán d&#x27;o Sur</option>
+
+  <option value="se">Suecia</option>
+
+  <option value="ch">Suiza</option>
+
+  <option value="sr">Suriname</option>
+
+  <option value="xr">Svalbard</option>
+
+  <option value="sz">Swazilandia</option>
+
+  <option value="tj">Tachikistán</option>
+
+  <option value="th">Tailandia</option>
+
+  <option value="tw">Taiwán</option>
+
+  <option value="tz">Tanzania</option>
+
+  <option value="io">Territorio britanico en l&#x27;Ociano Indico</option>
+
+  <option value="tf">Tierras Francesas d&#x27;o Sud y de l&#x27;Antartico</option>
+
+  <option value="tl">Timor Oriental</option>
+
+  <option value="tg">Togo</option>
+
+  <option value="tk">Tokelau</option>
+
+  <option value="to">Tonga</option>
+
+  <option value="tt">Trinidat y Tobago</option>
+
+  <option value="tn">Tunicia</option>
+
+  <option value="tm">Turkmenistán</option>
+
+  <option value="tr">Turquía</option>
+
+  <option value="tv">Tuvalu</option>
+
+  <option value="ua">Ucraína</option>
+
+  <option value="ug">Uganda</option>
+
+  <option value="uy">Uruguay</option>
+
+  <option value="uz">Uzbekistán</option>
+
+  <option value="vu">Vanuatu</option>
+
+  <option value="ve">Venezuela</option>
+
+  <option value="vn">Vietnam</option>
+
+  <option value="wf">Wallis y Futuna</option>
+
+  <option value="ye">Yemen</option>
+
+  <option value="zm">Zambia</option>
+
+  <option value="zw">Zimbabwe</option>
+
+</select></p>
+        
+
+        
+          <label for="id_lang">Luengas disponibles:</label>
+          <p><select name="lang" required="required" aria-required="true" id="id_lang">
+  <option value="" selected>Luengas disponibles</option>
+
+  <option value="id">Bahasa Indonesia</option>
+
+  <option value="de">Deutsch</option>
+
+  <option value="en">English</option>
+
+  <option value="es">Español</option>
+
+  <option value="fr">Français</option>
+
+  <option value="pl">Polski</option>
+
+  <option value="pt">Português</option>
+
+  <option value="ru">Русский</option>
+
+  <option value="zh-TW">正體中文</option>
+
+</select></p>
+        
+
+        
+
+        <p>
+          <label for="privacy" class="mzp-u-inline">
+            <input type="checkbox" id="privacy" name="privacy" required aria-required="true" data-testid="newsletter-privacy-checkbox"> Soi d'acuerdo con que Mozilla maneye la mía información como s'explica en <a href="/an/privacy/websites/">Politica de Privacidat</a>
+          </label>
+        </p>
+        </div>
+      </div>
+
+      <p class="mzp-c-form-submit">
+        <button type="submit" id="newsletter-submit" class="mzp-c-button button-dark" data-cta-text="Newsletter Sign Up" data-testid="newsletter-submit-button">
+          <span class="submit-text">
+          
+            Conduce-te agora
+          
+          </span>
+          <svg class="submit-loading" hidden fill="currentColor" width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <title>Sending</title>
+            <circle class="s1" cx="4" cy="12" r="3"/>
+            <circle class="s1 s2" cx="12" cy="12" r="3"/>
+            <circle class="s1 s3" cx="20" cy="12" r="3"/>
+          </svg>
+        </button>
+
+        
+            <span class="mzp-c-fieldnote">
+              
+              
+                We will only send you Firefox-related information. You can unsubscribe at any time.
+              
+            </span>
+        
+      </p>
+    </fieldset>
+  </form>
+
+  <div id="newsletter-thanks" class="mzp-c-newsletter-thanks hidden" data-testid="newsletter-thanks-message">
+    
+      
+  <h3>Mersi!</h3>
+  <p>Si denantes no has confirmau la conducción a bell boletín de noticias de Moilla, ye posible que l'heses de fer. Compreba la servilla de dentrada u lo filtro de correu vasuera pa veyer si i hai bell mensache de Mozilla.</p>
+
+    
+  </div>
+
+
+        
+      </div>
+    </aside>
+  </div>
+</main>
+
+
+      
+        
+
+
+
+
+<footer class="mzp-c-footer " id="colophon" role="contentinfo">
+  <div class="mzp-l-content">
+    <nav class="mzp-c-footer-primary">
+      <div class="mzp-c-footer-primary-logo">
+        <a href="/an/" data-link-position="footer" data-link-text="Mozilla">Mozilla</a>
+      </div>
+      <div class="mzp-c-footer-sections">
+        <section class="mzp-c-footer-section">
+          <h2 class="mzp-c-footer-heading" data-testid="footer-heading-company">
+            Company
+          </h2>
+          <ul class="mzp-c-footer-list" data-testid="footer-list-company">
+            <li><a href="/an/about/manifesto/" data-link-position="footer" data-link-text="Mozilla Manifesto">Mozilla Manifesto</a></li>
+            <li><a href="https://blog.mozilla.org/category/mozilla/news/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=company" data-link-position="footer" data-link-text="Press Center">Centro de prensa</a></li>
+            <li><a href="https://blog.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=company" data-link-position="footer" data-link-text="Mozilla Blog">Mozilla Blog</a></li>
+            <li><a href="/an/careers/" data-link-position="footer" data-link-text="Careers">Careers</a></li>
+            <li><a href="/an/contact/" data-link-position="footer" data-link-text="Contact">Contact</a></li>
+            <li>
+              <a class="mzp-c-button mzp-t-dark mzp-t-secondary footer-donate" href="https://www.mozillafoundation.org/?form=moco-donate-footer" data-link-text="Donate">
+                <span class="mzp-c-button-icon-start">
+                  <svg width="16" height="16" viewBox="0 0 16 16">
+                    <path fill="#fff" d="M1.2,2.2c-1.5,1.5-1.5,4.2,0,5.7L8,15c2.3-2.4,4.5-4.7,6.9-7c1.5-1.5,1.5-4.2,0-5.7c-1.5-1.5-4-1.5-5.6,0L8,3.5 L6.7,2.3C5.1,0.6,2.7,0.6,1.2,2.2"/>
+                  </svg>
+                </span>
+                Donate
+              </a>
+            </li>
+          
+          </ul>
+        </section>
+
+        <section class="mzp-c-footer-section">
+          <h2 class="mzp-c-footer-heading" data-testid="footer-heading-resources">
+            Resources
+          </h2>
+          <ul class="mzp-c-footer-list" data-testid="footer-list-resources">
+            <li><a href="/an/privacy/" data-link-position="footer" data-link-text="Privacy Hub">Privacidat</a></li>
+            
+          </ul>
+        </section>
+
+        <section class="mzp-c-footer-section">
+          <h2 class="mzp-c-footer-heading" data-testid="footer-heading-support">
+            Support
+          </h2>
+          <ul class="mzp-c-footer-list" data-testid="footer-list-support">
+            <li><a href="https://support.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=support" data-link-position="footer" data-link-text="Product Help">Product Help</a></li>
+            <li><a href="https://bugzilla.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=support" data-link-position="footer" data-link-text="File a Bug">File a Bug</a></li>
+            <li><a href="https://pontoon.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=support" data-link-position="footer" data-link-text="Localise Mozilla">Localize Mozilla</a></li>
+          </ul>
+        </section>
+
+        <section class="mzp-c-footer-section">
+          <h2 class="mzp-c-footer-heading" data-testid="footer-heading-developers">
+            Developers
+          </h2>
+          <ul class="mzp-c-footer-list" data-testid="footer-list-developers">
+            <li><a href="/an/firefox/developer/" data-link-position="footer" data-link-text="Firefox Developer Edition">Developer Edition</a></li>
+            <li><a href="/an/firefox/channel/desktop/#beta" data-link-position="footer" data-link-text="Firefox Beta">Beta</a></li>
+            <li><a href="/an/firefox/channel/android/#beta" data-link-position="footer" data-link-text="Firefox Beta for Android">Beta for Android</a></li>
+            <li><a href="/an/firefox/channel/desktop/#nightly" data-link-position="footer" data-link-text="Firefox Nightly">Nightly</a></li>
+            <li><a href="/an/firefox/channel/android/#nightly" data-link-position="footer" data-link-text="Firefox Nightly for Android">Nightly for Android</a></li>
+            <li><a href="/an/firefox/enterprise/" data-link-position="footer" data-link-text="Firefox for Enterprise">Enterprise</a></li>
+            <li><a href="https://firefox-source-docs.mozilla.org/devtools-user/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=developers" rel="external" data-link-position="footer" data-link-text="Tools">Tools</a></li>
+          </ul>
+        </section>
+
+        <section class="mzp-c-footer-section">
+          <h2 class="mzp-c-footer-heading-social">Follow @Mozilla</h2>
+          <ul class="mzp-c-footer-links-social">
+            <li><a class="bluesky" href="https://bsky.app/profile/mozilla.org" data-link-position="footer" data-link-text="Bluesky (@mozilla.org)" translate="no">Bluesky<span> (@mozilla.org)</span></a></li>
+            <li><a class="instagram" href="https://www.instagram.com/mozilla/" data-link-position="footer" data-link-text="Instagram (@mozilla)">Instagram<span> (@mozilla)</span></a></li>
+            <li><a class="linkedin" href="https://www.linkedin.com/company/mozilla-corporation/" data-link-position="footer" data-link-text="LinkedIn (@mozilla)">LinkedIn<span> (@mozilla)</span></a></li>
+            <li><a class="tiktok" href="https://www.tiktok.com/@mozilla" data-link-position="footer" data-link-text="TikTok (@mozilla)">TikTok<span> (@mozilla)</span></a></li>
+            <li><a class="spotify" href="https://open.spotify.com/show/0vT7LJMeVDxyQ2ZamHKu08?si=_uDRD6bRR_6M5YZyISGXgA" data-link-position="footer" data-link-text="Spotify (@mozilla)">Spotify<span> (@mozilla)</span></a></li>
+          </ul>
+
+          <h2 class="mzp-c-footer-heading-social">Follow @Firefox</h2>
+          <ul class="mzp-c-footer-links-social">
+            <li><a class="bluesky" href="https://bsky.app/profile/firefox.com" data-link-position="footer" data-link-text="Bluesky (@firefox.com)" translate="no">Bluesky<span> (@firefox.com)</span></a></li>
+            <li><a class="instagram" href="https://www.instagram.com/firefox/" data-link-position="footer" data-link-text="Instagram (@firefox)">Instagram<span> (@firefox)</span></a></li>
+            <li><a class="youtube" href="https://www.youtube.com/user/firefoxchannel" data-link-position="footer" data-link-text="YouTube (@firefoxchannel)">YouTube<span> (@firefoxchannel)</span></a></li>
+          </ul>
+        </section>
+      </div>
+    </nav>
+    <nav class="mzp-c-footer-secondary">
+      <div class="mzp-c-footer-language">
+       
+  <form id="lang_form" class="mzp-c-language-switcher" method="get" action="#">
+    <a class="mzp-c-language-switcher-link" href="/locales/">Idioma</a>
+    <label for="page-language-select">Idioma</label>
+    <select id="page-language-select" class="mzp-js-language-switcher-select" name="lang" dir="ltr" data-testid="footer-language-select">
+      
+        <option lang="an" value="an" selected>aragonés</option>
+      
+        <option lang="ar" value="ar">عربي</option>
+      
+        <option lang="ast" value="ast">Asturianu</option>
+      
+        <option lang="az" value="az">Azərbaycanca</option>
+      
+        <option lang="be" value="be">Беларуская</option>
+      
+        <option lang="bg" value="bg">Български</option>
+      
+        <option lang="bn" value="bn">বাংলা</option>
+      
+        <option lang="bs" value="bs">Bosanski</option>
+      
+        <option lang="ca" value="ca">Català</option>
+      
+        <option lang="cak" value="cak">Maya Kaqchikel</option>
+      
+        <option lang="cs" value="cs">Čeština</option>
+      
+        <option lang="cy" value="cy">Cymraeg</option>
+      
+        <option lang="da" value="da">Dansk</option>
+      
+        <option lang="de" value="de">Deutsch</option>
+      
+        <option lang="dsb" value="dsb">Dolnoserbšćina</option>
+      
+        <option lang="el" value="el">Ελληνικά</option>
+      
+        <option lang="en-CA" value="en-CA">English (Canadian)</option>
+      
+        <option lang="en-GB" value="en-GB">English (British)</option>
+      
+        <option lang="en-US" value="en-US">English</option>
+      
+        <option lang="eo" value="eo">Esperanto</option>
+      
+        <option lang="es-AR" value="es-AR">Español (de Argentina)</option>
+      
+        <option lang="es-CL" value="es-CL">Español (de Chile)</option>
+      
+        <option lang="es-ES" value="es-ES">Español (de España)</option>
+      
+        <option lang="es-MX" value="es-MX">Español (de México)</option>
+      
+        <option lang="et" value="et">Eesti keel</option>
+      
+        <option lang="eu" value="eu">Euskara</option>
+      
+        <option lang="fa" value="fa">فارسی</option>
+      
+        <option lang="fi" value="fi">suomi</option>
+      
+        <option lang="fr" value="fr">Français</option>
+      
+        <option lang="fy-NL" value="fy-NL">Frysk</option>
+      
+        <option lang="gd" value="gd">Gàidhlig</option>
+      
+        <option lang="gl" value="gl">Galego</option>
+      
+        <option lang="gn" value="gn">Avañe'ẽ</option>
+      
+        <option lang="gu-IN" value="gu-IN">ગુજરાતી (ભારત)</option>
+      
+        <option lang="he" value="he">עברית</option>
+      
+        <option lang="hi-IN" value="hi-IN">हिन्दी (भारत)</option>
+      
+        <option lang="hr" value="hr">Hrvatski</option>
+      
+        <option lang="hsb" value="hsb">Hornjoserbsce</option>
+      
+        <option lang="hu" value="hu">magyar</option>
+      
+        <option lang="hy-AM" value="hy-AM">Հայերեն</option>
+      
+        <option lang="ia" value="ia">Interlingua</option>
+      
+        <option lang="id" value="id">Bahasa Indonesia</option>
+      
+        <option lang="is" value="is">íslenska</option>
+      
+        <option lang="it" value="it">Italiano</option>
+      
+        <option lang="ja" value="ja">日本語</option>
+      
+        <option lang="ka" value="ka">ქართული</option>
+      
+        <option lang="kab" value="kab">Taqbaylit</option>
+      
+        <option lang="kk" value="kk">Қазақ</option>
+      
+        <option lang="ko" value="ko">한국어</option>
+      
+        <option lang="lij" value="lij">Ligure</option>
+      
+        <option lang="lo" value="lo">ພາສາລາວ</option>
+      
+        <option lang="lt" value="lt">Lietuvių</option>
+      
+        <option lang="ml" value="ml">മലയാളം</option>
+      
+        <option lang="mr" value="mr">मराठी</option>
+      
+        <option lang="ms" value="ms">Melayu</option>
+      
+        <option lang="my" value="my">မြန်မာဘာသာ</option>
+      
+        <option lang="nb-NO" value="nb-NO">Norsk bokmål</option>
+      
+        <option lang="nl" value="nl">Nederlands</option>
+      
+        <option lang="nn-NO" value="nn-NO">Norsk nynorsk</option>
+      
+        <option lang="pa-IN" value="pa-IN">ਪੰਜਾਬੀ (ਭਾਰਤ)</option>
+      
+        <option lang="pl" value="pl">Polski</option>
+      
+        <option lang="pt-BR" value="pt-BR">Português (do Brasil)</option>
+      
+        <option lang="pt-PT" value="pt-PT">Português (Europeu)</option>
+      
+        <option lang="rm" value="rm">rumantsch</option>
+      
+        <option lang="ro" value="ro">Română</option>
+      
+        <option lang="ru" value="ru">Русский</option>
+      
+        <option lang="sco" value="sco">Scots</option>
+      
+        <option lang="si" value="si">සිංහල</option>
+      
+        <option lang="sk" value="sk">slovenčina</option>
+      
+        <option lang="skr" value="skr">سرائیکی</option>
+      
+        <option lang="sl" value="sl">Slovenščina</option>
+      
+        <option lang="sq" value="sq">Shqip</option>
+      
+        <option lang="sr" value="sr">Српски</option>
+      
+        <option lang="sv-SE" value="sv-SE">Svenska</option>
+      
+        <option lang="ta" value="ta">தமிழ்</option>
+      
+        <option lang="tg" value="tg">Тоҷикӣ</option>
+      
+        <option lang="th" value="th">ไทย</option>
+      
+        <option lang="tr" value="tr">Türkçe</option>
+      
+        <option lang="trs" value="trs">Triqui</option>
+      
+        <option lang="uk" value="uk">Українська</option>
+      
+        <option lang="ur" value="ur">اُردو</option>
+      
+        <option lang="vi" value="vi">Tiếng Việt</option>
+      
+        <option lang="zh-CN" value="zh-CN">中文 (简体)</option>
+      
+        <option lang="zh-TW" value="zh-TW">正體中文 (繁體)</option>
+      
+    </select>
+    <button type="submit">Go</button>
+  </form>
+
+      </div>
+      <div class="mzp-c-footer-legal">
+        <ul class="mzp-c-footer-terms">
+          <li><a href="/an/privacy/websites/" data-link-position="footer" data-link-text="Privacy">Website Privacy Notice</a></li>
+          <li>
+            
+            <a href="/an/privacy/websites/cookie-settings/" data-link-position="footer" data-link-text="Cookies">Cookies</a>
+          </li>
+          <li><a href="/an/about/legal/" data-link-position="footer" data-link-text="Legal">Aspectos legals</a></li>
+          <li><a href="/an/about/governance/policies/participation/" data-link-position="footer" data-link-text="Community Participation Guidelines">Community Participation Guidelines</a></li>
+          
+        </ul>
+        <p class="mzp-c-footer-license" rel="license">
+          
+          
+            
+            Visit <a href="/an/" data-link-position="footer" data-link-text="Mozilla Corporation">Mozilla Corporation’s</a> not-for-profit parent, the <a href="https://www.mozillafoundation.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" rel="external noopener" data-link-position="footer" data-link-text="Mozilla Foundation">Mozilla Foundation</a>.<br>
+          
+          Portions of this content are ©1998–2026 by individual mozilla.org contributors. Content available under a <a rel="license" href="/an/foundation/licensing/website-content/">Creative Commons license</a>.
+        </p>
+      </div>
+    </nav>
+  </div>
+</footer>
+
+      
+
+      
+      
+  
+
+    </div>
+
+    
+    
+      
+        <!--[if !IE]><!-->
+          
+          <script src="https://www.mozilla.org/media/js/sentry.9f2fe29330f6.js"></script>
+        <!--<![endif]-->
+      
+    
+
+    
+      <!--[if !IE]><!-->
+        
+        <script src="https://www.mozilla.org/media/js/lib.f86d9ecbd086.js"></script>
+        <script src="https://www.mozilla.org/media/js/fxa.8c097c9145ff.js"></script>
+        <script src="https://www.mozilla.org/media/js/data.44609f062226.js"></script>
+        
+          <script src="https://www.mozilla.org/media/js/ui.c1ea32a75e8c.js"></script>
+        
+      <!--<![endif]-->
+
+      <!--[if IE 9]>
+        
+        <script src="https://www.mozilla.org/media/js/lib-ie.cf16e08599c3.js"></script>
+      <![endif]-->
+    
+
+    
+    
+
+    <!--[if !IE]><!-->
+    
+    
+      
+    
+
+    
+  <script src="https://www.mozilla.org/media/js/newsletter.d35e22990f3b.js"></script>
+
+  
+
+
+    
+    <!--<![endif]-->
+
+    
+    <!--[if IE 9]><!-->
+      
+      <script src="https://www.mozilla.org/media/js/consent-banner.52b78cd4ba21.js"></script>
+    <!--<![endif]-->
+    
+  </body>
+</html>

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { projectsApi, relativeTime, countryLabel } from '../lib/projectsApi';
 import {
   Card, Kicker, Muted, Tag, Btn, FadingRule, SectionHead, Spinner,
-} from '../components/home/primitives';
+} from '../components/studio/primitives';
 import ProjectSetupCard from '../components/home/ProjectSetupCard';
 
 // ── Projects — settings (PRD §20.9) ─────────────────────────────────────────
@@ -118,11 +118,15 @@ export default function ProjectsPage() {
       {showSetup && (
         <ProjectSetupCard
           limits={state.data?.limits}
-          onCreated={async (project) => {
+          onCreated={async (project, competitorResearch) => {
             setShowSetup(false);
             setSelectedId(project.id);
             await load();
-            setBanner({ tone: 'accent', text: `${project.name} created. Its weekly schedule is off until you enable it.` });
+            setBanner({
+              tone: 'accent',
+              text: `${project.name} created. Its weekly schedule is off until you enable it. `
+                + `${competitorResearch?.note || ''}`.trim(),
+            });
           }}
           onCancel={() => setShowSetup(false)}
         />
@@ -166,6 +170,15 @@ export default function ProjectsPage() {
 
           {selected && (
             <ProjectDetail
+              /* Keyed, so switching projects REMOUNTS this rather than reusing
+                 it. Without it every piece of local state belonged to whichever
+                 project was opened first: the name field kept the old name, and
+                 the permanent-delete confirmation stayed open with the previous
+                 project's name typed into it, sitting armed in front of a
+                 different project. The server's own name check meant the wrong
+                 project could never actually be destroyed, but nothing on the
+                 screen said so. */
+              key={selected.id}
               project={selected}
               capabilities={capabilities}
               onMutate={mutate}
@@ -184,6 +197,12 @@ function ProjectDetail({ project, capabilities, onMutate, onOpenDashboard }) {
   const [competitor, setCompetitor] = useState('');
   const [discovering, setDiscovering] = useState(false);
   const [reason, setReason] = useState('');
+  // Permanent deletion is behind a two-step: `purging` reveals the confirmation,
+  // `purgeName` is the typed project name the server checks. Both reset when the
+  // selection changes, so a half-finished confirmation can never carry over to a
+  // different project.
+  const [purging, setPurging] = useState(false);
+  const [purgeName, setPurgeName] = useState('');
   // One row per targeted page. Keywords are per page, so this is a list of
   // { url, keywords } rather than a single field — the implants page and the
   // pricing page do not share a target term.
@@ -198,6 +217,8 @@ function ProjectDetail({ project, capabilities, onMutate, onOpenDashboard }) {
     setCountry(project.countryCode || '');
     setCompetitor('');
     setReason('');
+    setPurging(false);
+    setPurgeName('');
     setPages((project.pages || []).map((p) => ({
       url: p.url, keywords: (p.keywords || []).join(', '),
     })));
@@ -421,7 +442,13 @@ function ProjectDetail({ project, capabilities, onMutate, onOpenDashboard }) {
                   const result = await projectsApi.addCompetitor(project.id, competitor.trim());
                   setCompetitor('');
                   return result;
-                }, proposeOnly ? 'Competitor proposed for approval.' : 'Competitor added.')}
+                }, (result) => {
+                  if (proposeOnly) return 'Competitor proposed for approval.';
+                  // Adding a competitor starts the comparison by itself, and it
+                  // bills per domain — so the banner says what was started, not
+                  // just that a row was written.
+                  return `Competitor added. ${result?.competitorResearch?.note || ''}`.trim();
+                })}
               >
                 {proposeOnly ? 'Propose competitor' : 'Add competitor'}
               </Btn>
@@ -446,7 +473,9 @@ function ProjectDetail({ project, capabilities, onMutate, onOpenDashboard }) {
               </Btn>
               <Muted>
                 SEMrush + AI suggest domains for this site and add them the same way a typed-in
-                competitor is added{proposeOnly ? ' (proposed, pending approval)' : ''}.
+                competitor is added{proposeOnly
+                  ? ' (proposed, pending approval)'
+                  : ', which starts a comparison against them'}.
               </Muted>
             </div>
           )}
@@ -555,6 +584,56 @@ function ProjectDetail({ project, capabilities, onMutate, onOpenDashboard }) {
               </Btn>
             )}
           </div>
+
+          {/* Permanent deletion. Offered only once the project is already
+              deleted, and only to a role that holds the capability — the server
+              enforces both, so this is about not showing a door that will not
+              open. */}
+          {deleted && capabilities.purgeProject === true && (
+            <>
+              <FadingRule />
+              <SectionHead title="Delete permanently" right="No undo" />
+              <Muted size={12.5}>
+                This erases the project itself and everything under it — every crawl run, result,
+                finding, tracked page, competitor, recommendation and AI Visibility capture. It
+                cannot be restored. The audit trail keeps a dated record that it happened.
+              </Muted>
+              {purging ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <Muted size={12.5}>
+                    Type <strong style={{ color: 'var(--text)' }}>{project.name}</strong> to confirm.
+                  </Muted>
+                  <input
+                    style={inputStyle}
+                    value={purgeName}
+                    onChange={(e) => setPurgeName(e.target.value)}
+                    placeholder={project.name}
+                    aria-label="Project name, to confirm permanent deletion"
+                  />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <Btn
+                      variant="danger"
+                      disabled={purgeName.trim() !== String(project.name || '').trim()}
+                      onClick={() => onMutate(
+                        () => projectsApi.purge(project.id, {
+                          confirmName: purgeName.trim(),
+                          reason: 'Permanently deleted from project settings',
+                        }),
+                        (result) => `${result.name} permanently deleted.`,
+                      )}
+                    >
+                      Permanently delete
+                    </Btn>
+                    <Btn onClick={() => { setPurging(false); setPurgeName(''); }}>Cancel</Btn>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Btn variant="danger" onClick={() => setPurging(true)}>Delete permanently…</Btn>
+                </div>
+              )}
+            </>
+          )}
         </Card>
       )}
     </div>

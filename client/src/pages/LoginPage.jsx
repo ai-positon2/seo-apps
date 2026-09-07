@@ -3,6 +3,10 @@ const ERROR_MESSAGES = {
   access_denied: 'Sign-in was cancelled.',
   unauthorized: "That Google account isn't authorized for this app.",
   login_failed: 'Something went wrong signing you in. Please try again.',
+  // Deliberately does NOT say "try again": this fires when the database is
+  // unreachable, and retrying cannot help until it comes back.
+  service_unavailable:
+    'Sign-in is temporarily unavailable — we could not reach the database. This is not a problem with your account. Please wait a few minutes and reload.',
 };
 
 export default function LoginPage() {

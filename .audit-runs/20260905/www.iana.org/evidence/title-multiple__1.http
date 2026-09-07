@@ -1,0 +1,444 @@
+HTTP/1.1 200 OK
+age: 771
+cache-control: public, max-age=3600
+cf-cache-status: HIT
+cf-ray: a36688a38cb8897b-MAA
+connection: keep-alive
+content-encoding: br
+content-security-policy: upgrade-insecure-requests; default-src 'self' https://*.iana.org; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.google.com https://cse.google.com https://clients1.google.com; style-src 'self' 'unsafe-inline' https://www.google.com; child-src 'self' https://www.youtube.com https://clients1.google.com https://cse.google.com https://www.google.com/; img-src 'self' https://data.iana.org https://www.iana.org https://www.google.com https://www.googleapis.com https://clients1.google.com https://*.gstatic.com;
+content-type: text/html; charset=utf-8
+cross-origin-opener-policy: same-origin
+date: Sat, 05 Sep 2026 16:15:37 GMT
+expires: Sat, 05 Sep 2026 17:02:45 GMT
+last-modified: Sat, 05 Sep 2026 16:02:46 GMT
+referrer-policy: same-origin
+server: cloudflare
+strict-transport-security: max-age=48211200; preload
+transfer-encoding: chunked
+vary: Accept-Encoding
+x-content-type-options: nosniff, nosniff
+x-frame-options: DENY
+
+
+<!doctype html>
+<html>
+<head>
+	<title>Performance</title>
+
+	<meta charset="utf-8" />
+	<meta http-equiv="Content-type" content="text/html; charset=utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	
+    <link rel="stylesheet" href="/static/css/iana_website.0feeb53883fa.css"/>
+    <link rel="shortcut icon" type="image/ico" href="/static/img/bookmark_icon.e14a2530b3e9.ico"/>
+    <script type="text/javascript" src="/static/js/jquery.a8e7cabd4d49.js"></script>
+    <script type="text/javascript" src="/static/js/dtable.46ee921d4414.js" defer></script>
+    <script type="text/javascript" src="/static/js/relative-time.79f0e30be3b8.js" defer></script>
+
+	
+</head>
+
+<body>
+
+
+
+<header>
+    <div id="header">
+        <div id="logo">
+            <a href="/"><img src="/static/img/iana-logo-header.426b3ac01d35.svg" alt="Homepage"/></a>
+        </div>
+        <div class="navigation">
+            <ul>
+                <li><a href="/domains">Domains</a></li>
+                <li><a href="/protocols">Protocols</a></li>
+                <li><a href="/numbers">Numbers</a></li>
+                <li><a href="/about">About</a></li>
+            </ul>
+        </div>
+    </div>
+    
+    
+</header>
+
+
+<div id="body">
+
+
+<article class="hemmed sidenav">
+
+    <main>
+    
+
+	<h1>Performance</h1>
+
+	<h2>At a glance</h2>
+
+	<div class="performance-aag-keyareas">
+		
+		
+		
+		
+		<a class="performance-aag-panel" href="/performance/csc-reports">
+	<h3>Naming</h3>
+	<div class="perf-panel-result" style="color: oklch(0.55 0.15 141.7)">99.5%</div>
+	<div class="perf-panel-label">SLAs met, May to July 2026</div>
+	
+	<svg class="perf-spark" viewBox="0 0 120 36" role="img" aria-label="Twelve month trend, scaled from 50% to 100%">
+		<defs>
+			<linearGradient id="perf-severity-naming" x1="0" y1="4" x2="0" y2="32" gradientUnits="userSpaceOnUse">
+				<stop offset="0" stop-color="oklch(0.55 0.15 143.4)" stop-opacity="0.14"></stop>
+				<stop offset="0.5" stop-color="oklch(0.55 0.15 60)" stop-opacity="0.14"></stop>
+				<stop offset="1" stop-color="oklch(0.55 0.15 25)" stop-opacity="0.14"></stop>
+			</linearGradient>
+		</defs>
+		<rect class="perf-spark-scale" x="0" y="4" width="120" height="28" fill="url(#perf-severity-naming)"></rect>
+		<polyline class="perf-spark-line" points="4.0,4.0 14.2,4.9 24.4,4.0 34.5,4.0 44.7,7.5 54.9,4.0 65.1,4.9 75.3,4.0 85.5,4.0 95.6,4.9 105.8,4.0 116.0,4.0" fill="none"></polyline>
+		
+		<circle class="perf-spark-hit" cx="4.0" cy="4.0" r="5"><title>August 2025: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="14.2" cy="4.9" r="5"><title>September 2025: 98%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="24.4" cy="4.0" r="5"><title>October 2025: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="34.5" cy="4.0" r="5"><title>November 2025: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="44.7" cy="7.5" r="5"><title>December 2025: 94%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="54.9" cy="4.0" r="5"><title>January 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="65.1" cy="4.9" r="5"><title>February 2026: 98%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="75.3" cy="4.0" r="5"><title>March 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="85.5" cy="4.0" r="5"><title>April 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="95.6" cy="4.9" r="5"><title>May 2026: 98%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="105.8" cy="4.0" r="5"><title>June 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="116.0" cy="4.0" r="5"><title>July 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-now" cx="116.0" cy="4.0" r="2.5"></circle>
+	</svg>
+	
+</a>
+
+		
+		
+		<a class="performance-aag-panel" href="/performance/ietf-statistics">
+	<h3>Protocol Parameters</h3>
+	<div class="perf-panel-result" style="color: oklch(0.55 0.15 143.4)">100%</div>
+	<div class="perf-panel-label">SLAs met, May to July 2026</div>
+	
+	<svg class="perf-spark" viewBox="0 0 120 36" role="img" aria-label="Twelve month trend, scaled from 50% to 100%">
+		<defs>
+			<linearGradient id="perf-severity-protocol-parameters" x1="0" y1="4" x2="0" y2="32" gradientUnits="userSpaceOnUse">
+				<stop offset="0" stop-color="oklch(0.55 0.15 143.4)" stop-opacity="0.14"></stop>
+				<stop offset="0.5" stop-color="oklch(0.55 0.15 60)" stop-opacity="0.14"></stop>
+				<stop offset="1" stop-color="oklch(0.55 0.15 25)" stop-opacity="0.14"></stop>
+			</linearGradient>
+		</defs>
+		<rect class="perf-spark-scale" x="0" y="4" width="120" height="28" fill="url(#perf-severity-protocol-parameters)"></rect>
+		<polyline class="perf-spark-line" points="4.0,4.0 14.2,4.0 24.4,4.0 34.5,4.0 44.7,4.0 54.9,4.0 65.1,4.0 75.3,4.0 85.5,4.0 95.6,4.0 105.8,4.0 116.0,4.0" fill="none"></polyline>
+		
+		<circle class="perf-spark-hit" cx="4.0" cy="4.0" r="5"><title>August 2025: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="14.2" cy="4.0" r="5"><title>September 2025: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="24.4" cy="4.0" r="5"><title>October 2025: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="34.5" cy="4.0" r="5"><title>November 2025: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="44.7" cy="4.0" r="5"><title>December 2025: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="54.9" cy="4.0" r="5"><title>January 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="65.1" cy="4.0" r="5"><title>February 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="75.3" cy="4.0" r="5"><title>March 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="85.5" cy="4.0" r="5"><title>April 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="95.6" cy="4.0" r="5"><title>May 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="105.8" cy="4.0" r="5"><title>June 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="116.0" cy="4.0" r="5"><title>July 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-now" cx="116.0" cy="4.0" r="2.5"></circle>
+	</svg>
+	
+</a>
+
+		
+		
+		<a class="performance-aag-panel" href="/performance/numbers">
+	<h3>Numbers</h3>
+	<div class="perf-panel-result" style="color: oklch(0.55 0.15 143.4)">100%</div>
+	<div class="perf-panel-label">SLAs met, May to July 2026</div>
+	
+	<svg class="perf-spark" viewBox="0 0 120 36" role="img" aria-label="Twelve month trend, scaled from 50% to 100%">
+		<defs>
+			<linearGradient id="perf-severity-numbers" x1="0" y1="4" x2="0" y2="32" gradientUnits="userSpaceOnUse">
+				<stop offset="0" stop-color="oklch(0.55 0.15 143.4)" stop-opacity="0.14"></stop>
+				<stop offset="0.5" stop-color="oklch(0.55 0.15 60)" stop-opacity="0.14"></stop>
+				<stop offset="1" stop-color="oklch(0.55 0.15 25)" stop-opacity="0.14"></stop>
+			</linearGradient>
+		</defs>
+		<rect class="perf-spark-scale" x="0" y="4" width="120" height="28" fill="url(#perf-severity-numbers)"></rect>
+		<polyline class="perf-spark-line" points="4.0,4.0 14.2,4.0 24.4,4.0 34.5,4.0 44.7,4.0 54.9,4.0 65.1,4.0 75.3,4.0 85.5,4.0 95.6,4.0 105.8,4.0 116.0,4.0" fill="none"></polyline>
+		
+		<circle class="perf-spark-hit" cx="4.0" cy="4.0" r="5"><title>August 2025: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="14.2" cy="4.0" r="5"><title>September 2025: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="24.4" cy="4.0" r="5"><title>October 2025: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="34.5" cy="4.0" r="5"><title>November 2025: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="44.7" cy="4.0" r="5"><title>December 2025: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="54.9" cy="4.0" r="5"><title>January 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="65.1" cy="4.0" r="5"><title>February 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="75.3" cy="4.0" r="5"><title>March 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="85.5" cy="4.0" r="5"><title>April 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="95.6" cy="4.0" r="5"><title>May 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="105.8" cy="4.0" r="5"><title>June 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="116.0" cy="4.0" r="5"><title>July 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-now" cx="116.0" cy="4.0" r="2.5"></circle>
+	</svg>
+	
+</a>
+
+		
+		
+		<div class="performance-aag-panel">
+	<h3>Satisfaction</h3>
+	<div class="perf-panel-result" style="color: oklch(0.55 0.15 117.7)">92.3%</div>
+	<div class="perf-panel-label">Customer satisfaction during July 2026</div>
+	
+	<svg class="perf-spark" viewBox="0 0 120 36" role="img" aria-label="Twelve month trend, scaled from 50% to 100%">
+		<defs>
+			<linearGradient id="perf-severity-satisfaction" x1="0" y1="4" x2="0" y2="32" gradientUnits="userSpaceOnUse">
+				<stop offset="0" stop-color="oklch(0.55 0.15 143.4)" stop-opacity="0.14"></stop>
+				<stop offset="0.5" stop-color="oklch(0.55 0.15 60)" stop-opacity="0.14"></stop>
+				<stop offset="1" stop-color="oklch(0.55 0.15 25)" stop-opacity="0.14"></stop>
+			</linearGradient>
+		</defs>
+		<rect class="perf-spark-scale" x="0" y="4" width="120" height="28" fill="url(#perf-severity-satisfaction)"></rect>
+		<polyline class="perf-spark-line" points="4.0,4.0 14.2,6.8 24.4,8.5 34.5,4.0 44.7,4.0 54.9,4.0 65.1,4.0 75.3,4.0 85.5,4.0 95.6,6.8 105.8,7.6 116.0,8.3" fill="none"></polyline>
+		
+		<circle class="perf-spark-hit" cx="4.0" cy="4.0" r="5"><title>August 2025: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="14.2" cy="6.8" r="5"><title>September 2025: 95%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="24.4" cy="8.5" r="5"><title>October 2025: 92%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="34.5" cy="4.0" r="5"><title>November 2025: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="44.7" cy="4.0" r="5"><title>December 2025: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="54.9" cy="4.0" r="5"><title>January 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="65.1" cy="4.0" r="5"><title>February 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="75.3" cy="4.0" r="5"><title>March 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="85.5" cy="4.0" r="5"><title>April 2026: 100%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="95.6" cy="6.8" r="5"><title>May 2026: 95%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="105.8" cy="7.6" r="5"><title>June 2026: 94%</title></circle>
+		
+		<circle class="perf-spark-hit" cx="116.0" cy="8.3" r="5"><title>July 2026: 92%</title></circle>
+		
+		<circle class="perf-spark-now" cx="116.0" cy="8.3" r="2.5"></circle>
+	</svg>
+	
+</div>
+
+		
+	</div>
+
+	<h2>Performance Reports</h2>
+
+	<ul class="tile-grid">
+		<li>
+			<a class="tile" href="/performance/engagement">
+				<img class="tile-icon" src="/static/icons/users.svg" alt="">
+				<h3>Engagement Surveys</h3>
+				<p>A third-party survey is conducted annually to assess sentiment and areas
+					of focus from our key stakeholders.</p>
+			</a>
+		</li>
+		<li>
+			<a class="tile" href="/performance/csc-reports">
+				<img class="tile-icon" src="/static/icons/checklist.svg" alt="">
+				<h3>Naming Performance</h3>
+				<p>Monthly reporting against the service level agreements for the IANA
+					Naming Functions, including root zone management.</p>
+			</a>
+		</li>
+		<li>
+			<a class="tile" href="/performance/numbers">
+				<img class="tile-icon" src="/static/icons/checklist.svg" alt="">
+				<h3>Number Resource Performance</h3>
+				<p>Monthly reporting on performance against requirements under the Number
+					Resource SLAs.</p>
+			</a>
+		</li>
+		<li>
+			<a class="tile" href="/performance/ietf-statistics">
+				<img class="tile-icon" src="/static/icons/checklist.svg" alt="">
+				<h3>IETF Statistics Report</h3>
+				<p>Monthly documentation of the performance of the protocol assignments roles
+					performed for the IETF community.</p>
+			</a>
+		</li>
+		<li>
+			<a class="tile" href="/performance/ietf-draft-status">
+				<img class="tile-icon" src="/static/icons/dashboard.svg" alt="">
+				<h3>Internet Draft Status</h3>
+				<p>Information on pending Internet Draft actions being evaluated by us.</p>
+			</a>
+		</li>
+		<li>
+			<a class="tile" href="/performance/root-maintainer">
+				<img class="tile-icon" src="/static/icons/checklist.svg" alt="">
+				<h3>Root Zone Maintainer Performance</h3>
+				<p>Performance by the contractor of the Root Zone Maintainer function.</p>
+			</a>
+		</li>
+		<li>
+			<a class="tile" href="/performance/root-audit">
+				<img class="tile-icon" src="/static/icons/archive.svg" alt="">
+				<h3>Root Zone Audit Data</h3>
+				<p>A report of all root zone related changes transacted.</p>
+			</a>
+		</li>
+		<li>
+			<a class="tile" href="https://sle-dashboard.iana.org">
+				<img class="tile-icon" src="/static/icons/dashboard.svg" alt="">
+				<h3>Naming Performance Dashboard</h3>
+				<p>Real-time reporting of performance metrics defined by the naming community
+					for root zone management.</p>
+			</a>
+		</li>
+	</ul>
+
+
+    </main>
+
+    <nav id="sidenav">
+    
+
+<div class="navigation_box">
+    <h2>About us</h2>
+    <ul>
+        <li id="nav_about_top"><a href="/about">Overview</a></li>
+        <li id="nav_about_news"><a href="/news">News</a></li>
+        <li id="nav_about_performance"><a href="/performance">Performance</a></li>
+        <li id="nav_about_org"><a href="/about/organization">The Organization</a></li>
+        <ul id="nav_about_org_sub">
+            <li id="nav_about_governance"><a href="/about/governance">Governance</a></li>
+            <li id="nav_about_oversight"><a href="/about/oversight">Oversight</a></li>
+            <li id="nav_about_planning"><a href="/about/planning">Strategy &amp; Planning</a></li>
+            <li id="nav_about_excellence"><a href="/about/excellence">Continuous Improvement</a></li>
+            <li id="nav_about_audits"><a href="/about/audits">Audits</a></li>
+        </ul>
+        <li id="nav_about_archive"><a href="/archive">Archive</a></li>
+        <ul id="nav_about_archive_sub">
+            <li id="nav_about_reports"><a href="/reports">Reports</a></li>
+        </ul>
+        <li id="nav_about_contact"><a href="/contact">Contact us</a></li>
+    </ul>
+</div>
+
+
+    </nav>
+
+</article>
+
+
+</div>
+
+<footer>
+    <div id="footer">
+        <table class="navigation">
+            <tr>
+                <td class="section"><a href="/domains">Domain&nbsp;Names</a></td>
+                <td class="subsection">
+                    <ul>
+                        <li><a href="/domains/root">Root Zone Registry</a></li>
+                        <li><a href="/domains/int">.INT Registry</a></li>
+                        <li><a href="/domains/arpa">.ARPA Registry</a></li>
+                        <li><a href="/domains/idn-tables">IDN Repository</a></li>
+                    </ul>
+                </td>
+            </tr>
+            <tr>
+                <td class="section"><a href="/numbers">Number&nbsp;Resources</a></td>
+                <td class="subsection">
+                    <ul>
+                        <li><a href="/numbers/registries">Number Registries</a></li>
+                        <li><a href="/numbers/allocations/">RIR Allocation Data</a></li>
+                        <li><a href="/help/abuse">Abuse Information</a></li>
+                    </ul>
+                </td>
+            </tr>
+            <tr>
+                <td class="section"><a href="/protocols">Protocols</a></td>
+                <td class="subsection">
+                    <ul>
+                        <li><a href="/protocols">Protocol Registries</a></li>
+                        <li><a href="/time-zones">Time Zone Database</a></li>
+                    </ul>
+                </td>
+            </tr>
+            <tr>
+                <td class="section"><a href="/about">About&nbsp;Us</a></td>
+                <td class="subsection">
+                    <ul>
+                        <li><a href="/news">News</a></li>
+                        <li><a href="/performance">Performance</a></li>
+                        <li><a href="/about/organization">The Organization</a></li>
+                        <li><a href="/archive">Archive</a></li>
+                        <li><a href="/contact">Contact Us</a></li>
+                    </ul>
+                </td>
+            </tr>
+        </table>
+        <div id="custodian">
+            <p>The IANA functions coordinate the Internet’s globally unique identifiers, and
+                are provided by <a href="https://pti.icann.org">Public Technical Identifiers</a>, an affiliate of
+                <a href="https://www.icann.org/">ICANN</a>.</p>
+        </div>
+        <div id="legalnotice">
+            <ul>
+                <li><a href="https://www.icann.org/privacy/policy">Privacy Policy</a></li>
+                <li><a href="https://www.icann.org/privacy/tos">Terms of Service</a></li>
+                
+            </ul>
+        </div>
+    </div>
+</footer>
+
+
+
+<script>
+$(document).ready(function() {
+	$("#nav_about_performance").addClass("selected")
+});
+</script>
+
+
+</body>
+
+</html>

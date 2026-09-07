@@ -1,0 +1,123 @@
+{
+  "domain": "www.mozilla.org",
+  "run_id": "d82913c8-1ae6-425e-ba8f-35bece08f7d3",
+  "commit": "180f768",
+  "grain": {
+    "crawl_run_findings_rows": 31,
+    "instances": 3420,
+    "findings_cmd_returns": "instances (page with ?limit=1000)",
+    "note": "Every per-rule number below is an INSTANCE count. 31 rules fired."
+  },
+  "crawl": {
+    "urls_fetched": 650,
+    "internal": 500,
+    "external": 150,
+    "cap_hit": true,
+    "duration_s": 142,
+    "exit_code": 0,
+    "persistence": "signals-only",
+    "status": "completed",
+    "lost_result_rows": 0,
+    "max_depth": 2,
+    "coverage_complete": true,
+    "coverage_note": "results.json dumped, positive-control check ran, reconciliation balanced. Usable by Phase C."
+  },
+  "ledger": {
+    "fired": 31,
+    "not_fired": 65,
+    "total": 96
+  },
+  "reconciliation": {
+    "rollup_sum": 3420,
+    "instances": 3420,
+    "summary_findings_count": 3420,
+    "per_severity_match": true,
+    "verdict": "MATCH",
+    "note": "First attempt MISMATCHED (1,000 vs 3,420) because the paged read stopped on a PostgREST-capped short page. See defect D8."
+  },
+  "coverage": {
+    "fired_here": 31,
+    "newly_exercised_vs_domain_1": 17,
+    "union_across_complete_runs": 35,
+    "union_denominator": "1 complete run (mozilla.org). iana.org is coverage_complete:false and cannot contribute proof-of-absence.",
+    "hreflang_caveat": "hreflang-missing-return (124) and hreflang-missing-self (6) fired on exactly ONE logical page seen across 64 locale variants. The rules are exercised; hreflang behaviour on the rest of the site is NOT. Phase C must not read this as site-wide.",
+    "depth_caveat": "max depth 2, same as domain 1. deep-page, orphan-page and single-inlink remain unexercised after two domains."
+  },
+  "budget_spend": {
+    "internal_urls": 500,
+    "distinct_logical_pages": 114,
+    "distinct_locales": 75,
+    "mean_variants_per_page": 4.4,
+    "homepage_variants": 76,
+    "note": "The homepage alone consumed 76 of 500 URLs (15%). 90 of 114 logical pages were seen in a single locale; 17 in ten or more."
+  },
+  "step4": {
+    "fired_rules_sampled": 31,
+    "true_positive": 14,
+    "false_positive": 0,
+    "unverifiable": 17,
+    "note": "Every fired rule sampled, one instance each, per the amended prompt. 17 UNVERIFIABLE are rules for which no independent programmatic check was written - fetched and stored, not confirmed."
+  },
+  "step5": {
+    "NOT_APPLICABLE": 7,
+    "SUSPECTED_FALSE_NEGATIVE": 42,
+    "FIXTURE_ONLY": 4,
+    "UNVERIFIABLE": 5,
+    "STRUCTURALLY_SILENT": 7
+  },
+  "step6": {
+    "axes": {
+      "specific": 28,
+      "correct": 31,
+      "actionable": 27,
+      "scoped": 31,
+      "severity_appropriate": 31
+    },
+    "templated_recommendation": 0,
+    "rules_with_no_observed_value": 4
+  },
+  "verified_ok": [
+    "anchor-missing",
+    "external-403",
+    "h1-missing",
+    "h1-multiple",
+    "hreflang-missing-self",
+    "meta-long",
+    "meta-missing",
+    "meta-short",
+    "noindex",
+    "open-graph-description-missing",
+    "open-graph-image-alt-missing",
+    "permanent-redirect",
+    "temporary-redirect",
+    "title-long"
+  ],
+  "unverifiable": [
+    {
+      "rule_id": "meta-refresh",
+      "reason": "precondition \"no meta-refresh or Refresh header\" measures 0, but no result in the run carries a non-null value for metaRefreshRaw/refreshHeaderRaw — cannot distinguish \"condition absent\" from \"field never populated\""
+    },
+    {
+      "rule_id": "pagination-link-broken",
+      "reason": "precondition \"no rel=next/prev anywhere\" measures 0, but no result in the run carries a non-null value for paginationNext/paginationPrev — cannot distinguish \"condition absent\" from \"field never populated\""
+    },
+    {
+      "rule_id": "pagination-canonical-conflict",
+      "reason": "precondition \"no rel=next/prev anywhere\" measures 0, but no result in the run carries a non-null value for paginationNext/paginationPrev — cannot distinguish \"condition absent\" from \"field never populated\""
+    },
+    {
+      "rule_id": "open-graph-url-invalid",
+      "reason": "precondition \"no invalid Open Graph URLs\" measures 0, but no result in the run carries a non-null value for openGraphInvalidUrls — cannot distinguish \"condition absent\" from \"field never populated\""
+    },
+    {
+      "rule_id": "schema-error",
+      "reason": "precondition \"no structured data published\" measures 0, but no result in the run carries a non-null value for schemaTypes/schemaErrors — cannot distinguish \"condition absent\" from \"field never populated\""
+    }
+  ],
+  "fixture_backlog": [
+    "base-url-ignored",
+    "ssl-certificate-name",
+    "sni-unsupported",
+    "http-refresh"
+  ]
+}

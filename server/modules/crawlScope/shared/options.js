@@ -88,10 +88,10 @@ function parseUrlList(candidates, cap) {
     throw new ValidationError("Provide at least one valid http:// or https:// URL.");
   }
   const truncated = cleaned.length > cap.maxUrls;
-  return { urls: cleaned.slice(0, cap.maxUrls), invalid, truncated };
+  return { urls: cleaned.slice(0, cap.maxUrls), invalid, truncated, total: cleaned.length };
 }
 
-// Returns { url, options, listInfo? } ready for `new SeoCrawler(options)` (pass
+// Returns { url, options, listInfo?, budgetClamped } ready for `new SeoCrawler(options)` (pass
 // `options.urls` to start() when present), or throws ValidationError (status 400).
 // `overrides` lets the worker tighten politeness for unattended crawls. Overrides are
 // monotonic — they can only ever slow a crawl down, never speed it up past what the
@@ -105,10 +105,12 @@ function parseCrawlRequest(body = {}, overrides = {}) {
   let url;
   let listUrls;
   let listInfo;
+  let listTotal = 0;
 
   if (Array.isArray(body.urls)) {
     const parsed = parseUrlList(body.urls, cap);
     listUrls = parsed.urls;
+    listTotal = parsed.total;
     listInfo = { count: listUrls.length, invalid: parsed.invalid, truncated: parsed.truncated };
     url = `List crawl (${listUrls.length} URL${listUrls.length === 1 ? "" : "s"})`;
   } else {
@@ -152,7 +154,30 @@ function parseCrawlRequest(body = {}, overrides = {}) {
   };
   if (listUrls) options.urls = listUrls;
 
-  return { url, options, listInfo };
+  // A request for more pages than the operator ceiling allows is REDUCED rather
+  // than rejected — but it was reduced SILENTLY, and that silence is how a
+  // temporary 50-URL cap in .env read as a crawler bug: ask for 500, get 50,
+  // with nothing anywhere saying so. The run then reports a ceiling of
+  // maxUrls + maxExternalUrls (crawler._progress), so the only number the user
+  // ever sees is one nobody requested. Reported here so a caller can say it out
+  // loud, the same way store.updateProject audits crawlBudgetClampedByPolicy.
+  //
+  // Null unless the caller EXPLICITLY asked for more than it got. The default
+  // being filled in and clamped to the ceiling is not a clamp anyone asked
+  // about, and reporting that would cry wolf on every ordinary request.
+  let budgetClamped = null;
+  if (listUrls) {
+    if (listInfo.truncated) {
+      budgetClamped = { requested: listTotal, granted: listUrls.length, ceiling: cap.maxUrls };
+    }
+  } else if (raw.maxUrls !== undefined) {
+    const asked = Math.floor(Number(raw.maxUrls));
+    if (Number.isFinite(asked) && asked > options.maxUrls) {
+      budgetClamped = { requested: asked, granted: options.maxUrls, ceiling: cap.maxUrls };
+    }
+  }
+
+  return { url, options, listInfo, budgetClamped };
 }
 
 module.exports = { parseCrawlRequest, ceilings, ValidationError };

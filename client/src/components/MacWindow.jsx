@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
-import { TOOL_GROUPS, TAGS, getToolByPath } from '../toolsMeta';
+import { NAV_GROUPS, TAGS, getToolByPath } from '../toolsMeta';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from './ThemeContext';
 import { projectsApi } from '../lib/projectsApi';
@@ -8,6 +8,15 @@ import { useActiveProjectId } from '../lib/activeProject';
 import SemrushBalanceBadge from './SemrushBalanceBadge';
 import CrawlStatusBar from './home/CrawlStatusBar';
 import { useCrawlStatus } from '../lib/useCrawlStatus';
+
+// Shown while a route's chunk is in flight. Routes are code-split (see App.jsx),
+// so navigating to a tool now fetches it — a few hundred milliseconds on a cold
+// cache, nothing on a warm one. Deliberately near-empty: the sidebar and header
+// are still on screen either side of it, and a spinner that flashes for 200ms
+// reads as a slower app than one that simply holds its ground.
+function RouteFallback() {
+  return <div style={{ minHeight: '60vh' }} aria-busy="true" />;
+}
 
 /* ── Embed mode ──────────────────────────────────────────────────────────────
    When the app is framed with ?embed=1 (used by the public intelligence.position2.com
@@ -338,7 +347,7 @@ export default function MacWindow() {
   const currentTool = getToolByPath(pathname);
 
   const filteredGroups = search.trim()
-    ? TOOL_GROUPS
+    ? NAV_GROUPS
         .map(g => ({
           ...g,
           tools: g.tools.filter(t =>
@@ -346,13 +355,13 @@ export default function MacWindow() {
           ),
         }))
         .filter(g => g.tools.length > 0)
-    : TOOL_GROUPS;
+    : NAV_GROUPS;
 
   // Chrome-less embed: only the tool content, for public framed use.
   if (EMBED_MODE) {
     return (
       <div style={{ minHeight: '100vh', overflowY: 'auto', background: 'var(--bg)' }}>
-        <Outlet />
+        <Suspense fallback={<RouteFallback />}><Outlet /></Suspense>
       </div>
     );
   }
@@ -665,7 +674,7 @@ export default function MacWindow() {
                 />
               </div>
             )}
-            <Outlet />
+            <Suspense fallback={<RouteFallback />}><Outlet /></Suspense>
           </div>
         </div>
       </div>

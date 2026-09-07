@@ -1,13 +1,11 @@
 import {
   useCallback, useEffect, useMemo, useRef, useState,
 } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
-import { SectionHeader } from '../ui';
+import { useSearchParams } from 'react-router-dom';
+import { SectionHeader, Tabs } from '../ui';
 import { useActiveProjectId } from '../lib/activeProject';
 import { projectsApi } from '../lib/projectsApi';
 import { aiVisibilityApi } from '../lib/aiVisibilityApi';
-import { ReportRail } from '../components/aiVisibility/ReportRail';
-import { ReportHeader } from '../components/aiVisibility/ReportHeader';
 import { RunDetailReport } from '../components/aiVisibility/reports/RunDetailReport';
 import { OverviewReport } from '../components/aiVisibility/reports/OverviewReport';
 import { InsightsReport } from '../components/aiVisibility/reports/InsightsReport';
@@ -32,16 +30,19 @@ import { muted } from '../components/aiVisibility/promptHelpers';
 // show me the evidence. The nine builders still exist on the server and these
 // four RE-SELECT from them, so no number moved in the collapsing.
 //
-// The navigation is a single vertical rail, not tabs. It stays a rail: the
-// setup screens sit in it too, and `ui/Tabs`' underline variant handles neither
-// the count nor the grouping. The app already has the right pattern for a long
-// single-select list (CrawlScopeReviewPage's rule rail), so the rail copies it.
+// The navigation is one horizontal tab strip, and it used to be a vertical
+// rail. The rail was the right shape for nine reports plus two setup screens in
+// two labelled groups; with four reports and two setup screens it was a 240px
+// column holding six words, taking a sixth of the width off every table to its
+// right. Six flat items is what a tab strip is for, so this uses the app's own
+// `ui/Tabs` underline variant rather than a third bespoke nav.
 //
-// "Prompt set" and "Brands" sit in the rail as a SET UP group rather than
-// behind a second layer of tabs. Both are part of this module and both gate it
-// outright — an unapproved prompt set measures nothing and an unapproved brand
-// set matches nothing — so burying them under a nav layer would hide the two
-// screens most likely to explain why every number is an em-dash.
+// "Prompt set" and "Brands" stay in the same strip rather than behind a second
+// layer. Both are part of this module and both gate it outright — an unapproved
+// prompt set measures nothing and an unapproved brand set matches nothing — so
+// putting them under a nav layer would hide the two screens most likely to
+// explain why every number is an em-dash. Brands still carries its "!" when the
+// client brand is unapproved; that warning is the reason it is in the strip.
 //
 // The reading every report has to get right, and the reason so much of this
 // file is about empty states: a score is over MEASURED captures, never
@@ -51,6 +52,21 @@ const SETUP_REPORTS = [
   { id: 'prompt-set', label: 'Prompt set', group: 'SET UP' },
   { id: 'brands', label: 'Brands', group: 'SET UP' },
 ];
+
+/**
+ * What the strip calls the four reports.
+ *
+ * The server's catalogue names them, and it is still the source of which
+ * reports exist and in what order — this only renames two of them for the tab,
+ * where the design's words are better: a reader scanning a strip understands
+ * "Prompts" and "Responses" faster than "Questions" and "Answers", which are
+ * the same words the page's own body copy uses for the things inside them.
+ * A report id with no entry keeps its catalogue label.
+ */
+const TAB_LABEL = {
+  questions: 'Prompts',
+  answers: 'Responses',
+};
 
 /**
  * Which component renders which report.
@@ -163,19 +179,47 @@ export default function AiVisibilityPage() {
     window.scrollTo({ top: 0 });
   }, [reportId]);
 
-  const railItems = useMemo(() => {
+  const tabItems = useMemo(() => {
     const reports = (catalogue || []).map((r) => ({
-      id: r.id,
-      label: r.label,
-      group: r.group,
-      stat: undefined,
+      key: r.id,
+      label: TAB_LABEL[r.id] || r.label,
     }));
     const setup = SETUP_REPORTS.map((r) => ({
-      ...r,
-      stat: r.id === 'brands' && brandState && !brandState.hasApprovedClient ? '!' : undefined,
+      key: r.id,
+      label: r.label,
+      // The one badge worth carrying into the strip: with no approved client
+      // brand, nothing matches and every figure on every other tab is an
+      // em-dash. The mark is what connects the two.
+      badge: r.id === 'brands' && brandState && !brandState.hasApprovedClient
+        ? (
+          <span
+            aria-label="needs attention"
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 15, height: 15, borderRadius: '50%', fontSize: 10, fontWeight: 700,
+              background: 'var(--viz-warn)', color: 'var(--bg)',
+            }}
+          >
+            !
+          </span>
+        )
+        : undefined,
     }));
     return [...reports, ...setup];
   }, [catalogue, brandState]);
+
+  // The basis line under the title. Assembled from the report envelope's own
+  // meta rather than composed here, and each clause is dropped when the field
+  // behind it is absent — a sentence that claims a period it does not have is
+  // worse than a shorter one.
+  const m = envelope.data?.meta;
+  const basisLine = [
+    `What answer engines say about ${project?.name || 'this client'}`,
+    m?.basis ? `— ${m.basis}` : null,
+    m?.period ? `· ${m.period}` : null,
+    m?.coverageLabel ? `· ${m.coverageLabel}` : null,
+    m?.rulesetVersion ? `· ruleset ${m.rulesetVersion}` : null,
+  ].filter(Boolean).join(' ');
 
   const orderedIds = useMemo(() => (catalogue || []).map((r) => r.id), [catalogue]);
   const index = orderedIds.indexOf(reportId);
@@ -207,41 +251,48 @@ export default function AiVisibilityPage() {
     );
   }
 
-  const activeReport = (catalogue || []).find((r) => r.id === reportId)
-    || SETUP_REPORTS.find((r) => r.id === reportId)
-    || null;
-
   const migrationError = envelope.error?.code === 'migration_needed' ? envelope.error : null;
 
   return (
-    <main style={{ padding: '28px 32px 64px', maxWidth: 1520, margin: '0 auto' }}>
-      <SectionHeader
-        title={`AI Visibility — ${project.name}`}
-        subtitle="Whether answer engines name this client, and which sources they cite instead."
-        actions={<Link to="/" style={{ fontSize: 12, color: 'var(--text-2)' }}>Dashboard</Link>}
+    <main className="aiv-report">
+      {/* Who this is about, and what it rests on. The per-report header bar
+          that used to sit inside the pane is gone: with the reports one click
+          apart in a strip, a second heading naming the report you just clicked
+          restated the tab. What that bar carried and this keeps is the basis
+          line — the capture count, the question count, the period, the coverage
+          and the ruleset version. None of that is decoration: every score on
+          this page is over MEASURED captures, and a reader has to be able to see
+          how many that was. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <span
+          style={{
+            fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase',
+            fontWeight: 600, color: 'var(--primary-text)',
+          }}
+        >
+          Optimize
+        </span>
+        <h1
+          style={{
+            margin: 0, fontSize: 28, fontWeight: 500, letterSpacing: '-0.02em',
+            color: 'var(--text)',
+          }}
+        >
+          AI Visibility
+        </h1>
+        <span style={{ fontSize: 13.5, color: 'var(--text-3)', lineHeight: 1.5 }}>
+          {basisLine}
+        </span>
+      </div>
+
+      <Tabs
+        variant="underline"
+        tabs={tabItems}
+        active={reportId}
+        onChange={selectReport}
       />
 
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'minmax(200px, 240px) 1fr',
-        gap: 20,
-        alignItems: 'start',
-        marginTop: 4,
-      }}
-      >
-        <ReportRail items={railItems} activeId={reportId} onSelect={selectReport} />
-
-        <div ref={paneRef}>
-          <ReportHeader
-            report={activeReport}
-            index={index}
-            total={orderedIds.length}
-            meta={envelope.data?.meta}
-            onPrev={index > 0 ? () => selectReport(orderedIds[index - 1]) : undefined}
-            onNext={index >= 0 && index < orderedIds.length - 1
-              ? () => selectReport(orderedIds[index + 1])
-              : undefined}
-          />
+      <div ref={paneRef}>
 
           {migrationError && (
             <div style={{
@@ -291,7 +342,6 @@ export default function AiVisibilityPage() {
               project,
             })
           )}
-        </div>
       </div>
     </main>
   );

@@ -52,8 +52,10 @@ app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5000;
 
 app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: '20mb' }));
 app.use(cookieParser());
+// NOTE: express.json() is deliberately NOT registered here. It is mounted after
+// the rate limiter below, so a 20 MB body from an unauthenticated caller is
+// counted and rejected before Express spends memory and CPU parsing it.
 
 // General rate limit: 20 requests per minute.
 // Skips routers that have their own (higher) limiter, so the call-heavy
@@ -64,6 +66,33 @@ app.use(cookieParser());
 // /api/ai-visibility: it was mounted with lpbLimiter (300/min) and silently
 // throttled to 20 anyway. Adding a router below without adding it here gives it
 // a limit it does not actually get.
+// One list instead of a hand-maintained `||` chain. Every mount below that takes
+// kbLimiter or lpbLimiter MUST appear here, or the global 20/min cap silently
+// wins over the higher limit it was given — which is exactly what had happened to
+// /api/robots-monitor and /api/on-page-audit: both were mounted with lpbLimiter
+// (300/min) and were still being throttled to 20/min, because only this list is
+// consulted. Holding it as data at least puts the prefixes next to the limiter
+// each one is claiming; the drift itself is still only prevented by keeping this
+// list in step with the mounts below, so add the prefix here when you add a
+// mount that takes kbLimiter or lpbLimiter.
+const OWN_LIMITER_PREFIXES = [
+  '/api/kb',                     // kbLimiter — editor auto-saves
+  '/api/modules',                // kbLimiter
+  '/api/audit',                  // kbLimiter
+  '/api/kb-context',             // kbLimiter
+  '/api/location-page-builder',  // lpbLimiter — dashboard + wizard + SSE
+  '/api/robots-monitor',         // lpbLimiter
+  '/api/on-page-audit',          // lpbLimiter
+  '/api/market-potential',       // lpbLimiter
+  '/api/competitor-tracker',     // lpbLimiter
+  '/api/content-architect',      // lpbLimiter
+  '/api/crawl-scope',            // lpbLimiter
+  '/api/ai-visibility',          // lpbLimiter
+  '/api/projects',               // lpbLimiter — home loads list + per-project overview
+  '/api/runs',                   // kbLimiter
+  '/api/admin',                  // kbLimiter
+];
+
 const limiter = rateLimit({
   windowMs: 60 * 1000,
   max: 20,
@@ -72,7 +101,7 @@ const limiter = rateLimit({
   message: { error: 'Too many requests. Please wait a moment and try again.' },
   skip: (req) => {
     const u = req.originalUrl || req.url || '';
-    return u.startsWith('/api/location-page-builder') || u.startsWith('/api/kb') || u.startsWith('/api/modules') || u.startsWith('/api/audit') || u.startsWith('/api/market-potential') || u.startsWith('/api/competitor-tracker') || u.startsWith('/api/content-architect') || u.startsWith('/api/crawl-scope') || u.startsWith('/api/ai-visibility') || u.startsWith('/api/runs') || u.startsWith('/api/projects') || u.startsWith('/api/admin');
+    return OWN_LIMITER_PREFIXES.some((prefix) => u.startsWith(prefix));
   },
 });
 
@@ -95,6 +124,12 @@ const lpbLimiter = rateLimit({
 });
 
 app.use('/api/', limiter);
+
+// Body parsing happens *after* rate limiting, so an unauthenticated flood of
+// 20 MB JSON bodies is throttled at the limiter instead of being parsed first.
+// The generous limit itself is kept: the KB editor, the SEMrush upload parser
+// and the article/content enhancement routes all post large documents.
+app.use(express.json({ limit: '20mb' }));
 
 // ── Public routes (no auth required) ────────────────────────────────────────
 app.use('/api/auth', authRouter);
@@ -155,8 +190,48 @@ app.use('/api/competitor-analysis', requireSeo, track('competitor-analysis-repor
 // ── Serve React frontend ─────────────────────────────────────────────────────
 const clientBuild = path.join(__dirname, '../client/dist');
 app.use(express.static(clientBuild));
+
+// An unmatched /api/* path is a 404 — not the SPA shell. Reached by the catch-all
+// below, a mistyped, renamed or removed endpoint answered index.html with HTTP
+// 200, so the client's `res.ok` was true and `res.json()` then threw
+// "Unexpected token '<'". That turns a plainly readable 404 into a parse error
+// with no hint of which call was wrong, and it hides dead endpoints from the
+// client entirely. Registered after every /api mount, so it only sees genuine misses.
+app.use('/api', (req, res) => {
+  res.status(404).json({
+    error: `Unknown API endpoint: ${req.method} ${(req.originalUrl || '').split('?')[0]}`,
+  });
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(clientBuild, 'index.html'));
+});
+
+// ── Error handler ────────────────────────────────────────────────────────────
+// Express needs a 4-argument middleware to treat this as the error handler, and
+// there was none: a route that threw synchronously, or called next(err), fell
+// through to Express's default handler, which answers a full HTML stack trace.
+// On an /api call that means the client again gets HTML where it expects JSON,
+// and the stack — absolute paths, module layout, sometimes query values — is
+// echoed to whoever made the request. Must stay last.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  const status = err.status || err.statusCode || 500;
+  // A body that was too large or malformed is the caller's problem, and saying so
+  // is more useful than "Internal server error".
+  const isClientError = status >= 400 && status < 500;
+  console.error('[error]', req.method, req.originalUrl, '->', status, err.message);
+  if (status >= 500) console.error(err.stack);
+
+  if (res.headersSent) return; // response already streaming (SSE, file download)
+
+  res.status(status).json({
+    error: isClientError
+      ? (err.message || 'Bad request.')
+      // Never the stack, and never err.message for a 500: these can carry
+      // connection strings and upstream credentials.
+      : 'Internal server error.',
+  });
 });
 
 // ── Platform administrator bootstrap (PRD §7.3, AC-002) ──────────────────────
@@ -365,24 +440,75 @@ server.timeout = 180000;
 // the work and re-crawls the site. Draining on SIGTERM lets in-flight crawls
 // finish or check-point first. The timeout is the backstop: the platform's stop
 // grace window is short, and hanging past it just turns into SIGKILL anyway.
+// The drain budget has to fit inside the force-exit, and it did not: the worker's
+// own stop drains for up to WORKER_SHUTDOWN_DRAIN_MS (15s) and the API's manager
+// for another 20s by default — 35s of draining behind a 15s force-exit, so the
+// checkpoint work the drain exists to finish was reliably killed halfway. Rather
+// than push the force-exit past the platform's SIGKILL grace (~30s), the drains
+// are given explicit budgets that add up to less than it.
+const SHUTDOWN_FORCE_MS = Number(process.env.SHUTDOWN_FORCE_MS) || 28_000;
+const API_MANAGER_DRAIN_MS = Number(process.env.API_MANAGER_DRAIN_MS) || 11_000;
+
 let shuttingDown = false;
-async function shutdown(signal) {
+// exitCode is a parameter because not every drain is a success. A SIGTERM is an
+// orderly stop and exits 0; a crash must exit non-zero or the platform reads a
+// failed boot as a clean one — `listen EADDRINUSE` drained and reported success,
+// which is exactly the signal a deploy needs to see fail.
+async function shutdown(signal, exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`\n${signal} received — draining…`);
   const force = setTimeout(() => {
     console.log('Drain timed out; exiting anyway.');
-    process.exit(0);
-  }, 15000);
+    process.exit(exitCode);
+  }, SHUTDOWN_FORCE_MS);
   force.unref();
+
+  // First, stop taking on new work. This is synchronous and instant, and it was
+  // missing entirely: the claim loop kept polling for queued runs throughout the
+  // drain, so a shutting-down process could claim a fresh module run seconds
+  // before exiting and strand it at 'running' until the reaper found it.
+  try {
+    if (moduleWorkerHandle) moduleWorkerHandle.stop();
+  } catch (err) {
+    console.error('[shutdown] moduleWorker:', err.message);
+  }
+
   try {
     // The in-process worker, and the manual runs the API executes itself.
     if (crawlScopeWorker) await crawlScopeWorker.stop();
-    if (crawlScopeRoutes.manager) await crawlScopeRoutes.manager.shutdown();
+    if (crawlScopeRoutes.manager) {
+      await crawlScopeRoutes.manager.shutdown({ timeoutMs: API_MANAGER_DRAIN_MS });
+    }
   } catch (err) {
     console.error('[shutdown]', err.message);
   }
-  server.close(() => process.exit(0));
+  server.close(() => process.exit(exitCode));
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+
+// ── Last-resort process handlers ─────────────────────────────────────────────
+// Without these, Node's default for an unhandled rejection is to terminate the
+// process: one forgotten `.catch()` anywhere in a crawl, capture or LLM call
+// took the whole server down and every in-flight request with it, leaving no
+// record of which promise was responsible. Logging and continuing is the right
+// trade for a rejection — the process is still coherent.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason instanceof Error ? reason.stack : reason);
+});
+
+// An uncaught exception is different: state after one is genuinely unknown, so
+// the process drains and leaves rather than serving from a corrupt state. The
+// platform restarts it, and the run sweepers reconcile whatever was in flight.
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err?.stack || err);
+  // A listen failure happens before anything is serving, so there is nothing to
+  // drain and no reason to hold the platform's start window open: fail fast and
+  // loudly, which is what an EADDRINUSE or a bad port needs to do.
+  if (err && (err.code === 'EADDRINUSE' || err.code === 'EACCES')) {
+    console.error(`[uncaughtException] cannot bind port ${PORT} — exiting.`);
+    process.exit(1);
+  }
+  shutdown('uncaughtException', 1).catch(() => process.exit(1));
+});

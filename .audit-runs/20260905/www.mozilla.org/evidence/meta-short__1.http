@@ -1,0 +1,2197 @@
+HTTP/1.1 200 OK
+accept-ranges: bytes
+age: 0
+cache-control: max-age=600
+connection: keep-alive
+content-encoding: br
+content-language: ar
+content-length: 21365
+content-security-policy: object-src 'none'; script-src 'self' 'unsafe-eval' 'unsafe-inline' *.google-analytics.com *.googletagmanager.com cdn.transcend.io google-analytics.com googletagmanager.com js.stripe.com s.ytimg.com tagmanager.google.com transcend-cdn.com www.mozilla.org www.youtube.com; default-src 'self' *.mozilla.org; style-src 'self' 'unsafe-inline' cdn.transcend.io transcend-cdn.com www.mozilla.org; media-src 'self' assets.mozilla.net videos.cdn.mozilla.net www.mozilla.org; frame-ancestors 'none'; img-src 'self' blog.mozilla.org data: images.ctfassets.net www.google-analytics.com www.googletagmanager.com www.mozilla.org; base-uri 'none'; connect-src 'self' *.analytics.google.com *.google-analytics.com *.googletagmanager.com analytics.google.com cdn.transcend.io google-analytics.com googletagmanager.com gtm.mozilla.org https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org o1069899.ingest.sentry.io o1069899.sentry.io region1.google-analytics.com telemetry.transcend.io telemetry.us.transcend.io transcend-cdn.com www.mozilla.org/submit/bedrock/; upgrade-insecure-requests; font-src 'self' www.mozilla.org; form-action 'self' https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org; frame-src 'self' accounts.firefox.com gtm.mozilla.org js.stripe.com www.google-analytics.com www.googletagmanager.com www.youtube.com
+content-security-policy-report-only: object-src 'none'; script-src 'self' 'unsafe-eval' 'unsafe-inline' *.google-analytics.com *.googletagmanager.com cdn.transcend.io google-analytics.com googletagmanager.com js.stripe.com s.ytimg.com tagmanager.google.com transcend-cdn.com www.mozilla.org www.youtube.com; default-src 'self' *.mozilla.org; style-src 'self' 'unsafe-inline' cdn.transcend.io transcend-cdn.com www.mozilla.org; media-src 'self' assets.mozilla.net videos.cdn.mozilla.net www.mozilla.org; frame-ancestors 'none'; img-src 'self' blog.mozilla.org data: images.ctfassets.net www.google-analytics.com www.googletagmanager.com www.mozilla.org; base-uri 'none'; connect-src 'self' *.analytics.google.com *.google-analytics.com *.googletagmanager.com analytics.google.com cdn.transcend.io google-analytics.com googletagmanager.com gtm.mozilla.org https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org o1069899.ingest.sentry.io o1069899.sentry.io region1.google-analytics.com telemetry.transcend.io telemetry.us.transcend.io transcend-cdn.com www.mozilla.org/submit/bedrock/; upgrade-insecure-requests; font-src 'self' www.mozilla.org; form-action 'self' https://abdri3ttkb.execute-api.us-east-2.amazonaws.com https://accounts.firefox.com/ https://basket.mozilla.org; frame-src 'self' accounts.firefox.com gtm.mozilla.org js.stripe.com www.google-analytics.com www.googletagmanager.com www.youtube.com
+content-type: text/html; charset=utf-8
+cross-origin-opener-policy: same-origin
+date: Sat, 05 Sep 2026 18:23:54 GMT
+etag: "051a9df9c036af318305862ba632dbce"
+expires: Sat, 05 Sep 2026 18:33:54 GMT
+referrer-policy: strict-origin-when-cross-origin
+server: granian
+strict-transport-security: max-age=31536000
+vary: Accept-Encoding
+via: 1.1 google, 1.1 varnish, 1.1 varnish
+x-backend-server: bedrock-58fdcfd585-9fv7w.gcp-us-west1
+x-cache: MISS, MISS
+x-cache-hits: 0, 0
+x-clacks-overhead: GNU Terry Pratchett
+x-content-type-options: nosniff
+x-frame-options: DENY
+x-served-by: cache-bom-vanm7210068-BOM, cache-bom-vanm7210068-BOM, cache-bom-vanm7210072-BOM
+x-timer: S1788632634.942902,VS0,VE964
+
+
+
+
+
+
+
+
+
+<!doctype html>
+
+<html class="windows no-js" lang="ar" dir="rtl" data-country-code="IN" data-needs-consent="False" data-latest-firefox="155.0.1" data-esr-versions="140.15.0 153.2.0" data-gtm-container-id="GTM-MW3R8V"  data-stub-attribution-rate="1.0" data-sentry-dsn="https://c3ab8514873549d5b3785ebc7fb83c80@o1069899.ingest.sentry.io/6260331" >
+  <head>
+    <meta charset="utf-8">
+
+    
+
+
+
+<script data-cfasync="false" src="https://transcend-cdn.com/cm/d556c3a1-e57c-4bdf-a490-390a1aebf6dd/airgap.js"></script>
+
+
+    <!--[if !IE]><!-->
+    <script src="https://www.mozilla.org/media/js/site.a6a07233d547.js"></script>
+
+    
+    <!--<![endif]-->
+
+    <!--[if IE 9]>
+    <script src="https://www.mozilla.org/media/js/site-ie.419ec4b57d17.js"></script>
+    <![endif]-->
+
+<!--
+
+
+             _.-~-.
+           7''  Q..\
+        _7         (_
+      _7  _/    _q.  /
+    _7 . ___  /VVvv-'_                                            .
+   7/ / /~- \_\\      '-._     .-'                      /       //
+  ./ ( /-~-/||'=.__  '::. '-~'' {             ___   /  //     ./{
+ V   V-~-~| ||   __''_   ':::.   ''~-~.___.-'' _/  // / {_   /  {  /
+  VV/-~-~-|/ \ .'__'. '.    '::                     _ _ _        ''.
+  / /~~~~||VVV/ /  \ )  \        _ __ ___   ___ ___(_) | | __ _   .::'
+ / (~-~-~\\.-' /    \'   \::::. | '_ ` _ \ / _ \_  / | | |/ _` | :::'
+/..\    /..\__/      '     '::: | | | | | | (_) / /| | | | (_| | ::'
+vVVv    vVVv                 ': |_| |_| |_|\___/___|_|_|_|\__,_| ''
+
+Hi there, nice to meet you!
+
+Interested in having a direct impact on hundreds of millions of users? Join
+Mozilla, and become part of a global community that’s helping to build a
+brighter future for the Web.
+
+Visit https://www.mozilla.org/careers to learn about our current job openings.
+Visit https://www.mozilla.org/contribute for more ways to get involved and
+help support Mozilla.
+-->
+
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+<!-- validates bing webmaster tools -->
+<meta name="msvalidate.01" content="B7B177115A634927D608514DA17B2574">
+<!-- YouTube Verification -->
+<meta name="google-site-verification" content="U9a6gH32vLIykvntaDToj-ytYhlZ1AfAgVEKstixQIE">
+
+
+    
+    <title>Mozilla — الإنترنت للناس وليس لتحقيق الأرباح</title>
+    <meta name="description" content="نعمل على إعادة السيطرة على الإنترنت إلى أيدي مستخدميه.">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Mozilla">
+    <meta property="og:locale" content="ar">
+    <meta property="og:url" content="https://www.mozilla.org/ar/">
+    <meta property="og:image" content="https://www.mozilla.org/media/img/m24/og.3a69dffad83e.png">
+    <meta property="og:title" content="Mozilla — الإنترنت للناس وليس لتحقيق الأرباح">
+    <meta property="og:description" content="نعمل على إعادة السيطرة على الإنترنت إلى أيدي مستخدميه.">
+    <meta property="fb:page_id" content="262134952380">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:site" content="@mozilla">
+    <meta name="twitter:domain" content="mozilla.org">
+    <meta name="twitter:app:name:googleplay" content="Firefox">
+    <meta name="twitter:app:id:googleplay" content="org.mozilla.firefox">
+    <meta name="twitter:app:name:iphone" content="Firefox">
+    <meta name="twitter:app:id:iphone" content="989804926">
+    <meta name="twitter:app:name:ipad" content="Firefox">
+    <meta name="twitter:app:id:ipad" content="989804926">
+    <link rel="apple-touch-icon" type="image/png" sizes="180x180" href="https://www.mozilla.org/media/img/favicons/mozilla/apple-touch-icon.05aa000f6748.png">
+    <link rel="icon" type="image/png" sizes="196x196" href="https://www.mozilla.org/media/img/favicons/mozilla/favicon-196x196.e143075360ea.png">
+    <link rel="shortcut icon" href="https://www.mozilla.org/media/img/favicons/mozilla/favicon.d0be64e474b1.ico">
+    <link rel="canonical" href="https://www.mozilla.org/ar/">
+    <link rel="alternate" hreflang="x-default" href="https://www.mozilla.org/">
+    <link rel="alternate" hreflang="an" href="https://www.mozilla.org/an/" title="aragonés">
+        <link rel="alternate" hreflang="ar" href="https://www.mozilla.org/ar/" title="عربي">
+        <link rel="alternate" hreflang="az" href="https://www.mozilla.org/az/" title="Azərbaycanca">
+        <link rel="alternate" hreflang="be" href="https://www.mozilla.org/be/" title="Беларуская">
+        <link rel="alternate" hreflang="bg" href="https://www.mozilla.org/bg/" title="Български">
+        <link rel="alternate" hreflang="bn" href="https://www.mozilla.org/bn/" title="বাংলা">
+        <link rel="alternate" hreflang="bs" href="https://www.mozilla.org/bs/" title="Bosanski">
+        <link rel="alternate" hreflang="ca" href="https://www.mozilla.org/ca/" title="Català">
+        <link rel="alternate" hreflang="cs" href="https://www.mozilla.org/cs/" title="Čeština">
+        <link rel="alternate" hreflang="cy" href="https://www.mozilla.org/cy/" title="Cymraeg">
+        <link rel="alternate" hreflang="da" href="https://www.mozilla.org/da/" title="Dansk">
+        <link rel="alternate" hreflang="de" href="https://www.mozilla.org/de/" title="Deutsch">
+        <link rel="alternate" hreflang="el" href="https://www.mozilla.org/el/" title="Ελληνικά">
+        <link rel="alternate" hreflang="en-CA" href="https://www.mozilla.org/en-CA/" title="English (Canadian)">
+        <link rel="alternate" hreflang="en-GB" href="https://www.mozilla.org/en-GB/" title="English (British)">
+        <link rel="alternate" hreflang="en" href="https://www.mozilla.org/en-US/" title="English">
+        <link rel="alternate" hreflang="en-US" href="https://www.mozilla.org/en-US/" title="English (USA)">
+        <link rel="alternate" hreflang="eo" href="https://www.mozilla.org/eo/" title="Esperanto">
+        <link rel="alternate" hreflang="es-AR" href="https://www.mozilla.org/es-AR/" title="Español (de Argentina)">
+        <link rel="alternate" hreflang="es-CL" href="https://www.mozilla.org/es-CL/" title="Español (de Chile)">
+        <link rel="alternate" hreflang="es" href="https://www.mozilla.org/es-ES/" title="Español">
+        <link rel="alternate" hreflang="es-ES" href="https://www.mozilla.org/es-ES/" title="Español (de España)">
+        <link rel="alternate" hreflang="es-MX" href="https://www.mozilla.org/es-MX/" title="Español (de México)">
+        <link rel="alternate" hreflang="et" href="https://www.mozilla.org/et/" title="Eesti keel">
+        <link rel="alternate" hreflang="eu" href="https://www.mozilla.org/eu/" title="Euskara">
+        <link rel="alternate" hreflang="fa" href="https://www.mozilla.org/fa/" title="فارسی">
+        <link rel="alternate" hreflang="fi" href="https://www.mozilla.org/fi/" title="suomi">
+        <link rel="alternate" hreflang="fr" href="https://www.mozilla.org/fr/" title="Français">
+        <link rel="alternate" hreflang="fy" href="https://www.mozilla.org/fy-NL/" title="Frysk">
+        <link rel="alternate" hreflang="fy-NL" href="https://www.mozilla.org/fy-NL/" title="Frysk">
+        <link rel="alternate" hreflang="gd" href="https://www.mozilla.org/gd/" title="Gàidhlig">
+        <link rel="alternate" hreflang="gl" href="https://www.mozilla.org/gl/" title="Galego">
+        <link rel="alternate" hreflang="gn" href="https://www.mozilla.org/gn/" title="Avañe'ẽ">
+        <link rel="alternate" hreflang="gu" href="https://www.mozilla.org/gu-IN/" title="ગુજરાતી">
+        <link rel="alternate" hreflang="gu-IN" href="https://www.mozilla.org/gu-IN/" title="ગુજરાતી (ભારત)">
+        <link rel="alternate" hreflang="he" href="https://www.mozilla.org/he/" title="עברית">
+        <link rel="alternate" hreflang="hi" href="https://www.mozilla.org/hi-IN/" title="हिन्दी">
+        <link rel="alternate" hreflang="hi-IN" href="https://www.mozilla.org/hi-IN/" title="हिन्दी (भारत)">
+        <link rel="alternate" hreflang="hr" href="https://www.mozilla.org/hr/" title="Hrvatski">
+        <link rel="alternate" hreflang="hu" href="https://www.mozilla.org/hu/" title="magyar">
+        <link rel="alternate" hreflang="hy" href="https://www.mozilla.org/hy-AM/" title="Հայերեն">
+        <link rel="alternate" hreflang="hy-AM" href="https://www.mozilla.org/hy-AM/" title="Հայերեն">
+        <link rel="alternate" hreflang="ia" href="https://www.mozilla.org/ia/" title="Interlingua">
+        <link rel="alternate" hreflang="id" href="https://www.mozilla.org/id/" title="Bahasa Indonesia">
+        <link rel="alternate" hreflang="is" href="https://www.mozilla.org/is/" title="íslenska">
+        <link rel="alternate" hreflang="it" href="https://www.mozilla.org/it/" title="Italiano">
+        <link rel="alternate" hreflang="ja" href="https://www.mozilla.org/ja/" title="日本語">
+        <link rel="alternate" hreflang="ka" href="https://www.mozilla.org/ka/" title="ქართული">
+        <link rel="alternate" hreflang="kk" href="https://www.mozilla.org/kk/" title="Қазақ">
+        <link rel="alternate" hreflang="ko" href="https://www.mozilla.org/ko/" title="한국어">
+        <link rel="alternate" hreflang="lo" href="https://www.mozilla.org/lo/" title="ພາສາລາວ">
+        <link rel="alternate" hreflang="lt" href="https://www.mozilla.org/lt/" title="Lietuvių">
+        <link rel="alternate" hreflang="ml" href="https://www.mozilla.org/ml/" title="മലയാളം">
+        <link rel="alternate" hreflang="mr" href="https://www.mozilla.org/mr/" title="मराठी">
+        <link rel="alternate" hreflang="ms" href="https://www.mozilla.org/ms/" title="Melayu">
+        <link rel="alternate" hreflang="my" href="https://www.mozilla.org/my/" title="မြန်မာဘာသာ">
+        <link rel="alternate" hreflang="nb-NO" href="https://www.mozilla.org/nb-NO/" title="Norsk bokmål">
+        <link rel="alternate" hreflang="nl" href="https://www.mozilla.org/nl/" title="Nederlands">
+        <link rel="alternate" hreflang="nn-NO" href="https://www.mozilla.org/nn-NO/" title="Norsk nynorsk">
+        <link rel="alternate" hreflang="pa" href="https://www.mozilla.org/pa-IN/" title="ਪੰਜਾਬੀ">
+        <link rel="alternate" hreflang="pa-IN" href="https://www.mozilla.org/pa-IN/" title="ਪੰਜਾਬੀ (ਭਾਰਤ)">
+        <link rel="alternate" hreflang="pl" href="https://www.mozilla.org/pl/" title="Polski">
+        <link rel="alternate" hreflang="pt" href="https://www.mozilla.org/pt-BR/" title="Português">
+        <link rel="alternate" hreflang="pt-BR" href="https://www.mozilla.org/pt-BR/" title="Português (do Brasil)">
+        <link rel="alternate" hreflang="pt-PT" href="https://www.mozilla.org/pt-PT/" title="Português (Europeu)">
+        <link rel="alternate" hreflang="rm" href="https://www.mozilla.org/rm/" title="rumantsch">
+        <link rel="alternate" hreflang="ro" href="https://www.mozilla.org/ro/" title="Română">
+        <link rel="alternate" hreflang="ru" href="https://www.mozilla.org/ru/" title="Русский">
+        <link rel="alternate" hreflang="si" href="https://www.mozilla.org/si/" title="සිංහල">
+        <link rel="alternate" hreflang="sk" href="https://www.mozilla.org/sk/" title="slovenčina">
+        <link rel="alternate" hreflang="sl" href="https://www.mozilla.org/sl/" title="Slovenščina">
+        <link rel="alternate" hreflang="sq" href="https://www.mozilla.org/sq/" title="Shqip">
+        <link rel="alternate" hreflang="sr" href="https://www.mozilla.org/sr/" title="Српски">
+        <link rel="alternate" hreflang="sv" href="https://www.mozilla.org/sv-SE/" title="Svenska">
+        <link rel="alternate" hreflang="sv-SE" href="https://www.mozilla.org/sv-SE/" title="Svenska">
+        <link rel="alternate" hreflang="ta" href="https://www.mozilla.org/ta/" title="தமிழ்">
+        <link rel="alternate" hreflang="tg" href="https://www.mozilla.org/tg/" title="Тоҷикӣ">
+        <link rel="alternate" hreflang="th" href="https://www.mozilla.org/th/" title="ไทย">
+        <link rel="alternate" hreflang="tr" href="https://www.mozilla.org/tr/" title="Türkçe">
+        <link rel="alternate" hreflang="uk" href="https://www.mozilla.org/uk/" title="Українська">
+        <link rel="alternate" hreflang="ur" href="https://www.mozilla.org/ur/" title="اُردو">
+        <link rel="alternate" hreflang="vi" href="https://www.mozilla.org/vi/" title="Tiếng Việt">
+        <link rel="alternate" hreflang="zh" href="https://www.mozilla.org/zh-CN/" title="中文">
+        <link rel="alternate" hreflang="zh-CN" href="https://www.mozilla.org/zh-CN/" title="中文 (简体)">
+        <link rel="alternate" hreflang="zh-TW" href="https://www.mozilla.org/zh-TW/" title="正體中文 (繁體)">
+        
+    
+    
+    <link href="https://mastodon.social/@mozilla" rel="me">
+
+    <!--[if lt IE 9]>
+      
+      <script src="https://www.mozilla.org/media/js/ie/libs/html5shiv.a94a0b700fa2.js"></script>
+    <![endif]-->
+
+    <!--[if IE]>
+      
+      
+        <link href="https://www.mozilla.org/media/css/common-old-ie.4d14f7a84a19.css" rel="stylesheet" type="text/css">
+      
+    <![endif]-->
+
+    <!--[if !IE]><!-->
+    
+    
+      <link href="https://www.mozilla.org/media/css/protocol-mozilla.54ea44c214ed.css" rel="stylesheet" type="text/css">
+      
+        <link href="https://www.mozilla.org/media/css/m24-navigation-and-footer.038277dadfff.css" rel="stylesheet" type="text/css">
+      
+      <link rel="stylesheet" href="https://www.mozilla.org/media/css/l10n/ar/intl.ecbece6a7dce.css">
+    
+
+    
+    
+  <link href="https://www.mozilla.org/media/css/m24-root.c79048453ab7.css" rel="stylesheet" type="text/css">
+  <link href="https://www.mozilla.org/media/css/m24-base.cb7020016bcf.css" rel="stylesheet" type="text/css">
+  <link href="https://www.mozilla.org/media/css/m24-home.d8deebbf1639.css" rel="stylesheet" type="text/css">
+  
+
+    <!--<![endif]-->
+
+    
+      
+    
+
+    
+    
+      <!--[if IE 9]><!-->
+        
+
+<!--
+Read more about our custom configuration and use of Google Analytics here:
+https://bugzilla.mozilla.org/show_bug.cgi?id=1122305#c8
+-->
+
+<!-- Google Tag Manager -->
+<!-- Customized for Mozilla.org-->
+<!-- Region Container: NONE -->
+<!-- Rollup Container: System Filtered -->
+<!-- Site Container: NONE -->
+
+
+    <script src="https://www.mozilla.org/media/js/gtm-snippet.cc9550e6b401.js"></script>
+
+<!-- End Google Tag Manager -->
+      <!--<![endif]-->
+    
+  </head>
+
+  <body id="home" class="html-rtl lang-ar" >
+    <div id="strings"
+      data-global-close="إغلاق"
+      data-global-next="التالي"
+      data-global-previous="السابق"
+      ></div>
+
+    
+      
+
+<aside class="moz-consent-banner" id="moz-consent-banner" role="region" aria-label="شعار ملفات تعريف الارتباط" data-nosnippet="true" data-testid="consent-banner">
+  <div class="moz-consent-banner-content">
+    <h2 class="moz-consent-banner-heading">ساعدنا على تحسين تجربتك مع Mozilla</h2>
+    <div class="moz-consent-banner-copy">
+      <p>بالإضافة إلى ملفات تعريف الارتباط (الكوكيز) اللازمة لتشغيل هذا الموقع الإلكتروني، فإننا نود الحصول على إذنك لضبط بعض الكوكيز الإضافية لفهم احتياجات التصفّح الخاصة بك وتحسين تجربتك. اطمئن — فنحن نهتم بخصوصيتك.</p>
+      <div class="moz-consent-banner-controls">
+        <button type="button" id="moz-consent-banner-button-accept" class="moz-consent-banner-button moz-consent-banner-button-accept" data-testid="consent-banner-accept-button">
+          قبول جميع ملفات تعريف الارتباط الإضافية
+        </button>
+        <button type="button" id="moz-consent-banner-button-reject" class="moz-consent-banner-button moz-consent-banner-button-reject" data-testid="consent-banner-reject-button">
+          رفض جميع ملفات تعريف الارتباط الإضافية
+        </button>
+        <a href="/ar/privacy/websites/cookie-settings/">
+          إعدادات ملفات تعريف الارتباط
+        </a>
+      </div>
+    </div>
+  </div>
+</aside>
+    
+
+    
+  
+    
+
+
+  
+
+ 
+
+
+  
+
+
+
+
+
+  
+
+
+
+ <nav class="m24-navigation-refresh enable-main-nav-sticky m24-mzp-is-sticky" aria-label="أساسي">
+  <div class="m24-c-navigation-l-content">
+    <div class="m24-c-navigation-container">
+      <button class="m24-c-navigation-menu-button" type="button" aria-controls="m24-c-navigation-items" data-testid="m24-navigation-menu-button">القائمة</button>
+      <a class="m24-c-navigation-logo-link" href="/ar/" data-link-text="mozilla home icon" data-link-position="nav">
+        <img class="m24-c-navigation-logo-image" src="https://www.mozilla.org/media/img/logos/m24/lockup-black.f2ddba3f0724.svg" alt="Mozilla" width="101" height="24">
+      </a>
+      <div class="m24-c-navigation-items" id="m24-c-navigation-items" data-testid="m24-navigation-menu-items">
+        <div class="m24-c-navigation-menu">
+          <div class="m24-c-menu m24-mzp-is-basic">
+            <ul class="m24-c-menu-category-list">
+              
+
+
+
+<li class="m24-c-menu-category mzp-has-drop-down mzp-js-expandable">
+  <a class="m24-c-menu-title" href="/ar/products/" aria-haspopup="true" aria-controls="m24-c-menu-panel-products" data-testid="m24-navigation-link-products">المنتجات</a>
+  <div class="m24-c-menu-panel" id="m24-c-menu-panel-products" data-testid="m24-navigation-panel-products">
+    <div class="m24-c-menu-panel-container" data-testid="m24-navigation-menu-products">
+      <button class="m24-c-menu-button-close" type="button" aria-controls="m24-c-menu-panel-products">أغلِق قائمة "المنتجات"</button>
+      <div class="m24-c-menu-panel-content">
+        <ul class="m24-mzp-l-content">
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://www.firefox.com?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Firefox browsers" data-link-position="topnav - products" data-testid="m24-navigation-menu-link-firefox">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/firefox/browser/logo.eb1324e44442.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">متصفحات Firefox</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="/ar/products/vpn/" data-link-text="Mozilla VPN" data-link-position="topnav - products" data-testid="m24-navigation-menu-link-products-vpn">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/mozilla/vpn/logo.c648f487bfb8.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Mozilla VPN</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              
+                
+              
+              <a class="m24-c-menu-item-link" href="https://monitor.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Mozilla Monitor" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/firefox/monitor/logo.d97e5516f9e6.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Mozilla Monitor</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://relay.firefox.com/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Firefox Relay" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/firefox/relay/logo.d42a8b52e44c.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Firefox Relay</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://developer.mozilla.org/plus?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="MDN Plus" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/mdn/mdn-plus-logo.c615b46ca4ce.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">MDN Plus</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://www.thunderbird.net/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Thunderbird" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/thunderbird/logo-thunderbird.121e9c0fed45.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Thunderbird</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://soloist.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Solo" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/solo/logo-solo.643cbd69b0d8.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">فردي</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://0din.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="0DIN" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/0din/logo-0din.50589c5926d2.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">0DIN</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://tabstack.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Tabstack" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/tabstack/logo-tabstack.4551b75d8e6b.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Tabstack</h2>
+              </a>
+            </section>
+          </li>
+        </ul>
+        <p class="m24-c-menu-category-link">
+          <a href="/ar/products/" data-link-text="Go to all browsers and products" data-link-position="topnav - products">
+            كل المنتجات
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path fill="currentColor" d="m7.24 1.36 5.89 5.89H0v1.5h13.13l-5.89 5.89L8.3 15.7 16 8 8.3.3z"/></svg>
+          </a>
+        </p>
+      </div>
+    </div><!-- close .m24-c-menu-panel-container -->
+  </div><!-- close .m24-c-menu-panel -->
+</li><!-- close products -->
+              
+
+ 
+
+ <li class="m24-c-menu-category mzp-has-drop-down mzp-js-expandable">
+   <a class="m24-c-menu-title" href="/ar/about/" aria-haspopup="true" aria-controls="m24-c-menu-panel-about" data-testid="m24-navigation-link-about-us">نبذة عنّا</a>
+   <div class="m24-c-menu-panel" id="m24-c-menu-panel-about" data-testid="m24-navigation-menu-about-us">
+     <div class="m24-c-menu-panel-container">
+       <button class="m24-c-menu-button-close" type="button" aria-controls="m24-c-menu-panel-about">إغلاق قائمة "نبذة عنا"</button>
+       <div class="m24-c-menu-panel-content multi-column">
+        <div class="m24-mzp-l-content-container">
+          <p>مهمّتنا</p>
+          <ul class="m24-mzp-l-content">
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/ar/about/" data-link-text="About Mozilla" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">نبذة عن Mozilla</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/ar/about/manifesto/" data-link-text="The Mozilla manifesto" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">بيان Mozilla</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/ar/contribute/" data-link-text="Get Involved" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">شارِك</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://blog.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Blog" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">المدوّنة</h2>
+                </a>
+              </section>
+            </li>
+           </ul>
+        </div>
+        <div class="m24-mzp-l-content-container">
+          <p>عملُنا</p>
+          <ul class="m24-mzp-l-content">
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://www.mozillafoundation.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla Foundation" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Foundation</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://www.mozilla.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla.ai" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla.ai</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://mozilla.vc/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla Ventures" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Ventures</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/ar/advertising/" data-link-text="Mozilla Ads" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla للإعلانات</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://builders.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla Builders" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Builders</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://newproducts.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla New Products" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">منتجات Mozilla الجديدة</h2>
+                </a>
+              </section>
+            </li>
+           </ul>
+        </div>
+       </div>
+     </div><!-- close .m24-c-menu-panel-container -->
+   </div><!-- close .m24-c-menu-panel -->
+ </li><!-- close about us -->
+            </ul>
+          </div>
+        </div><!-- close .m24-c-navigation-menu -->
+      </div><!-- close .m24-c-navigation-items -->
+      <blink class="spacer-gif"></blink>
+    </div><!-- close .m24-c-navigation-container -->
+  </div><!-- close .m24-c-navigation-l-content -->
+</nav>
+
+  
+
+
+    
+
+    <div id="outer-wrapper">
+      
+<main>
+  
+
+<div class="m24-t-dark m24-t-alt" data-m24-hero-animation="true">
+  <section class="m24-c-flag" data-animation-running="false">
+    <button class="m24-c-flag-button js-animation-button hide-from-legacy-ie" aria-live="assertive">
+      <span class="m24-c-flag-button-pause">
+        <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" stroke-width="2" d="M7 2H0v12h7zM5.5 12.5h-4v-9h4zM9 14h7V2H9zm1.5-10.5h4v9h-4z"/></svg>
+        <span class="m24-c-flag-button-text">إيقاف الرسوم المتحركة مؤقتًا</span></span>
+      <span class="m24-c-flag-button-play">
+        <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" stroke-width="2" d="m2 16 14-8L2 0zM3.5 2.58 12.98 8 3.5 13.42z"/></svg>
+        <span class="m24-c-flag-button-text">تشغيل الرسوم المتحركة</span></span>
+    </button>
+    <div class="m24-c-flag-text">
+      <h1 class="m24-c-flag-title">مرحبًا بك في Mozilla</h1>
+      <p class="m24-c-flag-subtitle">من التقنية الموثوقة إلى السياسات التي تحمي حقوقك الرقمية، نحن نضعك في المقدمة — دائمًا وأبدًا.</p>
+      <p class="m24-c-flag-cta"><a href="/ar/about/" class="m24-c-cta" data-cta-text="Learn about us">تعرّف علينا</a></p>
+    </div>
+    <div class="m24-c-flag-media">
+      <svg class="m24-c-flag-media-static" role="img" xmlns="http://www.w3.org/2000/svg" width="216" height="243" fill="none" viewBox="0 0 216 243"><title>عَلَمٌ أخضرٌ مصممٌ بطريقة مُميزة على خلفية سوداء، من حرف "M" في Mozilla وبكسل تم تحريكُها من مكانها للإشارة إلى شعار الديناصور الأصلي.</title><path d="M93.573 29v20.734h72.565v5.351l-61.196 22.238v18.728l61.196 22.237v5.352H72.172v20.734h115.367v-37.788l-49.826-17.224v-5.349l49.826-17.222V29H93.573ZM29.034 214.6h23.743V29H29.034v185.6ZM72.172 71.136h21.401V49.734H72.172v21.402Z" /></svg>
+      <svg class="m24-c-flag-media-animation" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 310 380">
+        <title>عَلَمٌ أخضرٌ مصممٌ بطريقة مُميزة على خلفية سوداء، من حرف "M" في Mozilla وبكسل تم تحريكُها من مكانها للإشارة إلى شعار الديناصور الأصلي.</title>
+        <path class="m24-c-flag-media-animation-paused" d="M46.4,379.97H0V17.03h46.4v362.94ZM84.39,202.16h183.73v-10.43l-119.73-43.6v-36.59l119.73-43.44v-10.59H126.27V17.03h183.73v73.96l-97.47,33.63v10.43l97.47,33.63v73.96H84.39v-40.48ZM84.39,57.51h41.88v41.88h-41.88v-41.88Z"/>
+        <svg class="m24-c-flag-media-animation-frame" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 310 380" width="310" height="380"><rect y="17.03" width="46.4" height="362.94"/><rect x="84.39" y="57.51" width="41.88" height="41.88"/><polygon points="309.91 74.02 309.91 .03 148.5 .03 148.5 17.03 126.27 17.03 126.27 57.51 148.5 57.51 148.5 40.51 268.12 40.51 268.12 51.1 148.5 94.5 148.5 131.17 268.12 174.73 268.12 185.16 148.5 185.16 148.5 202.16 84.39 202.16 84.39 242.64 148.5 242.64 148.5 225.64 309.91 225.64 309.91 151.65 212.53 118.05 212.53 107.62 309.91 74.02"/></svg>
+        <svg class="m24-c-flag-media-animation-frame" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 310 380" width="310" height="380"><rect y="17.03" width="46.4" height="362.94"/><rect x="84.39" y="57.51" width="41.88" height="41.88"/><polygon points="309.98 74.02 309.98 .03 212.63 .03 212.63 17.03 163.41 17.03 148.57 17.03 126.27 17.03 126.27 57.51 148.57 57.51 163.41 57.51 212.63 57.51 212.63 40.51 268.19 40.51 268.19 51.1 212.63 71.26 212.63 88.26 148.57 111.5 148.57 148.17 212.63 171.5 212.63 154.5 268.19 174.73 268.19 185.16 212.63 185.16 212.63 202.16 148.57 202.16 148.57 202.25 136.93 202.25 136.93 202.16 84.39 202.16 84.39 242.64 136.93 242.64 136.93 242.74 164.82 242.74 164.82 242.64 212.63 242.64 212.63 225.64 309.98 225.64 309.98 151.65 212.63 118.06 212.63 107.61 309.98 74.02"/></svg>
+        <svg class="m24-c-flag-media-animation-frame" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 310 380" width="310" height="380"><rect x="84.18" y="74.51" width="41.88" height="41.88"/><rect y="17.03" width="46.4" height="362.94"/><polygon points="212.63 124.61 240.75 114.91 240.75 97.97 309.98 74.08 309.98 .09 240.75 .09 240.75 17.03 212.63 17.03 163.19 17.03 148.57 17.03 126.27 17.03 126.27 57.51 148.57 57.51 163.19 57.51 212.63 57.51 240.75 57.51 240.75 40.57 268.19 40.57 268.19 51.16 240.75 61.11 240.75 78.06 212.63 88.26 148.57 111.5 148.57 148.17 212.63 171.5 240.75 181.74 240.75 164.79 268.19 174.79 268.19 185.22 240.75 185.22 240.75 202.16 212.63 202.16 146.57 202.16 146.57 202.25 126.06 202.25 126.06 219.16 84.18 219.16 84.18 259.64 126.06 259.64 126.06 242.64 146.57 242.64 148.29 242.64 212.63 242.64 240.75 242.64 240.75 225.7 309.98 225.7 309.98 151.71 240.75 127.82 240.75 144.76 212.63 135.06 212.6 135.05 212.6 124.62 212.63 124.61"/></svg>
+        <svg class="m24-c-flag-media-animation-frame" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 310 380" width="310" height="380"><rect y="17.03" width="46.4" height="362.94"/><rect x="84.39" y="74.51" width="41.88" height="41.88"/><polygon points="309.91 91.02 309.91 17.03 148.5 17.03 148.5 34.03 126.27 34.03 126.27 74.51 148.5 74.51 148.5 57.51 268.12 57.51 268.12 68.1 148.5 111.5 148.5 148.17 268.12 191.73 268.12 202.16 148.5 202.16 148.5 219.16 84.39 219.16 84.39 259.64 148.5 259.64 148.5 242.64 309.91 242.64 309.91 168.65 212.53 135.05 212.53 124.62 309.91 91.02"/></svg>
+        <svg class="m24-c-flag-media-animation-frame" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 310 380" width="310" height="380"><rect x="84.39" y="74.51" width="41.88" height="41.88"/><rect y="17.03" width="46.4" height="362.94"/><path d="M309.98,91.02V17.03h-97.35v17h-86.36v40.48h86.36v-17h55.56v10.59l-55.56,20.16v17l-64.06,23.24v36.67l64.06,23.32v-17l55.56,20.23v10.43h-55.56v17h-43.36v-.06h-84.88v40.48h64.18v.06h64.06v-17h97.35v-73.99l-97.35-33.59v-10.45l97.35-33.59Z"/></svg>
+        <svg class="m24-c-flag-media-animation-frame" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 310 380" width="310" height="380"><rect class="cls-2" x="84.39" y="57.51" width="41.88" height="41.88"/><rect y="17.03" width="46.4" height="362.94"/><polygon points="212.63 141.66 240.75 131.96 240.75 115.04 309.98 91.15 309.98 17.16 240.75 17.16 240.75 34.08 212.63 34.08 148.5 34.08 147.57 34.08 126.27 34.08 126.27 57.57 84.21 57.62 84.21 99.5 126.28 99.46 126.28 74.56 147.57 74.56 148.5 74.56 212.63 74.56 240.75 74.56 240.75 57.64 268.19 57.64 268.19 68.23 240.75 78.19 240.75 95.1 212.63 105.3 148.57 128.55 148.57 165.22 212.63 188.55 240.75 198.78 240.75 181.87 268.19 191.86 268.19 202.29 240.75 202.29 240.75 219.21 212.63 219.21 158.5 219.21 158.5 219.2 126.42 219.2 126.32 202.18 84.44 202.18 84.44 242.67 126.27 242.74 126.27 259.58 148.57 259.58 148.57 259.69 212.63 259.69 240.75 259.69 240.75 242.77 309.98 242.77 309.98 168.78 240.75 144.89 240.75 161.81 212.63 152.11 212.6 152.1 212.6 141.67 212.63 141.66"/></svg>
+        <svg class="m24-c-flag-media-animation-frame" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 310 380" width="310" height="380"><rect y="17.03" width="46.4" height="362.94"/><rect x="84.39" y="57.51" width="41.88" height="41.88"/><polygon points="309.91 108.02 309.91 34.03 148.5 34.03 148.5 17.03 126.27 17.03 126.27 57.51 148.5 57.51 148.5 74.51 268.12 74.51 268.12 85.1 148.5 128.5 148.5 165.17 268.12 208.73 268.12 219.16 148.5 219.16 148.5 202.16 84.39 202.16 84.39 242.64 148.5 242.64 148.5 259.64 309.91 259.64 309.91 185.65 212.53 152.05 212.53 141.62 309.91 108.02"/></svg>
+        <svg class="m24-c-flag-media-animation-frame" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 310 380" width="310" height="380"><rect class="cls-2" y="17.03" width="46.4" height="362.94"/><rect y="17.03" width="46.4" height="362.94"/><polygon points="309.98 108.02 309.98 34.03 212.63 34.03 212.63 17.03 148.57 17.03 148.57 17.04 126.27 17.04 126.27 57.51 84.39 57.51 84.39 99.4 126.27 99.4 126.27 57.52 158.5 57.52 158.5 57.51 212.63 57.51 212.63 74.51 268.19 74.51 268.19 85.1 212.63 105.26 212.63 88.26 148.57 111.5 148.57 148.17 212.63 171.5 212.63 188.5 268.19 208.73 268.19 219.16 212.63 219.16 212.63 202.16 138.57 202.16 138.57 202.25 126.27 202.25 126.27 202.16 84.39 202.16 84.39 242.64 126.27 242.64 138.57 242.64 148.5 242.64 212.63 242.64 212.63 259.64 309.98 259.64 309.98 185.65 212.63 152.06 212.63 141.61 309.98 108.02"/></svg>
+        <svg class="m24-c-flag-media-animation-frame" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 310 380" width="310" height="380"><polygon points="309.99 108.04 309.99 34.05 240.76 34.05 240.76 17 212.64 17 149.51 17 148.58 17 126.07 17 126.07 40.59 84.19 40.59 84.19 82.47 126.07 82.47 126.07 57.48 148.58 57.48 149.51 57.48 212.64 57.48 240.76 57.48 240.76 74.53 268.2 74.53 268.2 85.12 240.76 95.07 240.76 78.03 212.64 88.23 148.58 111.47 148.58 148.14 212.64 171.47 240.76 181.71 240.76 198.75 268.2 208.74 268.2 219.18 240.76 219.18 240.76 202.13 212.64 202.13 148.58 202.13 148.58 202.22 126.07 202.22 126.07 185.24 84.19 185.24 84.19 225.72 126.07 225.72 126.07 242.61 148.58 242.61 158.3 242.61 212.64 242.61 240.76 242.61 240.76 259.66 309.99 259.66 309.99 185.67 240.76 161.78 240.76 144.73 212.64 135.03 212.61 135.02 212.61 124.59 212.64 124.58 240.76 114.88 240.76 131.93 309.99 108.04"/><rect x=".01" y="17" width="46.4" height="362.94"/></svg>
+        <svg class="m24-c-flag-media-animation-frame" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 310 380" width="310" height="380"><rect x=".01" y="17" width="46.4" height="362.94"/><rect x="84.19" y="40.59" width="41.88" height="41.88"/><polygon points="309.99 91.1 309.99 17.11 240.76 17.11 240.76 17 212.64 17 148.51 17 148.51 0 126.28 0 126.28 40.48 148.37 40.48 148.51 57.31 212.64 57.48 240.76 57.48 240.76 57.59 268.2 57.59 268.2 68.18 240.76 78.13 240.76 78.03 212.64 88.23 148.58 111.47 148.58 148.14 212.64 171.47 240.76 181.71 240.76 181.81 268.2 191.8 268.2 202.24 240.76 202.24 240.76 202.13 212.64 202.13 148.58 202.13 148.58 185.22 126.07 185.22 126.07 185.24 84.19 185.24 84.19 225.72 126.07 225.72 126.07 225.61 148.58 225.61 148.58 242.61 212.64 242.61 240.76 242.61 240.76 242.72 309.99 242.72 309.99 168.73 240.76 144.84 240.76 144.73 212.64 135.03 212.61 135.02 212.61 124.59 212.64 124.58 240.76 114.88 240.76 114.98 309.99 91.1"/></svg>
+        <svg class="m24-c-flag-media-animation-frame" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 310 380" width="310" height="380"><rect x="84.19" y="40.59" width="41.88" height="41.88"/><rect x=".01" y="17" width="46.4" height="362.94"/><polygon points="309.99 91.1 309.99 17.11 240.76 17.11 240.76 17 212.64 17 212.64 0 157.55 0 148.58 0 126.28 0 126.28 40.48 148.58 40.48 157.55 40.48 212.64 40.48 212.64 57.48 240.76 57.48 240.76 57.59 268.2 57.59 268.2 68.18 240.76 78.13 240.76 78.03 212.64 88.23 212.64 71.23 148.58 94.47 148.58 131.14 212.64 154.47 212.64 171.47 240.76 181.71 240.76 181.81 268.2 191.8 268.2 202.24 240.76 202.24 240.76 202.13 212.64 202.13 212.64 185.13 147.58 185.13 147.58 185.22 126.07 185.22 126.07 185.24 84.19 185.24 84.19 225.72 126.07 225.72 126.07 225.61 147.58 225.61 148.3 225.61 212.64 225.61 212.64 242.61 240.76 242.61 240.76 242.72 309.99 242.72 309.99 168.73 240.76 144.84 240.76 144.73 212.64 135.03 212.64 124.58 240.76 114.88 240.76 114.98 309.99 91.1"/></svg>
+        <svg class="m24-c-flag-media-animation-frame" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 310 380" width="310" height="380"><rect x=".01" y="17" width="46.4" height="362.94"/><rect x="84.19" y="57.53" width="41.88" height="41.88"/><polygon points="309.99 91.1 309.99 17.11 240.76 17.11 240.76 0 212.64 0 149.51 0 148.58 0 126.28 0 126.28 40.48 148.58 40.48 149.51 40.48 212.64 40.48 240.76 40.48 240.76 57.59 268.2 57.59 268.2 68.18 240.76 78.13 240.76 61.03 212.64 71.23 148.58 94.47 148.58 131.14 212.64 154.47 240.76 164.71 240.76 181.81 268.2 191.8 268.2 202.24 240.76 202.24 240.76 185.13 212.64 185.13 148.58 185.13 148.58 185.22 126.07 185.22 126.07 202.18 84.19 202.18 84.19 242.66 126.07 242.66 126.07 225.61 148.58 225.61 149.3 225.61 212.64 225.61 240.76 225.61 240.76 242.72 309.99 242.72 309.99 168.73 240.76 144.84 240.76 127.73 212.64 118.03 212.61 118.02 212.61 107.59 212.64 107.58 240.76 97.88 240.76 114.98 309.99 91.1"/></svg>
+      </svg>
+    </div>
+  </section>
+</div>
+
+<div class="m24-c-transition m24-t-top-dark-alt m24-t-bottom-light"><hr></div>
+  
+
+<div class="m24-c-products">
+  <section class="m24-c-content">
+    <div class="m24-c-intro">
+      <h2 class="m24-c-intro-title">اعشق الإنترنت مرة أخرى</h2>
+      <p>تحرّر من هيمنة شركات التقنية الكبرى – حيث تمنحك منتجاتنا التحكّم في تجربة الإنترنت لتُصبح أكثر أمانًا وخصوصية.</p>
+    </div>
+
+    <ul class="m24-c-launchpad">
+      <li class="m24-c-launchpad-item">
+        <a class="m24-c-launchpad-link m24-t-product-firefox" href="https://www.firefox.com/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" data-cta-text="Firefox" data-cta-position="product-list">
+          <strong class="m24-c-launchpad-title">Firefox<b>:</b></strong>
+          <span class="m24-c-launchpad-info">تصفّح بمنتهى الأمان واستمتع بالسرعة والخصوصية والتحكّم.</span>
+        </a>
+      </li>
+      <li class="m24-c-launchpad-item">
+        <a class="m24-c-launchpad-link m24-t-product-thunderbird" href="https://www.thunderbird.net/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" data-cta-text="Thunderbird" data-cta-position="product-list">
+          <strong class="m24-c-launchpad-title">Thunderbird<b>:</b></strong>
+          <span class="m24-c-launchpad-info">بسّط حياتك باستخدام تطبيق واحد لجميع رسائلك الإلكترونية والتقويمات وجهات الاتصال.</span>
+        </a>
+      </li>
+      <li class="m24-c-launchpad-item">
+        <a class="m24-c-launchpad-link m24-t-product-vpn" href="/ar/products/vpn/" data-cta-text="VPN" data-cta-position="product-list">
+          <strong class="m24-c-launchpad-title">Mozilla VPN<b>:</b></strong>
+          <span class="m24-c-launchpad-info">أضف طابع الخصوصية إلى موقعك ومغامراتك عبر الإنترنت – واستمتع بالبث كأنك تعيش في المكان كشخص محلي، في أي مكان.</span>
+        </a>
+      </li>
+      <li class="m24-c-launchpad-item">
+        
+          
+        
+        <a class="m24-c-launchpad-link m24-t-product-monitor" href="https://monitor.mozilla.org/??utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" data-cta-text="Monitor" data-cta-position="product-list">
+          <strong class="m24-c-launchpad-title">Mozilla Monitor<b>:</b></strong>
+          <span class="m24-c-launchpad-info">احصل على تنبيه إذا كانت معلوماتك الشخصية معرضة للخطر واِحمها مثل المحترفين.</span>
+        </a>
+      </li>
+      <li class="m24-c-launchpad-item">
+        <a class="m24-c-launchpad-link m24-t-product-relay" href="https://relay.firefox.com/??utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" data-cta-text="Relay" data-cta-position="product-list">
+          <strong class="m24-c-launchpad-title">Firefox Relay<b>:</b></strong>
+          <span class="m24-c-launchpad-info">يُرجى إخفاء بريدك الإلكتروني ورقم هاتفك لتتلقّى الرسائل التي تريدها فقط.</span>
+        </a>
+      </li>
+      
+      <li class="m24-c-launchpad-item">
+        <a class="m24-c-launchpad-link m24-t-product-solo" href="https://soloist.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" data-cta-text="Solo" data-cta-position="product-list">
+          <strong class="m24-c-launchpad-title">فردي<b>:</b></strong>
+          <span class="m24-c-launchpad-info">أنشئ موقعًا إلكترونيًا جميلًا فورًا لتتمكّن من تنمية أعمالك.</span>
+        </a>
+      </li>
+      
+      
+      <li class="m24-c-launchpad-item">
+        <a class="m24-c-launchpad-link m24-t-product-0din" href="https://0din.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" data-cta-text="0DIN" data-cta-position="product-list">
+          <strong class="m24-c-launchpad-title">0DIN<b>:</b></strong>
+          <span class="m24-c-launchpad-info">أمِّن ذكاءك الاصطناعي من خلال اكتشاف ثغرات GenAI وإصلاحها قبل أن يستغلها المهاجمون.</span>
+        </a>
+      </li>
+      
+      
+      <li class="m24-c-launchpad-item">
+        <a class="m24-c-launchpad-link m24-t-product-tabstack" href="https://tabstack.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" data-cta-text="Tabstack" data-cta-position="product-list">
+          <strong class="m24-c-launchpad-title">Tabstack<b>:</b></strong>
+          <span class="m24-c-launchpad-info">يُمكنك أتمتة مهام الويب بكفاءة وموثوقية عبر واجهة برمجة تطبيقات بسيطة مُصمَّمة خصيصًا للمطوّرين.</span>
+        </a>
+      </li>
+      
+    </ul>
+    <p class="m24-c-section-cta"><a href="/ar/products/" class="m24-c-cta" data-cta-text="Explore our products">استكشف منتجاتنا</a></p>
+  </section>
+</div>
+  
+
+
+
+<div class="m24-t-pink" id="donate">
+  <div class="m24-c-donate">
+  <h2 class="m24-c-donate-heading">تبرّع لصالح Mozilla Foundation</h2>
+  <div class="m24-c-donate-body">
+    
+    <p>تبنِي Mozilla Foundation مستقبلًا تكون فيه التكنولوجيا مدفوعة من الناس، ومفتوحة من حيث التصميم. ولهذا السبب، ندعم التكنولوجيا المُتمركزة حول المجتمع من خلال المناصرة والتعليم والتمويل والابتكار — لضمان أن يكون مستقبل التكنولوجيا مفيدًا للجميع. لكن هذا لا يتحقّق إلا إذا تعاونا وعملنا معًا.</p>
+    <p>نحن شركة غير ربحية بكل فخر. هل ستتبرّع لشركة Mozilla اليوم؟</p>
+  
+  </div>
+  <div class="m24-c-donate-media">
+    <img src="https://www.mozilla.org/media/img/home/2024/donate-1450.87d1ed669993.jpg" srcset="https://www.mozilla.org/media/img/home/2024/donate-375.90f70fd3ca8e.jpg 375w,https://www.mozilla.org/media/img/home/2024/donate-573.6ffd775891b3.jpg 573w,https://www.mozilla.org/media/img/home/2024/donate-720.0311101afe23.jpg 720w,https://www.mozilla.org/media/img/home/2024/donate-976.39956be50dc0.jpg 976w,https://www.mozilla.org/media/img/home/2024/donate-1128.a205992009db.jpg 1128w,https://www.mozilla.org/media/img/home/2024/donate-1232.149f42cc5f54.jpg 1232w,https://www.mozilla.org/media/img/home/2024/donate-1450.87d1ed669993.jpg 1450w" sizes="(min-width: 768px) calc((100vw - 32px) / 2),(min-width: 1311px) calc((100vw - 64px) / 2),(min-width: 1440px) 680px,calc(100vw - 32px)" alt="" width="1450" height="725">
+  </div>
+  <p class="m24-c-donate-cta">
+    <a href="https://www.mozillafoundation.org/?form=Mozilla-Website-Homepage" class="m24-c-cta" data-cta-text="">تبرَّع</a>
+  </p>
+</div>
+</div>
+
+<div class="m24-c-transition m24-t-top-pink m24-t-bottom-dark"><hr></div>
+  
+
+
+
+<section class="m24-section-ai m24-t-dark" id="gallery">
+  <div class="m24-c-content">
+    <header class="m24-c-intro">
+      <h2 class="m24-c-intro-title">انضم للحركة:<br>الذكاء الاصطناعي للناس</h2>
+      <p>مهمتنا هي تسهيل إنشاء تقنيات ذكاء اصطناعي مفتوحة المصدر وموثوقة والتعاون في مثل هذه التقنيات.</p>
+    </header>
+
+    <div class="m24-c-gallery-container">
+
+      <div class="m24-c-gallery-tile  m24-l-grid-quarter">
+    <h3 class="m24-c-gallery-tile-heading">
+      <a href="https://datacollective.mozillafoundation.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" class="m24-c-gallery-tile-link" rel="external" target="_blank" data-link-text="Join today">
+        <span>Mozilla جمع البيانات</span>
+      </a>
+  </h3>
+  
+  <div class="m24-c-gallery-tile-image">
+    <picture><source media="(max-width: 1311px)" srcset="https://www.mozilla.org/media/img/home/2024/ai-gallery/collective-mobile-375.995e79a51592.jpg 375w,https://www.mozilla.org/media/img/home/2024/ai-gallery/collective-mobile-720.9922b34eb50a.jpg 720w,https://www.mozilla.org/media/img/home/2024/ai-gallery/collective-mobile-976.7d65d5663384.jpg 976w,https://www.mozilla.org/media/img/home/2024/ai-gallery/collective-mobile-1232.a39d1be9a023.jpg 1232w,https://www.mozilla.org/media/img/home/2024/ai-gallery/collective-mobile-1450.921cba2041a0.jpg 1450w" sizes="(min-width: 768px) calc((100vw - 32px) / 2),calc(100vw - 32px)" width="1450" height="723"><source srcset="https://www.mozilla.org/media/img/home/2024/ai-gallery/collective-desktop-344.4bd17baadbf1.jpg 344w,https://www.mozilla.org/media/img/home/2024/ai-gallery/collective-desktop-664.e209725539fb.jpg 664w" sizes="(min-width: 1440px) 337px,calc(25vw - 64px)" width="664" height="664"><img loading="lazy" src="https://www.mozilla.org/media/img/home/2024/ai-gallery/collective-mobile-720.9922b34eb50a.jpg" alt=""></picture>
+  </div>
+  
+  
+    <div class="m24-c-gallery-tile-tag">
+      المنتج
+    </div>
+  
+  <div class="m24-c-gallery-tile-content">
+    
+      <p class="m24-c-gallery-tile-body">Mozilla جمع البيانات هو إعادة بناء منظومة بيانات الذكاء الاصطناعي مع المجتمعات في المركز.</p>
+    
+    
+      <p class="m24-c-gallery-tile-cta">
+        <span>انضم اليوم</span>
+      </p>
+    
+    </div>
+</div>
+
+      <div class="m24-c-gallery-tile  m24-l-grid-half">
+    <h3 class="m24-c-gallery-tile-heading">
+      <a href="https://www.youtube.com/watch?v=obRiQme2b3M" class="m24-c-gallery-tile-link" rel="external" target="_blank" data-link-text="Watch now (Own What You Build)">
+        <span>امتلك ما تبنيه</span>
+      </a>
+  </h3>
+  
+  <div class="m24-c-gallery-tile-image">
+    <picture><source media="(max-width: 1311px)" srcset="https://www.mozilla.org/media/img/home/2024/ai-gallery/lamp-mobile-375.45f286fb9ca7.jpg 375w,https://www.mozilla.org/media/img/home/2024/ai-gallery/lamp-mobile-720.8f4180627703.jpg 720w,https://www.mozilla.org/media/img/home/2024/ai-gallery/lamp-mobile-976.2c0bfebd2a72.jpg 976w,https://www.mozilla.org/media/img/home/2024/ai-gallery/lamp-mobile-1232.045b4a6a759f.jpg 1232w,https://www.mozilla.org/media/img/home/2024/ai-gallery/lamp-mobile-1450.6b81b708f083.jpg 1450w" sizes="(min-width: 768px) calc((100vw - 32px) / 2),calc(100vw - 32px)" width="1450" height="723"><source srcset="https://www.mozilla.org/media/img/home/2024/ai-gallery/lamp-desktop-688.d07df99065f1.jpg 688w,https://www.mozilla.org/media/img/home/2024/ai-gallery/lamp-desktop-1024.640636019f6c.jpg 1024w,https://www.mozilla.org/media/img/home/2024/ai-gallery/lamp-desktop-1360.c76a2558ba04.jpg 1360w" sizes="(min-width: 1440px) 680px,calc((100vw - 64px) / 2)" width="1360" height="1088"><img loading="lazy" src="https://www.mozilla.org/media/img/home/2024/ai-gallery/lamp-mobile-720.8f4180627703.jpg" alt=""></picture>
+  </div>
+  
+  
+    <div class="m24-c-gallery-tile-tag">
+      الحدث
+    </div>
+  
+  <div class="m24-c-gallery-tile-content">
+    
+      <p class="m24-c-gallery-tile-body">هل نحتاج إلى "حزمة LAMP" لِعصر الذكاء الاصطناعي؟ نحن بحاجة إلى تقنيات تتسم بالشفافية والمُساءلة وتخضع لملكية الأشخاص الذين يستخدمونها.</p>
+    
+    
+      <p class="m24-c-gallery-tile-cta">
+        <span>شاهد الآن</span>
+      </p>
+    
+    </div>
+</div>
+
+      <div class="m24-c-gallery-tile  m24-l-grid-quarter">
+    <h3 class="m24-c-gallery-tile-heading">
+      <a href="https://www.mozilla.ai/open-tools/choice-first-stack?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" class="m24-c-gallery-tile-link" rel="external" target="_blank" data-link-text="Get started Now (Choice First Stack)">
+        <span>حزمة الخيار الأول</span>
+      </a>
+  </h3>
+  
+  <div class="m24-c-gallery-tile-image">
+    <picture><source media="(max-width: 1311px)" srcset="https://www.mozilla.org/media/img/home/2024/ai-gallery/choice-first-mobile-375.3a86430e3a96.jpg 375w,https://www.mozilla.org/media/img/home/2024/ai-gallery/choice-first-mobile-720.9d3272db5f3d.jpg 720w,https://www.mozilla.org/media/img/home/2024/ai-gallery/choice-first-mobile-976.72167ba290c9.jpg 976w,https://www.mozilla.org/media/img/home/2024/ai-gallery/choice-first-mobile-1232.5ef77902436d.jpg 1232w,https://www.mozilla.org/media/img/home/2024/ai-gallery/choice-first-mobile-1450.3d457c688529.jpg 1450w" sizes="(min-width: 768px) calc((100vw - 32px) / 2),calc(100vw - 32px)" width="1450" height="723"><source srcset="https://www.mozilla.org/media/img/home/2024/ai-gallery/choice-first-desktop-344.5486091237f8.jpg 344w,https://www.mozilla.org/media/img/home/2024/ai-gallery/choice-first-desktop-664.4bfb1acec7a0.jpg 664w" sizes="(min-width: 1440px) 332px,calc((100vw - 64px) / 4)" width="664" height="664"><img loading="lazy" src="https://www.mozilla.org/media/img/home/2024/ai-gallery/choice-first-mobile-720.9d3272db5f3d.jpg" alt=""></picture>
+  </div>
+  
+  
+    <div class="m24-c-gallery-tile-tag">
+      مشروع
+    </div>
+  
+  <div class="m24-c-gallery-tile-content">
+    
+      <p class="m24-c-gallery-tile-body">أدواتك، اختيارك. حزمة مفتوحة المصدر موحّدة تُسهّل بناء واختبار وكلاء وتطبيقات الذكاء الاصطناعي الحديثة.</p>
+    
+    
+      <p class="m24-c-gallery-tile-cta">
+        <span>ابدأ الآن</span>
+      </p>
+    
+    </div>
+</div>
+
+      <div class="m24-c-gallery-tile  m24-l-grid-half">
+    <h3 class="m24-c-gallery-tile-heading">
+      <a href="https://mozilla.vc/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" class="m24-c-gallery-tile-link" rel="external" target="_blank" data-link-text="Read more (Ventures)">
+        <span>Mozilla Ventures</span>
+      </a>
+  </h3>
+  
+  <div class="m24-c-gallery-tile-image">
+    <picture><source media="(max-width: 1311px)" srcset="https://www.mozilla.org/media/img/home/2024/ai-gallery/ventures-mobile-375.e3e5514f8945.jpg 375w,https://www.mozilla.org/media/img/home/2024/ai-gallery/ventures-mobile-720.0e636a424d6e.jpg 720w,https://www.mozilla.org/media/img/home/2024/ai-gallery/ventures-mobile-976.e5c770b56f11.jpg 976w,https://www.mozilla.org/media/img/home/2024/ai-gallery/ventures-mobile-1232.b5e07a981e80.jpg 1232w,https://www.mozilla.org/media/img/home/2024/ai-gallery/ventures-mobile-1450.31519a690661.jpg 1450w" sizes="(min-width: 768px) calc((100vw - 32px) / 2),calc(100vw - 32px)" width="1450" height="723"><source srcset="https://www.mozilla.org/media/img/home/2024/ai-gallery/ventures-desktop-688.920b98ded603.jpg 688w,https://www.mozilla.org/media/img/home/2024/ai-gallery/ventures-desktop-1024.59381046c024.jpg 1024w,https://www.mozilla.org/media/img/home/2024/ai-gallery/ventures-desktop-1360.2dcfd80e7b62.jpg 1360w" sizes="(min-width: 1440px) 680px,calc((100vw - 64px) / 2)" width="1360" height="1088"><img loading="lazy" src="https://www.mozilla.org/media/img/home/2024/ai-gallery/ventures-mobile-720.0e636a424d6e.jpg" alt="مُتحدّث على المنصة الرئيسية وسط العديد من شعارات المنتجات."></picture>
+  </div>
+  
+  
+    <div class="m24-c-gallery-tile-tag">
+      البرنامج
+    </div>
+  
+  <div class="m24-c-gallery-tile-content">
+    
+      <p class="m24-c-gallery-tile-body">هل تمتلك شركة ناشئة في مراحلها الأولى؟ قدّم شركتك لـ Mozilla Ventures واحصل على تمويل لدفع التغيير الإيجابي لمستقبل الذكاء الاصطناعي والإنترنت.</p>
+    
+    
+      <p class="m24-c-gallery-tile-cta">
+        <span>اطَّلِع على المزيد</span>
+      </p>
+    
+    </div>
+</div>
+
+      <div class="m24-c-gallery-tile  m24-l-grid-quarter">
+    <h3 class="m24-c-gallery-tile-heading">
+      <a href="https://www.youtube.com/watch?v=BoFUABRULxg" class="m24-c-gallery-tile-link" rel="external" target="_blank" data-link-text="Watch now (A Double Bottom Line for Tech )">
+        <span>معيار مزدوج لقياس القيمة في التكنولوجيا</span>
+      </a>
+  </h3>
+  
+  <div class="m24-c-gallery-tile-image">
+    <picture><source media="(max-width: 1311px)" srcset="https://www.mozilla.org/media/img/home/2024/ai-gallery/ecosystem-mobile-375.8c830f5608c9.jpg 375w,https://www.mozilla.org/media/img/home/2024/ai-gallery/ecosystem-mobile-720.5bd851782642.jpg 720w,https://www.mozilla.org/media/img/home/2024/ai-gallery/ecosystem-mobile-976.3f097ac4d702.jpg 976w,https://www.mozilla.org/media/img/home/2024/ai-gallery/ecosystem-mobile-1232.bd8bb87e0c3b.jpg 1232w,https://www.mozilla.org/media/img/home/2024/ai-gallery/ecosystem-mobile-1450.842b60f5e3da.jpg 1450w" sizes="(min-width: 768px) calc((100vw - 32px) / 2),calc(100vw - 32px)" width="1450" height="723"><source srcset="https://www.mozilla.org/media/img/home/2024/ai-gallery/ecosystem-desktop-344.0ecc895d13df.jpg 344w,https://www.mozilla.org/media/img/home/2024/ai-gallery/ecosystem-desktop-664.6752bcfde7a8.jpg 664w" sizes="(min-width: 1440px) 680px,calc((100vw - 64px) / 2)" width="1360" height="1088"><img loading="lazy" src="https://www.mozilla.org/media/img/home/2024/ai-gallery/ecosystem-mobile-720.5bd851782642.jpg" alt=""></picture>
+  </div>
+  
+  
+    <div class="m24-c-gallery-tile-tag">
+      الحدث
+    </div>
+  
+  <div class="m24-c-gallery-tile-content">
+    
+      <p class="m24-c-gallery-tile-body">يناقش مارك سورمان كيف يُمكننا بناء منظومة تقنية ذات معيار مزدوج لقياس القيمة — منظومة تُقدّر الرسالة إلى جانب العائد المالي.</p>
+    
+    
+      <p class="m24-c-gallery-tile-cta">
+        <span>شاهد الآن</span>
+      </p>
+    
+    </div>
+</div>
+
+      <div class="m24-c-gallery-tile  m24-l-grid-quarter">
+    <h3 class="m24-c-gallery-tile-heading">
+      <a href="https://www.mozilla.ai/product/agent-platform?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" class="m24-c-gallery-tile-link" rel="external" target="_blank" data-link-text="Get started (Agent Platform)">
+        <span>منصة الوكلاء</span>
+      </a>
+  </h3>
+  
+  <div class="m24-c-gallery-tile-image">
+    <picture><source media="(max-width: 1311px)" srcset="https://www.mozilla.org/media/img/home/2024/ai-gallery/agent-platform-mobile-375.7aedb46400bb.jpg 375w,https://www.mozilla.org/media/img/home/2024/ai-gallery/agent-platform-mobile-720.76a7fb606987.jpg 720w,https://www.mozilla.org/media/img/home/2024/ai-gallery/agent-platform-mobile-976.6aea09c7f0a7.jpg 976w,https://www.mozilla.org/media/img/home/2024/ai-gallery/agent-platform-mobile-1232.ba5d8bb31183.jpg 1232w,https://www.mozilla.org/media/img/home/2024/ai-gallery/agent-platform-mobile-1450.8cc1eab3802a.jpg 1450w" sizes="(min-width: 768px) calc((100vw - 32px) / 2),calc(100vw - 32px)" width="1450" height="723"><source srcset="https://www.mozilla.org/media/img/home/2024/ai-gallery/agent-platform-desktop-344.25fdf0c75f73.jpg 344w,https://www.mozilla.org/media/img/home/2024/ai-gallery/agent-platform-desktop-664.b9cd2ab87ba6.jpg 664w" sizes="(min-width: 1440px) 332px,calc((100vw - 64px) / 4)" width="664" height="664"><img loading="lazy" src="https://www.mozilla.org/media/img/home/2024/ai-gallery/agent-platform-mobile-720.76a7fb606987.jpg" alt=""></picture>
+  </div>
+  
+  
+    <div class="m24-c-gallery-tile-tag">
+      المنتج
+    </div>
+  
+  <div class="m24-c-gallery-tile-content">
+    
+      <p class="m24-c-gallery-tile-body">توقّف عن ربط الأدوات ببعضها ورعاية الأتمتات الهشّة. مع منصة وكلاء Mozilla.ai، فأنت تصف هدفك، ونحن نُنشئ وكلاء ذكاء اصطناعي متكيّفين يعملون مع أدواتك وعملياتك.</p>
+    
+    
+      <p class="m24-c-gallery-tile-cta">
+        <span>لنبدأ</span>
+      </p>
+    
+    </div>
+</div>
+    </div>
+  </div>
+</section>
+  
+
+
+
+<section class="m24-c-content" id="media">
+  <h3 class="m24-c-intro-title m24-t-sm">أنت والذكاء الاصطناعي والإنترنت – ما الذي يَحدث فعليًا؟</h3>
+  <ul class="m24-c-springboard" id="ai-media">
+    <li class="m24-c-springboard-item m24-c-springboard-headings">
+      <div class="m24-c-springboard-link">
+        <div class="m24-c-springboard-thumb"></div>
+        <div class="m24-c-springboard-type">النوع</div>
+        <div class="m24-c-springboard-author">المؤلّف (المؤلّفون)</div>
+        <div class="m24-c-springboard-topic">الموضوع</div>
+        <div class="m24-c-springboard-preview">المقدمة</div>
+      </div>
+    </li>
+    <li class="m24-c-springboard-item ">
+  <a href="https://blog.mozilla.org/en/mozilla/leadership/mozilla-welcomes-raffi-krikorian-chief-technology-officer/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" class="m24-c-springboard-link" data-link-text="يَسعد Mozilla أن تُرحّب بـ "رافي كريكوريان" في منصب الرئيس التنفيذي للتكنولوجيا">
+    <div class="m24-c-springboard-thumb">
+      
+        <span class="m24-c-springboard-icon m24-c-springboard-icon-article"></span>
+      
+    </div>
+    <div class="m24-c-springboard-type">
+      مقالة
+    </div>
+    <div class="m24-c-springboard-author">Mozilla</div>
+    <div class="m24-c-springboard-topic">أخبار</div>
+    <div class="m24-c-springboard-preview">يَسعد Mozilla أن تُرحّب بـ "رافي كريكوريان" في منصب الرئيس التنفيذي للتكنولوجيا</div>
+  </a>
+</li>
+    <li class="m24-c-springboard-item ">
+  <a href="https://www.techtarget.com/searchenterpriseai/news/366629900/Mozillaai-CEO-Dickerson-talks-open-source-AI-advantages?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" class="m24-c-springboard-link" data-link-text="الرئيس التنفيذي لـ Mozilla.ai يتحدث عن مزايا الذكاء الاصطناعي مفتوح المصدر">
+    <div class="m24-c-springboard-thumb">
+      
+        <span class="m24-c-springboard-icon m24-c-springboard-icon-article"></span>
+      
+    </div>
+    <div class="m24-c-springboard-type">
+      مقالة
+    </div>
+    <div class="m24-c-springboard-author">الهدف التكنولوجي</div>
+    <div class="m24-c-springboard-topic">ذكاء اصطناعي مفتوح المصدر</div>
+    <div class="m24-c-springboard-preview">الرئيس التنفيذي لـ Mozilla.ai يتحدث عن مزايا الذكاء الاصطناعي مفتوح المصدر</div>
+  </a>
+</li>
+    <li class="m24-c-springboard-item ">
+  <a href="https://blog.thunderbird.net/2025/04/thundermail-and-thunderbird-pro-services/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" class="m24-c-springboard-link" data-link-text="نُقدّم لكم Thundermail و Thunderbird Pro">
+    <div class="m24-c-springboard-thumb">
+      
+        <span class="m24-c-springboard-icon m24-c-springboard-icon-article"></span>
+      
+    </div>
+    <div class="m24-c-springboard-type">
+      مقالة
+    </div>
+    <div class="m24-c-springboard-author">Ryan Sipes</div>
+    <div class="m24-c-springboard-topic">المنتجات</div>
+    <div class="m24-c-springboard-preview">نُقدّم لكم Thundermail و Thunderbird Pro</div>
+  </a>
+</li>
+    <li class="m24-c-springboard-item ">
+  <a href="https://www.youtube.com/watch?v=HiZGWrN1zrU?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" class="m24-c-springboard-link" data-link-text="ما سيأتي بعد ذلك في عالم التقنية هو خيار. اختَر معنا.">
+    <div class="m24-c-springboard-thumb">
+      
+        <span class="m24-c-springboard-icon m24-c-springboard-icon-video"></span>
+      
+    </div>
+    <div class="m24-c-springboard-type">
+      فديو
+    </div>
+    <div class="m24-c-springboard-author">Nabiha Syed </div>
+    <div class="m24-c-springboard-topic">الخصوصية والسريّة</div>
+    <div class="m24-c-springboard-preview">ما سيأتي بعد ذلك في عالم التقنية هو خيار. اختَر معنا.</div>
+  </a>
+</li>
+    <li class="m24-c-springboard-item ">
+  <a href="https://www.theguardian.com/technology/2025/oct/28/firefox-ai-internet-anthony-enzor-demeo?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" class="m24-c-springboard-link" data-link-text=""لحظة مناسبة بالنسبة لنا": يتحدث رئيس Firefox عن مُتصفحات الذكاء الاصطناعي وما الذي ينتظر الويب لاحقًا">
+    <div class="m24-c-springboard-thumb">
+      
+        <span class="m24-c-springboard-icon m24-c-springboard-icon-article"></span>
+      
+    </div>
+    <div class="m24-c-springboard-type">
+      مقالة
+    </div>
+    <div class="m24-c-springboard-author">The Guardian</div>
+    <div class="m24-c-springboard-topic">أخبار</div>
+    <div class="m24-c-springboard-preview">"لحظة مناسبة بالنسبة لنا": يتحدث رئيس Firefox عن مُتصفحات الذكاء الاصطناعي وما الذي ينتظر الويب لاحقًا</div>
+  </a>
+</li>
+    <li class="m24-c-springboard-item ">
+  <a href="https://www.fastcompany.com/91289057/mozilla-browser-not-backed-by-billionaires?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" class="m24-c-springboard-link" data-link-text="الرسالة الجديدة لـ Mozilla: نحن المتصفح الوحيد غير المدعوم من المليارديرات">
+    <div class="m24-c-springboard-thumb">
+      
+        <span class="m24-c-springboard-icon m24-c-springboard-icon-article"></span>
+      
+    </div>
+    <div class="m24-c-springboard-type">
+      مقالة
+    </div>
+    <div class="m24-c-springboard-author">شركة سريعة</div>
+    <div class="m24-c-springboard-topic">أخبار</div>
+    <div class="m24-c-springboard-preview">الرسالة الجديدة لـ Mozilla: نحن المتصفح الوحيد غير المدعوم من المليارديرات</div>
+  </a>
+</li>
+    <li class="m24-c-springboard-item ">
+  <a href="https://blog.mozilla.org/mozilla/rewiring-mozilla-ai-and-web/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" class="m24-c-springboard-link" data-link-text="إعادة توصيل Mozilla: نُقدّم للذكاء الاصطناعي ما قدّمناه للويب سابقًا">
+    <div class="m24-c-springboard-thumb">
+      
+        <span class="m24-c-springboard-icon m24-c-springboard-icon-article"></span>
+      
+    </div>
+    <div class="m24-c-springboard-type">
+      مقالة
+    </div>
+    <div class="m24-c-springboard-author">Mozilla</div>
+    <div class="m24-c-springboard-topic">أخبار</div>
+    <div class="m24-c-springboard-preview">إعادة توصيل Mozilla: نُقدّم للذكاء الاصطناعي ما قدّمناه للويب سابقًا</div>
+  </a>
+</li>
+    <li class="m24-c-springboard-item ">
+  <a href="https://www.axios.com/2025/11/14/mozilla-ai-age?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" class="m24-c-springboard-link" data-link-text="مقابلة مع مارك سورمان: كيف تتكيّف Mozilla مع عصر الذكاء الاصطناعي">
+    <div class="m24-c-springboard-thumb">
+      
+        <span class="m24-c-springboard-icon m24-c-springboard-icon-article"></span>
+      
+    </div>
+    <div class="m24-c-springboard-type">
+      مقالة
+    </div>
+    <div class="m24-c-springboard-author">Axios</div>
+    <div class="m24-c-springboard-topic">أخبار</div>
+    <div class="m24-c-springboard-preview">مقابلة مع مارك سورمان: كيف تتكيّف Mozilla مع عصر الذكاء الاصطناعي</div>
+  </a>
+</li>
+    <li class="m24-c-springboard-item ">
+  <a href="https://www.youtube.com/watch?v=IY2EsEtajfY" class="m24-c-springboard-link" data-link-text="حوار السيدات في مجال المنتجات: إضافة الذكاء الاصطناعي التوليدي (GenAI) دون فقدان الرؤية الأساسية">
+    <div class="m24-c-springboard-thumb">
+      
+        <span class="m24-c-springboard-icon m24-c-springboard-icon-video"></span>
+      
+    </div>
+    <div class="m24-c-springboard-type">
+      فديو
+    </div>
+    <div class="m24-c-springboard-author">Suba Vasudevan</div>
+    <div class="m24-c-springboard-topic">الذكاء الاصطناعي</div>
+    <div class="m24-c-springboard-preview">حوار السيدات في مجال المنتجات: إضافة الذكاء الاصطناعي التوليدي (GenAI) دون فقدان الرؤية الأساسية</div>
+  </a>
+</li>
+    <li class="m24-c-springboard-item ">
+  <a href="https://www.youtube.com/watch?v=eBjqeLg1csI" class="m24-c-springboard-link" data-link-text="توسيع نطاق الذكاء الاصطناعي مفتوح المصدر: مارك سورمان وتيم برادشو">
+    <div class="m24-c-springboard-thumb">
+      
+        <span class="m24-c-springboard-icon m24-c-springboard-icon-video"></span>
+      
+    </div>
+    <div class="m24-c-springboard-type">
+      فديو
+    </div>
+    <div class="m24-c-springboard-author">The FT</div>
+    <div class="m24-c-springboard-topic">الذكاء الاصطناعي</div>
+    <div class="m24-c-springboard-preview">توسيع نطاق الذكاء الاصطناعي مفتوح المصدر: مارك سورمان وتيم برادشو</div>
+  </a>
+</li>
+  </ul>
+</section>
+  
+    
+      
+
+<section class="m24-c-showcase m24-t-dark">
+  <div class="m24-c-content">
+    <header class="m24-c-showcase-text">
+      <h2 class="m24-c-showcase-title">حالة Mozilla</h2>
+      
+        <p class="m24-c-showcase-body">نحن عند مفترق طرق يحدّد مستقبل التكنولوجيا، في وقتٍ تُعزّز فيه شركات الذكاء الاصطناعي الكبرى تركّز النفوذ. يأتي تقرير 2025 حالة Mozilla كدعوة لاختيار مستقبل مختلف معًا.</p>
+      
+    </header>
+
+    <div class="m24-c-showcase">
+      <div class="m24-c-showcase-media">
+        <img loading="lazy" src="https://www.mozilla.org/media/img/home/2024/showcase/showcase-som-2025.47c0ca8a7005.png" class="m24-c-menu-item-icon" width="1376" height="515" alt="النص "اختر مستقبلك" على خلفية صفراء مُحبَّبة (مبكسلة).">
+      </div>
+    </div>
+
+    <footer class="m24-c-showcase-text m24-l-two-columns">
+      <h3 class="m24-c-showcase-subtitle">2025</h3>
+
+      <p class="m24-c-showcase-body m24-c-section-cta">
+        <a href="https://stateof.mozilla.org?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" class="m24-c-cta" rel="external noopener" data-cta-text="Read the report">اقرأ التقرير</a>
+      </p>
+    </footer>
+
+  </div>
+</section>
+    
+  
+  
+
+
+
+<section class="m24-c-content">
+  <header class="m24-c-intro">
+    <h2 class="m24-c-intro-title">استكشف القضايا التي تشكّل مستقبل الإنترنت</h2>
+  </header>
+  <div class="m24-c-gallery-container">
+    
+      <div class="m24-c-gallery-tile  m24-l-grid-half">
+    <h3 class="m24-c-gallery-tile-heading">
+      <a href="https://www.theatlantic.com/ideas/archive/2025/10/validation-ai-raffi-krikorian/684764/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" class="m24-c-gallery-tile-link" rel="external" target="_blank" data-link-text="Read more about The Validation Machines">
+        <span>ماكينات التحقّق</span>
+      </a>
+  </h3>
+  
+  <div class="m24-c-gallery-tile-image">
+    <picture><source srcset="https://www.mozilla.org/media/img/home/2024/issues/validation-1024.3278a9d382bc.jpg 1024w,https://www.mozilla.org/media/img/home/2024/issues/validation-1232.6bffbb952075.jpg 1232w,https://www.mozilla.org/media/img/home/2024/issues/validation-1360.844f804e05f9.jpg 1360w,https://www.mozilla.org/media/img/home/2024/issues/validation-1450.70d8d8cf634a.jpg 1450w,https://www.mozilla.org/media/img/home/2024/issues/validation-375.837e7124762b.jpg 375w,https://www.mozilla.org/media/img/home/2024/issues/validation-688.d3884aeab8af.jpg 688w,https://www.mozilla.org/media/img/home/2024/issues/validation-720.ceb48c504a04.jpg 720w,https://www.mozilla.org/media/img/home/2024/issues/validation-976.31d0a995f909.jpg 976w" sizes="(min-width: 768px) calc((100vw - 32px) / 2),(min-width: 1311px) calc((100vw - 64px) / 2),(min-width: 1440px) 680px,calc(100vw - 32px)"><img loading="lazy" src="https://www.mozilla.org/media/img/home/2024/issues/validation-720.ceb48c504a04.jpg" alt="شخص صغير الحجم يتأمل مفتاح لوحة مفاتيح ضخمًا وشاشة كمبيوتر جذّابة" width="1450" height="725"></picture>
+  </div>
+  
+  
+  <div class="m24-c-gallery-tile-content">
+    
+      <p class="m24-c-gallery-tile-body">في مقال له في مجلة The Atlantic، يتساءل رافي كريكوريان، الرئيس التنفيذي للتكنولوجيا (CTO) في Mozilla، عن سبب حرص الروبوتات الذكية والذكاء الاصطناعي التوليدي على إرضائنا، وما الذي يعنيه ذلك للبشرية. (image courtesy The Atlantic)</p>
+    
+    
+      <p class="m24-c-gallery-tile-cta">
+        <span>اطَّلِع على المزيد</span>
+      </p>
+    
+    </div>
+</div>
+    
+
+    
+      <div class="m24-c-gallery-tile  m24-l-grid-half">
+    <h3 class="m24-c-gallery-tile-heading">
+      <a href="https://www.mozillafoundation.org/en/nothing-personal/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=m24-homepage" class="m24-c-gallery-tile-link" rel="external" target="_blank" data-link-text="Read Now about Nothing Personal">
+        <span>ليس للأمر علاقة بالأمور الشخصية</span>
+      </a>
+  </h3>
+  
+  <div class="m24-c-gallery-tile-image">
+    <picture><source srcset="https://www.mozilla.org/media/img/home/2024/issues/np-1024.36742251a4d9.jpg 1024w,https://www.mozilla.org/media/img/home/2024/issues/np-1232.c93e3ec3f1f4.jpg 1232w,https://www.mozilla.org/media/img/home/2024/issues/np-1360.e623ca52baba.jpg 1360w,https://www.mozilla.org/media/img/home/2024/issues/np-1450.7030138e6369.jpg 1450w,https://www.mozilla.org/media/img/home/2024/issues/np-375.cb4ef6fc3b2b.jpg 375w,https://www.mozilla.org/media/img/home/2024/issues/np-688.47dd9c4c5ba2.jpg 688w,https://www.mozilla.org/media/img/home/2024/issues/np-720.1b98172f6236.jpg 720w,https://www.mozilla.org/media/img/home/2024/issues/np-976.1484346743fb.jpg 976w" sizes="(min-width: 768px) calc((100vw - 32px) / 2),(min-width: 1311px) calc((100vw - 64px) / 2),(min-width: 1440px) 680px,calc(100vw - 32px)"><img loading="lazy" src="https://www.mozilla.org/media/img/home/2024/issues/np-720.1b98172f6236.jpg" alt="" width="1450" height="725"></picture>
+  </div>
+  
+  
+  <div class="m24-c-gallery-tile-content">
+    
+      <p class="m24-c-gallery-tile-body">مجلتنا الجديدة للمفكرين المستقلين والتقنيين والمبدعين الذين يتصدّرون المشهد الرقمي.</p>
+    
+    
+      <p class="m24-c-gallery-tile-cta">
+        <span>اقرأ الآن</span>
+      </p>
+    
+    </div>
+</div>
+    
+
+  </div>
+</section>
+</main>
+
+
+
+      
+  
+    
+
+
+
+
+  
+
+ <footer class="moz24-footer" id="colophon" role="contentinfo">
+  
+    
+
+<div class="moz24-newsletter-container">
+  <div class="moz24-newsletter-wrapper">
+    <div class="moz24-newsletter-info">
+      <img loading="lazy" class="moz24-newsletter-image" src="https://www.mozilla.org/media/img/logos/m24/symbol-white.05fe537b39ce.svg" alt="" width="40" height="48">
+      <p>اكتشف منتجات Mozilla ومبادراتها. نَعدك بأننا سنُحافظ على خصوصية وأمن بريدك الإلكتروني — ولن نُشاركه أو نبيعه، ولن نستخدمه إلا لإخبارك بالتحديثات العظيمة فقط.</p>
+    </div>
+
+    <div class="moz24-newsletter">
+      
+
+
+
+
+  <form id="newsletter-form" class="mzp-c-newsletter-form" action="https://abdri3ttkb.execute-api.us-east-2.amazonaws.com/api/newsletter/mozillaorg" method="post" data-testid="newsletter-form">
+    
+      <div hidden>
+        <div id="id_newsletters"><div>
+    <label for="id_newsletters_0"><input type="checkbox" name="newsletters" value="mozilla-foundation" id="id_newsletters_0" checked>
+ Mozilla Foundation</label>
+
+</div>
+</div>
+      </div>
+    
+    <input type="hidden" name="source_url" value="https://www.mozilla.org/ar/">
+
+    
+    <header class="mzp-c-newsletter-header">
+      <h3 class="mzp-c-newsletter-title">الاطلاع على أخبار Firefox</h3>
+      
+      
+    </header>
+    
+
+    <fieldset class="mzp-c-newsletter-content">
+      <div class="mzp-c-form-errors hidden" id="newsletter-errors" data-testid="newsletter-error-message">
+        
+        <ul class="mzp-u-list-styled">
+          <li class="error-email-invalid hidden">
+            يُرجى إدخال عنوان بريد إلكتروني صالح.
+          </li>
+          <li class="error-select-country hidden">
+            يُرجى اختيار بلد أو منطقة
+          </li>
+          <li class="error-select-language hidden">
+            يُرجى اختيار لغة
+          </li>
+          <li class="error-newsletter-checkbox hidden">
+            يُرجى تحديد خيار واحد على الأقل من خيارات النشرات الإخبارية.
+          </li>
+          <li class="error-privacy-policy hidden">
+            يجب أن تُوافق على إشعار الخصوصية
+          </li>
+          <li class="error-try-again-later hidden">
+            عذرًا، لقد حدثت مُشكلة في نظامنا. من فضلك أعِد المحاولة في وقت لاحق.
+          </li>
+        </ul>
+      </div>
+
+      <label for="id_email">عنوان البريد الإلكتروني:</label>
+      
+        
+      
+      <input type="email" name="email" required data-testid="newsletter-email-input" maxlength="320" placeholder="yourname@example.com" class="mzp-js-email-field" id="id_email">
+
+      <div id="newsletter-details" class="mzp-c-newsletter-details">
+        <div class="mzp-c-newsletter-details-inner">
+        
+          <label for="id_country">حدد البلد أو المنطقة:</label>
+          <p><select name="country" required="required" aria-required="true" data-testid="newsletter-country-select" id="id_country">
+  <option value="" selected>حدد البلد أو المنطقة</option>
+
+  <option value="is">آيسلاندا</option>
+
+  <option value="et">أثيوبيا</option>
+
+  <option value="az">أذربيجان</option>
+
+  <option value="am">أرمينيا</option>
+
+  <option value="aw">أروبا</option>
+
+  <option value="uy">أروغواي</option>
+
+  <option value="au">أستراليا</option>
+
+  <option value="za">أفريقيا الجنوبية</option>
+
+  <option value="af">أفغانستان</option>
+
+  <option value="ua">أكرانيا</option>
+
+  <option value="qz">أكروتيري</option>
+
+  <option value="al">ألبانيا</option>
+
+  <option value="de">ألمانيا</option>
+
+  <option value="ag">أنتيجوا و بربودا</option>
+
+  <option value="ad">أندورا</option>
+
+  <option value="ao">أنغولا</option>
+
+  <option value="ai">أنغويلا</option>
+
+  <option value="uz">أوزباكستان</option>
+
+  <option value="rw">أوغاندا</option>
+
+  <option value="ug">أوغندا</option>
+
+  <option value="er">إريتريا</option>
+
+  <option value="es">إسبانيا</option>
+
+  <option value="ee">إستونيا</option>
+
+  <option value="il">إسرائيل</option>
+
+  <option value="io">إقليم المحيط الهندي البريطاني</option>
+
+  <option value="id">إندونيسيا</option>
+
+  <option value="ir">إيران</option>
+
+  <option value="ie">إيرلندا</option>
+
+  <option value="it">إيطاليا</option>
+
+  <option value="ar">الأرجنتين</option>
+
+  <option value="jo">الأردن</option>
+
+  <option value="ec">الإكوادور</option>
+
+  <option value="ae">الإمارات العربيّة المتّحدة</option>
+
+  <option value="bh">البحرين</option>
+
+  <option value="br">البرازيل</option>
+
+  <option value="pt">البرتغال</option>
+
+  <option value="bs">البهاما</option>
+
+  <option value="ba">البوسنة و الهرسك</option>
+
+  <option value="dz">الجزائر</option>
+
+  <option value="vg">الجزر العذراء البريطانية</option>
+
+  <option value="dk">الدنمارك</option>
+
+  <option value="cv">الرأس الأخضر</option>
+
+  <option value="sv">السلفادور</option>
+
+  <option value="sn">السنغال</option>
+
+  <option value="sa">السّعوديّة</option>
+
+  <option value="sd">السّودان</option>
+
+  <option value="se">السّويد</option>
+
+  <option value="eh">الصحراء الغربية</option>
+
+  <option value="so">الصّومال</option>
+
+  <option value="cn">الصّين</option>
+
+  <option value="xw">الضفة الغربية</option>
+
+  <option value="iq">العراق</option>
+
+  <option value="ga">الغابون</option>
+
+  <option value="ph">الفيليبين</option>
+
+  <option value="aq">القارة القطبية الجنوبية</option>
+
+  <option value="cm">الكاميرون</option>
+
+  <option value="kw">الكويت</option>
+
+  <option value="ma">المغرب</option>
+
+  <option value="mx">المكسيك</option>
+
+  <option value="gb">المملكة المتّحدة</option>
+
+  <option value="tf">المناطق الجنوبية و الأنتركتيكية الفرنسية</option>
+
+  <option value="no">النرويج</option>
+
+  <option value="nr">النّاورو</option>
+
+  <option value="at">النّمسا</option>
+
+  <option value="ne">النّيجر</option>
+
+  <option value="in">الهند</option>
+
+  <option value="us">الولايات المتّحدة</option>
+
+  <option value="jp">اليابان</option>
+
+  <option value="ye">اليمن</option>
+
+  <option value="gr">اليونان</option>
+
+  <option value="pg">بابوا غينيا الجديدة</option>
+
+  <option value="py">باراغواي</option>
+
+  <option value="bb">باربادوس</option>
+
+  <option value="qs">باساس دا إنديا</option>
+
+  <option value="pk">باكستان</option>
+
+  <option value="pw">بالاو</option>
+
+  <option value="bm">برمودا</option>
+
+  <option value="bn">بروناي</option>
+
+  <option value="be">بلجيكا</option>
+
+  <option value="bg">بلغاريا</option>
+
+  <option value="bd">بنغلاديش</option>
+
+  <option value="pa">بنما</option>
+
+  <option value="bj">بنين</option>
+
+  <option value="bt">بهوتان</option>
+
+  <option value="bw">بوتسوانا</option>
+
+  <option value="pr">بورتو ريكو</option>
+
+  <option value="bf">بوركينا فاسو</option>
+
+  <option value="mm">بورما</option>
+
+  <option value="bi">بوروندي</option>
+
+  <option value="pl">بولندا</option>
+
+  <option value="bo">بوليفيا</option>
+
+  <option value="pf">بولينيسيا الفرنسية</option>
+
+  <option value="bq">بونير و سينت أوستاتيوس و سابا</option>
+
+  <option value="pe">بيرو</option>
+
+  <option value="bz">بيليز</option>
+
+  <option value="th">تايلاند</option>
+
+  <option value="tw">تايوان</option>
+
+  <option value="tm">تركمانستان</option>
+
+  <option value="tr">تركيا</option>
+
+  <option value="tt">ترينيداد و توباغو</option>
+
+  <option value="td">تشاد</option>
+
+  <option value="cl">تشيلي</option>
+
+  <option value="tz">تنزانيا</option>
+
+  <option value="tg">توغو</option>
+
+  <option value="tv">توفالو</option>
+
+  <option value="tk">توكيلاو</option>
+
+  <option value="tn">تونس</option>
+
+  <option value="to">تونغا</option>
+
+  <option value="tl">تيمور- ليشتي</option>
+
+  <option value="jm">جامايكا</option>
+
+  <option value="gm">جامبيا</option>
+
+  <option value="xj">جان ماين</option>
+
+  <option value="gi">جبل طارق</option>
+
+  <option value="tc">جزر الترك والكايكوس</option>
+
+  <option value="fo">جزر الفارو</option>
+
+  <option value="fk">جزر الفوكلاند (المالفيناس)</option>
+
+  <option value="km">جزر القمر</option>
+
+  <option value="ky">جزر الكايمان</option>
+
+  <option value="cc">جزر الكوكوس (كيلنك)</option>
+
+  <option value="mh">جزر المارشال</option>
+
+  <option value="mv">جزر المالديف</option>
+
+  <option value="xl">جزر بالميرا المرجانية</option>
+
+  <option value="pn">جزر بتكيرن</option>
+
+  <option value="xc">جزر بحر الكورال</option>
+
+  <option value="xs">جزر سبراتلي</option>
+
+  <option value="sb">جزر سليمان</option>
+
+  <option value="qx">جزر غلوريوسو</option>
+
+  <option value="vi">جزر فيرجن الأمريكية</option>
+
+  <option value="ck">جزر كوك</option>
+
+  <option value="mp">جزر ماريانا الشمالية</option>
+
+  <option value="qm">جزر ميدواي</option>
+
+  <option value="wf">جزر والس و فوتونا</option>
+
+  <option value="xp">جزر پاراسيل</option>
+
+  <option value="xe">جزيرة أوروبا</option>
+
+  <option value="cx">جزيرة الكريسماس</option>
+
+  <option value="xb">جزيرة بايكر</option>
+
+  <option value="bv">جزيرة بوفي</option>
+
+  <option value="xt">جزيرة تروملين</option>
+
+  <option value="xq">جزيرة جارفيس</option>
+
+  <option value="xu">جزيرة جونستون</option>
+
+  <option value="qu">جزيرة خوان دي نوڤا</option>
+
+  <option value="cp">جزيرة كليبرتون</option>
+
+  <option value="im">جزيرة مان</option>
+
+  <option value="xv">جزيرة نافاسا</option>
+
+  <option value="nf">جزيرة نورفولك</option>
+
+  <option value="xh">جزيرة هولاند</option>
+
+  <option value="hm">جزيرة هيرد و جزر ماكدونالد</option>
+
+  <option value="qw">جزيرة وايك</option>
+
+  <option value="xa">جزيرتي أشمور وكارتيير</option>
+
+  <option value="cf">جمهورية أفريقيا الوسطى</option>
+
+  <option value="cz">جمهورية التشيك</option>
+
+  <option value="do">جمهورية الدومينيك</option>
+
+  <option value="ss">جنوب السودان</option>
+
+  <option value="gs">جنوب جورجيا و جزر ساندويتش الجنوبيّة</option>
+
+  <option value="ge">جورجيا</option>
+
+  <option value="dj">جيبوتي</option>
+
+  <option value="je">جيرسي</option>
+
+  <option value="xd">دهقلية</option>
+
+  <option value="dm">دومينيكا</option>
+
+  <option value="dg">دييغو غارسيا</option>
+
+  <option value="ru">روسيا</option>
+
+  <option value="by">روسيا البيضاء</option>
+
+  <option value="ro">رومانيا</option>
+
+  <option value="re">ريونيون</option>
+
+  <option value="zm">زامبيا</option>
+
+  <option value="zw">زيمبابوي</option>
+
+  <option value="ci">ساحل العاج</option>
+
+  <option value="as">ساموا الأمريكية</option>
+
+  <option value="ws">ساموا الأمريكية</option>
+
+  <option value="pm">سان بيير و ميكِلون</option>
+
+  <option value="lc">سان لويس</option>
+
+  <option value="sm">سان مارينو</option>
+
+  <option value="bl">سانت بارثيليمي</option>
+
+  <option value="vc">سانت فنسينت والجرينادينز</option>
+
+  <option value="kn">سانت كيتس ونيفيس</option>
+
+  <option value="mf">سانت مارتن</option>
+
+  <option value="sx">سانت مارتن</option>
+
+  <option value="sc">سايتشيلي</option>
+
+  <option value="sh">ساينت هيلينا، تريستان دا كونا</option>
+
+  <option value="lk">سريلانكا</option>
+
+  <option value="xr">سفالبارد</option>
+
+  <option value="sk">سلوفاكيا</option>
+
+  <option value="si">سلوفينيا</option>
+
+  <option value="sg">سنغافورة</option>
+
+  <option value="sz">سوازيلاند</option>
+
+  <option value="sy">سوريا</option>
+
+  <option value="sr">سورينام</option>
+
+  <option value="ch">سويسرا</option>
+
+  <option value="sl">سيراليون</option>
+
+  <option value="xm">شعب كينجمان المرجانية</option>
+
+  <option value="st">صاو تومي و برنسيب</option>
+
+  <option value="rs">صربيا</option>
+
+  <option value="tj">طاجيكستان</option>
+
+  <option value="om">عُمان</option>
+
+  <option value="gh">غانا</option>
+
+  <option value="gd">غرناطة</option>
+
+  <option value="gl">غرينلاندا</option>
+
+  <option value="gt">غواتيمالا</option>
+
+  <option value="gp">غواديلوب</option>
+
+  <option value="gu">غوام</option>
+
+  <option value="gy">غويانا</option>
+
+  <option value="gf">غويانا الفرنسية</option>
+
+  <option value="gg">غيرنسي</option>
+
+  <option value="gn">غينيا</option>
+
+  <option value="gq">غينيا الإستوائية</option>
+
+  <option value="gw">غينيا-بيساو</option>
+
+  <option value="vu">فانواتو</option>
+
+  <option value="fr">فرنسا</option>
+
+  <option value="ve">فنزويلا</option>
+
+  <option value="fi">فنلندا</option>
+
+  <option value="vn">فيتنام</option>
+
+  <option value="fj">فيجي</option>
+
+  <option value="cy">قبرص</option>
+
+  <option value="xg">قطاع غزة</option>
+
+  <option value="qa">قطر</option>
+
+  <option value="kg">قيرغيزستان</option>
+
+  <option value="kz">كازاخستان</option>
+
+  <option value="nc">كالدونيا الجديدة</option>
+
+  <option value="hr">كرواتيا</option>
+
+  <option value="kh">كمبوديا</option>
+
+  <option value="ca">كندا</option>
+
+  <option value="cu">كوبا</option>
+
+  <option value="cw">كوراساو</option>
+
+  <option value="kr">كوريا الجنوبية</option>
+
+  <option value="kp">كوريا الشّماليّة</option>
+
+  <option value="cr">كوستا ريكا</option>
+
+  <option value="xk">كوسوفا</option>
+
+  <option value="co">كولومبيا</option>
+
+  <option value="cg">كونغو (برازافيل)</option>
+
+  <option value="cd">كونغو (كنشاسا)</option>
+
+  <option value="ki">كيريباتي</option>
+
+  <option value="ke">كينيا</option>
+
+  <option value="lv">لاتفيا</option>
+
+  <option value="la">لاوس</option>
+
+  <option value="lb">لبنان</option>
+
+  <option value="lt">لتوانيا</option>
+
+  <option value="lu">لكسومبورغ</option>
+
+  <option value="ly">ليبيا</option>
+
+  <option value="lr">ليبيريا</option>
+
+  <option value="li">ليتشتنستاين</option>
+
+  <option value="ls">ليسوتو</option>
+
+  <option value="mq">مارتينيك</option>
+
+  <option value="mo">ماكاو</option>
+
+  <option value="mw">مالاوي</option>
+
+  <option value="mt">مالطة</option>
+
+  <option value="ml">مالي</option>
+
+  <option value="my">ماليزيا</option>
+
+  <option value="yt">مايوتا</option>
+
+  <option value="mg">مدغشقر</option>
+
+  <option value="va">مدينة الفاتيكان</option>
+
+  <option value="eg">مصر</option>
+
+  <option value="mk">مقدونيا</option>
+
+  <option value="mn">منغوليا</option>
+
+  <option value="mr">موريتانيا</option>
+
+  <option value="mu">موريتيوس</option>
+
+  <option value="mz">موزمبيق</option>
+
+  <option value="md">مولدوفا</option>
+
+  <option value="mc">موناكو</option>
+
+  <option value="me">مونتنيغرو</option>
+
+  <option value="ms">مونسيرات</option>
+
+  <option value="na">ناميبيا</option>
+
+  <option value="np">نيبال</option>
+
+  <option value="ng">نيجيريا</option>
+
+  <option value="ni">نيكاراجوا</option>
+
+  <option value="nz">نيوزيلاندا</option>
+
+  <option value="nu">نيوي</option>
+
+  <option value="ht">هايتي</option>
+
+  <option value="hn">هندوراس</option>
+
+  <option value="hu">هنغاريا</option>
+
+  <option value="nl">هولندا</option>
+
+  <option value="hk">هونغ كونغ</option>
+
+  <option value="fm">ولايات مايكرونيزيا الاتحادية</option>
+
+</select></p>
+        
+
+        
+          <label for="id_lang">اختر لغة:</label>
+          <p><select name="lang" required="required" aria-required="true" id="id_lang">
+  <option value="" selected>اللغات المُتاحة</option>
+
+  <option value="de">Deutsch</option>
+
+  <option value="en">English</option>
+
+  <option value="es">Español</option>
+
+  <option value="fr">Français</option>
+
+  <option value="pl">Polski</option>
+
+  <option value="pt">Português</option>
+
+</select></p>
+        
+
+        
+
+        <p>
+          <label for="privacy" class="mzp-u-inline">
+            <input type="checkbox" id="privacy" name="privacy" required aria-required="true" data-testid="newsletter-privacy-checkbox"> ليس لديَّ مشكلة في معالجة شركة Mozilla لمعلوماتي كما هو موضح في <a href="/ar/privacy/websites/">إشعار الخصوصية هذا</a>
+          </label>
+        </p>
+        </div>
+      </div>
+
+      <p class="mzp-c-form-submit">
+        <button type="submit" id="newsletter-submit" class="mzp-c-button " data-cta-text="Newsletter Sign Up" data-testid="newsletter-submit-button">
+          <span class="submit-text">
+          
+            سجّل الآن
+          
+          </span>
+          <svg class="submit-loading" hidden fill="currentColor" width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <title>جاري الإرسال</title>
+            <circle class="s1" cx="4" cy="12" r="3"/>
+            <circle class="s1 s2" cx="12" cy="12" r="3"/>
+            <circle class="s1 s3" cx="20" cy="12" r="3"/>
+          </svg>
+        </button>
+
+        
+            <span class="mzp-c-fieldnote">
+              
+              
+                لن نُرسل إليك إلا معلومات تتعلق بـ Mozilla. يُمكنك إلغاء الاشتراك في أي وقت.
+              
+            </span>
+        
+      </p>
+    </fieldset>
+  </form>
+
+  <div id="newsletter-thanks" class="mzp-c-newsletter-thanks hidden" data-testid="newsletter-thanks-message">
+    
+      
+  <h3>شكراً!</h3>
+  <p>إذا لم تكن قد أكدت مسبقًا الاشتراك في رسائل Mozilla الإخبارية ذات الصلة، ربما تحتاج إلى القيام بذلك. يُرجى التحقق من صندوق الوارد الخاص بك أو عامل تصفية البريد العشوائي الخاص بك بحثًا عن بريد إلكتروني منا.</p>
+
+    
+  </div>
+
+
+      </div>
+    </div>
+</div>
+  
+  <div class="moz24-footer-content">
+    
+    <div class="moz24-footer-primary">
+      <div class="moz24-footer-sections-container">
+        <div class="moz24-footer-advertising">
+          <div class="moz24-footer-advertising-wrapper">
+            <h2>
+              <img src="https://www.mozilla.org/media/img/logos/mozilla/ads/Mozilla_Ads_Logo.6ed26d0eac2b.svg" alt="إعلانات Mozilla" width="250" height="33" class="moz24-footer-advertising-logo">
+            </h2>
+            
+              <p>أضِف الثقة إلى استثمارك الإعلاني.</p>
+            
+            <a class="moz24-footer-advertising-link" href="/ar/advertising/" data-link-position="footer" data-link-text="Learn more">
+              <span class="mzp-c-button-icon-text">اطَّلِع على المزيد <span>عن إعلانات Mozilla</span></span>
+              <span class="mzp-c-button-icon-end">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path fill="currentColor" d="m7.24 1.36 5.89 5.89H0v1.5h13.13l-5.89 5.89L8.3 15.7 16 8 8.3.3z"/></svg>
+              </span>
+            </a>
+          </div>
+        </div>
+        <div class="moz24-footer-links">
+          <section>
+            <h2 class="moz24-footer-label" data-testid="footer-heading-company">
+              الشركة
+            </h2>
+            <ul class="moz24-footer-primary-list" data-testid="footer-list-company">
+              <li><a href="/ar/about/leadership/" data-link-position="footer" data-link-text="Leadership">القيادة</a></li>
+              <li><a href="https://blog.mozilla.org/category/mozilla/news/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=company" data-link-position="footer" data-link-text="Press Center">مركز الصحافة</a></li>
+              <li><a href="/ar/careers/" data-link-position="footer" data-link-text="Careers">الوظائف</a></li>
+              <li><a href="https://shop.mozilla.com/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=company" data-link-position="footer" data-link-text="Merch Store">متجر Merch</a></li>
+              <li><a href="/ar/contact/" data-link-position="footer" data-link-text="Contact">اتصل بنا</a></li>
+            
+            </ul>
+          </section>
+
+          <section>
+            <h2 class="moz24-footer-label" data-testid="footer-heading-support">
+              دعم
+            </h2>
+            <ul class="moz24-footer-primary-list" data-testid="footer-list-support">
+              <li><a href="https://support.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=support" data-link-position="footer" data-link-text="Product Help">المساعدة بشأن المنتج</a></li>
+              <li><a href="https://bugzilla.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=support" data-link-position="footer" data-link-text="File a Bug">أبلِغ عن خطأ</a></li>
+              <li><a href="https://pontoon.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=support" data-link-position="footer" data-link-text="Localise Mozilla">ترجمة Mozilla</a></li>
+              <li><a href="/ar/security/" data-link-position="footer" data-link-text="Security">السرّية</a></li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 class="moz24-footer-label" data-testid="footer-heading-developers">
+              المُطوّرون
+            </h2>
+            <ul class="moz24-footer-primary-list" data-testid="footer-list-developers">
+              <li><a href="https://www.firefox.com/channel/desktop/developer/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="Firefox Developer Edition">Developer Edition</a></li>
+              <li><a href="https://www.firefox.com/browsers/enterprise/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="Firefox for Enterprise">Enterprise</a></li>
+              <li><a href="https://firefox-source-docs.mozilla.org/devtools-user/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=developers" rel="external" data-link-position="footer" data-link-text="Tools">الأدوات</a></li>
+              <li><a href="https://developer.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="MDN">MDN</a></li>
+              <li><a href="https://www.firefox.com/firefox/155.0.1/releasenotes/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="Firefox Release Notes">ملاحظات إصدار Firefox</a></li>
+            </ul>
+          </section>
+        </div>
+        <div class="moz24-footer-socials">
+          <div class="moz24-footer-refresh-social-wrapper">
+            <h2 class="moz24-footer-heading-social">تابعنا على Mozilla</h2>
+            <ul class="moz24-footer-social-links">
+              <li><a class="bluesky" href="https://bsky.app/profile/mozilla.org" data-link-position="footer" data-link-text="Bluesky (@mozilla.org)" translate="no">Bluesky<span> (@mozilla.org)</span></a></li>
+              <li><a class="instagram" href="https://www.instagram.com/mozilla/" data-link-position="footer" data-link-text="Instagram (@mozilla)">إنستغرام<span> (@mozilla)</span></a></li>
+              <li><a class="linkedin" href="https://www.linkedin.com/company/mozilla-corporation/" data-link-position="footer" data-link-text="LinkedIn (@mozilla)">لِنكدإن<span> (@mozilla)</span></a></li>
+              <li><a class="tiktok" href="https://www.tiktok.com/@mozilla" data-link-position="footer" data-link-text="TikTok (@mozilla)">تيك توك<span> (@mozilla)</span></a></li>
+              <li><a class="spotify" href="https://open.spotify.com/show/0vT7LJMeVDxyQ2ZamHKu08?si=_uDRD6bRR_6M5YZyISGXgA" data-link-position="footer" data-link-text="Spotify (@mozilla)">سبوتيفاي<span> (@mozilla)</span></a></li>
+            </ul>
+          </div>
+          <div class="moz24-footer-refresh-social-wrapper">
+            <h2 class="moz24-footer-heading-social">تابعنا على Firefox</h2>
+            <ul class="moz24-footer-social-links">
+              <li><a class="bluesky" href="https://bsky.app/profile/firefox.com" data-link-position="footer" data-link-text="Bluesky (@firefox.com)" translate="no">Bluesky<span> (@firefox.com)</span></a></li>
+              <li><a class="instagram" href="https://www.instagram.com/firefox/" data-link-position="footer" data-link-text="Instagram (@firefox)">إنستغرام<span> (@firefox)</span></a></li>
+              <li><a class="youtube" href="https://www.youtube.com/user/firefoxchannel" data-link-position="footer" data-link-text="YouTube (@firefoxchannel)">يوتيوب<span> (@firefoxchannel)</span></a></li>
+              <li><a class="tiktok" href="https://www.tiktok.com/@firefox" data-link-position="footer" data-link-text="TikTok (@firefox)">تيك توك<span> (@firefox)</span></a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="moz24-footer-actions">
+      <a class="moz24-footer-donate" href="https://www.mozillafoundation.org/?form=moco-donate-footer" data-link-text="Donate">
+        <span class="mzp-c-button-icon-start">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><g clip-path="url(#a)"><path fill="currentColor" d="M14.8 8.25c.77-.77 1.2-1.8 1.2-2.9a4.094 4.094 0 0 0-4.1-4.1c-1.1 0-2.12.43-2.9 1.2L7.99 3.46 6.98 2.45c-.77-.77-1.8-1.2-2.9-1.2a4.094 4.094 0 0 0-4.1 4.1c0 1.1.43 2.12 1.2 2.9l6.8 6.8 6.8-6.8zM1.5 5.35c0-.7.27-1.35.76-1.83.49-.49 1.14-.76 1.84-.76s1.34.27 1.84.76l2.07 2.07 2.07-2.07c.98-.98 2.69-.98 3.67 0a2.595 2.595 0 0 1 0 3.67l-5.74 5.74-5.75-5.74c-.49-.49-.76-1.14-.76-1.84"/></g><defs><clipPath id="a"><path d="M0 0h16v16H0z"/></clipPath></defs></svg>
+        </span>
+        <span class="mzp-c-button-icon-text">تبرَّع</span>
+      </a>
+      <div class="moz24-footer-language">
+        
+   <form id="lang_form" class="moz24-c-language-switcher" method="get" action="#">
+    <a class="mzp-c-language-switcher-link" href="/locales/">كل اللغات</a>
+    <label for="page-language-select">اللغة</label>
+     <select id="page-language-select" class="mzp-js-language-switcher-select" name="lang" dir="ltr" data-testid="footer-language-select">
+       
+         <option lang="an" value="an">aragonés</option>
+       
+         <option lang="ar" value="ar" selected>عربي</option>
+       
+         <option lang="ast" value="ast">Asturianu</option>
+       
+         <option lang="az" value="az">Azərbaycanca</option>
+       
+         <option lang="be" value="be">Беларуская</option>
+       
+         <option lang="bg" value="bg">Български</option>
+       
+         <option lang="bn" value="bn">বাংলা</option>
+       
+         <option lang="bs" value="bs">Bosanski</option>
+       
+         <option lang="ca" value="ca">Català</option>
+       
+         <option lang="cak" value="cak">Maya Kaqchikel</option>
+       
+         <option lang="cs" value="cs">Čeština</option>
+       
+         <option lang="cy" value="cy">Cymraeg</option>
+       
+         <option lang="da" value="da">Dansk</option>
+       
+         <option lang="de" value="de">Deutsch</option>
+       
+         <option lang="dsb" value="dsb">Dolnoserbšćina</option>
+       
+         <option lang="el" value="el">Ελληνικά</option>
+       
+         <option lang="en-CA" value="en-CA">English (Canadian)</option>
+       
+         <option lang="en-GB" value="en-GB">English (British)</option>
+       
+         <option lang="en-US" value="en-US">English</option>
+       
+         <option lang="eo" value="eo">Esperanto</option>
+       
+         <option lang="es-AR" value="es-AR">Español (de Argentina)</option>
+       
+         <option lang="es-CL" value="es-CL">Español (de Chile)</option>
+       
+         <option lang="es-ES" value="es-ES">Español (de España)</option>
+       
+         <option lang="es-MX" value="es-MX">Español (de México)</option>
+       
+         <option lang="et" value="et">Eesti keel</option>
+       
+         <option lang="eu" value="eu">Euskara</option>
+       
+         <option lang="fa" value="fa">فارسی</option>
+       
+         <option lang="fi" value="fi">suomi</option>
+       
+         <option lang="fr" value="fr">Français</option>
+       
+         <option lang="fy-NL" value="fy-NL">Frysk</option>
+       
+         <option lang="gd" value="gd">Gàidhlig</option>
+       
+         <option lang="gl" value="gl">Galego</option>
+       
+         <option lang="gn" value="gn">Avañe'ẽ</option>
+       
+         <option lang="gu-IN" value="gu-IN">ગુજરાતી (ભારત)</option>
+       
+         <option lang="he" value="he">עברית</option>
+       
+         <option lang="hi-IN" value="hi-IN">हिन्दी (भारत)</option>
+       
+         <option lang="hr" value="hr">Hrvatski</option>
+       
+         <option lang="hsb" value="hsb">Hornjoserbsce</option>
+       
+         <option lang="hu" value="hu">magyar</option>
+       
+         <option lang="hy-AM" value="hy-AM">Հայերեն</option>
+       
+         <option lang="ia" value="ia">Interlingua</option>
+       
+         <option lang="id" value="id">Bahasa Indonesia</option>
+       
+         <option lang="is" value="is">íslenska</option>
+       
+         <option lang="it" value="it">Italiano</option>
+       
+         <option lang="ja" value="ja">日本語</option>
+       
+         <option lang="ka" value="ka">ქართული</option>
+       
+         <option lang="kab" value="kab">Taqbaylit</option>
+       
+         <option lang="kk" value="kk">Қазақ</option>
+       
+         <option lang="ko" value="ko">한국어</option>
+       
+         <option lang="lij" value="lij">Ligure</option>
+       
+         <option lang="lo" value="lo">ພາສາລາວ</option>
+       
+         <option lang="lt" value="lt">Lietuvių</option>
+       
+         <option lang="ml" value="ml">മലയാളം</option>
+       
+         <option lang="mr" value="mr">मराठी</option>
+       
+         <option lang="ms" value="ms">Melayu</option>
+       
+         <option lang="my" value="my">မြန်မာဘာသာ</option>
+       
+         <option lang="nb-NO" value="nb-NO">Norsk bokmål</option>
+       
+         <option lang="nl" value="nl">Nederlands</option>
+       
+         <option lang="nn-NO" value="nn-NO">Norsk nynorsk</option>
+       
+         <option lang="pa-IN" value="pa-IN">ਪੰਜਾਬੀ (ਭਾਰਤ)</option>
+       
+         <option lang="pl" value="pl">Polski</option>
+       
+         <option lang="pt-BR" value="pt-BR">Português (do Brasil)</option>
+       
+         <option lang="pt-PT" value="pt-PT">Português (Europeu)</option>
+       
+         <option lang="rm" value="rm">rumantsch</option>
+       
+         <option lang="ro" value="ro">Română</option>
+       
+         <option lang="ru" value="ru">Русский</option>
+       
+         <option lang="sco" value="sco">Scots</option>
+       
+         <option lang="si" value="si">සිංහල</option>
+       
+         <option lang="sk" value="sk">slovenčina</option>
+       
+         <option lang="skr" value="skr">سرائیکی</option>
+       
+         <option lang="sl" value="sl">Slovenščina</option>
+       
+         <option lang="sq" value="sq">Shqip</option>
+       
+         <option lang="sr" value="sr">Српски</option>
+       
+         <option lang="sv-SE" value="sv-SE">Svenska</option>
+       
+         <option lang="ta" value="ta">தமிழ்</option>
+       
+         <option lang="tg" value="tg">Тоҷикӣ</option>
+       
+         <option lang="th" value="th">ไทย</option>
+       
+         <option lang="tr" value="tr">Türkçe</option>
+       
+         <option lang="trs" value="trs">Triqui</option>
+       
+         <option lang="uk" value="uk">Українська</option>
+       
+         <option lang="ur" value="ur">اُردو</option>
+       
+         <option lang="vi" value="vi">Tiếng Việt</option>
+       
+         <option lang="zh-CN" value="zh-CN">中文 (简体)</option>
+       
+         <option lang="zh-TW" value="zh-TW">正體中文 (繁體)</option>
+       
+     </select>
+   </form>
+ 
+       </div>
+    </div>
+    
+    <div class="moz24-footer-secondary">
+      <div class="moz24-footer-legal">
+        <p class="moz24-footer-license" rel="license">
+          
+          
+            تبرّع لصالح المؤسسة غير الربحية <a href="https://www.mozillafoundation.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" rel="external noopener" data-link-position="footer" data-link-text="Mozilla Foundation">Mozilla Foundation</a>.<br>
+          
+          أجزاء من هذا المحتوى محفوظة بحقوق الطبع والنشر © لعام 1998–2026 بواسطة مساهمين فرديين في mozilla.org. المحتوى متاح بموجب ترخيص <a rel="license" href="/ar/foundation/licensing/website-content/">المَشاع الإبداعي</a>.
+        </p>
+        <ul class="moz24-footer-terms">
+        
+          <li><a href="/ar/privacy/websites/" data-link-position="footer" data-link-text="Privacy">بيان خصوصيّة الموقع الإلكتروني</a></li>
+          <li>
+            
+            <a href="/ar/privacy/websites/cookie-settings/" data-link-position="footer" data-link-text="Cookies">ملفات تعريف الارتباط</a>
+          </li>
+          <li><a href="/ar/about/legal/" data-link-position="footer" data-link-text="Legal">الشؤون القانونية</a></li>
+          <li><a href="/ar/about/governance/policies/participation/" data-link-position="footer" data-link-text="Community Participation Guidelines">التعليمات التوجيهية للمشاركة المجتمعية</a></li>
+          
+            <li><a href="/ar/about/this-site/" data-link-position="footer" data-link-text="About this site">نبذة عن هذا الموقع</a></li>
+          
+        
+        </ul>
+      </div>
+    </div>
+    <img loading="lazy" class="moz24-footer-logo-image-bottom" src="https://www.mozilla.org/media/img/logos/m24/wordmark-white.2d673bb5b33a.svg" alt="" width="1376" height="285">
+  </div>
+</footer>
+
+
+  
+    <!--[if !IE]><!-->
+      <script src="https://www.mozilla.org/media/js/newsletter.d35e22990f3b.js"></script>
+    <!--<![endif]-->
+  
+
+
+  
+
+
+      
+      
+  
+
+    </div>
+
+    
+    
+      
+        <!--[if !IE]><!-->
+          
+          <script src="https://www.mozilla.org/media/js/sentry.9f2fe29330f6.js"></script>
+        <!--<![endif]-->
+      
+    
+
+    
+      <!--[if !IE]><!-->
+        
+        <script src="https://www.mozilla.org/media/js/lib.f86d9ecbd086.js"></script>
+        <script src="https://www.mozilla.org/media/js/fxa.8c097c9145ff.js"></script>
+        <script src="https://www.mozilla.org/media/js/data.44609f062226.js"></script>
+        
+          <script src="https://www.mozilla.org/media/js/m24-ui.30741fa9d521.js"></script>
+        
+      <!--<![endif]-->
+
+      <!--[if IE 9]>
+        
+        <script src="https://www.mozilla.org/media/js/lib-ie.cf16e08599c3.js"></script>
+      <![endif]-->
+    
+
+    
+    
+
+    <!--[if !IE]><!-->
+    
+    
+      
+    
+
+    
+  
+    <script src="https://www.mozilla.org/media/js/m24-animation.6371da6532a7.js"></script>
+  
+  
+
+
+    
+    <!--<![endif]-->
+
+    
+    <!--[if IE 9]><!-->
+      
+      <script src="https://www.mozilla.org/media/js/consent-banner.52b78cd4ba21.js"></script>
+    <!--<![endif]-->
+    
+  </body>
+</html>

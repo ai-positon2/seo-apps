@@ -32,6 +32,43 @@ const WEIGHTS = {
   apicatalog: 8, oauth: 8, oauthresource: 8, mcp: 10, agentskills: 10, webmcp: 6,
 };
 
+// ── The quick-win projection ────────────────────────────────────────────────
+//
+// "Fixing this week's quick wins would take you to N/100" — the one number in
+// the report a non-technical reader acts on. It lives here rather than in the
+// client because it needs the weights above AND the combined-score formula: an
+// audit with on-page checks scores (httpScore + onPageEarned) / (100 +
+// onPageMax), so projecting it is not a matter of adding up weights.
+//
+// Only status 'fail' counts. An 'info' check is an advisory flag, not a failure,
+// and webbotauth carries weight 0 — counting either would promise a gain that
+// fixing them cannot deliver.
+function quickWinProjection({ rawHttpChecks, httpScore, onPageChecks, onPageMax, onPageEarned }) {
+  let gain = 0;
+  let count = 0;
+
+  for (const [id, result] of Object.entries(rawHttpChecks || {})) {
+    if (result.status !== 'fail') continue;
+    if (CHECK_META[id]?.effort !== 'quick') continue;
+    gain += WEIGHTS[id] || 0;
+    count += 1;
+  }
+
+  for (const check of onPageChecks || []) {
+    if (check.status !== 'fail') continue;
+    if (check.effort !== 'quick') continue;
+    gain += (check.maxScore || 0) - (check.score || 0);
+    count += 1;
+  }
+
+  // httpMax is always 100, so totalMax is never 0 and this is the same
+  // expression totalScore uses.
+  const totalMax = 100 + (onPageMax || 0);
+  const projected = Math.round(((httpScore + gain) + (onPageEarned || 0)) / totalMax * 100);
+
+  return { quickWinScore: Math.min(100, projected), quickWinCount: count };
+}
+
 const CATEGORIES = {
   Discoverability:     ['robots', 'sitemap', 'linkheaders'],
   Content:             ['markdown'],
@@ -664,6 +701,9 @@ async function runAgentReadiness({ url, url_homepage, url_action, url_form, skip
         httpScore,
         onPageScore: onPageMax > 0 ? Math.round((onPageEarned / onPageMax) * 100) : null,
         onPageMax,
+        ...quickWinProjection({
+          rawHttpChecks, httpScore, onPageChecks: rawOnPageChecks, onPageMax, onPageEarned,
+        }),
       },
       cats: allCats,
       checks: httpChecks,
@@ -814,6 +854,9 @@ router.post('/stream', async (req, res) => {
         httpScore,
         onPageScore: onPageMax > 0 ? Math.round((onPageEarned / onPageMax) * 100) : null,
         onPageMax,
+        ...quickWinProjection({
+          rawHttpChecks, httpScore, onPageChecks: rawOnPageChecks, onPageMax, onPageEarned,
+        }),
       },
       cats: allCats,
       checks: httpChecks,

@@ -168,6 +168,23 @@ export const QUICK_FILTERS = [
   { id: '5xx', label: '5xx' },
 ];
 
+/**
+ * Is this crawl result an HTML page of the site, rather than a file it serves?
+ *
+ * The audit universe. A crawl of 1,700 URLs is typically ~1,370 internal rows,
+ * of which only some are pages — the rest are images, stylesheets, scripts,
+ * PDFs and feeds the crawler fetched because a page referenced them. No check
+ * in analyzer.js runs on a stylesheet, so it can never appear in the findings,
+ * and listing it in a table of "your pages" pads the count with rows nobody
+ * can act on.
+ *
+ * Exported because this predicate decides the denominator of the health score,
+ * the "HTML pages" tile and the page table's contents, and those three have to
+ * be the same set by construction rather than by three copies of one filter
+ * agreeing by luck.
+ */
+export const isHtmlPage = (result) => Boolean(result?.contentType?.includes('text/html'));
+
 // ── Filtering ───────────────────────────────────────────────────────────────
 export function filterResults(results, { tab = 'all', issueFilter = '', filter = '', category = '', query = '' } = {}) {
   let values = results;
@@ -175,7 +192,7 @@ export function filterResults(results, { tab = 'all', issueFilter = '', filter =
   if (tab === 'issues') {
     values = values.filter((item) => item.issues?.length);
   } else if (tab === 'metadata') {
-    values = values.filter((item) => item.contentType?.includes('text/html'));
+    values = values.filter(isHtmlPage);
   }
 
   if (issueFilter) {
@@ -239,7 +256,7 @@ export function filterResults(results, { tab = 'all', issueFilter = '', filter =
 // scored as pages of this site.
 export function healthMetrics(results, findings = []) {
   const internalResults = results.filter((item) => item.scope !== 'External');
-  const htmlResults = internalResults.filter((item) => item.contentType?.includes('text/html'));
+  const htmlResults = internalResults.filter(isHtmlPage);
   // `finding.scope` ('page' | 'site' | 'resource' | 'template') is unrelated to
   // a crawl result's own `.scope` ('Internal' | 'External') just above — only
   // page-scoped findings belong in a page-level tally. A site-wide
@@ -443,7 +460,7 @@ export function buildSeoSnapshot(pages, groups, catalog) {
     .filter(([category]) => !flaggedCategories.has(category))
     .sort((a, b) => b[1] - a[1]);
 
-  const htmlPages = pages.filter((p) => p.contentType?.includes('text/html'));
+  const htmlPages = pages.filter(isHtmlPage);
   const indexableCount = htmlPages.filter((p) => p.indexability === 'Indexable').length;
   const indexableRatio = htmlPages.length ? indexableCount / htmlPages.length : null;
 

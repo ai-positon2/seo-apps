@@ -2134,7 +2134,15 @@ class SeoCrawler extends EventEmitter {
   }
 
   _schedule() {
-    if (this.paused) return;
+    // A stop has to get through even while paused. This used to be a bare
+    // `if (this.paused) return`, so stop() -- which sets `stopped`, clears the
+    // queue and then calls _schedule() -- was turned away here and never reached
+    // the completion check below. The start() promise therefore never resolved:
+    // the run stayed 'running' with no findings ever written, and shutdown()
+    // burned its whole drain timeout waiting on an execution that could not end.
+    // "Pause to think, then stop" is an ordinary flow in the UI (both buttons
+    // render for any non-terminal run), not an edge case.
+    if (this.paused && !this.stopped) return;
     while (
       !this.stopped &&
       this.active < this.options.concurrency &&

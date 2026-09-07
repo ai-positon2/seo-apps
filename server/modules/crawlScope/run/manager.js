@@ -97,6 +97,12 @@ async function samplePageSpeed(db, run, summary) {
 const RESULT_BATCH = Number(process.env.RUN_RESULT_BATCH) || 250;
 const PROGRESS_INTERVAL_MS = 1_000;
 const HEARTBEAT_MS = Number(process.env.RUN_HEARTBEAT_MS) || 30_000;
+// How quickly a stop asked for in another process is noticed here. Short on
+// purpose and separate from the heartbeat: the heartbeat proves liveness and
+// checkpoints the frontier, which is worth doing rarely; this decides how many
+// more pages a crawl fetches after being told to stop, which is worth doing
+// often. One narrow row read — see the note at its interval below.
+const CONTROL_POLL_MS = Number(process.env.RUN_CONTROL_POLL_MS) || 3_000;
 // A failed result insert is page data that will never exist anywhere else, so it
 // is retried before it is allowed to count as lost.
 const RESULT_FLUSH_ATTEMPTS = 3;
@@ -306,6 +312,71 @@ class RunManager {
     }, HEARTBEAT_MS);
     heartbeat.unref();
 
+    // ── Stopping a crawl that is executing HERE, asked for over THERE ──────
+    //
+    // Pause/resume/stop act on the RunManager in the process that receives the
+    // request. Every project crawl and every scheduled crawl executes in the
+    // worker, so the Stop button — pressed in the web process — could not reach
+    // them: the route answered 409 and the crawl carried on. Migration 0025
+    // records the request on the run; this collects it.
+    //
+    // Its own timer rather than the heartbeat's, for responsiveness AND for
+    // cost. Riding the 30s heartbeat meant up to half a minute of a crawl that
+    // had been told to stop still fetching pages — the expensive thing here is
+    // the crawling, not the polling. This poll is one narrow read of one
+    // primary-key row (`select control_request where id = ...`), so at 3s it is
+    // ~0.3 reads/second per running crawl: far cheaper than the requests the
+    // crawler makes in the same window, and it writes nothing at all unless a
+    // request is actually waiting.
+    //
+    // crawler.stop() aborts the root controller and clears the queue, so once
+    // noticed it takes effect on the next tick — and the run still finishes
+    // through the normal completion path, storing the findings for the pages it
+    // did reach. A stopped crawl is a partial audit, not a lost one.
+    let controlPollWarned = false;
+    const control = setInterval(() => {
+      // Nothing left to control, and no reason to keep reading.
+      if (crawler.stopped) {
+        clearInterval(control);
+        return;
+      }
+      repo
+        .readControlRequest(db, run.id)
+        .then((request) => {
+          if (!request) return;
+          // Through the same methods the in-process buttons use, so a remote
+          // stop and a local one cannot diverge.
+          if (request === "pause") crawler.pause();
+          else if (request === "resume") crawler.resume();
+          else if (request === "stop") crawler.stop();
+          else console.warn(`[crawlScope] run ${run.id}: unknown control request "${request}"`);
+          console.log(`[crawlScope] run ${run.id}: applied remote ${request} request`);
+          // Cleared only if it is still the request that was read — see
+          // repo.clearControlRequest. An unrecognised value is cleared too, or
+          // it would be re-read every poll for the life of the run.
+          return repo.clearControlRequest(db, run.id, request);
+        })
+        // A dropped poll is not a failed crawl: the next one is three seconds
+        // away, and a control channel that could kill a run by failing to read
+        // would be worse than the 409 it replaces.
+        //
+        // Warned ONCE, though. If migration 0025 has not been applied the
+        // column does not exist and every poll fails — silently, forever, while
+        // Stop appears to do nothing. One line naming the likely cause beats a
+        // silent three-second error loop; repeating it every three seconds for
+        // the length of a crawl would bury the log it belongs in.
+        .catch((error) => {
+          if (controlPollWarned) return;
+          controlPollWarned = true;
+          console.warn(
+            `[crawlScope] run ${run.id}: control poll failed (${error.message}). `
+            + "Remote pause/stop will not reach this run. If this says the column "
+            + "does not exist, apply supabase/migrations/0025_crawl_run_control_channel.sql.",
+          );
+        });
+    }, CONTROL_POLL_MS);
+    control.unref();
+
     let buffer = [];
     let lastProgressAt = 0;
     // Flushes are chained rather than fired in parallel: two concurrent inserts
@@ -382,6 +453,13 @@ class RunManager {
 
       const findings = Array.isArray(summary.findings) ? summary.findings : [];
       await repo.insertFindings(db, aggregateFindings(findings, run.owner, run.id));
+      // Full per-occurrence detail (migration 0023) — chunked INSERTs, not the
+      // single giant summary.findings UPDATE that used to carry this and was
+      // timing out on large crawls (see the migration's own header). Ungated,
+      // same as insertFindings above: findings are the crawl's core evidence,
+      // so a failure here should fail the run rather than silently produce a
+      // report with no findings in it.
+      await repo.insertRunFindingInstances(db, run.id, run.owner, findings);
 
       // Internal link graph, for hub-and-spoke clustering (migration 0012).
       //
@@ -439,7 +517,11 @@ class RunManager {
 
       const counts = severityCounts(findings);
       const rolled = {
-        findings,
+        // NOT the full findings array — that's what was timing out (see
+        // migration 0023). Full detail now lives in
+        // crawl_run_finding_instances; readers use
+        // repo.listAllRunFindingInstances(runId) instead of summary.findings.
+        findingsCount: findings.length,
         counts,
         mediaLibrary: summary.mediaLibrary || null,
         integrations: summary.integrations || null,
@@ -520,6 +602,7 @@ class RunManager {
       throw error;
     } finally {
       clearInterval(heartbeat);
+      clearInterval(control);
       this.crawlers.delete(run.id);
       try {
         await fetchImpl.close();
@@ -530,4 +613,12 @@ class RunManager {
   }
 }
 
-module.exports = { RunManager, aggregateFindings, severityCounts, pickPageSpeedSample };
+// HEARTBEAT_MS is exported because it is the latency of the control channel
+// (migration 0025): the API tells the user how long a remote pause or stop will
+// take, and only this module knows the interval.
+// CONTROL_POLL_MS is exported alongside it because that — not the heartbeat —
+// is now the latency the API quotes for a remote pause or stop.
+module.exports = {
+  RunManager, aggregateFindings, severityCounts, pickPageSpeedSample,
+  HEARTBEAT_MS, CONTROL_POLL_MS,
+};

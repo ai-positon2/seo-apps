@@ -83,19 +83,16 @@ function TechnicalDetail({ payload, navigate }) {
       </div>
       {crawlRunId && (
         <div style={row}>
+          {/* One link, not two. "Review findings" pointed at a separate
+              triage screen that has been folded into the report — the findings
+              and the decisions about them are now the same page, so a second
+              button beside this one went to the same place. */}
           <button
             type="button"
             onClick={() => navigate(`/crawl-scope/runs/${crawlRunId}`)}
             style={linkButton}
           >
             Open the full crawl run →
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate(`/crawl-scope/runs/${crawlRunId}/review`)}
-            style={linkButton}
-          >
-            Review findings →
           </button>
         </div>
       )}
