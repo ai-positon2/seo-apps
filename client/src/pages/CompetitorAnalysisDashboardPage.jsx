@@ -747,6 +747,10 @@ export default function CompetitorAnalysisDashboardPage() {
     }
   }
 
+  // Nothing on screen yet: no stored snapshot, no content analysis, and not
+  // mid-load. The same condition the "No analysis yet" branch below uses.
+  const nothingToShow = !snapshot && !contentAnalysis && !loadingDashboard;
+
   return (
     <div className="ca-report">
       {/* Drawn here rather than with ui/SectionHeader, which puts the title at
@@ -907,11 +911,19 @@ export default function CompetitorAnalysisDashboardPage() {
         </div>
       )}
 
-      {!selectedClientId && activeProject && projectRunInFlight ? (
+      {nothingToShow && activeProject && projectRunInFlight ? (
         // A comparison is already on the queue or executing for this project, so
         // this is a wait, not a setup step. Naming the state beats an empty page
         // that reads as "nothing has ever happened here", and it withholds the
         // button rather than inviting a duplicate client for the same domain.
+        //
+        // Keyed on "there is nothing to show", NOT on "no client is selected".
+        // Those differ in the ordinary case: the project-side run CREATES the
+        // client first and only stores the snapshot when it finishes, so for most
+        // of the run a client is selected and empty. Gated on selection, this
+        // panel could never appear then, and the reader was offered Run Analysis
+        // for the comparison already running — the duplicate spend this exists to
+        // prevent, just one branch further down.
         <EmptyState
           title={`Competitor analysis for ${activeProject.name} is being generated`}
           description={
@@ -954,7 +966,7 @@ export default function CompetitorAnalysisDashboardPage() {
           description="Add a client and its competitors to start tracking."
           action={<Button variant="primary" onClick={openAddClient}>Add Client</Button>}
         />
-      ) : !snapshot && !contentAnalysis && !loadingDashboard ? (
+      ) : nothingToShow ? (
         <EmptyState
           title="No analysis yet"
           description="Run an analysis to populate this dashboard with (simulated) SEMrush data."
