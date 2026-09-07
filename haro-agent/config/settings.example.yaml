@@ -1,0 +1,15 @@
+# Informational — actual scheduling is handled by whatever runs the CLI
+# (cron, Task Scheduler, etc.), not by this file.
+schedule:
+  run_frequency_hours: 3
+  active_hours_ist: ["06:00", "23:00"]
+  min_runs_per_day: 5
+  weekend_min_runs_per_day: 3
+
+lookback_hours: 24
+
+known_haro_subscription_addresses:
+  - nikhil.ashok@position2.com
+
+state_dir: state
+reports_dir: reports

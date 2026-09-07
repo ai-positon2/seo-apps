@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+state/*.json
+reports/*.md
+gmail_token.json

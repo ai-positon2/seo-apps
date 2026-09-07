@@ -1,0 +1,117 @@
+profiles:
+  - id: gentle-dental-clinical
+    display_name: "Gentle Dental — Clinical Spokespeople"
+    client: "Gentle Dental (42 North Dental)"
+    active: true
+    priority: high
+
+    expertise:
+      primary:
+        - general dentistry
+        - preventive dental care
+        - dental implants
+        - root canal therapy
+        - orthodontics
+        - sleep apnea appliances
+      secondary:
+        - dental anxiety
+        - pediatric dentistry
+        - oral health and systemic health
+        - dental insurance and affordability
+
+    spokespeople:
+      - name: "Dr. Alicia Monroe"
+        credentials: "DMD"
+        title: "Clinical Director"
+        locations: ["Franklin, MA"]
+        available_for: ["written Q&A", "phone interview"]
+
+    geography:
+      country: "US"
+      states: ["MA", "NH"]
+      accepts_national: true
+
+    keywords_include:
+      - dentist
+      - dental
+      - oral health
+      - teeth
+      - gums
+      - orthodontic
+      - implant
+      - TMJ
+      - sleep apnea
+      - whitening
+      - aligners
+
+    keywords_exclude:
+      - veterinary
+      - cosmetic surgery
+      - crypto
+
+    categories_watch:
+      - "Health and Pharma"
+      - "Lifestyle and Entertainment"
+      - "Business and Finance"
+
+    hard_rules:
+      min_hours_to_deadline: 6
+      require_named_outlet: true
+      outlet_blocklist: []
+      outlet_priority_list: ["Forbes", "Fortune", "Healthline", "Verywell Health", "Travel + Leisure"]
+
+    match_threshold: 70
+
+  - id: clear-behavioral-health
+    display_name: "Clear Behavioral Health — Psychology Spokespeople"
+    client: "Clear Behavioral Health"
+    active: true
+    priority: high
+
+    expertise:
+      primary:
+        - clinical psychology
+        - forensic psychology
+        - expert witness testimony
+        - courtroom psychological evaluation
+      secondary:
+        - anxiety and stress disorders
+        - workplace mental health
+        - trauma-informed care
+
+    spokespeople:
+      - name: "Dr. Renata Cole"
+        credentials: "PhD, licensed psychologist"
+        title: "Founder & Clinical Psychologist"
+        locations: ["Boston, MA"]
+        available_for: ["written Q&A", "phone interview"]
+
+    geography:
+      country: "US"
+      states: ["MA"]
+      accepts_national: true
+
+    keywords_include:
+      - psychologist
+      - psychology
+      - forensic
+      - expert witness
+      - courtroom
+      - mental health
+      - therapy
+
+    keywords_exclude:
+      - veterinary
+      - crypto
+
+    categories_watch:
+      - "Health and Pharma"
+      - "Business and Finance"
+
+    hard_rules:
+      min_hours_to_deadline: 6
+      require_named_outlet: true
+      outlet_blocklist: []
+      outlet_priority_list: ["Forbes", "Fortune", "SimplePractice Blog"]
+
+    match_threshold: 70
