@@ -17,7 +17,7 @@
 // every module: the steady state is zero extra queries per request.
 
 const identityStore = require('./identityStore');
-const { isSupabaseConfigured } = require('./supabase');
+const { isDatabaseConfigured } = require('./db');
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const PLATFORM_KEY = '__platform_embed__';
@@ -70,8 +70,8 @@ function once(key, factory) {
 }
 
 // Reached only by a session that carries no user id — a Google sign-in on a
-// deployment with Supabase unconfigured. The shared-token embed that this was
-// originally written for no longer exists.
+// deployment with the database unconfigured. The shared-token embed that this
+// was originally written for no longer exists.
 async function resolvePlatformIdentity() {
   const cached = cacheGet(PLATFORM_KEY);
   if (cached) return cached;
@@ -126,7 +126,7 @@ async function resolveUserIdentity(userId, email, requestedWorkspaceId) {
 // reads the identity requireAuth put on the request plus the workspace cookie,
 // and resolves both to { userId, workspaceId, actorEmail }.
 async function resolveIdentity(req) {
-  if (!isSupabaseConfigured()) return EMPTY;
+  if (!isDatabaseConfigured()) return EMPTY;
   const userId = req.user?.userId;
   const email = req.user?.username;
   if (userId) return resolveUserIdentity(userId, email, req.cookies?.workspace_id);

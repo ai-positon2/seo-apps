@@ -8,7 +8,7 @@
 // 2xx, and it is not an asset. Everything else is excluded for a stated reason
 // rather than filtered out silently.
 
-const { getSupabase, isSupabaseConfigured } = require('../../services/supabase');
+const db = require('../../services/db');
 const adminLimits = require('../../services/adminLimits');
 
 // PostgREST caps a response at its configured maximum whatever .limit() asks
@@ -18,17 +18,25 @@ const PAGE_SIZE = 1000;
 
 function notConfigured() {
   return Object.assign(
-    new Error('Reading crawled pages needs Supabase configured.'),
+    new Error('Reading crawled pages needs the database configured.'),
     { status: 503, code: 'not_configured' },
   );
 }
 
-async function fetchAll(build, label) {
+// `sql` must end in an ORDER BY and carry no LIMIT/OFFSET of its own — this
+// appends the window.
+async function fetchAll(sql, params, label) {
   const rows = [];
   for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await build().range(from, from + PAGE_SIZE - 1);
-    if (error) throw new Error(`[crawledPages.${label}] ${error.message}`);
-    if (!data?.length) break;
+    let data;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      data = await db.rows(`${sql} limit $${params.length + 1} offset $${params.length + 2}`,
+        [...params, PAGE_SIZE, from]);
+    } catch (error) {
+      throw new Error(`[crawledPages.${label}] ${error.message}`);
+    }
+    if (!data.length) break;
     rows.push(...data);
     if (data.length < PAGE_SIZE) break;
   }
@@ -37,16 +45,19 @@ async function fetchAll(build, label) {
 
 /** The newest completed crawl for a project, or null. */
 async function latestCompletedCrawl(projectId) {
-  if (!isSupabaseConfigured()) throw notConfigured();
-  const { data, error } = await getSupabase()
-    .from('crawl_runs')
-    .select('id, status, finished_at, created_at, options')
-    .eq('project_id', projectId)
-    .in('status', ['completed', 'stopped'])
-    .order('finished_at', { ascending: false })
-    .limit(1);
-  if (error) throw new Error(`[crawledPages.latestCompletedCrawl] ${error.message}`);
-  return (data || [])[0] || null;
+  if (!db.isDatabaseConfigured()) throw notConfigured();
+  try {
+    return await db.maybeOne(
+      `select id, status, finished_at, created_at, options
+         from crawl_runs
+        where project_id = $1 and status in ('completed', 'stopped')
+        order by finished_at desc
+        limit 1`,
+      [projectId]
+    );
+  } catch (error) {
+    throw new Error(`[crawledPages.latestCompletedCrawl] ${error.message}`);
+  }
 }
 
 /**
@@ -81,11 +92,10 @@ function canonicalKey(url) {
  */
 async function inboundCounts(runId) {
   const edges = await fetchAll(
-    () => getSupabase()
-      .from('crawl_run_links')
-      .select('from_url, to_url')
-      .eq('run_id', runId)
-      .order('id', { ascending: true }),
+    `select from_url, to_url from crawl_run_links
+      where run_id = $1
+      order by id asc`,
+    [runId],
     'links',
   );
 
@@ -169,7 +179,7 @@ function auditOrder(rows, inbound = null) {
  *   `pages` are [{ url, depth, inlinks, title, ordinal }] in audit order.
  */
 async function listCrawledPages(projectId, { limit = null, workspaceId = null } = {}) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
   const crawl = await latestCompletedCrawl(projectId);
   if (!crawl) {
@@ -182,12 +192,10 @@ async function listCrawledPages(projectId, { limit = null, workspaceId = null } 
 
   const [rows, inbound] = await Promise.all([
     fetchAll(
-      () => getSupabase()
-        .from('crawl_run_results')
-        .select('url, status, data')
-        .eq('run_id', crawl.id)
-        .eq('data->>scope', 'Internal')
-        .order('id', { ascending: true }),
+      `select url, status, data from crawl_run_results
+        where run_id = $1 and data->>'scope' = 'Internal'
+        order by id asc`,
+      [crawl.id],
       'results',
     ),
     inboundCounts(crawl.id),
@@ -283,19 +291,17 @@ async function listCrawledPages(projectId, { limit = null, workspaceId = null } 
  * @returns {Promise<Array<{url, title, h1, h2, metaDescription, wordCount, depth, inlinks}>>}
  */
 async function listPageContent(projectId, { limit = 60 } = {}) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
   const crawl = await latestCompletedCrawl(projectId);
   if (!crawl) return [];
 
   const [rows, inbound] = await Promise.all([
     fetchAll(
-      () => getSupabase()
-        .from('crawl_run_results')
-        .select('url, status, data')
-        .eq('run_id', crawl.id)
-        .eq('data->>scope', 'Internal')
-        .order('id', { ascending: true }),
+      `select url, status, data from crawl_run_results
+        where run_id = $1 and data->>'scope' = 'Internal'
+        order by id asc`,
+      [crawl.id],
       'pageContent',
     ),
     inboundCounts(crawl.id),

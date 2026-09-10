@@ -24,7 +24,7 @@
 // Both are absences, not wrong values, and they are named in the result so a
 // card or a report can say so.
 
-const { getSupabase, isSupabaseConfigured } = require('../../services/supabase');
+const db = require('../../services/db');
 
 // CrawlScope joins H2/H3 text with this separator when it stores a result.
 const HEADING_SEPARATOR = ' | ';
@@ -44,12 +44,20 @@ const MIN_PAGES_TO_ANALYZE = 5;
 // a plausible-looking result. So every bulk read here pages through explicitly.
 const PAGE_SIZE = 1000;
 
-async function fetchAll(build, { label, cap = 500000 }) {
+// `sql` must end in an ORDER BY and carry no LIMIT/OFFSET of its own — this
+// appends the window.
+async function fetchAll(sql, params, { label, cap = 500000 }) {
   const rows = [];
   for (let from = 0; from < cap; from += PAGE_SIZE) {
-    const { data, error } = await build().range(from, from + PAGE_SIZE - 1);
-    if (error) throw new Error(`[crawlToArchitect.${label}] ${error.message}`);
-    if (!data || !data.length) break;
+    let data;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      data = await db.rows(`${sql} limit $${params.length + 1} offset $${params.length + 2}`,
+        [...params, PAGE_SIZE, from]);
+    } catch (error) {
+      throw new Error(`[crawlToArchitect.${label}] ${error.message}`);
+    }
+    if (!data.length) break;
     rows.push(...data);
     if (data.length < PAGE_SIZE) break;
     if (rows.length >= cap) {
@@ -64,23 +72,26 @@ async function fetchAll(build, { label, cap = 500000 }) {
 
 function notConfigured() {
   return Object.assign(
-    new Error('Reading a crawl needs Supabase configured.'),
+    new Error('Reading a crawl needs the database configured.'),
     { status: 503, code: 'not_configured' },
   );
 }
 
 /** The newest completed crawl for a project, or null. */
 async function latestCompletedCrawl(projectId) {
-  if (!isSupabaseConfigured()) throw notConfigured();
-  const { data, error } = await getSupabase()
-    .from('crawl_runs')
-    .select('id, status, finished_at, created_at, summary, options')
-    .eq('project_id', projectId)
-    .in('status', ['completed', 'stopped'])
-    .order('finished_at', { ascending: false })
-    .limit(1);
-  if (error) throw new Error(`[crawlToArchitect.latestCompletedCrawl] ${error.message}`);
-  return (data || [])[0] || null;
+  if (!db.isDatabaseConfigured()) throw notConfigured();
+  try {
+    return await db.maybeOne(
+      `select id, status, finished_at, created_at, summary, options
+         from crawl_runs
+        where project_id = $1 and status in ('completed', 'stopped')
+        order by finished_at desc
+        limit 1`,
+      [projectId]
+    );
+  } catch (error) {
+    throw new Error(`[crawlToArchitect.latestCompletedCrawl] ${error.message}`);
+  }
 }
 
 /**
@@ -125,21 +136,19 @@ function pageFromResult(row) {
  *   or null when the crawl stored too little to analyse.
  */
 async function buildFromCrawl(runId, { maxUrls = null } = {}) {
-  if (!isSupabaseConfigured()) throw notConfigured();
-  const db = getSupabase();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
   // Internal pages only: an external URL was status-checked, not read, so it has
   // no title or body to cluster on.
   const results = await fetchAll(
-    () => db.from('crawl_run_results')
-      .select('url, status, data')
-      .eq('run_id', runId)
-      .eq('data->>scope', 'Internal')
-      .order('id', { ascending: true }),
+    `select url, status, data from crawl_run_results
+      where run_id = $1 and data->>'scope' = 'Internal'
+      order by id asc`,
+    [runId],
     { label: 'results' },
   );
 
-  const rows = (results || []).filter((r) => {
+  const rows = results.filter((r) => {
     const d = r.data || {};
     // Assets carry no clusterable content, and a page that never returned 200
     // has nothing to read.
@@ -163,10 +172,10 @@ async function buildFromCrawl(runId, { maxUrls = null } = {}) {
   // record of how far each page was from the start URL, so nothing is re-fetched
   // to work them out.
   const edges = await fetchAll(
-    () => db.from('crawl_run_links')
-      .select('from_url, to_url')
-      .eq('run_id', runId)
-      .order('id', { ascending: true }),
+    `select from_url, to_url from crawl_run_links
+      where run_id = $1
+      order by id asc`,
+    [runId],
     { label: 'links' },
   );
 

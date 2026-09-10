@@ -401,12 +401,20 @@ test('the note query projects one field, not the whole payload', () => {
   const fs = require('fs');
   const path = require('path');
   const source = fs.readFileSync(path.join(__dirname, '../moduleEvidence.js'), 'utf8');
-  const selectLine = source.split(/\r?\n/).find((l) => l.includes('note:payload->>note'));
-  assert.ok(selectLine, 'latestByModule must project the note');
+  const body = source.split('async function latestByModule')[1].split('async function')[0];
+
+  // The keys are pulled out of the jsonb individually.
+  assert.match(body, /payload->>'note' as "note"/,
+    'latestByModule must project the note');
+
+  // And the column itself is never in the select list. Anchored on the template
+  // literal that opens the statement, not on the word "select" — the prose above
+  // the query says "selecting the payload itself", and matching that swept the
+  // whole comment into the "select list" and failed on its own explanation.
+  const selected = /`select([\s\S]*?)from project_module_runs/.exec(body)?.[1] || '';
+  assert.ok(selected, 'could not find the latestByModule query');
   assert.ok(
-    !/\.select\('[^']*\bpayload\b[^']*'\)/.test(
-      source.split('async function latestByModule')[1].split('async function')[0],
-    ) || selectLine.includes('note:payload->>note'),
+    !/(^|[\s,])payload([\s,]|$)/.test(selected),
     'the full payload must not be selected for the dashboard',
   );
 });

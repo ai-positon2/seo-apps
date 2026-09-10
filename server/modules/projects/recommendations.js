@@ -21,7 +21,7 @@
 //      alternative is an approval that silently covers text nobody approved,
 //      which is worse than requiring a second click.
 
-const { getSupabase, isSupabaseConfigured } = require('../../services/supabase');
+const db = require('../../services/db');
 const auditEvents = require('../../services/auditEvents');
 
 const STATUSES = ['draft', 'proposed', 'approved', 'rejected', 'shipped'];
@@ -58,7 +58,7 @@ function fail(where, error) {
 
 function notConfigured() {
   return Object.assign(
-    new Error('Recommendations need Supabase configured.'),
+    new Error('Recommendations need the database configured.'),
     { status: 503, code: 'not_configured' },
   );
 }
@@ -130,30 +130,41 @@ function audit(access, action, extra) {
 // ── Reads ───────────────────────────────────────────────────────────────────
 
 async function list(projectId, { status = null, limit = 200 } = {}) {
-  if (!isSupabaseConfigured()) return [];
-  let query = getSupabase()
-    .from('recommendations')
-    .select('*')
-    .eq('project_id', projectId)
-    .order('created_at', { ascending: false })
-    .limit(Math.min(Number(limit) || 200, 500));
-  if (status) query = query.eq('status', status);
+  if (!db.isDatabaseConfigured()) return [];
+  const params = [projectId];
+  let narrow = '';
+  if (status) {
+    params.push(status);
+    narrow = ` and status = $${params.length}`;
+  }
+  params.push(Math.min(Number(limit) || 200, 500));
 
-  const { data, error } = await query;
-  if (error) fail('list', error);
-  return (data || []).map(view);
+  let data;
+  try {
+    data = await db.rows(
+      `select * from recommendations
+        where project_id = $1${narrow}
+        order by created_at desc
+        limit $${params.length}`,
+      params
+    );
+  } catch (error) {
+    fail('list', error);
+  }
+  return data.map(view);
 }
 
 async function get(projectId, id) {
-  if (!isSupabaseConfigured()) return null;
-  const { data, error } = await getSupabase()
-    .from('recommendations')
-    .select('*')
-    .eq('project_id', projectId)   // scoped, not just by id — no RLS behind this
-    .eq('id', id)
-    .maybeSingle();
-  if (error) fail('get', error);
-  return data || null;
+  if (!db.isDatabaseConfigured()) return null;
+  try {
+    // Scoped by project, not just by id — there is no RLS behind this.
+    return await db.maybeOne(
+      `select * from recommendations where project_id = $1 and id = $2`,
+      [projectId, id]
+    );
+  } catch (error) {
+    fail('get', error);
+  }
 }
 
 /** Counts by status, for a board header that does not have to fetch everything. */
@@ -175,7 +186,7 @@ async function summary(projectId) {
  */
 async function create({ access, title, body, priority = 'medium', effort = null,
   moduleKey = null, sourceRunId = null, ruleId = null, evidence = {}, propose = false }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
   const cleanTitle = String(title || '').trim();
   if (!cleanTitle) throw invalid('A recommendation needs a title.', 'title_required');
@@ -184,9 +195,9 @@ async function create({ access, title, body, priority = 'medium', effort = null,
   }
 
   const now = new Date().toISOString();
-  const { data, error } = await getSupabase()
-    .from('recommendations')
-    .insert({
+  let data;
+  try {
+    data = await db.insertOne('recommendations', {
       project_id: access.project.id,
       workspace_id: access.project.workspace_id || null,
       module_key: moduleKey,
@@ -201,10 +212,10 @@ async function create({ access, title, body, priority = 'medium', effort = null,
       proposed_at: propose ? now : null,
       evidence: evidence || {},
       created_by: access.userId || null,
-    })
-    .select('*')
-    .single();
-  if (error) fail('create', error);
+    });
+  } catch (error) {
+    fail('create', error);
+  }
 
   audit(access, auditEvents.ACTIONS.RECOMMENDATION_CREATED, {
     entityType: 'recommendation',
@@ -225,7 +236,7 @@ async function create({ access, title, body, priority = 'medium', effort = null,
  * already live.
  */
 async function update({ access, id, patch }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
   const existing = await get(access.project.id, id);
   if (!existing) throw Object.assign(new Error('Recommendation not found.'), { status: 404 });
@@ -258,14 +269,15 @@ async function update({ access, id, patch }) {
     revoked = true;
   }
 
-  const { data, error } = await getSupabase()
-    .from('recommendations')
-    .update(update)
-    .eq('id', id)
-    .eq('project_id', access.project.id)
-    .select('*')
-    .single();
-  if (error) fail('update', error);
+  let data;
+  try {
+    const rows = await db.updateWhere(
+      'recommendations', update, { id, project_id: access.project.id }, { returning: '*' });
+    if (rows.length !== 1) throw new Error(`expected exactly one row, got ${rows.length}`);
+    [data] = rows;
+  } catch (error) {
+    fail('update', error);
+  }
 
   audit(access, auditEvents.ACTIONS.RECOMMENDATION_UPDATED, {
     entityType: 'recommendation',
@@ -288,7 +300,7 @@ async function update({ access, id, patch }) {
  * asking it twice in two places is how the two answers drift apart.
  */
 async function transition({ access, id, to, reason = null, shippedAt = null }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   if (!STATUSES.includes(to)) throw invalid(`Unknown status: ${to}.`, 'bad_status');
 
   const existing = await get(access.project.id, id);
@@ -352,15 +364,20 @@ async function transition({ access, id, to, reason = null, shippedAt = null }) {
 
   if (to === 'approved') action = auditEvents.ACTIONS.RECOMMENDATION_APPROVED;
 
-  const { data, error } = await getSupabase()
-    .from('recommendations')
-    .update(update)
-    .eq('id', id)
-    .eq('project_id', access.project.id)
-    .eq('status', existing.status)   // optimistic: two approvers racing, one wins
-    .select('*')
-    .maybeSingle();
-  if (error) fail('transition', error);
+  let data;
+  try {
+    // The guard on `status` is optimistic: two approvers racing, one wins.
+    const rows = await db.updateWhere(
+      'recommendations',
+      update,
+      { id, project_id: access.project.id, status: existing.status },
+      { returning: '*' },
+    );
+    if (rows.length > 1) throw new Error(`expected at most one row, got ${rows.length}`);
+    [data] = rows;
+  } catch (error) {
+    fail('transition', error);
+  }
   if (!data) {
     throw conflict('Someone else changed this recommendation just now — reload and try again.');
   }

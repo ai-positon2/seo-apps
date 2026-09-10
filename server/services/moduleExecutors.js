@@ -3,10 +3,9 @@
 // One executor per module key. The worker claims a row and hands it here; this
 // file resolves the project, runs the module, and closes the run.
 //
-// `ai_visibility`, `competitor` and `hub_spoke` are registered. Every other
-// module still executes synchronously through `moduleRunners`, unchanged — the
-// queue is opt-in per module, and putting a 3-second module on it would add
-// polling latency for no benefit. AI Visibility is on it because it is the one
+// Project setup also queues homepage SEO/GEO and Agent Readiness audits.
+// Their manual and full-audit runs keep their existing crawl-based paths.
+// AI Visibility is on the queue because it is the one
 // that cannot finish in a request; Competitor Research is on it because it
 // starts itself when a project's domains are set up (modules/projects/
 // competitorAutostart.js); Hub and Spoke because it starts itself when a crawl
@@ -28,12 +27,11 @@ const moduleEvidence = require('../modules/projects/moduleEvidence');
  */
 async function runAiVisibility(run, { isStillOurs } = {}) {
   const { runAiVisibility: execute } = require('../modules/aiVisibility/run');
-  const { getSupabase } = require('./supabase');
+  const db = require('./db');
   const projectsStore = require('../modules/projects/store');
 
-  const { data: project, error } = await getSupabase()
-    .from('crawl_projects').select('*').eq('id', run.project_id).maybeSingle();
-  if (error) throw new Error(error.message);
+  const project = await db.maybeOne(
+    `select * from crawl_projects where id = $1`, [run.project_id]);
   if (!project) throw new Error(`Project ${run.project_id} no longer exists.`);
 
   const domains = await projectsStore.listDomains(run.project_id).catch(() => []);
@@ -83,14 +81,13 @@ async function runAiVisibility(run, { isStillOurs } = {}) {
  * process quietly granting itself rights.
  */
 async function runCompetitor(run, { isStillOurs } = {}) {
-  const { getSupabase } = require('./supabase');
+  const db = require('./db');
   const projectAccess = require('./projectAccess');
   const projectsStore = require('../modules/projects/store');
   const moduleRunners = require('../modules/projects/moduleRunners');
 
-  const { data: project, error } = await getSupabase()
-    .from('crawl_projects').select('*').eq('id', run.project_id).maybeSingle();
-  if (error) throw new Error(error.message);
+  const project = await db.maybeOne(
+    `select * from crawl_projects where id = $1`, [run.project_id]);
   if (!project) throw new Error(`Project ${run.project_id} no longer exists.`);
 
   const domains = await projectsStore.listDomains(run.project_id).catch(() => []);
@@ -144,13 +141,12 @@ async function runCompetitor(run, { isStillOurs } = {}) {
  * check later is denied rather than reading `undefined` as permission.
  */
 async function runHubSpoke(run, { isStillOurs } = {}) {
-  const { getSupabase } = require('./supabase');
+  const db = require('./db');
   const projectsStore = require('../modules/projects/store');
   const moduleRunners = require('../modules/projects/moduleRunners');
 
-  const { data: project, error } = await getSupabase()
-    .from('crawl_projects').select('*').eq('id', run.project_id).maybeSingle();
-  if (error) throw new Error(error.message);
+  const project = await db.maybeOne(
+    `select * from crawl_projects where id = $1`, [run.project_id]);
   if (!project) throw new Error(`Project ${run.project_id} no longer exists.`);
 
   const domains = await projectsStore.listDomains(run.project_id).catch(() => []);
@@ -177,8 +173,26 @@ async function runHubSpoke(run, { isStillOurs } = {}) {
   });
 }
 
+async function runHomepageAudit(run, { isStillOurs } = {}) {
+  const db = require('./db');
+  const project = await db.maybeOne(
+    `select * from crawl_projects where id = $1`, [run.project_id]);
+  if (!project || project.lifecycle_status === 'deleted') {
+    throw new Error(`Project ${run.project_id} is no longer active.`);
+  }
+  const access = {
+    project, workspaceId: project.workspace_id || null,
+    userId: run.created_by || null, can: () => false,
+  };
+  return require('../modules/projects/moduleRunners').executeOpenRun({
+    access, moduleKey: run.module_key, run, project, isStillOurs,
+  });
+}
+
 module.exports = {
   ai_visibility: runAiVisibility,
   competitor: runCompetitor,
   hub_spoke: runHubSpoke,
+  seo_geo: runHomepageAudit,
+  agent_readiness: runHomepageAudit,
 };

@@ -155,6 +155,30 @@ app.use('/api/on-page-audit',           lpbLimiter, requireAuth, track('on-page-
 app.use('/api/market-potential',        lpbLimiter, requireAuth, track('market-potential'), marketPotentialRoutes);
 app.use('/api/competitor-tracker',      lpbLimiter, requireAuth, track('competitor-tracker'), competitorAnalysisTrackerRoutes);
 app.use('/api/content-architect',       lpbLimiter, requireAuth, track('content-architect'), contentArchitectRoutes);
+// Emailed report downloads. Deliberately OUTSIDE requireAuth: the link lands in
+// a scheduled-report email and is opened from a mail client with no session,
+// which is exactly what the Supabase Storage signed URL used to provide. The
+// token stands in for that — it is signed with JWT_SECRET, carries a `purpose`
+// that no other route accepts, names ONE report path, and expires. It grants a
+// single file and nothing else, so it can never be presented as a session.
+app.get('/api/crawl-scope-report/:token', lpbLimiter, async (req, res) => {
+  const report = require('./modules/crawlScope/run/report');
+  const storedPath = report.verifyReportToken(req.params.token);
+  if (!storedPath) {
+    return res.status(403).json({ error: 'This download link is invalid or has expired.' });
+  }
+  try {
+    const buffer = await report.readReport(storedPath);
+    if (!buffer) return res.status(404).json({ error: 'That report is no longer stored.' });
+    res.setHeader('Content-Type', report.XLSX_MIME);
+    res.setHeader('Content-Disposition', 'attachment; filename="CrawlScope-SEO-Audit.xlsx"');
+    res.send(buffer);
+  } catch (err) {
+    console.error('[crawlScope] report download failed:', err.message);
+    res.status(500).json({ error: 'Could not read that report.' });
+  }
+});
+
 app.use('/api/crawl-scope',             lpbLimiter, requireAuth, track('crawl-scope'), crawlScopeRoutes);
 // No track() wrapper: this is a project module, so its runs are recorded in
 // project_module_runs by moduleEvidence rather than in the tool-run table.
@@ -240,7 +264,7 @@ app.use((err, req, res, next) => {
 // administrator. The grant is linked to the person's app_users row at their
 // next authenticated login (routes/auth.js), which is the only moment both the
 // verified email and the user id are known.
-if (require('./services/supabase').isSupabaseConfigured()) {
+if (require('./services/db').isDatabaseConfigured()) {
   platformAdmin.ensureBootstrapGrants()
     .then(({ seeded, skipped }) => {
       if (seeded.length) console.log(`[platformAdmin] Bootstrap grant created for: ${seeded.join(', ')}`);
@@ -248,7 +272,7 @@ if (require('./services/supabase').isSupabaseConfigured()) {
     })
     .catch(err => console.error('[platformAdmin] Bootstrap failed:', err.message));
 } else {
-  console.log('[platformAdmin] Bootstrap skipped — SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set.');
+  console.log('[platformAdmin] Bootstrap skipped — DATABASE_URL not set.');
 }
 
 // ── Workspace purge sweeper (PRD §3.3.4, phase 2) ───────────────────────────
@@ -287,7 +311,7 @@ function startPurgeSweeper() {
   interval.unref();
 }
 
-if (require('./services/supabase').isSupabaseConfigured()) {
+if (require('./services/db').isDatabaseConfigured()) {
   startPurgeSweeper();
   console.log('   PURGE SWEEPER:     hourly (first sweep in 5 min)');
 }
@@ -336,19 +360,19 @@ require('./modules/robotsMonitor/monitorStore').init().then(() => {
 // Off entirely with CRAWLSCOPE_WORKER=off — the API still serves stored runs and
 // manual crawls, but nothing scheduled will fire.
 //
-// Requires Supabase: with no database there is nothing to claim, so it stays
-// down rather than logging a failure every poll.
+// Requires the database: with none configured there is nothing to claim, so it
+// stays down rather than logging a failure every poll.
 const CRAWLSCOPE_WORKER = (process.env.CRAWLSCOPE_WORKER || 'in-process').toLowerCase();
 let crawlScopeWorker = null;
 if (CRAWLSCOPE_WORKER === 'in-process') {
-  if (require('./services/supabase').isSupabaseConfigured()) {
+  if (require('./services/db').isDatabaseConfigured()) {
     try {
       crawlScopeWorker = require('./modules/crawlScope/worker').startLoops({ manageProcess: false });
     } catch (err) {
       console.error('[crawlScope] Worker failed to start:', err.message);
     }
   } else {
-    console.log('[crawlScope] Worker not started — SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set.');
+    console.log('[crawlScope] Worker not started — DATABASE_URL not set.');
   }
 } else {
   console.log(`[crawlScope] Worker not started in this process (CRAWLSCOPE_WORKER=${CRAWLSCOPE_WORKER}).`);
@@ -369,7 +393,7 @@ if (CRAWLSCOPE_WORKER === 'in-process') {
 const MODULE_WORKER = (process.env.MODULE_WORKER || 'in-process').toLowerCase();
 let moduleWorkerHandle = null;
 if (MODULE_WORKER === 'in-process') {
-  if (require('./services/supabase').isSupabaseConfigured()) {
+  if (require('./services/db').isDatabaseConfigured()) {
     try {
       moduleWorkerHandle = require('./services/moduleWorker').startLoops({
         executors: require('./services/moduleExecutors'),
@@ -378,7 +402,7 @@ if (MODULE_WORKER === 'in-process') {
       console.error('[moduleWorker] Failed to start:', err.message);
     }
   } else {
-    console.log('[moduleWorker] Not started — SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set.');
+    console.log('[moduleWorker] Not started — DATABASE_URL not set.');
   }
 } else {
   console.log(`[moduleWorker] Not started in this process (MODULE_WORKER=${MODULE_WORKER}).`);

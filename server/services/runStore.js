@@ -13,7 +13,7 @@
 // Schema: supabase/migrations/0009_run_tracking.sql
 
 const crypto = require('crypto');
-const { getSupabase, isSupabaseConfigured } = require('./supabase');
+const db = require('./db');
 
 // Serialized jsonb budget per column. Generous enough for a real input payload
 // or a summarized result, small enough that a runaway module can't bloat the row.
@@ -112,11 +112,11 @@ function log(op, err) {
 // the insert failed — every caller must tolerate a null id). Awaited inside so
 // that a later finishRun() can never race ahead of its own insert.
 async function startRun({ userId, workspaceId, actorEmail, toolId, action, label, input, method, path }) {
-  if (!isSupabaseConfigured() || !toolId) return null;
+  if (!db.isDatabaseConfigured() || !toolId) return null;
   const id = crypto.randomUUID();
   const { value, truncated } = capped(input);
   try {
-    const { error } = await getSupabase().from('tool_runs').insert({
+    await db.insertOne('tool_runs', {
       id,
       user_id: userId || null,
       workspace_id: workspaceId || null,
@@ -129,8 +129,7 @@ async function startRun({ userId, workspaceId, actorEmail, toolId, action, label
       input_truncated: truncated,
       request_method: method || null,
       request_path: path ? String(path).slice(0, 300) : null,
-    });
-    if (error) { log('startRun', error); return null; }
+    }, { returning: false });
     return id;
   } catch (e) {
     log('startRun', e);
@@ -144,21 +143,21 @@ const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 // once the work starts (a job id resolved to a brand, say) can enrich the row
 // on the way out. Omit it and the label captured at start-time stands.
 async function finishRun(runId, { status, output, error, durationMs, label } = {}) {
-  if (!runId || !isSupabaseConfigured()) return;
+  if (!runId || !db.isDatabaseConfigured()) return;
   const finalStatus = TERMINAL.has(status) ? status : 'completed';
   const { value, truncated } = capped(output);
+  const now = new Date().toISOString();
   try {
-    const { error: dbError } = await getSupabase().from('tool_runs').update({
+    await db.updateWhere('tool_runs', {
       status: finalStatus,
       output: value,
       output_truncated: truncated,
       ...(label ? { label: String(label).slice(0, 300) } : {}),
       error: error ? String(error).slice(0, 2000) : null,
       duration_ms: Number.isFinite(durationMs) ? Math.round(durationMs) : null,
-      completed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }).eq('id', runId);
-    if (dbError) log('finishRun', dbError);
+      completed_at: now,
+      updated_at: now,
+    }, { id: runId });
   } catch (e) {
     log('finishRun', e);
   }
@@ -168,19 +167,21 @@ async function finishRun(runId, { status, output, error, durationMs, label } = {
 // 'running' forever. Swept on an interval from server.js so the runs list only
 // ever shows genuinely in-flight work as running.
 async function sweepStaleRuns({ olderThanMinutes = 120 } = {}) {
-  if (!isSupabaseConfigured()) return 0;
+  if (!db.isDatabaseConfigured()) return 0;
   const cutoff = new Date(Date.now() - olderThanMinutes * 60 * 1000).toISOString();
+  const now = new Date().toISOString();
   try {
-    const { data, error } = await getSupabase().from('tool_runs')
-      .update({
-        status: 'failed',
-        error: 'Run never reported completion (server restart or timeout).',
-        completed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('status', 'running').lt('created_at', cutoff).select('id');
-    if (error) { log('sweepStaleRuns', error); return 0; }
-    return (data || []).length;
+    const swept = await db.rows(
+      `update tool_runs
+          set status = 'failed',
+              error = 'Run never reported completion (server restart or timeout).',
+              completed_at = $1,
+              updated_at = $1
+        where status = 'running' and created_at < $2
+        returning id`,
+      [now, cutoff]
+    );
+    return swept.length;
   } catch (e) {
     log('sweepStaleRuns', e);
     return 0;
@@ -196,23 +197,37 @@ const LIST_COLUMNS =
 // Always workspace-scoped — the caller (routes/runs.js) has already confirmed
 // the requester is a member of that workspace.
 async function listRuns({ workspaceId, userId, toolId, status, action, search, limit = 50, offset = 0 }) {
-  if (!isSupabaseConfigured()) return { runs: [], total: 0 };
+  if (!db.isDatabaseConfigured()) return { runs: [], total: 0 };
   try {
-    let q = getSupabase().from('tool_runs')
-      .select(LIST_COLUMNS, { count: 'exact' })
-      .eq('workspace_id', workspaceId)
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
+    const params = [workspaceId];
+    const where = ['workspace_id = $1'];
+    const narrow = (value, clause) => {
+      if (!value) return;
+      params.push(value);
+      where.push(clause(params.length));
+    };
+    narrow(userId, (i) => `user_id = $${i}`);
+    narrow(toolId, (i) => `tool_id = $${i}`);
+    narrow(status, (i) => `status = $${i}`);
+    narrow(action, (i) => `action = $${i}`);
+    // The caller's text is bound as a parameter; % and _ inside it still act as
+    // wildcards, exactly as they did through PostgREST's ilike.
+    narrow(search ? `%${search}%` : null, (i) => `label ilike $${i}`);
 
-    if (userId) q = q.eq('user_id', userId);
-    if (toolId) q = q.eq('tool_id', toolId);
-    if (status) q = q.eq('status', status);
-    if (action) q = q.eq('action', action);
-    if (search) q = q.ilike('label', `%${search}%`);
+    // count(*) over () carries the unpaged total back with the page itself,
+    // which is what { count: 'exact' } plus a Range header did in one trip.
+    params.push(limit, offset);
+    const page = await db.rows(
+      `select ${LIST_COLUMNS}, count(*) over () as _total
+         from tool_runs
+        where ${where.join(' and ')}
+        order by created_at desc
+        limit $${params.length - 1} offset $${params.length}`,
+      params
+    );
 
-    const { data, count, error } = await q;
-    if (error) { log('listRuns', error); return { runs: [], total: 0 }; }
-    return { runs: data || [], total: count || 0 };
+    const total = page.length ? Number(page[0]._total) : 0;
+    return { runs: page.map(({ _total, ...run }) => run), total };
   } catch (e) {
     log('listRuns', e);
     return { runs: [], total: 0 };
@@ -222,11 +237,9 @@ async function listRuns({ workspaceId, userId, toolId, status, action, search, l
 // Full row including input/output. Returns null when the run doesn't exist or
 // isn't in one of the workspaces the requester belongs to.
 async function getRun(runId, allowedWorkspaceIds = []) {
-  if (!isSupabaseConfigured()) return null;
+  if (!db.isDatabaseConfigured()) return null;
   try {
-    const { data, error } = await getSupabase().from('tool_runs')
-      .select('*').eq('id', runId).maybeSingle();
-    if (error) { log('getRun', error); return null; }
+    const data = await db.maybeOne(`select * from tool_runs where id = $1`, [runId]);
     if (!data) return null;
     if (!data.workspace_id || !allowedWorkspaceIds.includes(data.workspace_id)) return null;
     return data;
@@ -240,15 +253,23 @@ async function getRun(runId, allowedWorkspaceIds = []) {
 // the row set is (tool_id, status, duration) only, and the window keeps it small.
 // `toolId` narrows it to one tool, which is what a module's own run panel needs.
 async function runStats({ workspaceId, days = 30, toolId = null }) {
-  if (!isSupabaseConfigured()) return { tools: [], totals: { total: 0, completed: 0, failed: 0, running: 0, cancelled: 0 } };
+  if (!db.isDatabaseConfigured()) return { tools: [], totals: { total: 0, completed: 0, failed: 0, running: 0, cancelled: 0 } };
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   try {
-    let q = getSupabase().from('tool_runs')
-      .select('tool_id, status, duration_ms, created_at')
-      .eq('workspace_id', workspaceId).gte('created_at', since);
-    if (toolId) q = q.eq('tool_id', toolId);
-    const { data, error } = await q.order('created_at', { ascending: false }).limit(5000);
-    if (error) { log('runStats', error); return { tools: [], totals: { total: 0, completed: 0, failed: 0, running: 0, cancelled: 0 } }; }
+    const params = [workspaceId, since];
+    let narrowTool = '';
+    if (toolId) {
+      params.push(toolId);
+      narrowTool = ` and tool_id = $${params.length}`;
+    }
+    const data = await db.rows(
+      `select tool_id, status, duration_ms, created_at
+         from tool_runs
+        where workspace_id = $1 and created_at >= $2${narrowTool}
+        order by created_at desc
+        limit 5000`,
+      params
+    );
 
     const totals = { total: 0, completed: 0, failed: 0, running: 0, cancelled: 0 };
     const byTool = new Map();

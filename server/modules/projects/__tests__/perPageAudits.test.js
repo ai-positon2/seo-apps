@@ -661,8 +661,8 @@ test('salvage reads only completed pages into the rollup', () => {
     require('path').join(__dirname, '../moduleEvidence.js'), 'utf8',
   );
   const fn = src.slice(src.indexOf('async function salvageInterruptedRun'));
-  assert.ok(
-    fn.includes(".eq('status', 'completed')"),
+  assert.match(
+    fn, /where run_id = \$1 and status = 'completed'/,
     'the rollup must be built from completed pages only',
   );
 });
@@ -699,8 +699,8 @@ test('salvage cannot overwrite a run that finished on its own', () => {
     require('path').join(__dirname, '../moduleEvidence.js'), 'utf8',
   );
   const fn = src.slice(src.indexOf('async function salvageInterruptedRun'));
-  assert.ok(
-    fn.includes(".eq('status', 'running')"),
+  assert.match(
+    fn, /where id = \$\$\{params\.length\} and status = 'running'/,
     'the update must be conditional on the run still being open',
   );
 });

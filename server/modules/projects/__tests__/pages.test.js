@@ -124,9 +124,14 @@ test('excluded and retired are booleans derived from their timestamps', () => {
 section('pages — a missing table degrades, it does not explode');
 
 test('the missing-table check is narrow', () => {
+  // 42P01 undefined_table, 42703 undefined_column — what Postgres itself
+  // raises. The old "Could not find the table 'public.project_pages'" spelling
+  // came from PostgREST answering out of its own schema cache before the query
+  // reached the database, and cannot occur over a direct connection.
   assert.strictEqual(pages.isMissingTable({ code: '42P01' }), true);
+  assert.strictEqual(pages.isMissingTable({ code: '42703' }), true);
   assert.strictEqual(
-    pages.isMissingTable({ message: "Could not find the table 'public.project_pages'" }),
+    pages.isMissingTable({ message: 'relation "project_pages" does not exist' }),
     true,
   );
   // A unique-violation is a real error and must not be swallowed as "no table".

@@ -1,6 +1,6 @@
 // ── Cache retention sweeper ─────────────────────────────────────────────────
 // The `cache` table is keyed by an opaque sha1 and its TTL is applied ON READ
-// (supabaseStore.cacheGet), so without this job nothing is ever physically
+// (recordStore.cacheGet), so without this job nothing is ever physically
 // deleted: expired rows, and every row orphaned by a hand-bumped key prefix
 // (e.g. 'dental-kw-adapter-v7' after the bump to v8), accumulate forever.
 //
@@ -13,8 +13,8 @@
 // explicitly deleted, and are never touched here.
 
 const cron = require('node-cron');
-const { isSupabaseConfigured } = require('../services/supabase');
-const supabaseStore = require('../services/supabaseStore');
+const { isDatabaseConfigured } = require('../services/db');
+const recordStore = require('../services/recordStore');
 
 // Daily at 03:15 — off-peak, and frequent enough that the table never carries
 // more than a day of dead rows.
@@ -23,8 +23,8 @@ const SCHEDULE = process.env.LPB_CACHE_PURGE_CRON || '15 3 * * *';
 let scheduledJob = null;
 
 async function runPurge() {
-  if (!isSupabaseConfigured()) return null;
-  const result = await supabaseStore.purgeExpired();
+  if (!isDatabaseConfigured()) return null;
+  const result = await recordStore.purgeExpired();
   console.log(`[CachePurge] Removed ${result.expired} expired + ${result.stale} stale cache rows.`);
   return result;
 }
@@ -34,8 +34,8 @@ function init() {
     scheduledJob.destroy();
     scheduledJob = null;
   }
-  if (!isSupabaseConfigured()) {
-    console.log('[CachePurge] Supabase not configured — sweeper not scheduled.');
+  if (!isDatabaseConfigured()) {
+    console.log('[CachePurge] Database not configured — sweeper not scheduled.');
     return;
   }
   if (!cron.validate(SCHEDULE)) {

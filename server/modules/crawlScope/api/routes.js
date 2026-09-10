@@ -11,8 +11,8 @@
 //   - `req.db` and `req.user.id` are set by crawlScopeContext below. The old auth
 //     middleware handed each request an RLS-scoped Supabase client keyed to a
 //     Supabase Auth JWT; this app has no such session, so every request gets the
-//     service-role client and repo.js's explicit `owner` filter is the tenancy
-//     boundary. See ../db/supabase.js and ../db/repo.js.
+//     shared Postgres handle and repo.js's explicit `owner` filter is the tenancy
+//     boundary. See ../db/client.js and ../db/repo.js.
 //   - /healthz, /api/version and /api/config are dropped: the app has its own
 //     /api/health, and /api/config existed only to hand the browser a Supabase
 //     anon key for client-side sign-in, which this app never does.
@@ -35,7 +35,7 @@ const TERMINAL_STATUSES = ["completed", "failed", "stopped"];
 const express = require("express");
 const { streamRun } = require("./sse");
 const { RunManager, CONTROL_POLL_MS } = require("../run/manager");
-const { serviceClient, isSupabaseConfigured } = require("../db/supabase");
+const { serviceClient, isDatabaseConfigured } = require("../db/client");
 const { resolveIdentity } = require("../../../services/workspaceContext");
 const projectAccess = require("../../../services/projectAccess");
 const { parseCrawlRequest, ValidationError } = require("../shared/options");
@@ -84,14 +84,14 @@ const asyncRoute = (fn) => (req, res, next) => fn(req, res, next).catch(next);
 // synthetic user rather than being dropped.
 //
 // Unlike the stateless modules here, CrawlScope is entirely DB-backed: with no
-// Supabase configured there is nothing it can do, so it says so plainly instead
+// database configured there is nothing it can do, so it says so plainly instead
 // of failing later with a constraint error on owner.
 async function crawlScopeContext(req, res, next) {
   try {
-    if (!isSupabaseConfigured()) {
+    if (!isDatabaseConfigured()) {
       return res.status(503).json({
         error:
-          "CrawlScope needs Supabase. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY, " +
+          "CrawlScope needs the database. Set DATABASE_URL, " +
           "and apply supabase/migrations/0010_crawlscope.sql.",
       });
     }
@@ -504,9 +504,20 @@ router.get(
     const reviews = await repo.listFindingReviews(req.db, run.id);
     const reviewed = reviews.some((r) => r.review_status !== NEEDS_REVIEW || r.reviewer_notes);
 
+    // Served straight from the stored copy. This used to redirect to a signed
+    // Storage URL; the caller is already authenticated here, so there is nothing
+    // for a redirect to buy — and a missing file (an unmounted data root after a
+    // deploy) simply falls through to the rebuild below.
     if (run.report_path && !reviewed) {
-      const signed = await report.signedUrlForRun(run, 300);
-      if (signed) return res.redirect(302, signed);
+      const stored = await report.readReport(run.report_path);
+      if (stored) {
+        res.setHeader("Content-Type", report.XLSX_MIME);
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="${report.reportFilename(run.url)}"`,
+        );
+        return res.send(stored);
+      }
     }
 
     // Fallback for manual runs, runs predating stored reports, and any run whose
@@ -624,13 +635,17 @@ router.post(
     });
 
     // The first crawl starts immediately; the cron governs every one after it.
+    await require('../../projects/contentArchitect').ensureProject(project).catch((error) => {
+      console.error(`[crawlScope] Content Architect setup for project ${project.id} failed:`, error.message);
+    });
+    const homepageAudits = await require('../../projects/homepageAutostart').scheduleForProject(req, project.id);
     let run = null;
     try {
       run = await queueProjectRun(req.db, project);
     } catch (error) {
       console.error(`[crawlScope] initial run for project ${project.id} failed to queue:`, error.message);
     }
-    res.status(201).json({ project, run });
+    res.status(201).json({ project, run, homepageAudits });
   }),
 );
 

@@ -139,7 +139,7 @@ serp-content-researcher/
 
 ## Run Tracking
 
-Every module records what it ran into the `tool_runs` table (Supabase), scoped
+Every module records what it ran into the `tool_runs` table (Postgres), scoped
 to a workspace, and the workspace belongs to a primary user — its creator/owner.
 The history is readable in two places:
 
@@ -204,9 +204,13 @@ to one synthetic user and workspace rather than being dropped.
 - Runs still `running` after two hours are swept to `failed`, so a crash or
   deploy mid-run can't leave rows dangling.
 
-Requires `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` and the migrations in
-`supabase/migrations/`. Without them the app runs exactly as before and records
-nothing.
+Requires `DATABASE_URL` and the migrations in `supabase/migrations/`. Without it
+the app runs exactly as before and records nothing.
+
+The server connects straight to Postgres (`server/services/db.js`) — there is no
+REST layer, no service-role key, and nothing database-related reaches the
+browser. Apply the migrations over the connection's **direct** endpoint; on Neon
+that is the `DATABASE_URL` host with `-pooler` removed.
 
 ---
 

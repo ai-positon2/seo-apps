@@ -28,7 +28,7 @@
 // and is claimed by whichever replica is free. `moduleExecutors.hub_spoke` is what
 // claims it — without that registration a queued run would wait for ever.
 
-const { getSupabase, isSupabaseConfigured } = require('../../services/supabase');
+const db = require('../../services/db');
 const moduleQueue = require('../../services/moduleQueue');
 
 const MODULE_KEY = 'hub_spoke';
@@ -91,25 +91,27 @@ function decide({ enabled = true, hasProject = false, pending = {} } = {}) {
 
 /** True when the error is "0019 has not been applied yet". */
 function isMissingQueueSchema(error) {
-  return /column .* does not exist|schema cache|Could not find/i.test(error?.message || '');
+  // 42703 undefined_column, 42P01 undefined_table.
+  if (error?.code === '42703' || error?.code === '42P01') return true;
+  return /column .* does not exist|relation .* does not exist/i.test(error?.message || '');
 }
 
 /** The hub_spoke runs this project already has in flight. */
 async function pendingRuns(projectId) {
-  const { data, error } = await getSupabase()
-    .from('project_module_runs')
-    .select('id, status, created_at')
-    .eq('project_id', projectId)
-    .eq('module_key', MODULE_KEY)
-    .in('status', ['queued', 'running'])
-    .order('created_at', { ascending: false });
-  if (error) {
+  let rows;
+  try {
+    rows = await db.rows(
+      `select id, status, created_at from project_module_runs
+        where project_id = $1 and module_key = $2 and status in ('queued', 'running')
+        order by created_at desc`,
+      [projectId, MODULE_KEY]
+    );
+  } catch (error) {
     if (isMissingQueueSchema(error)) {
       throw Object.assign(new Error(error.message), { code: 'queue_unavailable' });
     }
     throw new Error(`[hubSpokeAutostart.pendingRuns] ${error.message}`);
   }
-  const rows = data || [];
   return {
     queued: rows.find((r) => r.status === 'queued') || null,
     running: rows.find((r) => r.status === 'running') || null,
@@ -133,7 +135,7 @@ async function scheduleHubSpoke({ run, delayMs: delayOverride } = {}) {
   const answer = (extra) => ({ scheduled: false, runId: null, ...extra });
 
   if (!run?.project_id) return answer({ reason: 'no_project' });
-  if (!isSupabaseConfigured()) return answer({ reason: 'not_configured' });
+  if (!db.isDatabaseConfigured()) return answer({ reason: 'not_configured' });
 
   let pending = { queued: null, running: null };
   try {

@@ -374,14 +374,14 @@ export default function HomePage() {
         <Card style={{ padding: 24, gap: 10 }}>
           <Kicker tone="muted">Projects unavailable</Kicker>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 500 }}>
-            {notConfigured ? 'Supabase is not configured' : 'Could not load projects'}
+            {notConfigured ? 'The database is not configured' : 'Could not load projects'}
           </h2>
           <Muted size={13}>{listState.error.message}</Muted>
           {notConfigured && (
             <Muted size={12}>
-              Projects, crawls and run history are all database-backed. Set SUPABASE_URL and
-              SUPABASE_SERVICE_ROLE_KEY, then reload. Every tool in the sidebar that does not need
-              persistence keeps working in the meantime.
+              Projects, crawls and run history are all database-backed. Set DATABASE_URL, then
+              reload. Every tool in the sidebar that does not need persistence keeps working in
+              the meantime.
             </Muted>
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>

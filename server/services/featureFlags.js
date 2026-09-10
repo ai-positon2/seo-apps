@@ -11,7 +11,7 @@
 // An assignment can also explicitly disable at a narrower scope, which is how a
 // single workspace is held back from an otherwise-global rollout.
 
-const { getSupabase, isSupabaseConfigured } = require('./supabase');
+const db = require('./db');
 const auditEvents = require('./auditEvents');
 
 // The flags this codebase reads. Declared so a typo at a call site fails a test
@@ -42,13 +42,16 @@ async function assignmentsFor(flagKey) {
   const hit = cache.get(flagKey);
   if (hit && hit.expires > Date.now()) return hit.rows;
 
-  const { data, error } = await getSupabase()
-    .from('feature_flag_assignments')
-    .select('scope, scope_ref, enabled')
-    .eq('flag_key', flagKey);
-  if (error) fail('assignmentsFor', error);
+  let rows;
+  try {
+    rows = await db.rows(
+      `select scope, scope_ref, enabled from feature_flag_assignments where flag_key = $1`,
+      [flagKey]
+    );
+  } catch (error) {
+    fail('assignmentsFor', error);
+  }
 
-  const rows = data || [];
   cache.set(flagKey, { rows, expires: Date.now() + CACHE_TTL_MS });
   return rows;
 }
@@ -64,7 +67,7 @@ async function assignmentsFor(flagKey) {
  * @returns {Promise<boolean>}
  */
 async function isEnabled(flagKey, { workspaceId = null, projectId = null, userId = null } = {}) {
-  if (!flagKey || !isSupabaseConfigured()) return false;
+  if (!flagKey || !db.isDatabaseConfigured()) return false;
 
   try {
     const rows = await assignmentsFor(flagKey);
@@ -98,17 +101,21 @@ async function resolveAll(context) {
 }
 
 async function listAssignments({ flagKey = null } = {}) {
-  if (!isSupabaseConfigured()) return [];
-  let query = getSupabase()
-    .from('feature_flag_assignments')
-    .select('*')
-    .order('flag_key', { ascending: true })
-    .order('scope', { ascending: true });
-  if (flagKey) query = query.eq('flag_key', flagKey);
-
-  const { data, error } = await query;
-  if (error) fail('listAssignments', error);
-  return data || [];
+  if (!db.isDatabaseConfigured()) return [];
+  const params = [];
+  let where = '';
+  if (flagKey) {
+    params.push(flagKey);
+    where = `where flag_key = $${params.length}`;
+  }
+  try {
+    return await db.rows(
+      `select * from feature_flag_assignments ${where} order by flag_key asc, scope asc`,
+      params
+    );
+  } catch (error) {
+    fail('listAssignments', error);
+  }
 }
 
 /**
@@ -117,8 +124,8 @@ async function listAssignments({ flagKey = null } = {}) {
  * and when" is exactly the question a pilot post-mortem asks.
  */
 async function setAssignment({ flagKey, scope, scopeRef = null, enabled, note, actorUserId, actorEmail }) {
-  if (!isSupabaseConfigured()) {
-    throw Object.assign(new Error('Feature flags need Supabase configured.'), { status: 503 });
+  if (!db.isDatabaseConfigured()) {
+    throw Object.assign(new Error('Feature flags need the database configured.'), { status: 503 });
   }
   if (!flagKey) throw Object.assign(new Error('flagKey is required.'), { status: 400 });
   if (!SCOPES.includes(scope)) {
@@ -131,36 +138,44 @@ async function setAssignment({ flagKey, scope, scopeRef = null, enabled, note, a
     throw Object.assign(new Error(`${scope} assignments need a scopeRef.`), { status: 400 });
   }
 
-  const sb = getSupabase();
-  let query = sb.from('feature_flag_assignments').select('*').eq('flag_key', flagKey).eq('scope', scope);
-  query = scopeRef === null ? query.is('scope_ref', null) : query.eq('scope_ref', scopeRef);
-  const { data: existing, error: findErr } = await query.maybeSingle();
-  if (findErr) fail('setAssignment(find)', findErr);
-
-  const payload = {
-    flag_key: flagKey,
-    scope,
-    scope_ref: scopeRef,
-    enabled: Boolean(enabled),
-    note: note || null,
-    created_by: actorUserId || null,
-  };
+  // "one assignment" is (flag_key, scope, scope_ref) with SQL NULL semantics on
+  // scope_ref, so a global row matches on `is null` rather than `=`.
+  let existing;
+  try {
+    existing = await db.maybeOne(
+      `select * from feature_flag_assignments
+        where flag_key = $1 and scope = $2
+          and scope_ref is not distinct from $3`,
+      [flagKey, scope, scopeRef]
+    );
+  } catch (error) {
+    fail('setAssignment(find)', error);
+  }
 
   let row;
   if (existing) {
-    const { data, error } = await sb
-      .from('feature_flag_assignments')
-      .update({ enabled: Boolean(enabled), note: note ?? existing.note })
-      .eq('id', existing.id)
-      .select('*')
-      .single();
-    if (error) fail('setAssignment(update)', error);
-    row = data;
+    try {
+      row = await db.one(
+        `update feature_flag_assignments set enabled = $1, note = $2
+          where id = $3 returning *`,
+        [Boolean(enabled), note ?? existing.note, existing.id]
+      );
+    } catch (error) {
+      fail('setAssignment(update)', error);
+    }
   } else {
-    const { data, error } = await sb
-      .from('feature_flag_assignments').insert(payload).select('*').single();
-    if (error) fail('setAssignment(insert)', error);
-    row = data;
+    try {
+      row = await db.insertOne('feature_flag_assignments', {
+        flag_key: flagKey,
+        scope,
+        scope_ref: scopeRef,
+        enabled: Boolean(enabled),
+        note: note || null,
+        created_by: actorUserId || null,
+      });
+    } catch (error) {
+      fail('setAssignment(insert)', error);
+    }
   }
 
   invalidate(flagKey);

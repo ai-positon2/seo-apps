@@ -46,6 +46,8 @@ const moduleEvidence = require('./moduleEvidence');
 const moduleRunners = require('./moduleRunners');
 const moduleQueue = require('../../services/moduleQueue');
 const competitorAutostart = require('./competitorAutostart');
+const contentArchitect = require('./contentArchitect');
+const homepageAutostart = require('./homepageAutostart');
 const moduleDetail = require('./moduleDetail');
 const insights = require('./insights');
 const pages = require('./pages');
@@ -57,7 +59,7 @@ const featureFlags = require('../../services/featureFlags');
 const auditEvents = require('../../services/auditEvents');
 const identityStore = require('../../services/identityStore');
 const { resolveIdentity } = require('../../services/workspaceContext');
-const { isSupabaseConfigured } = require('../../services/supabase');
+const { isDatabaseConfigured } = require('../../services/db');
 
 const router = express.Router();
 
@@ -94,9 +96,9 @@ async function autostartAfterDomainChange(access, delayMs) {
 }
 
 function requireConfigured(res) {
-  if (isSupabaseConfigured()) return true;
+  if (isDatabaseConfigured()) return true;
   res.status(503).json({
-    error: 'Projects need Supabase configured (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY).',
+    error: 'Projects need the database configured (DATABASE_URL).',
     code: 'not_configured',
     projects: [],
   });
@@ -213,6 +215,14 @@ router.post('/', async (req, res) => {
       autoFindCompetitors: Boolean(autoFindCompetitors),
     });
 
+    // Create the module entry immediately; its analysis is queued by the crawl
+    // completion hook once pages exist. A failed projection can heal on open.
+    await contentArchitect.ensureProject(project).catch((e) => {
+      console.error('[projects.create] Content Architect setup failed:', e.message);
+    });
+
+    const homepageAudits = await homepageAutostart.scheduleForProject(req, project.id);
+
     // The comparison starts itself: a project with a primary domain and
     // something to compare it against has everything Competitor Research needs,
     // and a card that says "not run yet" next to a button whose only job is to
@@ -240,7 +250,7 @@ router.post('/', async (req, res) => {
         return { scheduled: false, reason: 'not_started', note: null };
       });
 
-    res.status(201).json({ project, competitorResearch });
+    res.status(201).json({ project, competitorResearch, homepageAudits });
   } catch (e) { handleError(res, e, 'create'); }
 });
 
@@ -260,6 +270,25 @@ router.get('/:projectId', async (req, res) => {
       limits: (await adminLimits.effectiveLimits({ workspaceId: access.workspaceId })).limits,
     });
   } catch (e) { handleError(res, e, 'get'); }
+});
+
+router.get('/:projectId/content-architect', async (req, res) => {
+  if (!requireConfigured(res)) return;
+  try {
+    const access = await projectAccess.requireProject(req, req.params.projectId, 'view');
+    const domains = await store.listDomains(access.project.id);
+    res.json(await contentArchitect.status({ access, domains }));
+  } catch (e) { handleError(res, e, 'contentArchitect'); }
+});
+
+router.post('/:projectId/content-architect', async (req, res) => {
+  if (!requireConfigured(res)) return;
+  try {
+    const access = await projectAccess.requireProject(req, req.params.projectId,
+      req.body?.retry === true ? 'startRun' : 'view');
+    const domains = await store.listDomains(access.project.id);
+    res.json(await contentArchitect.connect({ access, domains, retry: req.body?.retry === true }));
+  } catch (e) { handleError(res, e, 'contentArchitect'); }
 });
 
 router.patch('/:projectId', async (req, res) => {
@@ -476,15 +505,14 @@ router.post('/:projectId/verify-site', async (req, res) => {
       return res.status(400).json({ error: 'Recording verification requires a note saying how ownership was confirmed.' });
     }
 
-    const { getSupabase } = require('../../services/supabase');
-    const { data, error } = await getSupabase()
-      .from('crawl_projects')
-      .update({ site_verified_at: new Date().toISOString(), site_verified_by: access.userId })
-      .eq('id', access.project.id)
-      .eq('workspace_id', access.project.workspace_id)
-      .select('*')
-      .single();
-    if (error) throw new Error(error.message);
+    const db = require('../../services/db');
+    const data = await db.one(
+      `update crawl_projects
+          set site_verified_at = $1, site_verified_by = $2
+        where id = $3 and workspace_id = $4
+        returning *`,
+      [new Date().toISOString(), access.userId, access.project.id, access.project.workspace_id]
+    );
 
     await auditEvents.recordFor(req, {
       action: auditEvents.ACTIONS.PROJECT_VERIFIED,

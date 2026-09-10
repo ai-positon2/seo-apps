@@ -13,28 +13,31 @@
 //   - a dropped audit row makes an irreversible act unaccountable.
 //
 // None of that needs a real database, so it runs in CI on every commit: the
-// Supabase client is faked, and the fake records every delete it is asked for.
+// database layer is faked, and the fake records every delete it is asked for.
 //
 // Run: node modules/projects/__tests__/projectPurge.test.js
 
 const assert = require('assert');
 
 // ── Fakes, installed before store.js is loaded ──────────────────────────────
-// store.js takes { getSupabase, isSupabaseConfigured } at require time, so the
-// stub has to be in the module cache first.
+// store.js takes the db module at require time, so the stub has to be in the
+// module cache first.
 
-const supabasePath = require.resolve('../../../services/supabase');
+const dbPath = require.resolve('../../../services/db');
 const auditPath = require.resolve('../../../services/auditEvents');
 
-const holder = { db: null };
+const holder = { tx: null };
 
 function stub(path, exports) {
   require.cache[path] = { id: path, filename: path, loaded: true, exports };
 }
 
-stub(supabasePath, {
-  getSupabase: () => holder.db,
-  isSupabaseConfigured: () => true,
+stub(dbPath, {
+  isDatabaseConfigured: () => true,
+  // purgeProject runs its whole ordered delete inside one transaction, so this
+  // is the only entry point it uses.
+  tx: (fn) => holder.tx(fn),
+  json: (v) => (v === null || v === undefined ? null : JSON.stringify(v)),
 });
 
 // The real ACTIONS vocabulary, so a missing PROJECT_PURGED fails here rather
@@ -53,29 +56,31 @@ stub(auditPath, {
 const store = require('../store');
 
 /**
- * A Supabase stand-in that records each delete as
+ * A transaction stand-in that records each delete as
  * { table, eqs: { column: value } } in call order.
+ *
+ * The SQL shape is this module's own (see purgeProject), so it is parsed rather
+ * than guessed at: `delete from "<table>" where "<col>" = $n [and <col> = $n]`.
  */
-function fakeDb(recorder, { failOn = null } = {}) {
-  return {
-    from(table) {
-      return {
-        delete() {
-          const call = { table, eqs: {} };
-          const chain = {
-            eq(column, value) { call.eqs[column] = value; return chain; },
-            select() {
-              recorder.push(call);
-              if (failOn === table) {
-                return Promise.resolve({ data: null, error: { message: 'boom' } });
-              }
-              return Promise.resolve({ data: [{ id: 'row-1' }, { id: 'row-2' }], error: null });
-            },
-          };
-          return chain;
-        },
-      };
-    },
+function fakeTx(recorder, { failOn = null, rowCount = 2 } = {}) {
+  return async (fn) => {
+    const t = {
+      query(sql, params = []) {
+        const table = /delete from "([a-z_]+)"/i.exec(sql)?.[1];
+        assert.ok(table, `unexpected statement in purge: ${sql}`);
+
+        const call = { table, eqs: {} };
+        const conds = /where\s+(.*)$/is.exec(sql)?.[1] || '';
+        for (const m of conds.matchAll(/"?([a-z_]+)"?\s*=\s*\$(\d+)/gi)) {
+          call.eqs[m[1]] = params[Number(m[2]) - 1];
+        }
+        recorder.push(call);
+
+        if (failOn === table) throw new Error('boom');
+        return Promise.resolve({ rowCount });
+      },
+    };
+    return fn(t);
   };
 }
 
@@ -149,7 +154,7 @@ async function rejects(promise, predicate) {
 
   await test('an active project cannot be purged, even with the right name', async () => {
     const calls = [];
-    holder.db = fakeDb(calls);
+    holder.tx = fakeTx(calls);
     await rejects(
       store.purgeProject({
         access: access({ project: { lifecycle_status: 'active' } }),
@@ -163,7 +168,7 @@ async function rejects(promise, predicate) {
 
   await test('an archived project cannot be purged either', async () => {
     const calls = [];
-    holder.db = fakeDb(calls);
+    holder.tx = fakeTx(calls);
     await rejects(
       store.purgeProject({
         access: access({ project: { lifecycle_status: 'archived' } }),
@@ -177,7 +182,8 @@ async function rejects(promise, predicate) {
   await test('a wrong, empty or absent name is refused', async () => {
     for (const confirmName of [undefined, null, '', 'gentle dental', 'Gentle Dentl', 'Riccobene']) {
       const calls = [];
-      holder.db = fakeDb(calls);
+      holder.tx = fakeTx(calls);
+      // eslint-disable-next-line no-await-in-loop
       await rejects(
         store.purgeProject({ access: access(), confirmName }),
         (e) => e.code === 'confirm_name_mismatch' && e.status === 400,
@@ -187,21 +193,21 @@ async function rejects(promise, predicate) {
   });
 
   await test('the confirmation is case-sensitive but tolerates surrounding space', async () => {
-    holder.db = fakeDb([]);
+    holder.tx = fakeTx([]);
     await rejects(
       store.purgeProject({ access: access(), confirmName: 'GENTLE DENTAL' }),
       (e) => e.code === 'confirm_name_mismatch',
     );
 
     const calls = [];
-    holder.db = fakeDb(calls);
+    holder.tx = fakeTx(calls);
     const result = await store.purgeProject({ access: access(), confirmName: '  Gentle Dental  ' });
     assert.strictEqual(result.purged, true);
     assert.strictEqual(calls.length, 2);
   });
 
   await test('the refusal names the expected project, so a mismatch is fixable', async () => {
-    holder.db = fakeDb([]);
+    holder.tx = fakeTx([]);
     const e = await rejects(
       store.purgeProject({ access: access(), confirmName: 'wrong' }),
       () => true,
@@ -215,7 +221,7 @@ async function rejects(promise, predicate) {
 
   await test('deletes crawl_runs then the project, each correctly scoped', async () => {
     const calls = [];
-    holder.db = fakeDb(calls);
+    holder.tx = fakeTx(calls);
 
     const result = await store.purgeProject({
       access: access(), confirmName: 'Gentle Dental', reason: 'client offboarded',
@@ -233,11 +239,11 @@ async function rejects(promise, predicate) {
 
   await test('a legacy project with no workspace is purged, not silently skipped', async () => {
     // Pre-0011 projects are authorized by their creator and carry no
-    // workspace_id. `.eq('workspace_id', null)` is SQL `= NULL`, which matches
-    // nothing — so the predicate has to be left off rather than deleting no row
-    // and reporting success.
+    // workspace_id. A `workspace_id = NULL` predicate matches nothing — so the
+    // predicate has to be left off rather than deleting no row and reporting
+    // success.
     const calls = [];
-    holder.db = fakeDb(calls);
+    holder.tx = fakeTx(calls);
 
     const result = await store.purgeProject({
       access: access({ project: { workspace_id: null } }),
@@ -255,45 +261,46 @@ async function rejects(promise, predicate) {
     // The silent-failure case: the delete succeeds but matches nothing. Callers
     // must not be told the data is gone while it is still there.
     const calls = [];
-    holder.db = {
-      from: (table) => ({
-        delete: () => {
-          const chain = {
-            eq: () => chain,
-            select: () => {
-              calls.push(table);
-              return Promise.resolve({ data: [], error: null });
-            },
-          };
-          return chain;
-        },
-      }),
-    };
+    holder.tx = fakeTx(calls, { rowCount: 0 });
 
     await rejects(
       store.purgeProject({ access: access(), confirmName: 'Gentle Dental' }),
       (e) => /still exists after its purge/.test(e.message),
     );
-    assert.deepStrictEqual(calls, ['crawl_runs', 'crawl_projects']);
+    assert.deepStrictEqual(calls.map((c) => c.table), ['crawl_runs', 'crawl_projects']);
   });
 
-  await test('a failure on the project row surfaces and names the table', async () => {
-    holder.db = fakeDb([], { failOn: 'crawl_projects' });
+  await test('a failure on the project row surfaces as a purge failure', async () => {
+    holder.tx = fakeTx([], { failOn: 'crawl_projects' });
     await rejects(
       store.purgeProject({ access: access(), confirmName: 'Gentle Dental' }),
-      (e) => /purgeProject\.crawl_projects/.test(e.message),
+      (e) => /purgeProject/.test(e.message) && /boom/.test(e.message),
     );
   });
 
   await test('a failure on crawl_runs stops before the project row is touched', async () => {
     const calls = [];
-    holder.db = fakeDb(calls, { failOn: 'crawl_runs' });
+    holder.tx = fakeTx(calls, { failOn: 'crawl_runs' });
     await rejects(
       store.purgeProject({ access: access(), confirmName: 'Gentle Dental' }),
-      (e) => /purgeProject\.crawl_runs/.test(e.message),
+      (e) => /purgeProject/.test(e.message),
     );
     assert.deepStrictEqual(calls.map((c) => c.table), ['crawl_runs'],
       'the project row must survive a failed run delete, or the runs are orphaned');
+  });
+
+  await test('the whole purge is one transaction, so a partial delete cannot stand', async () => {
+    // The ordering above protects against orphans within a successful purge;
+    // this is what protects against a purge that dies halfway. Over independent
+    // requests — all PostgREST could do — a crash after crawl_runs left a
+    // project whose history was gone and whose row was not.
+    let sawTransaction = false;
+    holder.tx = async (fn) => {
+      sawTransaction = true;
+      return fakeTx([])(fn);
+    };
+    await store.purgeProject({ access: access(), confirmName: 'Gentle Dental' });
+    assert.ok(sawTransaction, 'purgeProject must run its deletes inside db.tx');
   });
 
   // ── The audit trail ───────────────────────────────────────────────────────
@@ -302,7 +309,7 @@ async function rejects(promise, predicate) {
 
   await test('the event is recorded strictly, before anything is deleted', async () => {
     const calls = [];
-    holder.db = fakeDb(calls);
+    holder.tx = fakeTx(calls);
     audit.calls = [];
 
     // Recorded first: the fake pushes deletes as they happen, and the audit
@@ -324,7 +331,7 @@ async function rejects(promise, predicate) {
   });
 
   await test('the event carries the action, actor and a name snapshot', async () => {
-    holder.db = fakeDb([]);
+    holder.tx = fakeTx([]);
     await store.purgeProject({
       access: access(), confirmName: 'Gentle Dental', reason: 'client offboarded',
     });
@@ -344,7 +351,7 @@ async function rejects(promise, predicate) {
 
   await test('a failed audit write aborts the purge — nothing is deleted', async () => {
     const calls = [];
-    holder.db = fakeDb(calls);
+    holder.tx = fakeTx(calls);
     audit.fail = true;
 
     await rejects(

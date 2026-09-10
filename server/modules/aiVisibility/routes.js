@@ -59,7 +59,7 @@ function handleError(res, e, where) {
 /**
  * How many questions this client asks, against the admin-configured limit.
  *
- * `limit` is null (not a number) when Supabase is unavailable — a counter
+ * `limit` is null (not a number) when the database is unavailable — a counter
  * with no denominator is honest; a fake one is not.
  *
  * The per-slot breakdown and the topic x slot cross-tab that used to live

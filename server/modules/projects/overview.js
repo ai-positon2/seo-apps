@@ -16,7 +16,7 @@
 // live counts. The other five report `not_run` with the phase that connects
 // them, which is honest and actionable rather than decorative.
 
-const { getSupabase, isSupabaseConfigured } = require('../../services/supabase');
+const db = require('../../services/db');
 const moduleEvidence = require('./moduleEvidence');
 const store = require('./store');
 
@@ -135,21 +135,26 @@ const SUMMARY_KEYS = ['counts', 'findings', 'robotsStatus', 'resultCount', 'elap
 
 /** The crawl runs for this project, newest first. */
 async function recentCrawlRuns(projectId, limit = 12) {
-  const { data, error } = await getSupabase()
-    .from('crawl_runs')
-    .select(
-      'id, status, error, trigger, created_at, started_at, finished_at, progress, heartbeat_at, '
-      + SUMMARY_KEYS.map((k) => `summary_${k}:summary->${k}`).join(', '),
-    )
-    .eq('project_id', projectId)
-    .order('created_at', { ascending: false })
-    .limit(limit);
-  if (error) throw new Error(`[projects.overview.recentCrawlRuns] ${error.message}`);
+  let data;
+  try {
+    data = await db.rows(
+      `select id, status, error, trigger, created_at, started_at, finished_at,
+              progress, heartbeat_at,
+              ${SUMMARY_KEYS.map((k) => `summary->'${k}' as "summary_${k}"`).join(', ')}
+         from crawl_runs
+        where project_id = $1
+        order by created_at desc
+        limit $2`,
+      [projectId, limit]
+    );
+  } catch (error) {
+    throw new Error(`[projects.overview.recentCrawlRuns] ${error.message}`);
+  }
 
   // Rebuilt into the shape every caller already expects. Postgres can project
   // the keys out of the JSON but cannot hand them back nested, so the run rows
   // carry `summary` exactly as before — with only these keys in it.
-  return (data || []).map((row) => {
+  return data.map((row) => {
     const summary = {};
     let present = false;
     for (const k of SUMMARY_KEYS) {
@@ -173,11 +178,7 @@ async function recentCrawlRuns(projectId, limit = 12) {
  * score on the card than on the report.
  */
 async function internalHtmlPageCount(runId) {
-  const { count, error } = await getSupabase()
-    .from('crawl_run_results')
-    .select('id', { count: 'exact', head: true })
-    .eq('run_id', runId)
-    .ilike('content_type', '%text/html%')
+  try {
     // Internal only. The crawler also fetches the external pages it links out to
     // — 35 of 85 HTML results on the live project — and those can never carry a
     // finding, because every check in analyzer.js runs over internalResults. So
@@ -186,12 +187,17 @@ async function internalHtmlPageCount(runId) {
     //
     // Not showing an error on somebody else's page and then counting that page
     // as clean are the same mistake pointing in two directions.
-    .eq('data->>scope', 'Internal');
-  if (error) {
+    return await db.count(
+      `select count(*) from crawl_run_results
+        where run_id = $1
+          and content_type ilike '%text/html%'
+          and data->>'scope' = 'Internal'`,
+      [runId]
+    );
+  } catch (error) {
     console.error('[projects.overview.internalHtmlPageCount]', error.message);
     return null;
   }
-  return count;
 }
 
 // What each caller of findingInstancesForRun actually reads.
@@ -300,15 +306,26 @@ async function findingInstancesForRun(runId, { cache = true, shape = 'full' } = 
   const CAP = 50_000;
 
   const readPage = async (offset) => {
-    const q = getSupabase()
-      .from('crawl_run_finding_instances')
-      .select(select, offset === 0 ? { count: 'exact' } : undefined)
-      .eq('run_id', runId)
-      .order('id', { ascending: true })
-      .range(offset, offset + PAGE - 1);
-    const { data, count, error } = await q;
-    if (error) throw new Error(`[projects.overview.findingInstancesForRun] ${error.message}`);
-    return { rows: data || [], count };
+    try {
+      // count(*) over () rides along with the first page, which is what
+      // PostgREST's { count: 'exact' } gave and what makes the remaining
+      // offsets computable in one go.
+      const rows = await db.rows(
+        `select ${select}${offset === 0 ? ', count(*) over () as _total' : ''}
+           from crawl_run_finding_instances
+          where run_id = $1
+          order by id asc
+          limit $2 offset $3`,
+        [runId, PAGE, offset]
+      );
+      const count = offset === 0
+        ? (rows.length ? Number(rows[0]._total) : 0)
+        : undefined;
+      for (const row of rows) delete row._total;
+      return { rows, count };
+    } catch (error) {
+      throw new Error(`[projects.overview.findingInstancesForRun] ${error.message}`);
+    }
   };
 
   const first = await readPage(0);
@@ -341,12 +358,12 @@ async function findingInstancesForRun(runId, { cache = true, shape = 'full' } = 
     return all;
   }
 
-  const { data: run, error } = await getSupabase()
-    .from('crawl_runs')
-    .select('summary')
-    .eq('id', runId)
-    .maybeSingle();
-  if (error) throw new Error(`[projects.overview.findingInstancesForRun] ${error.message}`);
+  let run;
+  try {
+    run = await db.maybeOne(`select summary from crawl_runs where id = $1`, [runId]);
+  } catch (error) {
+    throw new Error(`[projects.overview.findingInstancesForRun] ${error.message}`);
+  }
   // The pre-0023 fallback returns whole stored findings whatever the shape asked
   // for. That is not a shape violation: siteHealth reads severity and url off
   // them either way, and narrowing an already-fetched array would only throw
@@ -358,14 +375,18 @@ async function findingInstancesForRun(runId, { cache = true, shape = 'full' } = 
 
 /** Per-rule findings for one run — the rollup crawl_run_findings already holds. */
 async function findingsForRun(runId) {
-  const { data, error } = await getSupabase()
-    .from('crawl_run_findings')
-    .select('rule_id, severity, category, count, detail')
-    .eq('run_id', runId)
-    .order('count', { ascending: false })
-    .limit(200);
-  if (error) throw new Error(`[projects.overview.findingsForRun] ${error.message}`);
-  return data || [];
+  try {
+    return await db.rows(
+      `select rule_id, severity, category, count, detail
+         from crawl_run_findings
+        where run_id = $1
+        order by count desc
+        limit 200`,
+      [runId]
+    );
+  } catch (error) {
+    throw new Error(`[projects.overview.findingsForRun] ${error.message}`);
+  }
 }
 
 /**
@@ -382,16 +403,16 @@ async function findingsForRun(runId) {
  * summary total rather than showing a confident wrong number.
  */
 async function internalPageCount(runId) {
-  const { count, error } = await getSupabase()
-    .from('crawl_run_results')
-    .select('*', { count: 'exact', head: true })
-    .eq('run_id', runId)
-    .eq('data->>scope', 'Internal');
-  if (error) {
+  try {
+    return await db.count(
+      `select count(*) from crawl_run_results
+        where run_id = $1 and data->>'scope' = 'Internal'`,
+      [runId]
+    );
+  } catch (error) {
     console.error('[projects.overview.internalPageCount]', error.message);
     return null;
   }
-  return Number(count);
 }
 
 /**
@@ -551,15 +572,18 @@ async function liveCrawlStatus(projectId) {
   const runs = await recentCrawlRuns(projectId);
   if (!runs.some((r) => ['queued', 'running', 'paused'].includes(r.status))) return null;
 
-  const { count, error } = await getSupabase()
-    .from('project_module_runs')
-    .select('id', { count: 'exact', head: true })
-    .eq('project_id', projectId)
-    .eq('status', 'running')
-    .in('module_key', moduleEvidence.PAGE_MODULE_KEYS);
-  if (error) console.error('[projects.overview.liveCrawlStatus]', error.message);
+  let count = 0;
+  try {
+    count = await db.count(
+      `select count(*) from project_module_runs
+        where project_id = $1 and status = 'running' and module_key = any($2)`,
+      [projectId, moduleEvidence.PAGE_MODULE_KEYS]
+    );
+  } catch (error) {
+    console.error('[projects.overview.liveCrawlStatus]', error.message);
+  }
 
-  return crawlStatus(runs, Number(count) || 0);
+  return crawlStatus(runs, count);
 }
 
 /**
@@ -1160,8 +1184,8 @@ async function competitorCardFromTool(project) {
 }
 
 async function buildOverview({ access }) {
-  if (!isSupabaseConfigured()) {
-    throw Object.assign(new Error('Project overview needs Supabase configured.'), { status: 503 });
+  if (!db.isDatabaseConfigured()) {
+    throw Object.assign(new Error('Project overview needs the database configured.'), { status: 503 });
   }
 
   const projectRow = access.project;

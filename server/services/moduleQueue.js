@@ -7,11 +7,9 @@
 // the kind of thing that looks like an implementation detail right up until it
 // silently loses work:
 //
-//   1. The claim is a compare-and-swap on `status`, not a read-then-write. Two
-//      workers reading the same queued row is fine; both then UPDATE it scoped
-//      to `status = 'queued'`, and Postgres serialises that — exactly one gets a
-//      row back. A read-then-write would let both run the same captures and bill
-//      the client twice.
+//   1. The claim is atomic. Exactly one worker may move a queued row to
+//      'running'; two workers racing must produce one winner and one `null`,
+//      never two workers running the same job and billing the client twice.
 //
 //   2. A run cannot report its own crash, so liveness is inverted: the worker
 //      stamps `heartbeat_at` while it works, and its ABSENCE past a threshold is
@@ -20,8 +18,18 @@
 //   3. `attempts` is bounded. Requeueing for ever means one poison job can
 //      occupy a worker permanently, and the symptom is "the queue is busy but
 //      nothing finishes" — which is much harder to diagnose than a failed run.
+//
+// On (1): over PostgREST this had to be a read-then-compare-and-swap — select a
+// window of candidates, then UPDATE each one scoped to `status = 'queued'` until
+// one came back. That was correct but lossy: every worker that lost a race
+// burned a round trip, and `attempts` was computed in JS from the row it had
+// read, so two writers could both derive the same next value. Speaking SQL
+// directly, the whole claim is one statement — the row is picked with
+// `for update skip locked`, which makes concurrent claimers walk past a locked
+// candidate instead of colliding with it, and `attempts` is incremented by the
+// database from its own current value.
 
-const { getSupabase, isSupabaseConfigured } = require('./supabase');
+const db = require('./db');
 
 // How long a run may go without stamping a heartbeat before it is presumed
 // dead. Generous, because an AI Visibility capture can legitimately take 110
@@ -30,11 +38,6 @@ const STALE_AFTER_MS = Number(process.env.MODULE_QUEUE_STALE_MS) || 10 * 60 * 10
 
 // A run is retried this many times before it is failed for good.
 const MAX_ATTEMPTS = Number(process.env.MODULE_QUEUE_MAX_ATTEMPTS) || 3;
-
-// The claimer walks a small window rather than only the single oldest row.
-// Losing one CAS should cost another round trip, not a whole poll interval of
-// idleness while queued work sits there.
-const CLAIM_CANDIDATES = Number(process.env.MODULE_QUEUE_CANDIDATES) || 5;
 
 const RUN_COLUMNS = 'id, project_id, workspace_id, module_key, status, trigger, '
   + 'target_url, country_code, attempts, worker_id, heartbeat_at, scheduled_for, '
@@ -53,7 +56,9 @@ function fail(op, error) {
  * and that is the honest reading — but it has to be said ONCE, not forever.
  */
 function isMissingSchema(error) {
-  return /column .* does not exist|relation .* does not exist|schema cache|Could not find/i
+  // 42703 undefined_column, 42P01 undefined_table.
+  if (error?.code === '42703' || error?.code === '42P01') return true;
+  return /column .* does not exist|relation .* does not exist/i
     .test(error?.message || '');
 }
 
@@ -77,86 +82,74 @@ async function enqueue({
   projectId, workspaceId = null, moduleKey, trigger = 'schedule',
   scheduledFor = null, createdBy = null, targetUrl = null, countryCode = null,
 }) {
-  if (!isSupabaseConfigured()) throw new Error('Supabase is not configured.');
+  if (!db.isDatabaseConfigured()) throw new Error('The database is not configured.');
 
-  const { data, error } = await getSupabase()
-    .from('project_module_runs')
-    .insert({
-      project_id: projectId,
-      workspace_id: workspaceId,
-      module_key: moduleKey,
-      status: 'queued',
-      trigger,
-      scheduled_for: scheduledFor,
-      target_url: targetUrl,
-      country_code: countryCode,
-      created_by: createdBy,
-      attempts: 0,
-    })
-    .select(RUN_COLUMNS)
-    .maybeSingle();
-
-  if (error) fail('enqueue', error);
-  return data;
+  try {
+    return await db.maybeOne(
+      `insert into project_module_runs
+         (project_id, workspace_id, module_key, status, trigger,
+          scheduled_for, target_url, country_code, created_by, attempts)
+       values ($1, $2, $3, 'queued', $4, $5, $6, $7, $8, 0)
+       returning ${RUN_COLUMNS}`,
+      [projectId, workspaceId, moduleKey, trigger, scheduledFor, targetUrl, countryCode, createdBy]
+    );
+  } catch (error) {
+    fail('enqueue', error);
+  }
 }
 
 /**
  * Claim the oldest eligible queued run, atomically.
  *
- * The `.eq('status', 'queued')` on the UPDATE is the whole mechanism: it is what
- * makes two workers racing produce one winner and one `null`, rather than two
- * workers running the same job.
+ * One statement: the inner select picks the next eligible row and locks it with
+ * `skip locked`, so a concurrent claimer steps over it rather than blocking on
+ * it or claiming it twice; the outer update is what actually takes ownership.
+ * `status = 'queued'` is still asserted on the update, so a row that changed
+ * state between the two cannot be claimed.
  *
  * @param {object} input
  * @param {string} input.workerId
  * @param {string[]} [input.moduleKeys] restrict to modules this worker can run
  */
 async function claimNext({ workerId, moduleKeys = null } = {}) {
-  if (!isSupabaseConfigured()) return null;
-  const db = getSupabase();
+  if (!db.isDatabaseConfigured()) return null;
   const nowIso = new Date().toISOString();
 
-  let q = db
-    .from('project_module_runs')
-    .select('id, attempts')
-    .eq('status', 'queued')
-    // `scheduled_for` in the future is not yet eligible. `is null` means "as
-    // soon as possible" and must still be claimable, which `.or` covers —
-    // a plain `.lte` would silently never claim an unscheduled run.
-    .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`)
-    .order('scheduled_for', { ascending: true, nullsFirst: true })
-    .order('created_at', { ascending: true })
-    .limit(CLAIM_CANDIDATES);
+  // `scheduled_for` in the future is not yet eligible; NULL means "as soon as
+  // possible" and must still be claimable, so it is tested for explicitly —
+  // a bare `scheduled_for <= now` is NULL for those rows and never claims one.
+  const params = [nowIso, workerId || null];
+  let moduleFilter = '';
+  if (moduleKeys?.length) {
+    params.push(moduleKeys);
+    moduleFilter = ` and module_key = any($${params.length})`;
+  }
 
-  if (moduleKeys?.length) q = q.in('module_key', moduleKeys);
-
-  const { data: candidates, error } = await q;
-  if (error) {
+  try {
+    return await db.maybeOne(
+      `update project_module_runs r
+          set status = 'running',
+              worker_id = $2,
+              claimed_at = $1,
+              heartbeat_at = $1,
+              started_at = $1,
+              attempts = coalesce(r.attempts, 0) + 1
+        where r.id = (
+          select id from project_module_runs
+           where status = 'queued'
+             and (scheduled_for is null or scheduled_for <= $1)${moduleFilter}
+           order by scheduled_for asc nulls first, created_at asc
+           for update skip locked
+           limit 1
+        )
+          and r.status = 'queued'
+        returning ${RUN_COLUMNS}`,
+      params
+    );
+  } catch (error) {
     if (isMissingSchema(error)) { warnMissingSchemaOnce('claimNext', error); return null; }
     fail('claimNext', error);
   }
-
-  for (const candidate of candidates || []) {
-    const { data: claimed, error: claimError } = await db
-      .from('project_module_runs')
-      .update({
-        status: 'running',
-        worker_id: workerId || null,
-        claimed_at: nowIso,
-        heartbeat_at: nowIso,
-        started_at: nowIso,
-        attempts: (candidate.attempts || 0) + 1,
-      })
-      .eq('id', candidate.id)
-      // The CAS. Lose this and another worker got there first.
-      .eq('status', 'queued')
-      .select(RUN_COLUMNS)
-      .maybeSingle();
-
-    if (claimError) fail('claimNext', claimError);
-    if (claimed) return claimed;
-  }
-  return null;
 }
 
 /**
@@ -168,17 +161,18 @@ async function claimNext({ workerId, moduleKeys = null } = {}) {
  * as "stop working".
  */
 async function heartbeat(runId, workerId) {
-  if (!isSupabaseConfigured()) return false;
-  const { data, error } = await getSupabase()
-    .from('project_module_runs')
-    .update({ heartbeat_at: new Date().toISOString() })
-    .eq('id', runId)
-    .eq('status', 'running')
-    .eq('worker_id', workerId)
-    .select('id')
-    .maybeSingle();
-  if (error) fail('heartbeat', error);
-  return Boolean(data);
+  if (!db.isDatabaseConfigured()) return false;
+  try {
+    const row = await db.maybeOne(
+      `update project_module_runs set heartbeat_at = $1
+        where id = $2 and status = 'running' and worker_id = $3
+        returning id`,
+      [new Date().toISOString(), runId, workerId]
+    );
+    return Boolean(row);
+  } catch (error) {
+    fail('heartbeat', error);
+  }
 }
 
 /**
@@ -192,44 +186,39 @@ async function heartbeat(runId, workerId) {
  * timestamps. It has to be tested for separately.
  */
 async function findStale({ staleAfterMs = STALE_AFTER_MS, limit = 20 } = {}) {
-  if (!isSupabaseConfigured()) return [];
-  const db = getSupabase();
+  if (!db.isDatabaseConfigured()) return [];
   const threshold = new Date(Date.now() - staleAfterMs).toISOString();
 
-  const [quiet, never] = await Promise.all([
-    db.from('project_module_runs').select(RUN_COLUMNS)
-      .eq('status', 'running').lt('heartbeat_at', threshold)
-      .order('heartbeat_at', { ascending: true }).limit(limit),
-    // Only rows the QUEUE owns. claimNext() always stamps both worker_id and
-    // heartbeat_at when it moves a run to 'running', so a queue-owned run can
-    // never sit here with a null heartbeat -- but an INLINE run can, because
-    // moduleEvidence.startRun() inserts status:'running' with neither field set.
-    //
-    // Without this filter every inline run was reclaimed at the flat 10-minute
-    // STALE_AFTER_MS, regardless of the deadline it recorded for itself: a
-    // healthy 10-page SEO & GEO audit takes ~22 minutes, so "Run Full Audit" was
-    // silently flipped back to 'queued' mid-flight and then re-run by the worker.
-    // Inline runs are swept by moduleEvidence.sweepStaleRuns(), which judges each
-    // row against its own payload.deadlineAt -- the allowance model this table
-    // was designed around.
-    db.from('project_module_runs').select(RUN_COLUMNS)
-      .eq('status', 'running').is('heartbeat_at', null)
-      .not('worker_id', 'is', null)
-      .lt('started_at', threshold)
-      .order('started_at', { ascending: true }).limit(limit),
-  ]);
-
-  for (const res of [quiet, never]) {
-    if (res.error) {
-      if (isMissingSchema(res.error)) { warnMissingSchemaOnce('findStale', res.error); return []; }
-      fail('findStale', res.error);
-    }
+  // The second arm is restricted to rows the QUEUE owns. claimNext() always
+  // stamps both worker_id and heartbeat_at when it moves a run to 'running', so
+  // a queue-owned run can never sit here with a null heartbeat -- but an INLINE
+  // run can, because moduleEvidence.startRun() inserts status:'running' with
+  // neither field set.
+  //
+  // Without that filter every inline run was reclaimed at the flat 10-minute
+  // STALE_AFTER_MS, regardless of the deadline it recorded for itself: a
+  // healthy 10-page SEO & GEO audit takes ~22 minutes, so "Run Full Audit" was
+  // silently flipped back to 'queued' mid-flight and then re-run by the worker.
+  // Inline runs are swept by moduleEvidence.sweepStaleRuns(), which judges each
+  // row against its own payload.deadlineAt -- the allowance model this table
+  // was designed around.
+  try {
+    return await db.rows(
+      `select ${RUN_COLUMNS}
+         from project_module_runs
+        where status = 'running'
+          and (
+            heartbeat_at < $1
+            or (heartbeat_at is null and worker_id is not null and started_at < $1)
+          )
+        order by coalesce(heartbeat_at, started_at) asc
+        limit $2`,
+      [threshold, limit]
+    );
+  } catch (error) {
+    if (isMissingSchema(error)) { warnMissingSchemaOnce('findStale', error); return []; }
+    fail('findStale', error);
   }
-
-  const seen = new Set();
-  return [...(quiet.data || []), ...(never.data || [])]
-    .filter((r) => !seen.has(r.id) && seen.add(r.id))
-    .slice(0, limit);
 }
 
 /**
@@ -237,13 +226,13 @@ async function findStale({ staleAfterMs = STALE_AFTER_MS, limit = 20 } = {}) {
  *
  * The write is guarded on exactly the heartbeat we observed, so a revived
  * worker or a second replica's reaper cannot act on the same row twice.
- * `.eq(col, null)` never matches in PostgREST, so the NULL case needs `.is`.
+ * `is not distinct from` makes that guard work for a NULL heartbeat too, where
+ * `=` would never match.
  *
  * @returns {'requeued'|'failed'|'skipped'}
  */
 async function reclaim(run, { maxAttempts = MAX_ATTEMPTS } = {}) {
-  if (!isSupabaseConfigured()) return 'skipped';
-  const db = getSupabase();
+  if (!db.isDatabaseConfigured()) return 'skipped';
   const exhausted = (run.attempts || 0) >= maxAttempts;
 
   const patch = exhausted
@@ -272,15 +261,25 @@ async function reclaim(run, { maxAttempts = MAX_ATTEMPTS } = {}) {
       error: null,
     };
 
-  let q = db.from('project_module_runs').update(patch)
-    .eq('id', run.id)
-    .eq('status', 'running');
-  q = run.heartbeat_at ? q.eq('heartbeat_at', run.heartbeat_at) : q.is('heartbeat_at', null);
+  const cols = Object.keys(patch);
+  const params = cols.map((c) => patch[c]);
+  params.push(run.id, run.heartbeat_at ?? null);
+  const sets = cols.map((c, i) => `"${c}" = $${i + 1}`).join(', ');
 
-  const { data, error } = await q.select('id').maybeSingle();
-  if (error) fail('reclaim', error);
-  if (!data) return 'skipped';
-  return exhausted ? 'failed' : 'requeued';
+  try {
+    const row = await db.maybeOne(
+      `update project_module_runs set ${sets}
+        where id = $${cols.length + 1}
+          and status = 'running'
+          and heartbeat_at is not distinct from $${cols.length + 2}
+        returning id`,
+      params
+    );
+    if (!row) return 'skipped';
+    return exhausted ? 'failed' : 'requeued';
+  } catch (error) {
+    fail('reclaim', error);
+  }
 }
 
 /** One reaper sweep. Safe to run on every replica — the guard makes it idempotent. */
@@ -296,24 +295,28 @@ async function reap(options = {}) {
 
 /** Queue depth, for the operator view and for deciding whether to scale. */
 async function depth({ moduleKey = null } = {}) {
-  if (!isSupabaseConfigured()) return { queued: 0, running: 0 };
-  const db = getSupabase();
-  const count = async (status) => {
-    let q = db.from('project_module_runs').select('id', { count: 'exact', head: true }).eq('status', status);
-    if (moduleKey) q = q.eq('module_key', moduleKey);
-    const { count: n, error } = await q;
-    if (error) fail('depth', error);
-    return n || 0;
-  };
-  const [queued, running] = await Promise.all([count('queued'), count('running')]);
-  return { queued, running };
+  if (!db.isDatabaseConfigured()) return { queued: 0, running: 0 };
+  try {
+    // Both counts in one pass — two round trips for two numbers off the same
+    // filtered set was only ever a PostgREST limitation.
+    const row = await db.one(
+      `select
+         count(*) filter (where status = 'queued')  as queued,
+         count(*) filter (where status = 'running') as running
+         from project_module_runs
+        where $1::text is null or module_key = $1`,
+      [moduleKey]
+    );
+    return { queued: Number(row.queued || 0), running: Number(row.running || 0) };
+  } catch (error) {
+    fail('depth', error);
+  }
 }
 
 module.exports = {
   isMissingSchema,
   STALE_AFTER_MS,
   MAX_ATTEMPTS,
-  CLAIM_CANDIDATES,
   enqueue,
   claimNext,
   heartbeat,

@@ -16,7 +16,7 @@
 // reference — the audit trail is append-only by design, and erasing the history
 // of a workspace's deletion along with the workspace would defeat the point.
 
-const { getSupabase, isSupabaseConfigured } = require('../services/supabase');
+const db = require('./db');
 const auditEvents = require('./auditEvents');
 const adminLimits = require('./adminLimits');
 
@@ -28,7 +28,7 @@ function fail(where, error) {
 
 function notConfigured() {
   return Object.assign(
-    new Error('Workspace lifecycle needs Supabase configured.'),
+    new Error('Workspace lifecycle needs the database configured.'),
     { status: 503, code: 'not_configured' },
   );
 }
@@ -42,7 +42,7 @@ function notConfigured() {
  * a different kind of power. They can restore, which is the safe direction.
  */
 async function requestDeletion({ access, reason }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   if (!reason || !String(reason).trim()) {
     throw Object.assign(
       new Error('A reason is required — this is recorded and starts a countdown to permanent deletion.'),
@@ -54,19 +54,22 @@ async function requestDeletion({ access, reason }) {
   const graceDays = Number(limits.workspacePurgeGraceDays) || 30;
   const purgeAfter = new Date(Date.now() + graceDays * 86_400_000).toISOString();
 
-  const { data, error } = await getSupabase()
-    .from('workspaces')
-    .update({
-      lifecycle_status: 'pending_deletion',
-      deletion_requested_at: new Date().toISOString(),
-      deletion_requested_by: access.userId || null,
-      purge_after: purgeAfter,
-    })
-    .eq('id', access.workspaceId)
-    .eq('lifecycle_status', 'active')   // never re-arm an already-pending purge
-    .select('*')
-    .maybeSingle();
-  if (error) fail('requestDeletion', error);
+  let data;
+  try {
+    data = await db.maybeOne(
+      `update workspaces
+          set lifecycle_status = 'pending_deletion',
+              deletion_requested_at = $1,
+              deletion_requested_by = $2,
+              purge_after = $3
+        where id = $4
+          and lifecycle_status = 'active'   -- never re-arm an already-pending purge
+        returning *`,
+      [new Date().toISOString(), access.userId || null, purgeAfter, access.workspaceId]
+    );
+  } catch (error) {
+    fail('requestDeletion', error);
+  }
   if (!data) {
     throw Object.assign(
       new Error('That workspace is not active, so deletion cannot be requested for it.'),
@@ -93,23 +96,25 @@ async function requestDeletion({ access, reason }) {
 
 /** Cancels a pending deletion. Safe direction, so platform admins may do it too. */
 async function restore({ access }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
-  const { data, error } = await getSupabase()
-    .from('workspaces')
-    .update({
-      lifecycle_status: 'active',
-      deletion_requested_at: null,
-      deletion_requested_by: null,
-      purge_after: null,
-      restored_at: new Date().toISOString(),
-      restored_by: access.userId || null,
-    })
-    .eq('id', access.workspaceId)
-    .eq('lifecycle_status', 'pending_deletion')
-    .select('*')
-    .maybeSingle();
-  if (error) fail('restore', error);
+  let data;
+  try {
+    data = await db.maybeOne(
+      `update workspaces
+          set lifecycle_status = 'active',
+              deletion_requested_at = null,
+              deletion_requested_by = null,
+              purge_after = null,
+              restored_at = $1,
+              restored_by = $2
+        where id = $3 and lifecycle_status = 'pending_deletion'
+        returning *`,
+      [new Date().toISOString(), access.userId || null, access.workspaceId]
+    );
+  } catch (error) {
+    fail('restore', error);
+  }
   if (!data) {
     throw Object.assign(
       new Error('That workspace is not pending deletion. A purged workspace cannot be restored.'),
@@ -132,15 +137,18 @@ async function restore({ access }) {
 
 /** Workspaces whose grace period has expired. */
 async function duePurge({ now = new Date() } = {}) {
-  if (!isSupabaseConfigured()) return [];
-  const { data, error } = await getSupabase()
-    .from('workspaces')
-    .select('id, name, purge_after, deletion_requested_at, deletion_requested_by')
-    .eq('lifecycle_status', 'pending_deletion')
-    .lt('purge_after', now.toISOString())
-    .order('purge_after', { ascending: true });
-  if (error) fail('duePurge', error);
-  return data || [];
+  if (!db.isDatabaseConfigured()) return [];
+  try {
+    return await db.rows(
+      `select id, name, purge_after, deletion_requested_at, deletion_requested_by
+         from workspaces
+        where lifecycle_status = 'pending_deletion' and purge_after < $1
+        order by purge_after asc`,
+      [now.toISOString()]
+    );
+  } catch (error) {
+    fail('duePurge', error);
+  }
 }
 
 // Deleted in dependency order — children before the rows they reference — so a
@@ -165,42 +173,60 @@ const PURGE_ORDER = [
  * which is precisely what a compliance question about deleted data needs to see.
  */
 async function purge({ workspaceId, actorEmail = 'system:purge-cron' }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
-  const db = getSupabase();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
-  // Re-check under the same condition the sweeper selected on. Between selection
-  // and here, somebody may have restored it — purging then would destroy a
-  // workspace an administrator just rescued.
-  const { data: current, error: readError } = await db
-    .from('workspaces')
-    .select('id, name, lifecycle_status, purge_after')
-    .eq('id', workspaceId)
-    .maybeSingle();
-  if (readError) fail('purge.read', readError);
-  if (!current) return { purged: false, reason: 'not_found' };
-  if (current.lifecycle_status !== 'pending_deletion') {
-    return { purged: false, reason: `lifecycle_status is ${current.lifecycle_status}` };
-  }
-  if (!current.purge_after || new Date(current.purge_after) > new Date()) {
-    return { purged: false, reason: 'grace period has not expired' };
-  }
+  // Re-check under the same condition the sweeper selected on, and hold the row
+  // while the purge runs. Between selection and here, somebody may have
+  // restored it — purging then would destroy a workspace an administrator just
+  // rescued.
+  //
+  // The re-check, the deletes and the final mark all run in ONE transaction.
+  // Over PostgREST they were six independent requests, and a failure among them
+  // left exactly the state the comment above this function warns about: a
+  // workspace whose projects are gone but which still reads as
+  // 'pending_deletion', so the next sweep tries again against a half-empty
+  // workspace. Now it either all lands or none of it does.
+  let current;
+  let deleted;
+  try {
+    const outcome = await db.tx(async (t) => {
+      const row = await t.maybeOne(
+        `select id, name, lifecycle_status, purge_after
+           from workspaces where id = $1 for update`,
+        [workspaceId]
+      );
+      if (!row) return { skip: { purged: false, reason: 'not_found' } };
+      if (row.lifecycle_status !== 'pending_deletion') {
+        return { skip: { purged: false, reason: `lifecycle_status is ${row.lifecycle_status}` } };
+      }
+      if (!row.purge_after || new Date(row.purge_after) > new Date()) {
+        return { skip: { purged: false, reason: 'grace period has not expired' } };
+      }
 
-  const deleted = {};
-  for (const { table, column } of PURGE_ORDER) {
-    const { data, error } = await db.from(table).delete().eq(column, workspaceId).select('id');
-    if (error) fail(`purge.${table}`, error);
-    deleted[table] = (data || []).length;
-  }
+      const counts = {};
+      for (const { table, column } of PURGE_ORDER) {
+        // table/column come from the PURGE_ORDER constant above, never a request.
+        const res = await t.query(
+          `delete from "${table}" where "${column}" = $1`, [workspaceId]);
+        counts[table] = res.rowCount || 0;
+      }
 
-  const { error: markError } = await db
-    .from('workspaces')
-    .update({
-      lifecycle_status: 'purged',
-      purged_at: new Date().toISOString(),
-      purge_after: null,
-    })
-    .eq('id', workspaceId);
-  if (markError) fail('purge.mark', markError);
+      await t.query(
+        `update workspaces
+            set lifecycle_status = 'purged', purged_at = $1, purge_after = null
+          where id = $2`,
+        [new Date().toISOString(), workspaceId]
+      );
+
+      return { current: row, deleted: counts };
+    });
+
+    if (outcome.skip) return outcome.skip;
+    current = outcome.current;
+    deleted = outcome.deleted;
+  } catch (error) {
+    fail('purge', error);
+  }
 
   await auditEvents.record({
     workspaceId,

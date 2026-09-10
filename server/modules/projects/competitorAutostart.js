@@ -33,7 +33,7 @@
 // waits for it — that is the existing worker contract, and the answer to it is
 // another replica, not a second mechanism here.
 
-const { getSupabase, isSupabaseConfigured } = require('../../services/supabase');
+const db = require('../../services/db');
 const moduleQueue = require('../../services/moduleQueue');
 
 const MODULE_KEY = 'competitor';
@@ -112,7 +112,7 @@ const NOTES = {
     + 'never stored as project evidence — they would appear in the dashboard and the exported '
     + 'report as if they had been measured.',
   not_configured:
-    'Projects need Supabase configured, so nothing was queued.',
+    'Projects need the database configured, so nothing was queued.',
 };
 
 /**
@@ -172,22 +172,24 @@ function decide({
 
 /** True when the error is "0019 has not been applied yet". */
 function isMissingQueueSchema(error) {
-  return /column .* does not exist|schema cache|Could not find/i.test(error?.message || '');
+  // 42703 undefined_column, 42P01 undefined_table.
+  if (error?.code === '42703' || error?.code === '42P01') return true;
+  return /column .* does not exist|relation .* does not exist/i.test(error?.message || '');
 }
 
 /** The competitor runs this project already has in flight, if any. */
 async function pendingRuns(projectId) {
-  const { data, error } = await getSupabase()
-    .from('project_module_runs')
-    .select('id, status, scheduled_for, created_at')
-    .eq('project_id', projectId)
-    .eq('module_key', MODULE_KEY)
-    .in('status', ['queued', 'running'])
-    .order('created_at', { ascending: false });
-
-  // Queue columns missing means 0019 has not been applied. Nothing is in flight
-  // that this can see, and the caller falls back to running detached.
-  if (error) {
+  let data;
+  try {
+    data = await db.rows(
+      `select id, status, scheduled_for, created_at from project_module_runs
+        where project_id = $1 and module_key = $2 and status in ('queued', 'running')
+        order by created_at desc`,
+      [projectId, MODULE_KEY]
+    );
+  } catch (error) {
+    // Queue columns missing means 0019 has not been applied. Nothing is in
+    // flight that this can see, and the caller falls back to running detached.
     if (isMissingQueueSchema(error)) {
       throw Object.assign(new Error(error.message), { code: 'queue_unavailable' });
     }
@@ -231,15 +233,16 @@ function coalescedStart(queuedRun, wait, now = Date.now()) {
  * comparison is running either way.
  */
 async function pushBack(runId, startAt) {
-  const { data, error } = await getSupabase()
-    .from('project_module_runs')
-    .update({ scheduled_for: startAt.toISOString() })
-    .eq('id', runId)
-    .eq('status', 'queued')
-    .select('id, scheduled_for')
-    .maybeSingle();
-  if (error) throw new Error(`[competitorAutostart.pushBack] ${error.message}`);
-  return data;
+  try {
+    return await db.maybeOne(
+      `update project_module_runs set scheduled_for = $1
+        where id = $2 and status = 'queued'
+        returning id, scheduled_for`,
+      [startAt.toISOString(), runId]
+    );
+  } catch (error) {
+    throw new Error(`[competitorAutostart.pushBack] ${error.message}`);
+  }
 }
 
 /**
@@ -265,7 +268,7 @@ async function scheduleCompetitorResearch({ access, domains = [], delayMs: delay
   });
 
   if (!project) return answer({ reason: 'no_project', competitorCount: 0 });
-  if (!isSupabaseConfigured()) {
+  if (!db.isDatabaseConfigured()) {
     return answer({ reason: 'not_configured', competitorCount: 0, note: NOTES.not_configured });
   }
 

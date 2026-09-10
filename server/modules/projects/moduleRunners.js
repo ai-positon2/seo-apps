@@ -18,7 +18,7 @@
 
 const moduleEvidence = require('./moduleEvidence');
 const adminLimits = require('../../services/adminLimits');
-const { getSupabase, isSupabaseConfigured } = require('../../services/supabase');
+const db = require('../../services/db');
 
 // Modules whose evidence this file can produce. 'technical' is absent because
 // CrawlScope owns its own richer tables and writes evidence there.
@@ -178,11 +178,17 @@ async function auditPageAgentReadiness({ url }) {
 // ── The module runners ──────────────────────────────────────────────────────
 // Thin: the work is per-page, and the driver owns iterating and rolling up.
 
-async function runSeoGeo({ access, run, project, keywords }) {
+async function runSeoGeo({ access, run, project, keywords, isStillOurs }) {
+  if (run.trigger === 'project_setup') {
+    return runHomepageAudit({ access, moduleKey: 'seo_geo', run, project, keywords, isStillOurs });
+  }
   return runAcrossCrawledPages({ access, moduleKey: 'seo_geo', run, project, keywords });
 }
 
-async function runAgentReadiness({ access, run, project, keywords }) {
+async function runAgentReadiness({ access, run, project, keywords, isStillOurs }) {
+  if (run.trigger === 'project_setup') {
+    return runHomepageAudit({ access, moduleKey: 'agent_readiness', run, project, keywords, isStillOurs });
+  }
   return runAcrossCrawledPages({ access, moduleKey: 'agent_readiness', run, project, keywords });
 }
 
@@ -680,18 +686,19 @@ async function runHubSpoke({ project, domains }) {
   // Content Architect's project record for this domain, created if this is the
   // first time. Its `vertical` (detected in that tool) is passed through when
   // known, because term profiling strips practice-type words per vertical.
-  const existing = (await caStore.listProjects().catch(() => []))
-    .find((cand) => sameSite(cand.domain, origin));
-  const caProject = existing || await caStore.createProject({
-    domain: origin,
-    host: (() => { try { return new URL(origin).host; } catch { return origin; } })(),
-  });
-
-  const analysis = await analyzeCrawledPages(
-    input.crawlResult,
-    { domain: origin, vertical: caProject.vertical || null },
-    { linkGraph: input.linkGraph },
-  );
+  const caProject = await require('./contentArchitect').ensureProject(project, domains);
+  await caStore.updateProject(caProject.id, { workflowState: 'analyzing' });
+  let analysis;
+  try {
+    analysis = await analyzeCrawledPages(
+      input.crawlResult,
+      { domain: origin, vertical: caProject.vertical || null },
+      { linkGraph: input.linkGraph },
+    );
+  } catch (e) {
+    await caStore.updateProject(caProject.id, { workflowState: 'failed' }).catch(() => {});
+    throw e;
+  }
 
   // Hand it to Content Architect so its own screens show this analysis rather
   // than a stale or absent one. Failing to save is not failing the analysis: the
@@ -700,6 +707,7 @@ async function runHubSpoke({ project, domains }) {
     await caStore.saveFullAnalysis(caProject.id, analysis);
     await caStore.updateProject(caProject.id, {
       workflowState: 'analyzed',
+      crawlRunId: crawl.id,
       crawlMode: 'crawlscope',
       sitemapSource: 'crawlscope',
       stats: {
@@ -929,6 +937,66 @@ function keywordsForUrl(project, url, requestKeywords) {
   if (Array.isArray(requestKeywords) && requestKeywords.length) return requestKeywords;
   const configured = Array.isArray(project?.settings?.pageKeywords) ? project.settings.pageKeywords : [];
   return configured.find((p) => p.url === url)?.keywords || [];
+}
+
+/** Project setup audits just the homepage, before any crawl data exists. */
+async function runHomepageAudit({ access, moduleKey, run, project, keywords, isStillOurs }) {
+  const lost = () => isStillOurs && !isStillOurs();
+  if (lost()) return null;
+  const { homepageUrl } = require('./homepageAutostart');
+  const { canonicalKey } = require('./crawledPages');
+  const url = homepageUrl({ url: run.target_url || project.url });
+  // A worker can be retried after saving the page but before closing the parent.
+  // Reuse that report, and reuse an unfinished row if it died during the audit.
+  const prior = (await moduleEvidence.pageRunsForRun(run.id)).find((p) => p.url === url);
+  const stored = prior?.status === 'completed'
+    ? await moduleEvidence.getPageRun(project.id, prior.id) : null;
+  const pageRun = prior || await moduleEvidence.startPageRun({
+    access, runId: run.id, moduleKey, url, ordinal: 0, source: 'project_setup',
+  });
+  try {
+    const pageKeywords = Array.isArray(project.settings?.pageKeywords) ? project.settings.pageKeywords : [];
+    const configured = pageKeywords
+      .find((p) => canonicalKey(p.url) === canonicalKey(url));
+    const result = stored?.payload?.native ? {
+      score: stored.score, scoreMax: stored.score_max, scoreBasis: SCORE_BASIS[moduleKey],
+      band: stored.band, findings: stored.findings, payload: stored.payload,
+    } : await PAGE_AUDITS[moduleKey]({
+      url, project, keywords: keywords?.length ? keywords : configured?.keywords || [],
+    });
+    if (lost()) return null;
+    const page = await moduleEvidence.completePageRun({
+      pageRunId: pageRun.id,
+      status: result.status || 'completed',
+      score: result.score ?? null,
+      scoreMax: result.scoreMax ?? 100,
+      band: result.band ?? null,
+      findings: result.findings || [],
+      payload: result.payload || null,
+    });
+    // Keep the same per-page storage that the module screens already open, and
+    // explicitly label the coverage so one page cannot read as a site average.
+    return {
+      ...result,
+      band: 'Homepage audited',
+      payload: {
+        scope: 'homepage',
+        source: 'project_setup',
+        pagesAudited: 1,
+        pagesScored: result.score === null || result.score === undefined ? 0 : 1,
+        pagesFailed: 0,
+        pageSelection: 'homepage at project setup',
+        pages: [{
+          pageRunId: page.id, url, status: page.status, score: page.score,
+          band: page.band, counts: page.counts || {}, findings: (page.findings || []).length,
+        }],
+      },
+      note: 'Homepage audited automatically at project setup. This score covers the homepage only.',
+    };
+  } catch (e) {
+    if (!lost()) await moduleEvidence.completePageRun({ pageRunId: pageRun.id, status: 'failed', error: e.message });
+    throw e;
+  }
 }
 
 async function runAcrossCrawledPages({ access, moduleKey, run, project, keywords }) {
@@ -1193,6 +1261,7 @@ async function executeOpenRun({
       project,
       domains,
       keywords,
+      isStillOurs,
     });
     if (lost()) {
       console.warn(`[moduleRunners.executeOpenRun] run ${run.id} was reclaimed; not closing it.`);

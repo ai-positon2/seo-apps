@@ -15,7 +15,7 @@
 // while a rule is being tuned, and `extraction_version` on the row records
 // which rules produced what is stored.
 
-const { getSupabase, isSupabaseConfigured } = require('../../services/supabase');
+const db = require('../../services/db');
 
 const RETENTION_MONTHS = Number(process.env.AIV_RAW_RETENTION_MONTHS) || 12;
 
@@ -44,52 +44,61 @@ async function sweep({ months = RETENTION_MONTHS, batch = BATCH, dryRun = false 
   const result = {
     cutoff, found: 0, cleared: 0, dryRun: Boolean(dryRun),
   };
-  if (!isSupabaseConfigured()) return result;
+  if (!db.isDatabaseConfigured()) return result;
 
-  const db = getSupabase();
+  // The batch is chosen by a subquery inside the statement itself. This used to
+  // be a select of ids followed by a second `update ... in (ids)` round trip,
+  // because PostgREST offered no LIMIT on an update — an unbounded one being
+  // exactly the lock held too long that the batching exists to avoid. In SQL the
+  // bound goes where it belongs, and the two steps cannot disagree about which
+  // rows were swept.
+  const due = `
+    select id from ai_visibility_captures
+     where captured_at < $1 and raw is not null
+     order by captured_at asc
+     limit $2`;
 
-  // Select ids first rather than issuing a blind UPDATE with a WHERE. PostgREST
-  // gives no easy LIMIT on an update, and an unbounded one is exactly the lock
-  // held too long that the batching exists to avoid.
-  const { data: due, error } = await db
-    .from('ai_visibility_captures')
-    .select('id')
-    .lt('captured_at', cutoff)
-    .not('raw', 'is', null)
-    .order('captured_at', { ascending: true })
-    .limit(batch);
+  try {
+    if (dryRun) {
+      result.found = await db.count(`select count(*) from (${due}) d`, [cutoff, batch]);
+      return result;
+    }
 
-  if (error) {
+    const swept = await db.rows(
+      `update ai_visibility_captures set raw = null
+        where id in (${due})
+        returning id`,
+      [cutoff, batch]
+    );
+    result.found = swept.length;
+    result.cleared = swept.length;
+    return result;
+  } catch (error) {
     // A missing column means 0018/0019 have not been applied. Nothing to do is
     // the right answer; throwing would take a scheduled job down over a pending
-    // migration.
-    if (/column .* does not exist|schema cache/i.test(error.message || '')) return result;
+    // migration. 42703 is undefined_column, 42P01 undefined_table.
+    if (error.code === '42703' || error.code === '42P01'
+      || /column .* does not exist|relation .* does not exist/i.test(error.message || '')) {
+      return result;
+    }
     throw new Error(`[aiVisibility.retention] ${error.message}`);
   }
-
-  result.found = (due || []).length;
-  if (dryRun || !result.found) return result;
-
-  const { error: updateError } = await db
-    .from('ai_visibility_captures')
-    .update({ raw: null })
-    .in('id', due.map((r) => r.id));
-
-  if (updateError) throw new Error(`[aiVisibility.retention] ${updateError.message}`);
-  result.cleared = result.found;
-  return result;
 }
 
 /** How much is outstanding, so a sweep can be scheduled rather than guessed at. */
 async function pending({ months = RETENTION_MONTHS } = {}) {
-  if (!isSupabaseConfigured()) return { cutoff: cutoffIso(months), pending: 0 };
-  const { count, error } = await getSupabase()
-    .from('ai_visibility_captures')
-    .select('id', { count: 'exact', head: true })
-    .lt('captured_at', cutoffIso(months))
-    .not('raw', 'is', null);
-  if (error) return { cutoff: cutoffIso(months), pending: 0 };
-  return { cutoff: cutoffIso(months), pending: count || 0 };
+  const cutoff = cutoffIso(months);
+  if (!db.isDatabaseConfigured()) return { cutoff, pending: 0 };
+  try {
+    const n = await db.count(
+      `select count(*) from ai_visibility_captures
+        where captured_at < $1 and raw is not null`,
+      [cutoff]
+    );
+    return { cutoff, pending: n };
+  } catch {
+    return { cutoff, pending: 0 };
+  }
 }
 
 module.exports = {

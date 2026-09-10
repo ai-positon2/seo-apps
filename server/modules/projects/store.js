@@ -13,7 +13,7 @@
 // workspace boundary un-forgettable: there is no code path into this store that
 // hasn't been through it.
 
-const { getSupabase, isSupabaseConfigured } = require('../../services/supabase');
+const db = require('../../services/db');
 const auditEvents = require('../../services/auditEvents');
 const adminLimits = require('../../services/adminLimits');
 const domainsLib = require('./domains');
@@ -42,7 +42,7 @@ function invalid(message) {
 
 function notConfigured() {
   return Object.assign(
-    new Error('Projects need Supabase configured (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY).'),
+    new Error('Projects need the database configured (DATABASE_URL).'),
     { status: 503, code: 'not_configured' },
   );
 }
@@ -127,16 +127,20 @@ function projectView(project, domains = []) {
 
 async function domainsForProjects(projectIds) {
   if (!projectIds.length) return new Map();
-  const { data, error } = await getSupabase()
-    .from('project_domains')
-    .select('*')
-    .in('project_id', projectIds)
-    .eq('status', 'active')
-    .order('created_at', { ascending: true });
-  if (error) fail('domainsForProjects', error);
+  let data;
+  try {
+    data = await db.rows(
+      `select * from project_domains
+        where project_id = any($1) and status = 'active'
+        order by created_at asc`,
+      [projectIds]
+    );
+  } catch (error) {
+    fail('domainsForProjects', error);
+  }
 
   const byProject = new Map();
-  for (const row of data || []) {
+  for (const row of data) {
     if (!byProject.has(row.project_id)) byProject.set(row.project_id, []);
     byProject.get(row.project_id).push(row);
   }
@@ -165,23 +169,25 @@ async function listDomains(projectId) {
  * noticing (PRD §22.3).
  */
 async function listProjects({ workspaceIds, workspaceId = null, includeDeleted = false, limit = 100 }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
   const scope = workspaceId ? [workspaceId] : (workspaceIds || []);
   if (!scope.length) return [];
 
-  let query = getSupabase()
-    .from('crawl_projects')
-    .select('*')
-    .in('workspace_id', scope)
-    .order('created_at', { ascending: false })
-    .limit(Math.min(Math.max(parseInt(limit, 10) || 100, 1), 500));
-  if (!includeDeleted) query = query.neq('lifecycle_status', 'deleted');
-
-  const { data, error } = await query;
-  if (error) fail('listProjects', error);
-
-  const projects = data || [];
+  // The workspace filter is part of the query, never applied after the fetch.
+  let projects;
+  try {
+    projects = await db.rows(
+      `select * from crawl_projects
+        where workspace_id = any($1)
+          ${includeDeleted ? '' : `and lifecycle_status <> 'deleted'`}
+        order by created_at desc
+        limit $2`,
+      [scope, Math.min(Math.max(parseInt(limit, 10) || 100, 1), 500)]
+    );
+  } catch (error) {
+    fail('listProjects', error);
+  }
   const byProject = await domainsForProjects(projects.map((p) => p.id));
   return projects.map((p) => projectView(p, byProject.get(p.id) || []));
 }
@@ -213,15 +219,18 @@ async function summariesForWorkspaces(workspaceIds) {
   const byWorkspace = new Map(scope.map((id) => [id, []]));
   if (!scope.length) return byWorkspace;
 
-  const { data, error } = await getSupabase()
-    .from('crawl_projects')
-    .select('id, name, url, workspace_id, lifecycle_status, created_at')
-    .in('workspace_id', scope)
-    .neq('lifecycle_status', 'deleted')
-    .order('created_at', { ascending: false });
-  if (error) fail('summariesForWorkspaces', error);
-
-  const rows = data || [];
+  let rows;
+  try {
+    rows = await db.rows(
+      `select id, name, url, workspace_id, lifecycle_status, created_at
+         from crawl_projects
+        where workspace_id = any($1) and lifecycle_status <> 'deleted'
+        order by created_at desc`,
+      [scope]
+    );
+  } catch (error) {
+    fail('summariesForWorkspaces', error);
+  }
   const domains = await domainsForProjects(rows.map((r) => r.id));
 
   for (const row of rows) {
@@ -252,15 +261,16 @@ async function getProject(projectRow) {
  * Creates a project. PRD §18.2 + AC-004: primary domain and country are both
  * required, and the country is normalized to ISO alpha-2.
  *
- * Not transactional — Supabase's REST interface has no multi-statement
- * transaction — so the order is chosen to fail safe: the project row first, then
- * its primary domain. A crash between the two leaves a project whose
- * primaryDomainSource reads 'legacy_url_column' (its `url` is already correct),
- * which the UI shows as needing a domain rather than as broken. The reverse
- * order would leave an orphaned domain row pointing at nothing.
+ * The project row and its domain rows go in together. This used to be two
+ * independent writes with the order chosen to fail safe, because Supabase's
+ * REST interface had no multi-statement transaction: a crash between them left
+ * a project whose primaryDomainSource read 'legacy_url_column', which the UI
+ * showed as needing a domain rather than as broken. Speaking SQL directly there
+ * is no need to pick the least-bad partial state — either the project exists
+ * with its domains or it does not exist at all.
  */
 async function createProject({ access, name, primaryDomain, country, competitors = [], schedule = {}, recipients = [], crawlOptions = {}, autoFindCompetitors = false }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
   const primary = domainsLib.normalizeOrigin(primaryDomain);
   const countryCode = domainsLib.normalizeCountry(country);
@@ -301,44 +311,65 @@ async function createProject({ access, name, primaryDomain, country, competitors
   }
   if (Number(options.maxDepth) > limits.maxCrawlDepth) options.maxDepth = limits.maxCrawlDepth;
 
-  const sb = getSupabase();
-  const { data: project, error } = await sb
-    .from('crawl_projects')
-    .insert({
-      owner: access.userId,                 // creator attribution only (§7.4)
-      workspace_id: access.workspaceId,     // the authorization boundary
-      name: projectName,
-      url: primary.normalizedOrigin,        // compatibility projection (§8.1)
-      country_code: countryCode,
-      options,
-      cron: cronExpr,
-      timezone,
-      recipients: Array.isArray(recipients) ? recipients.filter(Boolean) : [],
-      // A weekly slot is computed and stored, but the schedule starts OFF unless
-      // asked for. Creating a project should not silently begin crawling a
-      // client's site on a timer — turning it on is a deliberate act, and the
-      // setup panel says so.
-      enabled: schedule.enabled === true,
-      next_run_at: schedule.enabled === true
-        ? cron.nextRun(cronExpr, new Date(), timezone)?.toISOString() || null
-        : null,
-      lifecycle_status: 'active',
-      // "Find competitors for me" from setup. Deliberately not acted on here —
-      // it only fires later, from the Competitor Research run itself (see
-      // moduleRunners.runCompetitor), so choosing this at setup never spends a
-      // metered SEMrush budget before anyone asked to run anything.
-      settings: autoFindCompetitors ? { autoFindCompetitors: true } : {},
-    })
-    .select('*')
-    .single();
-  if (error) fail('createProject', error);
+  let project;
+  try {
+    project = await db.tx(async (t) => {
+      const created = await t.one(
+        `insert into crawl_projects
+           (owner, workspace_id, name, url, country_code, options, cron, timezone,
+            recipients, enabled, next_run_at, lifecycle_status, settings)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active', $12)
+         returning *`,
+        [
+          access.userId,                 // creator attribution only (§7.4)
+          access.workspaceId,            // the authorization boundary
+          projectName,
+          primary.normalizedOrigin,      // compatibility projection (§8.1)
+          countryCode,
+          db.json(options),
+          cronExpr,
+          timezone,
+          // A real text[] column, so it stays a JS array.
+          Array.isArray(recipients) ? recipients.filter(Boolean) : [],
+          // A weekly slot is computed and stored, but the schedule starts OFF
+          // unless asked for. Creating a project should not silently begin
+          // crawling a client's site on a timer — turning it on is a deliberate
+          // act, and the setup panel says so.
+          schedule.enabled === true,
+          schedule.enabled === true
+            ? cron.nextRun(cronExpr, new Date(), timezone)?.toISOString() || null
+            : null,
+          // "Find competitors for me" from setup. Deliberately not acted on
+          // here — it only fires later, from the Competitor Research run itself
+          // (see moduleRunners.runCompetitor), so choosing this at setup never
+          // spends a metered SEMrush budget before anyone asked to run anything.
+          db.json(autoFindCompetitors ? { autoFindCompetitors: true } : {}),
+        ]
+      );
 
-  const domainRows = [
-    domainRow(project, access, primary, 'primary', 'user_entered'),
-    ...competitorDomains.map((d) => domainRow(project, access, d, 'competitor', 'user_entered')),
-  ];
-  const { error: domainErr } = await sb.from('project_domains').insert(domainRows);
-  if (domainErr) fail('createProject(domains)', domainErr);
+      const domainRows = [
+        domainRow(created, access, primary, 'primary', 'user_entered'),
+        ...competitorDomains.map((d) => domainRow(created, access, d, 'competitor', 'user_entered')),
+      ];
+      const cols = Object.keys(domainRows[0]);
+      const params = [];
+      const tuples = domainRows.map((row) => {
+        const slots = cols.map((c) => {
+          params.push(row[c]);
+          return `$${params.length}`;
+        });
+        return `(${slots.join(', ')})`;
+      });
+      await t.query(
+        `insert into project_domains (${cols.map((c) => `"${c}"`).join(', ')}) values ${tuples.join(', ')}`,
+        params
+      );
+
+      return created;
+    });
+  } catch (error) {
+    fail('createProject', error);
+  }
 
   await auditEvents.record({
     action: auditEvents.ACTIONS.PROJECT_CREATED,
@@ -383,7 +414,7 @@ function domainRow(project, access, domain, role, source) {
  * because it needs a verified site and a reason.
  */
 async function updateProject({ access, patch }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   const project = access.project;
   const update = {};
   const changed = {};
@@ -554,14 +585,19 @@ async function updateProject({ access, patch }) {
 
   if (!Object.keys(update).length) return getProject(project);
 
-  const { data, error } = await getSupabase()
-    .from('crawl_projects')
-    .update(update)
-    .eq('id', project.id)
-    .eq('workspace_id', project.workspace_id)   // boundary re-asserted on the write
-    .select('*')
-    .single();
-  if (error) fail('updateProject', error);
+  let data;
+  try {
+    // The workspace boundary is re-asserted on the write.
+    const rows = await db.updateWhere(
+      'crawl_projects', update,
+      { id: project.id, workspace_id: project.workspace_id },
+      { returning: '*' },
+    );
+    if (rows.length !== 1) throw new Error(`expected exactly one row, got ${rows.length}`);
+    [data] = rows;
+  } catch (error) {
+    fail('updateProject', error);
+  }
 
   await auditEvents.record({
     action: auditEvents.ACTIONS.PROJECT_UPDATED,
@@ -593,7 +629,7 @@ async function updateProject({ access, patch }) {
  * for review instead of accepting it immediately).
  */
 async function addCompetitor({ access, domain, status = 'active', source = 'user_entered' }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   const project = access.project;
 
   const current = await domainsForProjects([project.id]);
@@ -608,19 +644,18 @@ async function addCompetitor({ access, domain, status = 'active', source = 'user
   const { limits } = await adminLimits.effectiveLimits({ workspaceId: project.workspace_id });
   void limits; // competitor-count caps are provider limits (§10.2); not enforced yet
 
-  const { data, error } = await getSupabase()
-    .from('project_domains')
-    .insert({
+  let data;
+  try {
+    data = await db.insertOne('project_domains', {
       ...domainRow(project, access, normalized, 'competitor', source),
       status,
-    })
-    .select('*')
-    .single();
-  if (error) {
+    });
+  } catch (error) {
     // The partial unique index on (project_id, normalized_origin) where active
     // is what makes "add the same competitor twice" a no-op instead of a
     // duplicate row — report it as already-tracked rather than as a failure.
-    if (/duplicate key|unique/i.test(error.message)) {
+    // 23505 is Postgres's unique_violation.
+    if (error.code === '23505' || /duplicate key|unique/i.test(error.message || '')) {
       throw Object.assign(
         new Error(`${normalized.host} is already tracked on this project.`),
         { status: 409 },
@@ -655,17 +690,19 @@ async function addCompetitor({ access, domain, status = 'active', source = 'user
  * has nothing to crawl; changing it is setPrimaryDomain's job.
  */
 async function removeDomain({ access, domainId, reason }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   const project = access.project;
-  const sb = getSupabase();
 
-  const { data: existing, error: findErr } = await sb
-    .from('project_domains')
-    .select('*')
-    .eq('id', domainId)
-    .eq('project_id', project.id)      // scoped: a domain id from another project is a 404
-    .maybeSingle();
-  if (findErr) fail('removeDomain(find)', findErr);
+  let existing;
+  try {
+    // Scoped: a domain id from another project is a 404.
+    existing = await db.maybeOne(
+      `select * from project_domains where id = $1 and project_id = $2`,
+      [domainId, project.id]
+    );
+  } catch (error) {
+    fail('removeDomain(find)', error);
+  }
   if (!existing) throw Object.assign(new Error('Domain not found on this project.'), { status: 404 });
 
   if (existing.role === 'primary') {
@@ -673,13 +710,15 @@ async function removeDomain({ access, domainId, reason }) {
   }
   if (existing.status === 'removed') return domainView(existing);
 
-  const { data, error } = await sb
-    .from('project_domains')
-    .update({ status: 'removed' })
-    .eq('id', domainId)
-    .select('*')
-    .single();
-  if (error) fail('removeDomain', error);
+  let data;
+  try {
+    data = await db.one(
+      `update project_domains set status = 'removed' where id = $1 returning *`,
+      [domainId]
+    );
+  } catch (error) {
+    fail('removeDomain', error);
+  }
 
   await auditEvents.record({
     action: auditEvents.ACTIONS.DOMAIN_REMOVED,
@@ -705,10 +744,9 @@ async function removeDomain({ access, domainId, reason }) {
  * scheduler keeps crawling the right site (§8.1).
  */
 async function setPrimaryDomain({ access, domain, reason }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   const project = access.project;
   const normalized = domainsLib.normalizeOrigin(domain);
-  const sb = getSupabase();
 
   const current = await domainsForProjects([project.id]);
   const rows = current.get(project.id) || [];
@@ -726,34 +764,44 @@ async function setPrimaryDomain({ access, domain, reason }) {
     );
   }
 
-  // Retire the old primary first: the partial unique index allows only one
-  // active primary per project, so inserting before retiring would be rejected.
-  if (oldPrimary) {
-    const { error } = await sb.from('project_domains')
-      .update({ status: 'removed' }).eq('id', oldPrimary.id);
-    if (error) fail('setPrimaryDomain(retire)', error);
+  // All three writes in one transaction. Half-applied, this leaves a project
+  // with no active primary domain at all (the old one retired, the new one
+  // never inserted) — the state the partial unique index exists to make
+  // impossible, reached by crashing between two requests instead of by one bad
+  // one.
+  let data;
+  try {
+    data = await db.tx(async (t) => {
+      // Retire the old primary first: the partial unique index allows only one
+      // active primary per project, so inserting before retiring is rejected.
+      if (oldPrimary) {
+        await t.query(
+          `update project_domains set status = 'removed' where id = $1`, [oldPrimary.id]);
+      }
+
+      const row = domainRow(project, access, normalized, 'primary', 'user_entered');
+      const cols = Object.keys(row);
+      await t.query(
+        `insert into project_domains (${cols.map((c) => `"${c}"`).join(', ')})
+         values (${cols.map((_, i) => `$${i + 1}`).join(', ')})`,
+        cols.map((c) => row[c])
+      );
+
+      // Verification does not survive a domain change, and neither does a
+      // robots override that was only granted because the old site was
+      // verified (§22.2).
+      return t.one(
+        `update crawl_projects
+            set url = $1, site_verified_at = null, site_verified_by = null,
+                robots_override = false
+          where id = $2 and workspace_id = $3
+          returning *`,
+        [normalized.normalizedOrigin, project.id, project.workspace_id]
+      );
+    });
+  } catch (error) {
+    fail('setPrimaryDomain', error);
   }
-
-  const { error: insertErr } = await sb
-    .from('project_domains')
-    .insert(domainRow(project, access, normalized, 'primary', 'user_entered'));
-  if (insertErr) fail('setPrimaryDomain(insert)', insertErr);
-
-  // Verification does not survive a domain change, and neither does a robots
-  // override that was only granted because the old site was verified (§22.2).
-  const { data, error } = await sb
-    .from('crawl_projects')
-    .update({
-      url: normalized.normalizedOrigin,
-      site_verified_at: null,
-      site_verified_by: null,
-      robots_override: false,
-    })
-    .eq('id', project.id)
-    .eq('workspace_id', project.workspace_id)
-    .select('*')
-    .single();
-  if (error) fail('setPrimaryDomain(project)', error);
 
   await auditEvents.record({
     action: auditEvents.ACTIONS.DOMAIN_PRIMARY_CHANGED,
@@ -779,7 +827,7 @@ async function setPrimaryDomain({ access, domain, reason }) {
  * (the route), a verified primary site, and a reason. Always audited.
  */
 async function setRobotsOverride({ access, enabled, reason }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   const project = access.project;
 
   if (enabled) {
@@ -794,14 +842,17 @@ async function setRobotsOverride({ access, enabled, reason }) {
     }
   }
 
-  const { data, error } = await getSupabase()
-    .from('crawl_projects')
-    .update({ robots_override: Boolean(enabled) })
-    .eq('id', project.id)
-    .eq('workspace_id', project.workspace_id)
-    .select('*')
-    .single();
-  if (error) fail('setRobotsOverride', error);
+  let data;
+  try {
+    data = await db.one(
+      `update crawl_projects set robots_override = $1
+        where id = $2 and workspace_id = $3
+        returning *`,
+      [Boolean(enabled), project.id, project.workspace_id]
+    );
+  } catch (error) {
+    fail('setRobotsOverride', error);
+  }
 
   await auditEvents.record({
     action: auditEvents.ACTIONS.ROBOTS_OVERRIDE_SET,
@@ -826,23 +877,25 @@ async function setRobotsOverride({ access, enabled, reason }) {
  * findings stay readable (§4.3.1), and the project can be restored.
  */
 async function deleteProject({ access, reason }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   const project = access.project;
 
-  const { data, error } = await getSupabase()
-    .from('crawl_projects')
-    .update({
-      lifecycle_status: 'deleted',
-      deleted_at: new Date().toISOString(),
-      deleted_by: access.userId,
-      enabled: false,          // stop the scheduler firing a deleted project
-      next_run_at: null,
-    })
-    .eq('id', project.id)
-    .eq('workspace_id', project.workspace_id)
-    .select('*')
-    .single();
-  if (error) fail('deleteProject', error);
+  let data;
+  try {
+    data = await db.one(
+      `update crawl_projects
+          set lifecycle_status = 'deleted',
+              deleted_at = $1,
+              deleted_by = $2,
+              enabled = false,      -- stop the scheduler firing a deleted project
+              next_run_at = null
+        where id = $3 and workspace_id = $4
+        returning *`,
+      [new Date().toISOString(), access.userId, project.id, project.workspace_id]
+    );
+  } catch (error) {
+    fail('deleteProject', error);
+  }
 
   await auditEvents.record({
     action: auditEvents.ACTIONS.PROJECT_DELETED,
@@ -863,24 +916,26 @@ async function deleteProject({ access, reason }) {
 }
 
 async function restoreProject({ access }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   const project = access.project;
 
-  const { data, error } = await getSupabase()
-    .from('crawl_projects')
-    .update({
-      lifecycle_status: 'active',
-      deleted_at: null,
-      deleted_by: null,
-      // Left disabled on purpose: re-enabling a schedule is a separate,
-      // deliberate act, so a restore never silently starts crawling.
-      next_run_at: null,
-    })
-    .eq('id', project.id)
-    .eq('workspace_id', project.workspace_id)
-    .select('*')
-    .single();
-  if (error) fail('restoreProject', error);
+  let data;
+  try {
+    data = await db.one(
+      `update crawl_projects
+          set lifecycle_status = 'active',
+              deleted_at = null,
+              deleted_by = null,
+              -- Left disabled on purpose: re-enabling a schedule is a separate,
+              -- deliberate act, so a restore never silently starts crawling.
+              next_run_at = null
+        where id = $1 and workspace_id = $2
+        returning *`,
+      [project.id, project.workspace_id]
+    );
+  } catch (error) {
+    fail('restoreProject', error);
+  }
 
   await auditEvents.record({
     action: auditEvents.ACTIONS.PROJECT_RESTORED,
@@ -959,7 +1014,7 @@ const PROJECT_PURGE_ORDER = [
  * direction: the trail over-reports rather than losing the event entirely.
  */
 async function purgeProject({ access, reason, confirmName }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   const project = access.project;
 
   if (project.lifecycle_status !== 'deleted') {
@@ -976,8 +1031,6 @@ async function purgeProject({ access, reason, confirmName }) {
       { status: 400, code: 'confirm_name_mismatch' },
     );
   }
-
-  const db = getSupabase();
 
   await auditEvents.record({
     action: auditEvents.ACTIONS.PROJECT_PURGED,
@@ -1002,22 +1055,36 @@ async function purgeProject({ access, reason, confirmName }) {
     source: 'api.projects',
   }, { strict: true });
 
-  const deleted = {};
-  for (const { table, column, workspaceScoped } of PROJECT_PURGE_ORDER) {
-    let query = db.from(table).delete().eq(column, project.id);
-    // Only when the project actually has a workspace. A project predating
-    // migration 0011's backfill is authorized by its creator instead
-    // (projectAccess.requireProject), and its workspace_id is null — an
-    // `.eq('workspace_id', null)` becomes SQL `= NULL`, which matches nothing,
-    // so adding the predicate unconditionally would delete no row and still
-    // report a successful purge.
-    if (workspaceScoped && project.workspace_id) {
-      query = query.eq('workspace_id', project.workspace_id);
-    }
-
-    const { data, error } = await query.select('id');
-    if (error) fail(`purgeProject.${table}`, error);
-    deleted[table] = (data || []).length;
+  // One transaction across the whole ordered purge. Half-applied — which two
+  // dozen independent DELETE requests could always leave behind — the project
+  // is neither present nor gone, and PROJECT_PURGE_ORDER exists precisely
+  // because that state is unrecoverable by hand.
+  let deleted;
+  try {
+    deleted = await db.tx(async (t) => {
+      const counts = {};
+      for (const { table, column, workspaceScoped } of PROJECT_PURGE_ORDER) {
+        const params = [project.id];
+        let scope = '';
+        // Only when the project actually has a workspace. A project predating
+        // migration 0011's backfill is authorized by its creator instead
+        // (projectAccess.requireProject), and its workspace_id is null — a
+        // `workspace_id = NULL` predicate matches nothing, so adding it
+        // unconditionally would delete no row and still report a successful
+        // purge.
+        if (workspaceScoped && project.workspace_id) {
+          params.push(project.workspace_id);
+          scope = ` and workspace_id = $${params.length}`;
+        }
+        // table/column come from the PROJECT_PURGE_ORDER constant, never a request.
+        const res = await t.query(
+          `delete from "${table}" where "${column}" = $1${scope}`, params);
+        counts[table] = res.rowCount || 0;
+      }
+      return counts;
+    });
+  } catch (error) {
+    fail('purgeProject', error);
   }
 
   // The project row is the one deletion that must have happened: every cascade

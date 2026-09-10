@@ -8,7 +8,7 @@ const express = require('express');
 const runStore = require('../services/runStore');
 const identityStore = require('../services/identityStore');
 const { resolveIdentity } = require('../services/workspaceContext');
-const { isSupabaseConfigured } = require('../services/supabase');
+const { isDatabaseConfigured } = require('../services/db');
 const { TRACKED_TOOL_IDS } = require('../config/runTracking');
 
 const router = express.Router();
@@ -49,7 +49,7 @@ function workspaceView(workspace, identity) {
 
 function notConfigured(res) {
   return res.status(503).json({
-    error: 'Run history needs Supabase configured (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY).',
+    error: 'Run history needs the database configured (DATABASE_URL).',
     runs: [], total: 0, workspace: null, trackedTools: TRACKED_TOOL_IDS,
   });
 }
@@ -57,7 +57,7 @@ function notConfigured(res) {
 // GET /api/runs — the active workspace's run history, newest first.
 // Filters: toolId, status, action, q (label search), mine=1, limit, offset.
 router.get('/', async (req, res) => {
-  if (!isSupabaseConfigured()) return notConfigured(res);
+  if (!isDatabaseConfigured()) return notConfigured(res);
   try {
     const { identity, workspace } = await activeWorkspace(req);
     if (!identity.workspaceId) {
@@ -95,7 +95,7 @@ router.get('/', async (req, res) => {
 // GET /api/runs/stats — per-tool rollup for the active workspace. `toolId`
 // narrows it to one tool, for the run panel on that module's own page.
 router.get('/stats', async (req, res) => {
-  if (!isSupabaseConfigured()) return notConfigured(res);
+  if (!isDatabaseConfigured()) return notConfigured(res);
   try {
     const { identity, workspace } = await activeWorkspace(req);
     if (!identity.workspaceId) {
@@ -117,7 +117,7 @@ router.get('/stats', async (req, res) => {
 // member of the workspace the run belongs to (not just the active one, so a
 // link to a run in another of your workspaces still opens).
 router.get('/:id', async (req, res) => {
-  if (!isSupabaseConfigured()) return notConfigured(res);
+  if (!isDatabaseConfigured()) return notConfigured(res);
   try {
     const identity = await resolveIdentity(req);
     if (!identity.userId) return res.status(404).json({ error: 'Run not found.' });

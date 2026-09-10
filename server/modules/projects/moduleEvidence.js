@@ -21,7 +21,7 @@
 //      ({ ruleId, title, severity, category, count, detail }), so one card
 //      component renders CrawlScope and every other module without branching.
 
-const { getSupabase, isSupabaseConfigured } = require('../../services/supabase');
+const db = require('../../services/db');
 const auditEvents = require('../../services/auditEvents');
 
 // 'ai_visibility_prompts' is not a module with a card and a score — it is the
@@ -60,7 +60,7 @@ function fail(where, error) {
 
 function notConfigured() {
   return Object.assign(
-    new Error('Module evidence needs Supabase configured (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY).'),
+    new Error('Module evidence needs the database configured (DATABASE_URL).'),
     { status: 503, code: 'not_configured' },
   );
 }
@@ -170,15 +170,15 @@ async function startRun({
   access, moduleKey, targetUrl = null, trigger = 'manual', pageBudget = null,
   followingCrawlRunId = null,
 }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   assertModuleKey(moduleKey);
 
   const project = access.project;
   const allowance = allowanceMinutes(moduleKey, { pageBudget });
 
-  const { data, error } = await getSupabase()
-    .from('project_module_runs')
-    .insert({
+  let data;
+  try {
+    data = await db.insertOne('project_module_runs', {
       project_id: project.id,
       workspace_id: project.workspace_id || null,
       module_key: moduleKey,
@@ -202,10 +202,10 @@ async function startRun({
         // "started and stuck", and it said "Starting the first page" for both.
         followingCrawlRunId,
       },
-    })
-    .select('*')
-    .single();
-  if (error) fail('startRun', error);
+    });
+  } catch (error) {
+    fail('startRun', error);
+  }
 
   auditRun(access, auditEvents.ACTIONS.MODULE_RUN_STARTED, {
     entityType: 'project_module_run',
@@ -227,7 +227,7 @@ async function completeRun({
   access, runId, score = null, scoreMax = 100, scoreBasis = null, band = null,
   findings = [], payload = null, status = 'completed',
 }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
   const hasScore = score !== null && score !== undefined && Number.isFinite(Number(score));
   if (hasScore && !scoreBasis) {
@@ -240,9 +240,9 @@ async function completeRun({
   const normalized = (Array.isArray(findings) ? findings : []).map(normalizeFinding);
   const { payload: trimmed, truncated } = trimPayload(payload);
 
-  const { data, error } = await getSupabase()
-    .from('project_module_runs')
-    .update({
+  let data;
+  try {
+    const rows = await db.updateWhere('project_module_runs', {
       status,
       score: hasScore ? Number(score) : null,
       score_max: hasScore ? Number(scoreMax) : null,
@@ -253,11 +253,12 @@ async function completeRun({
       payload: trimmed,
       payload_truncated: truncated,
       finished_at: new Date().toISOString(),
-    })
-    .eq('id', runId)
-    .select('*')
-    .single();
-  if (error) fail('completeRun', error);
+    }, { id: runId }, { returning: '*' });
+    if (rows.length !== 1) throw new Error(`expected exactly one row, got ${rows.length}`);
+    [data] = rows;
+  } catch (error) {
+    fail('completeRun', error);
+  }
 
   auditRun(access, auditEvents.ACTIONS.MODULE_RUN_COMPLETED, {
     entityType: 'project_module_run',
@@ -291,18 +292,19 @@ async function completeRun({
  * @param {string} basis  the methodology sentence for one page's score (§6.2)
  */
 async function refreshRunAggregate(runId, { basis = null } = {}) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
   const pageRuns = await pageRunsForRun(runId);
   const rollup = aggregatePages(pageRuns);
   const normalized = (rollup.findings || []).map(normalizeFinding);
 
-  const { data: current, error: readError } = await getSupabase()
-    .from('project_module_runs')
-    .select('payload, score_basis')
-    .eq('id', runId)
-    .maybeSingle();
-  if (readError) fail('refreshRunAggregate(read)', readError);
+  let current;
+  try {
+    current = await db.maybeOne(
+      `select payload, score_basis from project_module_runs where id = $1`, [runId]);
+  } catch (error) {
+    fail('refreshRunAggregate(read)', error);
+  }
 
   const hasScore = rollup.mean !== null;
   // Keep the run's own basis sentence when the caller has not supplied one, so a
@@ -331,9 +333,9 @@ async function refreshRunAggregate(runId, { basis = null } = {}) {
 
   const { payload: trimmed, truncated } = trimPayload(payload);
 
-  const { data, error } = await getSupabase()
-    .from('project_module_runs')
-    .update({
+  let data;
+  try {
+    const rows = await db.updateWhere('project_module_runs', {
       score: hasScore ? rollup.mean : null,
       score_max: hasScore ? 100 : null,
       score_basis: scoreBasis,
@@ -342,26 +344,32 @@ async function refreshRunAggregate(runId, { basis = null } = {}) {
       findings: normalized,
       payload: trimmed,
       payload_truncated: truncated,
-    })
-    .eq('id', runId)
-    .select('*')
-    .single();
-  if (error) fail('refreshRunAggregate', error);
+    }, { id: runId }, { returning: '*' });
+    if (rows.length !== 1) throw new Error(`expected exactly one row, got ${rows.length}`);
+    [data] = rows;
+  } catch (error) {
+    fail('refreshRunAggregate', error);
+  }
   return { run: data, rollup };
 }
 
 /** Closes a run that threw. The message is stored; the stack is not. */
 async function failRun({ access, runId, error: runError }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
   const message = String(runError?.message || runError || 'The module run failed.').slice(0, 2000);
-  const { data, error } = await getSupabase()
-    .from('project_module_runs')
-    .update({ status: 'failed', error: message, finished_at: new Date().toISOString() })
-    .eq('id', runId)
-    .select('*')
-    .single();
-  if (error) fail('failRun', error);
+  let data;
+  try {
+    data = await db.one(
+      `update project_module_runs
+          set status = 'failed', error = $1, finished_at = $2
+        where id = $3
+        returning *`,
+      [message, new Date().toISOString(), runId]
+    );
+  } catch (error) {
+    fail('failRun', error);
+  }
 
   auditRun(access, auditEvents.ACTIONS.MODULE_RUN_FAILED, {
     entityType: 'project_module_run',
@@ -382,28 +390,37 @@ async function failRun({ access, runId, error: runError }) {
  * able to show rather than looking like "never run".
  */
 async function latestByModule(projectId, { limit = 120 } = {}) {
-  if (!isSupabaseConfigured()) return new Map();
+  if (!db.isDatabaseConfigured()) return new Map();
 
-  const { data, error } = await getSupabase()
-    .from('project_module_runs')
-    // `note` is projected out of the payload rather than selecting the payload
-    // itself: a payload runs to 120,000 characters, and six of them per dashboard
-    // load would be most of a megabyte to render one sentence.
-    //
-    // That sentence is the whole point of the state — "Content Architect has no
-    // project for this domain yet" is actionable where "insufficient data" is not.
-    // `note` and `reportRef` are projected out of the payload rather than
-    // selecting the payload itself: a payload now runs to hundreds of kilobytes
-    // (it holds the module's own report), and six of them per dashboard load to
-    // read one sentence and one id would be absurd.
-    .select('id, module_key, status, trigger, target_url, country_code, score, score_max, score_basis, band, counts, findings, error, started_at, finished_at, created_at, note:payload->>note, cardNote:payload->>cardNote, interrupted:payload->>interrupted, reportRef:payload->>reportRef')
-    .eq('project_id', projectId)
-    .order('created_at', { ascending: false })
-    .limit(limit);
-  if (error) fail('latestByModule', error);
+  // `note` and `reportRef` are projected out of the payload rather than
+  // selecting the payload itself: a payload now runs to hundreds of kilobytes
+  // (it holds the module's own report), and six of them per dashboard load to
+  // read one sentence and one id would be absurd.
+  //
+  // That sentence is the whole point of the state — "Content Architect has no
+  // project for this domain yet" is actionable where "insufficient data" is not.
+  let data;
+  try {
+    data = await db.rows(
+      `select id, module_key, status, trigger, target_url, country_code,
+              score, score_max, score_basis, band, counts, findings, error,
+              started_at, finished_at, created_at,
+              payload->>'note' as "note",
+              payload->>'cardNote' as "cardNote",
+              payload->>'interrupted' as "interrupted",
+              payload->>'reportRef' as "reportRef"
+         from project_module_runs
+        where project_id = $1
+        order by created_at desc
+        limit $2`,
+      [projectId, limit]
+    );
+  } catch (error) {
+    fail('latestByModule', error);
+  }
 
   const byModule = new Map();
-  for (const row of data || []) {
+  for (const row of data) {
     const entry = byModule.get(row.module_key) || { terminal: null, inFlight: null };
     if (TERMINAL.includes(row.status)) {
       if (!entry.terminal) entry.terminal = row;
@@ -417,30 +434,33 @@ async function latestByModule(projectId, { limit = 120 } = {}) {
 
 /** Run history for one module of one project, newest first. */
 async function listRuns(projectId, moduleKey, { limit = 25 } = {}) {
-  if (!isSupabaseConfigured()) return [];
+  if (!db.isDatabaseConfigured()) return [];
   assertModuleKey(moduleKey);
 
-  const { data, error } = await getSupabase()
-    .from('project_module_runs')
-    .select('*')
-    .eq('project_id', projectId)
-    .eq('module_key', moduleKey)
-    .order('created_at', { ascending: false })
-    .limit(Math.min(Number(limit) || 25, 100));
-  if (error) fail('listRuns', error);
-  return data || [];
+  try {
+    return await db.rows(
+      `select * from project_module_runs
+        where project_id = $1 and module_key = $2
+        order by created_at desc
+        limit $3`,
+      [projectId, moduleKey, Math.min(Number(limit) || 25, 100)]
+    );
+  } catch (error) {
+    fail('listRuns', error);
+  }
 }
 
 async function getRun(projectId, runId) {
-  if (!isSupabaseConfigured()) return null;
-  const { data, error } = await getSupabase()
-    .from('project_module_runs')
-    .select('*')
-    .eq('project_id', projectId)   // scoped, not just by id: no RLS to fall back on
-    .eq('id', runId)
-    .maybeSingle();
-  if (error) fail('getRun', error);
-  return data || null;
+  if (!db.isDatabaseConfigured()) return null;
+  try {
+    // Scoped by project, not just by id: there is no RLS to fall back on.
+    return await db.maybeOne(
+      `select * from project_module_runs where project_id = $1 and id = $2`,
+      [projectId, runId]
+    );
+  } catch (error) {
+    fail('getRun', error);
+  }
 }
 
 // ── How long a run is allowed to take ───────────────────────────────────────
@@ -515,21 +535,24 @@ function allowanceMinutes(moduleKey, { pageBudget = FALLBACK_PAGE_BUDGET } = {})
  * than a jsonb comparison in a bulk update.
  */
 async function sweepStaleRuns({ olderThanMinutes = null } = {}) {
-  if (!isSupabaseConfigured()) return 0;
+  if (!db.isDatabaseConfigured()) return 0;
 
-  const { data: open, error: readError } = await getSupabase()
-    .from('project_module_runs')
-    .select('id, module_key, started_at, created_at, payload')
-    .eq('status', 'running');
-  if (readError) {
-    console.error('[moduleEvidence.sweepStaleRuns]', readError.message);
+  let open;
+  try {
+    open = await db.rows(
+      `select id, module_key, started_at, created_at, payload
+         from project_module_runs
+        where status = 'running'`
+    );
+  } catch (error) {
+    console.error('[moduleEvidence.sweepStaleRuns]', error.message);
     return 0;
   }
 
   const now = Date.now();
   const overdue = [];
 
-  for (const row of (open || [])) {
+  for (const row of open) {
     const startedAt = Date.parse(row.started_at || row.created_at);
     if (!Number.isFinite(startedAt)) continue;   // no start time is not evidence of death
 
@@ -603,23 +626,23 @@ async function sweepStaleRuns({ olderThanMinutes = null } = {}) {
     const salvaged = await salvageInterruptedRun(row);
     if (salvaged) { closed += 1; continue; }
 
-    const { error } = await getSupabase()
-      .from('project_module_runs')
-      .update({
-        status: 'failed',
-        // Says what was expected as well as what happened, so the next person
-        // does not have to guess whether the cutoff was the problem.
-        error: row.forced
-          ? `Closed by hand after ${row.minutes} minutes, before its `
-            + `${row.rowAllowance}-minute allowance expired. No result had been recorded.`
-          : `No result recorded after ${row.minutes} minutes, past the `
-            + `${row.allowanceUsed}-minute allowance this run was given — the process running `
-            + 'it stopped. A deploy or server restart mid-run is the usual cause.',
-        finished_at: new Date().toISOString(),
-      })
-      .eq('id', row.id)
-      .eq('status', 'running');   // do not stomp a run that finished just now
-    if (error) {
+    // Says what was expected as well as what happened, so the next person does
+    // not have to guess whether the cutoff was the problem.
+    const message = row.forced
+      ? `Closed by hand after ${row.minutes} minutes, before its `
+        + `${row.rowAllowance}-minute allowance expired. No result had been recorded.`
+      : `No result recorded after ${row.minutes} minutes, past the `
+        + `${row.allowanceUsed}-minute allowance this run was given — the process running `
+        + 'it stopped. A deploy or server restart mid-run is the usual cause.';
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await db.query(
+        `update project_module_runs
+            set status = 'failed', error = $1, finished_at = $2
+          where id = $3 and status = 'running'`,   // do not stomp a run that finished just now
+        [message, new Date().toISOString(), row.id]
+      );
+    } catch (error) {
       console.error('[moduleEvidence.sweepStaleRuns]', error.message);
       continue;
     }
@@ -642,59 +665,69 @@ async function salvageInterruptedRun(row) {
   if (!usable.length) return false;   // nothing was finished; this really failed
 
   // pageRunsForRun deliberately omits findings, and the rollup needs them.
-  const { data: withFindings, error: readError } = await getSupabase()
-    .from('project_module_page_runs')
-    .select('id, url, status, score, band, counts, findings')
-    .eq('run_id', row.id)
-    .eq('status', 'completed');
-  if (readError) {
-    console.error('[moduleEvidence.salvageInterruptedRun]', readError.message);
+  let withFindings;
+  try {
+    withFindings = await db.rows(
+      `select id, url, status, score, band, counts, findings
+         from project_module_page_runs
+        where run_id = $1 and status = 'completed'`,
+      [row.id]
+    );
+  } catch (error) {
+    console.error('[moduleEvidence.salvageInterruptedRun]', error.message);
     return false;
   }
 
-  const rollup = aggregatePages(withFindings || []);
+  const rollup = aggregatePages(withFindings);
   const abandoned = pageRuns.filter((p) => p.status === 'running').length;
 
-  const { error } = await getSupabase()
-    .from('project_module_runs')
-    .update({
-      // Completed, not failed: the pages it has are real measurements.
-      status: 'completed',
-      score: rollup.mean,
-      score_max: 100,
-      score_basis: rollup.mean === null
-        ? null
-        : `Mean of ${rollup.scoredPages} page score(s) from the ${row.moduleKey} audit, `
-          + 'from a run that was interrupted before it finished',
-      band: `${rollup.totalPages} page${rollup.totalPages === 1 ? '' : 's'} audited`,
-      counts: rollup.counts,
-      findings: rollup.findings,
+  const salvage = {
+    // Completed, not failed: the pages it has are real measurements.
+    status: 'completed',
+    score: rollup.mean,
+    score_max: 100,
+    score_basis: rollup.mean === null
+      ? null
+      : `Mean of ${rollup.scoredPages} page score(s) from the ${row.moduleKey} audit, `
+        + 'from a run that was interrupted before it finished',
+    band: `${rollup.totalPages} page${rollup.totalPages === 1 ? '' : 's'} audited`,
+    counts: rollup.counts,
+    findings: rollup.findings,
       payload: {
-        pagesAudited: rollup.totalPages,
-        pagesScored: rollup.scoredPages,
-        interrupted: true,
-        pagesAbandonedMidAudit: abandoned,
-        // One line, for a dashboard card. The full explanation below is for the
-        // module's own page, where there is room for it. A caveat that takes six
-        // lines on a card pushes the actual findings off the bottom and shouts
-        // louder than the result it is qualifying.
-        cardNote: `${rollup.totalPages} page(s) audited before the run was interrupted. `
-          + 'Re-run for full coverage.',
-        note: `This run was interrupted after ${row.minutes} minutes`
-          + (row.forced
-            ? ' and closed by hand.'
-            : ' — the process running it stopped, usually a deploy or server restart.')
-          + ` The ${rollup.totalPages} page(s) it had `
-          + 'already finished are kept and are shown here; the rest of the site was not audited'
-          + (abandoned ? `, and ${abandoned} page(s) were mid-audit when it stopped` : '')
-          + '. Re-run it for full coverage.',
-      },
-      finished_at: new Date().toISOString(),
-    })
-    .eq('id', row.id)
-    .eq('status', 'running');
+      pagesAudited: rollup.totalPages,
+      pagesScored: rollup.scoredPages,
+      interrupted: true,
+      pagesAbandonedMidAudit: abandoned,
+      // One line, for a dashboard card. The full explanation below is for the
+      // module's own page, where there is room for it. A caveat that takes six
+      // lines on a card pushes the actual findings off the bottom and shouts
+      // louder than the result it is qualifying.
+      cardNote: `${rollup.totalPages} page(s) audited before the run was interrupted. `
+        + 'Re-run for full coverage.',
+      note: `This run was interrupted after ${row.minutes} minutes`
+        + (row.forced
+          ? ' and closed by hand.'
+          : ' — the process running it stopped, usually a deploy or server restart.')
+        + ` The ${rollup.totalPages} page(s) it had `
+        + 'already finished are kept and are shown here; the rest of the site was not audited'
+        + (abandoned ? `, and ${abandoned} page(s) were mid-audit when it stopped` : '')
+        + '. Re-run it for full coverage.',
+    },
+    finished_at: new Date().toISOString(),
+  };
 
-  if (error) {
+  try {
+    const cols = Object.keys(salvage);
+    const jsonCols = new Set(['counts', 'findings', 'payload']);
+    const params = cols.map((c) => (jsonCols.has(c) ? db.json(salvage[c]) : salvage[c]));
+    params.push(row.id);
+    await db.query(
+      `update project_module_runs
+          set ${cols.map((c, i) => `"${c}" = $${i + 1}`).join(', ')}
+        where id = $${params.length} and status = 'running'`,
+      params
+    );
+  } catch (error) {
     console.error('[moduleEvidence.salvageInterruptedRun]', error.message);
     return false;
   }
@@ -718,7 +751,7 @@ const PAGE_MODULE_KEYS = ['seo_geo', 'agent_readiness'];
 async function startPageRun({
   access, runId, moduleKey, url, ordinal = null, source = 'crawl', pageId = null,
 }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   if (!PAGE_MODULE_KEYS.includes(moduleKey)) {
     throw Object.assign(
       new Error(`${moduleKey} is site-level and has no per-page reports.`),
@@ -726,9 +759,8 @@ async function startPageRun({
     );
   }
 
-  const { data, error } = await getSupabase()
-    .from('project_module_page_runs')
-    .insert({
+  try {
+    return await db.insertOne('project_module_page_runs', {
       run_id: runId,
       project_id: access.project.id,
       module_key: moduleKey,
@@ -742,11 +774,10 @@ async function startPageRun({
       // guessed at here.
       page_id: pageId,
       status: 'running',
-    })
-    .select('id')
-    .single();
-  if (error) fail('startPageRun', error);
-  return data;
+    }, { returning: 'id' });
+  } catch (error) {
+    fail('startPageRun', error);
+  }
 }
 
 /** Closes a page row with that page's own result. */
@@ -754,15 +785,14 @@ async function completePageRun({
   pageRunId, status = 'completed', score = null, scoreMax = 100, band = null,
   findings = [], payload = null, error: pageError = null,
 }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
   const normalized = (Array.isArray(findings) ? findings : []).map(normalizeFinding);
   const { payload: trimmed, truncated } = trimPayload(payload);
   const hasScore = score !== null && score !== undefined && Number.isFinite(Number(score));
 
-  const { data, error } = await getSupabase()
-    .from('project_module_page_runs')
-    .update({
+  try {
+    const rows = await db.updateWhere('project_module_page_runs', {
       status,
       score: hasScore ? Number(score) : null,
       score_max: hasScore ? Number(scoreMax) : null,
@@ -773,18 +803,19 @@ async function completePageRun({
       payload_truncated: truncated,
       error: pageError ? String(pageError).slice(0, 2000) : null,
       finished_at: new Date().toISOString(),
-    })
-    .eq('id', pageRunId)
-    .select('id, url, status, score, score_max, band, counts, findings')
-    .single();
-  if (error) fail('completePageRun', error);
-  return data;
+    }, { id: pageRunId }, { returning: 'id, url, status, score, score_max, band, counts, findings' });
+    if (rows.length !== 1) throw new Error(`expected exactly one row, got ${rows.length}`);
+    return rows[0];
+  } catch (error) {
+    fail('completePageRun', error);
+  }
 }
 
 /** True when the error is "that table does not exist yet". */
 function isMissingTable(error) {
   return error?.code === '42P01'
-    || /Could not find the table|does not exist/i.test(error?.message || '');
+    || error?.code === '42703'
+    || /does not exist/i.test(error?.message || '');
 }
 
 // Logged once rather than per request, so a missing migration is visible in the
@@ -804,13 +835,17 @@ let warnedMissingPageRuns = false;
  * are none.
  */
 async function pageRunsForRun(runId) {
-  if (!isSupabaseConfigured()) return [];
-  const { data, error } = await getSupabase()
-    .from('project_module_page_runs')
-    .select('id, url, ordinal, status, score, score_max, band, counts, error, finished_at, payload_truncated')
-    .eq('run_id', runId)
-    .order('ordinal', { ascending: true });
-  if (error) {
+  if (!db.isDatabaseConfigured()) return [];
+  try {
+    return await db.rows(
+      `select id, url, ordinal, status, score, score_max, band, counts,
+              error, finished_at, payload_truncated
+         from project_module_page_runs
+        where run_id = $1
+        order by ordinal asc`,
+      [runId]
+    );
+  } catch (error) {
     if (isMissingTable(error)) {
       if (!warnedMissingPageRuns) {
         warnedMissingPageRuns = true;
@@ -823,7 +858,6 @@ async function pageRunsForRun(runId) {
     }
     fail('pageRunsForRun', error);
   }
-  return data || [];
 }
 
 /**
@@ -836,17 +870,16 @@ async function pageRunsForRun(runId) {
  */
 async function pageRunProgress(runId) {
   const empty = { done: 0, failed: 0, running: 0, scored: 0, mean: null };
-  if (!isSupabaseConfigured()) return empty;
-  const { data, error } = await getSupabase()
-    .from('project_module_page_runs')
-    .select('status, score')
-    .eq('run_id', runId);
-  if (error) {
+  if (!db.isDatabaseConfigured()) return empty;
+  let rows;
+  try {
+    rows = await db.rows(
+      `select status, score from project_module_page_runs where run_id = $1`, [runId]);
+  } catch (error) {
     if (isMissingTable(error)) return empty;
     console.error('[moduleEvidence.pageRunProgress]', error.message);
     return empty;
   }
-  const rows = data || [];
   const completed = rows.filter((r) => r.status === 'completed');
 
   // The same null rule the finished rollup uses. Number(null) is 0 and
@@ -878,30 +911,28 @@ async function pageRunProgress(runId) {
  * cards — and only a run that is actually in flight needs this.
  */
 async function followedCrawlRunId(runId) {
-  if (!isSupabaseConfigured()) return null;
-  const { data, error } = await getSupabase()
-    .from('project_module_runs')
-    .select('payload')
-    .eq('id', runId)
-    .maybeSingle();
-  if (error) {
+  if (!db.isDatabaseConfigured()) return null;
+  try {
+    const data = await db.maybeOne(
+      `select payload from project_module_runs where id = $1`, [runId]);
+    return data?.payload?.followingCrawlRunId || null;
+  } catch (error) {
     console.error('[moduleEvidence.followedCrawlRunId]', error.message);
     return null;
   }
-  return data?.payload?.followingCrawlRunId || null;
 }
 
 /** One page's stored report. Scoped by project — there is no RLS behind this. */
 async function getPageRun(projectId, pageRunId) {
-  if (!isSupabaseConfigured()) return null;
-  const { data, error } = await getSupabase()
-    .from('project_module_page_runs')
-    .select('*')
-    .eq('project_id', projectId)
-    .eq('id', pageRunId)
-    .maybeSingle();
-  if (error) fail('getPageRun', error);
-  return data || null;
+  if (!db.isDatabaseConfigured()) return null;
+  try {
+    return await db.maybeOne(
+      `select * from project_module_page_runs where project_id = $1 and id = $2`,
+      [projectId, pageRunId]
+    );
+  } catch (error) {
+    fail('getPageRun', error);
+  }
 }
 
 /**

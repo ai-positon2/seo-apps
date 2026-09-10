@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// ── Import a client's keyword universe CSV into Supabase ────────────────────
+// ── Import a client's keyword universe CSV into Postgres ────────────────────
 // The Location Page Builder's live keyword research (keywordAdapter.js) pulls
 // keywords from competitors' SEMrush ranking profiles, which is too broad/
 // off-topic for niche service+location combos. This script loads a client's
@@ -7,7 +7,7 @@
 // Geo Type/Geo Detected, Data Confidence) into `lpb_keyword_universe` so
 // keywordAdapter can merge in matching rows (see keywordUniverseStore.js).
 //
-// Usage (from repo root, with SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY set):
+// Usage (from repo root, with DATABASE_URL set):
 //   node server/scripts/importKeywordUniverse.js <csvPath> <clientId>
 //
 // Idempotent per client: wipes that client's existing universe rows first,
@@ -17,8 +17,8 @@
 require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 const fs = require('fs');
 const readline = require('readline');
-const { getSupabase, isSupabaseConfigured } = require('../services/supabase');
-const supabaseStore = require('../services/supabaseStore');
+const db = require('../services/db');
+const recordStore = require('../services/recordStore');
 const { KNOWN_CITIES_SETTING_KEY } = require('../locationPageBuilder/keywordUniverseStore');
 
 const [, , csvPath, clientId] = process.argv;
@@ -27,8 +27,8 @@ if (!csvPath || !clientId) {
   console.error('Usage: node server/scripts/importKeywordUniverse.js <csvPath> <clientId>');
   process.exit(1);
 }
-if (!isSupabaseConfigured()) {
-  console.error('✗ SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set. Aborting.');
+if (!db.isDatabaseConfigured()) {
+  console.error('✗ DATABASE_URL not set. Aborting.');
   process.exit(1);
 }
 
@@ -58,20 +58,25 @@ function norm(s) {
   return String(s || '').toLowerCase().trim();
 }
 
-async function wipeExisting(sb) {
-  const { error } = await sb.from('lpb_keyword_universe').delete().eq('client_id', clientId);
-  if (error) throw new Error(`[wipe] ${error.message}`);
+async function wipeExisting() {
+  try {
+    await db.query('delete from lpb_keyword_universe where client_id = $1', [clientId]);
+  } catch (error) {
+    throw new Error(`[wipe] ${error.message}`);
+  }
 }
 
-async function insertBatch(sb, rows) {
-  const { error } = await sb.from('lpb_keyword_universe').insert(rows);
-  if (error) throw new Error(`[insert] ${error.message}`);
+async function insertBatch(rows) {
+  try {
+    await db.insertMany('lpb_keyword_universe', rows);
+  } catch (error) {
+    throw new Error(`[insert] ${error.message}`);
+  }
 }
 
 async function main() {
-  const sb = getSupabase();
   console.log(`Wiping existing universe rows for ${clientId}…`);
-  await wipeExisting(sb);
+  await wipeExisting();
 
   const rl = readline.createInterface({ input: fs.createReadStream(csvPath, 'utf8') });
   let header = null;
@@ -111,22 +116,24 @@ async function main() {
     });
 
     if (batch.length >= BATCH_SIZE) {
-      await insertBatch(sb, batch);
+      await insertBatch(batch);
       total += batch.length;
       process.stdout.write(`\r  imported ${total} rows…`);
       batch = [];
     }
   }
-  if (batch.length) { await insertBatch(sb, batch); total += batch.length; }
+  if (batch.length) { await insertBatch(batch); total += batch.length; }
 
   // Cache the full set of cities this universe knows about — used by
   // keywordAdapter to exclude a competitor's other-city keywords (e.g.
   // "veneers goffstown nh" on a Derry page), which is broader than just this
   // client's own office cities.
-  await supabaseStore.setSetting(KNOWN_CITIES_SETTING_KEY(clientId), [...citySet]);
+  await recordStore.setSetting(KNOWN_CITIES_SETTING_KEY(clientId), [...citySet]);
 
   console.log(`\n✓ Imported ${total} rows for ${clientId} (${skipped} skipped: no keyword text).`);
   console.log(`✓ Cached ${citySet.size} distinct cities for other-city keyword exclusion.`);
 }
 
-main().catch(e => { console.error('✗', e.message); process.exit(1); });
+main()
+  .then(() => db.end())
+  .catch(e => { console.error('✗', e.message); process.exit(1); });

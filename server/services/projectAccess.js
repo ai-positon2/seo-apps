@@ -1,10 +1,10 @@
 // ── Workspace authorization (PRD §7.2, §7.4, §22.3, AC-001) ─────────────────
 // The single place that answers "may this caller do this to this project?".
 //
-// Why it has to be one place: the server talks to Supabase with the
-// service-role key, so no row policy stands between a query and the whole
-// table. Every project-scoped read and write must therefore carry the
-// workspace filter itself, and a route that forgets is not a failed request —
+// Why it has to be one place: the server connects to Postgres as the database
+// owner, so no row policy stands between a query and the whole table. Every
+// project-scoped read and write must therefore carry the workspace filter
+// itself, and a route that forgets is not a failed request —
 // it is a silent cross-tenant read. Centralizing it means there is exactly one
 // implementation to review, and the tests in
 // server/services/__tests__/projectAccess.test.js pin its decisions.
@@ -18,7 +18,7 @@
 //   2. Capability. The role you hold in that workspace decides what you may do,
 //      per the permission matrix in PRD §7.2.
 
-const { getSupabase, isSupabaseConfigured } = require('./supabase');
+const db = require('./db');
 
 // ── Roles ───────────────────────────────────────────────────────────────────
 // 0008 shipped 'owner' | 'member'. The product needs four roles; 'member' rows
@@ -103,7 +103,7 @@ function forbidden(message) {
 
 function notConfigured() {
   return Object.assign(
-    new Error('Projects need Supabase configured (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY).'),
+    new Error('Projects need the database configured (DATABASE_URL).'),
     { status: 503, code: 'not_configured' },
   );
 }
@@ -113,13 +113,15 @@ function notConfigured() {
 /** The caller's role in a workspace, or null if they are not a member. */
 async function workspaceRole(workspaceId, userId) {
   if (!workspaceId || !userId) return null;
-  const { data, error } = await getSupabase()
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', userId)
-    .maybeSingle();
-  if (error) throw new Error(`[projectAccess.workspaceRole] ${error.message}`);
+  let data;
+  try {
+    data = await db.maybeOne(
+      `select role from workspace_members where workspace_id = $1 and user_id = $2`,
+      [workspaceId, userId]
+    );
+  } catch (error) {
+    throw new Error(`[projectAccess.workspaceRole] ${error.message}`);
+  }
   return data ? normalizeRole(data.role) : null;
 }
 
@@ -130,12 +132,14 @@ async function workspaceRole(workspaceId, userId) {
  */
 async function accessibleWorkspaceIds(userId) {
   if (!userId) return [];
-  const { data, error } = await getSupabase()
-    .from('workspace_members')
-    .select('workspace_id')
-    .eq('user_id', userId);
-  if (error) throw new Error(`[projectAccess.accessibleWorkspaceIds] ${error.message}`);
-  return (data || []).map((r) => r.workspace_id).filter(Boolean);
+  let data;
+  try {
+    data = await db.rows(
+      `select workspace_id from workspace_members where user_id = $1`, [userId]);
+  } catch (error) {
+    throw new Error(`[projectAccess.accessibleWorkspaceIds] ${error.message}`);
+  }
+  return data.map((r) => r.workspace_id).filter(Boolean);
 }
 
 // ── Entry points ────────────────────────────────────────────────────────────
@@ -149,7 +153,7 @@ async function accessibleWorkspaceIds(userId) {
  * @returns {Promise<{workspaceId, userId, actorEmail, role, isPlatformAdmin, capabilities, can}>}
  */
 async function requireWorkspace(req, workspaceId, capability) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
   const userId = req.user?.userId;
   const actorEmail = req.user?.username || null;
@@ -157,8 +161,8 @@ async function requireWorkspace(req, workspaceId, capability) {
   if (!workspaceId) throw notFound('Workspace not found.');
 
   // Required lazily: platformAdmin depends on auditEvents, which depends on
-  // supabase — importing at module load would make this file's require graph
-  // fan out into the audit trail for a plain membership check.
+  // the database layer — importing at module load would make this file's
+  // require graph fan out into the audit trail for a plain membership check.
   const platformAdmin = require('./platformAdmin');
   const isAdmin = await platformAdmin.isPlatformAdmin({ email: actorEmail, userId });
 
@@ -191,18 +195,18 @@ async function requireWorkspace(req, workspaceId, capability) {
  * @param {boolean}[opts.includeDeleted] soft-deleted projects are hidden unless asked for
  */
 async function requireProject(req, projectId, capability, { includeDeleted = false } = {}) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
   const userId = req.user?.userId;
   if (!userId) throw forbidden('This session has no linked user account.');
   if (!projectId) throw notFound();
 
-  const { data: project, error } = await getSupabase()
-    .from('crawl_projects')
-    .select('*')
-    .eq('id', projectId)
-    .maybeSingle();
-  if (error) throw new Error(`[projectAccess.requireProject] ${error.message}`);
+  let project;
+  try {
+    project = await db.maybeOne(`select * from crawl_projects where id = $1`, [projectId]);
+  } catch (error) {
+    throw new Error(`[projectAccess.requireProject] ${error.message}`);
+  }
 
   // Same answer for "no such project", "project in another workspace" and
   // "soft-deleted": a 403 here would confirm the id exists (AC-001).

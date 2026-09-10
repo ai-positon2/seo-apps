@@ -9,7 +9,7 @@
 // and then 500'd — is strictly worse). Callers that genuinely need the write to
 // land before they answer (a grant, a robots override) pass { strict: true }.
 
-const { getSupabase, isSupabaseConfigured } = require('./supabase');
+const db = require('./db');
 
 // Actions are a closed vocabulary so the log can be filtered and reported on.
 // Add here rather than passing an ad-hoc string at the call site.
@@ -114,8 +114,8 @@ async function record(event, { strict = false } = {}) {
     if (strict) throw new Error('[auditEvents.record] action is required.');
     return false;
   }
-  if (!isSupabaseConfigured()) {
-    if (strict) throw new Error('[auditEvents.record] Supabase is not configured.');
+  if (!db.isDatabaseConfigured()) {
+    if (strict) throw new Error('[auditEvents.record] the database is not configured.');
     return false;
   }
 
@@ -136,8 +136,9 @@ async function record(event, { strict = false } = {}) {
   };
 
   try {
-    const { error } = await getSupabase().from('audit_events').insert(row);
-    if (error) throw new Error(error.message);
+    // old_state/new_state are jsonb and routinely hold arrays, so insertOne's
+    // column-type lookup does the encoding (see db.json).
+    await db.insertOne('audit_events', row, { returning: false });
     return true;
   } catch (e) {
     if (strict) throw new Error(`[auditEvents.record] ${e.message}`);
@@ -161,20 +162,28 @@ function recordFor(req, event, opts) {
  * workspace-admin surfaces only — the caller is responsible for authorization.
  */
 async function listForWorkspace(workspaceId, { limit = 100, action = null, projectId = null } = {}) {
-  if (!isSupabaseConfigured() || !workspaceId) return [];
-  let query = getSupabase()
-    .from('audit_events')
-    .select('*')
-    .eq('workspace_id', workspaceId)
-    .order('created_at', { ascending: false })
-    .limit(Math.min(Math.max(parseInt(limit, 10) || 100, 1), 500));
+  if (!db.isDatabaseConfigured() || !workspaceId) return [];
+  const params = [workspaceId];
+  const where = ['workspace_id = $1'];
+  if (action) {
+    params.push(action);
+    where.push(`action = $${params.length}`);
+  }
+  if (projectId) {
+    params.push(projectId);
+    where.push(`project_id = $${params.length}`);
+  }
+  params.push(Math.min(Math.max(parseInt(limit, 10) || 100, 1), 500));
 
-  if (action) query = query.eq('action', action);
-  if (projectId) query = query.eq('project_id', projectId);
-
-  const { data, error } = await query;
-  if (error) throw new Error(`[auditEvents.listForWorkspace] ${error.message}`);
-  return data || [];
+  try {
+    return await db.rows(
+      `select * from audit_events where ${where.join(' and ')}
+        order by created_at desc limit $${params.length}`,
+      params
+    );
+  } catch (error) {
+    throw new Error(`[auditEvents.listForWorkspace] ${error.message}`);
+  }
 }
 
 module.exports = { ACTIONS, record, recordFor, listForWorkspace };

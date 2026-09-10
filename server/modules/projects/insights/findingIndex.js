@@ -25,7 +25,7 @@
 
 const overview = require('../overview');
 const moduleEvidence = require('../moduleEvidence');
-const { getSupabase, isSupabaseConfigured } = require('../../../services/supabase');
+const db = require('../../../services/db');
 
 const MODULE_LABEL = new Map(overview.MODULES.map((m) => [m.key, m.label]));
 
@@ -43,7 +43,7 @@ const SECTION_MIN_PAGES = 3;
 
 function notConfigured() {
   return Object.assign(
-    new Error('The finding index needs Supabase configured.'),
+    new Error('The finding index needs the database configured.'),
     { status: 503, code: 'not_configured' },
   );
 }
@@ -353,16 +353,19 @@ function competitorKeywords(run) {
  * one module that needs it.
  */
 async function fullPayload(projectId, moduleKey) {
-  const { data, error } = await getSupabase()
-    .from('project_module_runs')
-    .select('payload')
-    .eq('project_id', projectId)
-    .eq('module_key', moduleKey)
-    .in('status', ['completed', 'insufficient_data'])
-    .order('created_at', { ascending: false })
-    .limit(1);
-  if (error) throw new Error(`[findingIndex.fullPayload:${moduleKey}] ${error.message}`);
-  return (data || [])[0]?.payload || null;
+  try {
+    const row = await db.maybeOne(
+      `select payload from project_module_runs
+        where project_id = $1 and module_key = $2
+          and status in ('completed', 'insufficient_data')
+        order by created_at desc
+        limit 1`,
+      [projectId, moduleKey]
+    );
+    return row?.payload || null;
+  } catch (error) {
+    throw new Error(`[findingIndex.fullPayload:${moduleKey}] ${error.message}`);
+  }
 }
 
 // ── coverage: what was measured, and what was not ──────────────────────────
@@ -387,7 +390,7 @@ function coverageEntry(moduleKey, state, extra = {}) {
  * @returns {Promise<object>} { items, keywords, coverage, crawl, structure, generatedAt }
  */
 async function buildFindingIndex({ access }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
   const projectId = access.project.id;
 

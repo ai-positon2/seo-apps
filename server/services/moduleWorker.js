@@ -22,7 +22,7 @@
 const os = require('os');
 const moduleQueue = require('./moduleQueue');
 const moduleScheduler = require('./moduleScheduler');
-const { isSupabaseConfigured } = require('./supabase');
+const { isDatabaseConfigured } = require('./db');
 
 const CLAIM_INTERVAL_MS = Number(process.env.MODULE_WORKER_POLL_MS) || 5_000;
 const REAP_INTERVAL_MS = Number(process.env.MODULE_WORKER_REAP_MS) || 60_000;
@@ -75,8 +75,8 @@ async function runJob(run, executors) {
  * @returns {{stop: Function, workerId: string}}
  */
 function startLoops({ executors = {}, moduleKeys = null } = {}) {
-  if (!isSupabaseConfigured()) {
-    console.log('[moduleWorker] Not started — Supabase is not configured.');
+  if (!isDatabaseConfigured()) {
+    console.log('[moduleWorker] Not started — the database is not configured.');
     return { stop: () => {}, workerId: null };
   }
 

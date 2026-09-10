@@ -19,7 +19,7 @@ const platformAdmin = require('../services/platformAdmin');
 const adminLimits = require('../services/adminLimits');
 const featureFlags = require('../services/featureFlags');
 const auditEvents = require('../services/auditEvents');
-const { isSupabaseConfigured } = require('../services/supabase');
+const { isDatabaseConfigured } = require('../services/db');
 
 const router = express.Router();
 
@@ -32,9 +32,9 @@ function handleError(res, e, where) {
 }
 
 function requireConfigured(res) {
-  if (isSupabaseConfigured()) return true;
+  if (isDatabaseConfigured()) return true;
   res.status(503).json({
-    error: 'Platform administration needs Supabase configured (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY).',
+    error: 'Platform administration needs the database configured (DATABASE_URL).',
     code: 'not_configured',
   });
   return false;
@@ -59,7 +59,7 @@ router.get('/limits', async (req, res) => {
       defaults: adminLimits.DEFAULT_LIMITS,
       direction: adminLimits.DIRECTION,
       keys: adminLimits.LIMIT_KEYS,
-      supabaseConfigured: isSupabaseConfigured(),
+      databaseConfigured: isDatabaseConfigured(),
     });
   } catch (e) { handleError(res, e, 'getLimits'); }
 });

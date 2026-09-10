@@ -16,7 +16,7 @@
 //   Captures store `prompt_text` as sent, not just `prompt_id`. Editing a
 //   prompt later must not change what an old capture claims it asked.
 
-const { getSupabase, isSupabaseConfigured } = require('../../services/supabase');
+const db = require('../../services/db');
 const auditEvents = require('../../services/auditEvents');
 const lifecycle = require('./promptLifecycle');
 
@@ -26,7 +26,7 @@ function fail(op, error) {
 
 function notConfigured() {
   return Object.assign(
-    new Error('AI Visibility needs Supabase configured.'),
+    new Error('AI Visibility needs the database configured.'),
     { status: 503, code: 'not_configured' },
   );
 }
@@ -43,15 +43,11 @@ function conflict(message) {
  * The table is missing until 0016 is applied, or the review columns are
  * missing until 0017 is. Say so rather than 500ing.
  *
- * Three spellings, because the answer arrives differently depending on who is
- * complaining. Postgres itself raises 42P01 "relation ... does not exist", but
- * PostgREST answers from its own schema cache first and says "Could not find
- * the table 'public.x' in the schema cache" with a PGRST2xx code — which the
- * first two patterns do not match at all.
- *
- * Verified against the live database before 0016 was applied: only the third
- * pattern fired, so without it the friendly message never appeared and an
- * operator saw a raw schema-cache error instead of "apply this migration".
+ * Postgres answers this directly now: 42P01 for a missing relation, 42703 for a
+ * missing column. The schema-cache spellings this used to also match
+ * ("Could not find the table 'public.x' in the schema cache", PGRST2xx) came
+ * from PostgREST answering out of its own cache before the query ever reached
+ * the database, and cannot occur over a direct connection.
  */
 // Warn once per table, not per call: a report touches these readers dozens of
 // times and an unapplied migration would otherwise bury the log. Silence here
@@ -59,7 +55,10 @@ function conflict(message) {
 // migration nobody ran reads identically to a client with no data.
 const _warnedMissing = new Set();
 function warnMissingOnce(message) {
-  const key = String(message || '').match(/'([\w.]+)'/)?.[1] || 'unknown';
+  // Postgres names the object in double quotes ("relation "x" does not exist");
+  // single quotes are kept for anything that still phrases it the other way.
+  const text = String(message || '');
+  const key = text.match(/"([\w.]+)"/)?.[1] || text.match(/'([\w.]+)'/)?.[1] || 'unknown';
   if (_warnedMissing.has(key)) return;
   _warnedMissing.add(key);
   console.warn(`[aiVisibility.store] missing schema object: ${key}. `
@@ -71,11 +70,10 @@ function isMissingTable(error) {
   if (!error) return false;
   const message = error.message || '';
   const missing = error.code === '42P01'
-    || /^PGRST2\d\d$/.test(error.code || '')
-    || /relation .* does not exist/i.test(message)
-    || /could not find the table/i.test(message)
     // A column 0017 adds, asked for before the migration has run.
-    || /could not find the '.*' column/i.test(message);
+    || error.code === '42703'
+    || /relation .* does not exist/i.test(message)
+    || /column .* does not exist/i.test(message);
 
   if (missing) warnMissingOnce(message);
   return missing;
@@ -150,86 +148,120 @@ async function listPrompts(projectId, {
   status = null, slot = null, topic = null, includeRetired = false, includeEvidence = false,
   limit = 500, offset = 0,
 } = {}) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
-  let query = getSupabase()
-    .from('ai_visibility_prompts')
-    .select(includeEvidence ? FULL_COLUMNS : LIST_COLUMNS)
-    .eq('project_id', projectId)
-    .order('created_at', { ascending: true });
+  const params = [projectId];
+  const where = ['project_id = $1'];
 
   if (status) {
-    query = query.in('status', Array.isArray(status) ? status : [status]);
+    params.push(Array.isArray(status) ? status : [status]);
+    where.push(`status = any($${params.length})`);
   } else if (!includeRetired) {
-    query = query.eq('status', 'approved');
+    where.push(`status = 'approved'`);
   }
-  if (slot) query = query.eq('slot', slot);
-  if (topic) query = query.eq('topic_label', topic);
+  if (slot) {
+    params.push(slot);
+    where.push(`slot = $${params.length}`);
+  }
+  if (topic) {
+    params.push(topic);
+    where.push(`topic_label = $${params.length}`);
+  }
 
   const capped = Math.min(Math.max(parseInt(limit, 10) || 500, 1), 2000);
-  query = query.range(offset, offset + capped - 1);
+  params.push(capped, offset);
 
-  const { data, error } = await query;
-  if (error) {
+  let data;
+  try {
+    data = await db.rows(
+      `select ${includeEvidence ? FULL_COLUMNS : LIST_COLUMNS}
+         from ai_visibility_prompts
+        where ${where.join(' and ')}
+        order by created_at asc
+        limit $${params.length - 1} offset $${params.length}`,
+      params
+    );
+  } catch (error) {
     if (isMissingTable(error)) throw migrationNeeded();
     fail('listPrompts', error);
   }
-  return (data || []).map((r) => promptView(r, { includeEvidence }));
+  return data.map((r) => promptView(r, { includeEvidence }));
 }
 
 /** Counts by status, for a review screen header that should not fetch everything. */
 async function countPromptsByStatus(projectId) {
-  if (!isSupabaseConfigured()) throw notConfigured();
-  const { data, error } = await getSupabase()
-    .from('ai_visibility_prompts')
-    .select('status')
-    .eq('project_id', projectId);
-  if (error) {
+  if (!db.isDatabaseConfigured()) throw notConfigured();
+  // Grouped by the database rather than by pulling every prompt row back and
+  // tallying here — this backs a screen header, and the header should not be
+  // the reason the whole prompt set is fetched.
+  let data;
+  try {
+    data = await db.rows(
+      `select status, count(*)::int as n from ai_visibility_prompts
+        where project_id = $1
+        group by status`,
+      [projectId]
+    );
+  } catch (error) {
     if (isMissingTable(error)) throw migrationNeeded();
     fail('countPromptsByStatus', error);
   }
   const counts = Object.fromEntries(lifecycle.STATUSES.map((s) => [s, 0]));
-  for (const row of data || []) counts[row.status] = (counts[row.status] || 0) + 1;
-  return { ...counts, total: (data || []).length };
+  let total = 0;
+  for (const row of data) {
+    counts[row.status] = row.n;
+    total += row.n;
+  }
+  return { ...counts, total };
 }
 
 /** Counts by intent slot, over one status set (default: the measured set). */
 async function countPromptsBySlot(projectId, { status = 'approved' } = {}) {
-  if (!isSupabaseConfigured()) throw notConfigured();
-  let query = getSupabase().from('ai_visibility_prompts').select('slot').eq('project_id', projectId);
-  if (status) query = query.in('status', Array.isArray(status) ? status : [status]);
+  if (!db.isDatabaseConfigured()) throw notConfigured();
+  const params = [projectId];
+  let narrow = '';
+  if (status) {
+    params.push(Array.isArray(status) ? status : [status]);
+    narrow = ` and status = any($${params.length})`;
+  }
 
-  const { data, error } = await query;
-  if (error) {
+  let data;
+  try {
+    data = await db.rows(
+      `select slot, count(*)::int as n from ai_visibility_prompts
+        where project_id = $1${narrow}
+        group by slot`,
+      params
+    );
+  } catch (error) {
     if (isMissingTable(error)) throw migrationNeeded();
     fail('countPromptsBySlot', error);
   }
   const counts = {};
   let unslotted = 0;
-  for (const row of data || []) {
-    if (!row.slot) { unslotted += 1; continue; }
-    counts[row.slot] = (counts[row.slot] || 0) + 1;
+  for (const row of data) {
+    if (!row.slot) { unslotted += row.n; continue; }
+    counts[row.slot] = row.n;
   }
   return { ...counts, unslotted };
 }
 
 /** One prompt's raw DB row, project-scoped. Internal — callers want promptView. */
 async function fetchRaw(projectId, promptId) {
-  const { data, error } = await getSupabase()
-    .from('ai_visibility_prompts')
-    .select(FULL_COLUMNS)
-    .eq('project_id', projectId)
-    .eq('id', promptId)
-    .maybeSingle();
-  if (error) {
+  try {
+    return await db.maybeOne(
+      `select ${FULL_COLUMNS} from ai_visibility_prompts
+        where project_id = $1 and id = $2`,
+      [projectId, promptId]
+    );
+  } catch (error) {
     if (isMissingTable(error)) throw migrationNeeded();
     fail('fetchRaw', error);
   }
-  return data || null;
 }
 
 async function getPrompt(projectId, promptId) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   const row = await fetchRaw(projectId, promptId);
   return row ? promptView(row, { includeEvidence: true }) : null;
 }
@@ -247,7 +279,7 @@ async function getPrompt(projectId, promptId) {
 async function addPrompts({
   access, prompts, status = 'draft', generationRunId = null,
 }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   if (!prompts?.length) return { added: [], skipped: [] };
   if (!lifecycle.STATUSES.includes(status)) {
     throw Object.assign(new Error(`Unknown status: ${status}.`), { status: 400, code: 'bad_status' });
@@ -341,22 +373,22 @@ async function addPrompts({
   }
   if (!rows.length) return { added: [], skipped };
 
-  const { data, error } = await getSupabase()
-    .from('ai_visibility_prompts')
-    .insert(rows)
-    .select(FULL_COLUMNS);
-  if (error) {
+  let data;
+  try {
+    data = await db.insertMany('ai_visibility_prompts', rows, { returning: FULL_COLUMNS });
+  } catch (error) {
     if (isMissingTable(error)) throw migrationNeeded();
     // Two callers building a set at the same instant: re-read the live set
     // and insert only what is genuinely still new, rather than failing the
-    // whole batch for a race neither caller could have avoided.
-    if (/duplicate key|unique/i.test(error.message || '')) {
+    // whole batch for a race neither caller could have avoided. 23505 is
+    // Postgres's unique_violation.
+    if (error.code === '23505' || /duplicate key|unique/i.test(error.message || '')) {
       return insertRemainder(access, rows, skipped);
     }
     fail('addPrompts', error);
   }
 
-  return { added: (data || []).map((r) => promptView(r)), skipped };
+  return { added: data.map((r) => promptView(r)), skipped };
 }
 
 async function insertRemainder(access, rows, skipped) {
@@ -372,10 +404,13 @@ async function insertRemainder(access, rows, skipped) {
   });
   if (!fresh.length) return { added: [], skipped };
 
-  const { data, error } = await getSupabase()
-    .from('ai_visibility_prompts').insert(fresh).select(FULL_COLUMNS);
-  if (error) fail('insertRemainder', error);
-  return { added: (data || []).map((r) => promptView(r)), skipped };
+  let data;
+  try {
+    data = await db.insertMany('ai_visibility_prompts', fresh, { returning: FULL_COLUMNS });
+  } catch (error) {
+    fail('insertRemainder', error);
+  }
+  return { added: data.map((r) => promptView(r)), skipped };
 }
 
 /** addPrompts(status: 'draft'), stamped with the run that generated them. */
@@ -401,7 +436,7 @@ async function saveGeneratedDraft({ access, runId, prompts }) {
  * A removed prompt is not editable; put it back first.
  */
 async function updatePrompt({ access, promptId, patch }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
   const existing = await fetchRaw(access.project.id, promptId);
   if (!existing) throw notFound();
@@ -442,15 +477,22 @@ async function updatePrompt({ access, promptId, patch }) {
     if (access.userId) update.approved_by = access.userId;
   }
 
-  const { data, error } = await getSupabase()
-    .from('ai_visibility_prompts')
-    .update(update)
-    .eq('id', promptId)
-    .eq('project_id', access.project.id)
-    .select(FULL_COLUMNS)
-    .maybeSingle();
-  if (error) {
-    if (/duplicate key|unique/i.test(error.message || '')) {
+  let data;
+  try {
+    const params = [];
+    const sets = Object.keys(update).map((c) => {
+      params.push(update[c]);
+      return `"${c}" = $${params.length}`;
+    }).join(', ');
+    params.push(promptId, access.project.id);
+    data = await db.maybeOne(
+      `update ai_visibility_prompts set ${sets}
+        where id = $${params.length - 1} and project_id = $${params.length}
+        returning ${FULL_COLUMNS}`,
+      params
+    );
+  } catch (error) {
+    if (error.code === '23505' || /duplicate key|unique/i.test(error.message || '')) {
       throw conflict('Another prompt already asks this question.');
     }
     fail('updatePrompt', error);
@@ -505,29 +547,25 @@ const ACTION_FOR_STATUS = {
  * @returns {Promise<boolean>} whether the row was actually restored
  */
 async function rollBackApproval(access, promptId, existing) {
-  const { data, error } = await getSupabase()
-    .from('ai_visibility_prompts')
-    .update({
-      status: existing.status,
-      approved_at: existing.approved_at,
-      approved_by: existing.approved_by,
-    })
-    .eq('id', promptId)
-    .eq('project_id', access.project.id)
-    .eq('status', 'approved')
-    .select('id')
-    .maybeSingle();
-  if (error) {
+  try {
+    const data = await db.maybeOne(
+      `update ai_visibility_prompts
+          set status = $1, approved_at = $2, approved_by = $3
+        where id = $4 and project_id = $5 and status = 'approved'
+        returning id`,
+      [existing.status, existing.approved_at, existing.approved_by, promptId, access.project.id]
+    );
+    return Boolean(data);
+  } catch (error) {
     console.error('[aiVisibility.store] budget rollback failed:', error.message);
     return false;
   }
-  return Boolean(data);
 }
 
 async function transitionPrompt({
   access, promptId, to, reason = null, budget = null,
 }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   if (!lifecycle.STATUSES.includes(to)) {
     throw Object.assign(new Error(`Unknown status: ${to}.`), { status: 400, code: 'bad_status' });
   }
@@ -619,15 +657,27 @@ async function transitionPrompt({
     }
   }
 
-  const { data, error } = await getSupabase()
-    .from('ai_visibility_prompts')
-    .update(update)
-    .eq('id', promptId)
-    .eq('project_id', access.project.id)
-    .eq('status', existing.status)
-    .select(FULL_COLUMNS)
-    .maybeSingle();
-  if (error) fail('transitionPrompt', error);
+  // The guard on `status` is the optimistic lock: two reviewers racing produce
+  // one winner and one 409, rather than a lost decision.
+  let data;
+  try {
+    const params = [];
+    const sets = Object.keys(update).map((c) => {
+      params.push(update[c]);
+      return `"${c}" = $${params.length}`;
+    }).join(', ');
+    params.push(promptId, access.project.id, existing.status);
+    data = await db.maybeOne(
+      `update ai_visibility_prompts set ${sets}
+        where id = $${params.length - 2}
+          and project_id = $${params.length - 1}
+          and status = $${params.length}
+        returning ${FULL_COLUMNS}`,
+      params
+    );
+  } catch (error) {
+    fail('transitionPrompt', error);
+  }
   if (!data) {
     throw conflict('Someone else changed this prompt just now — reload and try again.');
   }
@@ -766,7 +816,7 @@ async function restorePrompt({ access, promptId }) {
  * it, and that distinction decides whether a client is told they are invisible.
  */
 async function saveCaptures({ access, runId, rows }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   if (!rows?.length) return 0;
 
   const records = rows.map((r) => ({
@@ -778,14 +828,20 @@ async function saveCaptures({ access, runId, rows }) {
     prompt_text: r.prompt,
     engine: r.engine || 'unknown',
     provider: r.provider || 'unknown',
-    // OMITTED when the surface did not declare one, never passed as null.
+    // The column's own default, written explicitly rather than omitted.
     //
-    // The column is `not null default 'scraped'`, and a default only fills a
-    // column that is absent from the INSERT — passing an explicit null violates
-    // the constraint instead. Sending null therefore failed the whole batch,
-    // and run.js only logs a saveCaptures failure, so an entire run's
-    // measurements would have been discarded while the run reported completed.
-    ...(r.access ? { access: r.access } : {}),
+    // `access` is `not null default 'scraped'`, and a default only fills a
+    // column absent from the INSERT — an explicit null violates the constraint
+    // instead. Sending null failed the whole batch, and run.js only logs a
+    // saveCaptures failure, so an entire run's measurements were discarded
+    // while the run reported completed.
+    //
+    // Omitting the key is no longer enough to avoid that: these rows go in as
+    // ONE multi-row INSERT whose column list is the union of every row's keys,
+    // so a row that leaves `access` out is bound as null the moment any other
+    // row in the same batch sets it. Naming the default here means the value is
+    // never null whichever surfaces a run happens to mix.
+    access: r.access || 'scraped',
     surface_label: r.surfaceLabel || r.surfaceId || 'unknown',
     status: r.status,
     failure_reason: r.failureReason || null,
@@ -811,16 +867,16 @@ async function saveCaptures({ access, runId, rows }) {
   // attributes off them. Without them the entity rows would have to be matched
   // back by (run_id, prompt_text, surface) — three columns that are not unique
   // together once a prompt is measured twice on the same surface.
-  const { data, error } = await getSupabase()
-    .from('ai_visibility_captures')
-    .insert(records)
-    .select('id');
-  if (error) {
+  let data;
+  try {
+    data = await db.insertMany('ai_visibility_captures', records, { returning: 'id' });
+  } catch (error) {
     if (isMissingTable(error)) throw migrationNeeded();
     fail('saveCaptures', error);
   }
-  // PostgREST returns the inserted rows in input order.
-  return (data || []).map((row, i) => ({ id: row.id, row: rows[i] }));
+  // A multi-row INSERT ... RETURNING gives the rows back in the order they were
+  // supplied, which is what lets each id be paired with the capture it came from.
+  return data.map((row, i) => ({ id: row.id, row: rows[i] }));
 }
 
 
@@ -881,21 +937,27 @@ const BRAND_COLUMNS = 'id, project_id, name, domain, is_client, aliases, status,
 
 /** Brands for a project. Defaults to the whole set, whatever its status. */
 async function listBrands(projectId, { status = null } = {}) {
-  if (!isSupabaseConfigured()) return [];
-  let q = getSupabase()
-    .from('project_brands')
-    .select(BRAND_COLUMNS)
-    .eq('project_id', projectId)
-    .order('is_client', { ascending: false })
-    .order('name', { ascending: true });
-  if (status) q = Array.isArray(status) ? q.in('status', status) : q.eq('status', status);
+  if (!db.isDatabaseConfigured()) return [];
+  const params = [projectId];
+  let narrow = '';
+  if (status) {
+    params.push(Array.isArray(status) ? status : [status]);
+    narrow = ` and status = any($${params.length})`;
+  }
 
-  const { data, error } = await q;
-  if (error) {
+  let data;
+  try {
+    data = await db.rows(
+      `select ${BRAND_COLUMNS} from project_brands
+        where project_id = $1${narrow}
+        order by is_client desc, name asc`,
+      params
+    );
+  } catch (error) {
     if (isMissingTable(error)) return [];
     fail('listBrands', error);
   }
-  return (data || []).map(brandView);
+  return data.map(brandView);
 }
 
 /**
@@ -924,7 +986,7 @@ async function measuredSet(projectId) {
  * @returns {Promise<{added, updated, pending:[{brandId, name, aliases}]}>}
  */
 async function upsertBrands({ access, brands = [] } = {}) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   if (!brands.length) return { added: 0, updated: 0, pending: [] };
 
   const projectId = access.project.id;
@@ -963,18 +1025,23 @@ async function upsertBrands({ access, brands = [] } = {}) {
       continue;
     }
 
-    const { error } = await getSupabase()
-      .from('project_brands')
-      .update({ aliases: [...(hit.aliases || []), ...novel] })
-      .eq('id', hit.id)
-      .eq('project_id', projectId);
-    if (error) fail('upsertBrands', error);
+    try {
+      // `aliases` is jsonb, so the array is JSON-encoded rather than bound as a
+      // Postgres array (see services/db.json).
+      await db.query(
+        `update project_brands set aliases = $1 where id = $2 and project_id = $3`,
+        [db.json([...(hit.aliases || []), ...novel]), hit.id, projectId]
+      );
+    } catch (error) {
+      fail('upsertBrands', error);
+    }
     updated += 1;
   }
 
   if (toInsert.length) {
-    const { error } = await getSupabase().from('project_brands').insert(toInsert);
-    if (error) {
+    try {
+      await db.insertMany('project_brands', toInsert);
+    } catch (error) {
       if (isMissingTable(error)) throw migrationNeeded();
       fail('upsertBrands', error);
     }
@@ -985,7 +1052,7 @@ async function upsertBrands({ access, brands = [] } = {}) {
 
 /** Approve or reject a proposed brand. Approval is what releases measurement. */
 async function transitionBrand({ access, brandId, to } = {}) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   if (!['approved', 'rejected', 'proposed'].includes(to)) {
     throw Object.assign(
       new Error(`Unknown brand status "${to}".`),
@@ -1005,14 +1072,17 @@ async function transitionBrand({ access, brandId, to } = {}) {
     approved_by: to === 'approved' ? access.userId : null,
   };
 
-  const { data, error } = await getSupabase()
-    .from('project_brands')
-    .update(patch)
-    .eq('id', brandId)
-    .eq('project_id', access.project.id)
-    .select(BRAND_COLUMNS)
-    .maybeSingle();
-  if (error) fail('transitionBrand', error);
+  let data;
+  try {
+    data = await db.maybeOne(
+      `update project_brands set status = $1, approved_at = $2, approved_by = $3
+        where id = $4 and project_id = $5
+        returning ${BRAND_COLUMNS}`,
+      [patch.status, patch.approved_at, patch.approved_by, brandId, access.project.id]
+    );
+  } catch (error) {
+    fail('transitionBrand', error);
+  }
   if (!data) throw notFound();
   return brandView(data);
 }
@@ -1025,16 +1095,34 @@ async function transitionBrand({ access, brandId, to } = {}) {
 // a re-run that doubled every row would corrupt exactly the history the
 // versioning exists to protect.
 
+// The three entity tables this writes to are named by the callers below, never
+// by a request, and are checked against that closed set before reaching SQL.
+const ENTITY_TABLES = new Set(['capture_mention', 'capture_citation', 'capture_attribute']);
+
 async function replaceRows(table, captureId, records, op) {
-  const db = getSupabase();
-  const { error: delError } = await db.from(table).delete().eq('capture_id', captureId);
-  if (delError) {
-    if (isMissingTable(delError)) throw migrationNeeded();
-    fail(op, delError);
-  }
-  if (!records.length) return 0;
-  const { error } = await db.from(table).insert(records);
-  if (error) {
+  if (!ENTITY_TABLES.has(table)) throw new Error(`[aiVisibility.${op}] unknown table: ${table}`);
+  try {
+    // Delete and re-insert in one transaction: a failure between the two used to
+    // leave the capture with NO extracted rows at all, which reads downstream as
+    // "this answer mentioned nobody" rather than as a failed extraction.
+    await db.tx(async (t) => {
+      await t.query(`delete from "${table}" where capture_id = $1`, [captureId]);
+      if (!records.length) return;
+      const cols = [...new Set(records.flatMap((r) => Object.keys(r)))];
+      const params = [];
+      const tuples = records.map((row) => {
+        const slots = cols.map((c) => {
+          params.push(row[c] === undefined ? null : row[c]);
+          return `$${params.length}`;
+        });
+        return `(${slots.join(', ')})`;
+      });
+      await t.query(
+        `insert into "${table}" (${cols.map((c) => `"${c}"`).join(', ')}) values ${tuples.join(', ')}`,
+        params
+      );
+    });
+  } catch (error) {
     if (isMissingTable(error)) throw migrationNeeded();
     fail(op, error);
   }
@@ -1049,7 +1137,7 @@ async function replaceRows(table, captureId, records, op) {
  * query has to remember to filter the zeroes out.
  */
 async function saveMentions({ projectId, captureId, mentions = [] } = {}) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   const records = mentions
     .filter((m) => m.brandId)
     .map((m) => ({
@@ -1070,7 +1158,7 @@ async function saveMentions({ projectId, captureId, mentions = [] } = {}) {
 
 /** §2.2's inline-vs-retrieved split, with classification stored as of ingest. */
 async function saveCitations({ projectId, captureId, citations = [] } = {}) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   const records = citations
     .filter((c) => c.domain && c.host)
     .map((c) => ({
@@ -1093,7 +1181,7 @@ async function saveCitations({ projectId, captureId, citations = [] } = {}) {
 
 /** §7.1 perception terms, versioned so retuning never moves history. */
 async function saveAttributes({ projectId, captureId, attributes = [] } = {}) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   const records = attributes
     .filter((a) => a.brandId && a.term)
     .map((a) => ({
@@ -1119,7 +1207,7 @@ async function saveAttributes({ projectId, captureId, attributes = [] } = {}) {
 async function markExtracted({
   captureId, version, offGeo = false, features = null,
 } = {}) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
   const patch = {
     extraction_version: version,
     extracted_at: new Date().toISOString(),
@@ -1127,11 +1215,11 @@ async function markExtracted({
   };
   if (features) patch.features = features;
 
-  const { error } = await getSupabase()
-    .from('ai_visibility_captures')
-    .update(patch)
-    .eq('id', captureId);
-  if (error) {
+  try {
+    // `features` is a real text[] column, so it stays a JS array rather than
+    // being JSON-encoded (see services/db).
+    await db.updateWhere('ai_visibility_captures', patch, { id: captureId });
+  } catch (error) {
     if (isMissingTable(error)) throw migrationNeeded();
     fail('markExtracted', error);
   }
@@ -1158,24 +1246,35 @@ async function markExtracted({
  *   reached. Excluding them lets the pass move past a poison batch.
  */
 async function capturesPendingExtraction(projectId, { limit = 25, excludeIds = [] } = {}) {
-  if (!isSupabaseConfigured()) return [];
-  let q = getSupabase()
-    .from('ai_visibility_captures')
-    .select('id, prompt_id, prompt_text, engine, provider, access, surface_label, status, '
-      + 'answer_text, citations, captured_at, raw')
-    .eq('project_id', projectId)
-    .is('extracted_at', null)
-    .order('captured_at', { ascending: true })
-    .limit(limit);
-  // PostgREST caps the request line, so a very long exclusion list is chunked
-  // by the caller rather than sent whole.
-  if (excludeIds.length) q = q.not('id', 'in', `(${excludeIds.slice(0, 300).join(',')})`);
-  const { data, error } = await q;
-  if (error) {
+  if (!db.isDatabaseConfigured()) return [];
+  const params = [projectId];
+  let exclude = '';
+  if (excludeIds.length) {
+    // No longer truncated to 300. That cap existed because the id list went into
+    // a PostgREST query STRING and a long one overflowed the request line; bound
+    // as one array parameter there is no such limit, so a long poison batch can
+    // now be skipped in full rather than partially.
+    params.push(excludeIds);
+    exclude = ` and id <> all($${params.length})`;
+  }
+  params.push(limit);
+
+  let data;
+  try {
+    data = await db.rows(
+      `select id, prompt_id, prompt_text, engine, provider, access, surface_label,
+              status, answer_text, citations, captured_at, raw
+         from ai_visibility_captures
+        where project_id = $1 and extracted_at is null${exclude}
+        order by captured_at asc
+        limit $${params.length}`,
+      params
+    );
+  } catch (error) {
     if (isMissingTable(error)) return [];
     fail('capturesPendingExtraction', error);
   }
-  return (data || []).map((row) => ({ ...captureView(row), raw: row.raw || null }));
+  return data.map((row) => ({ ...captureView(row), raw: row.raw || null }));
 }
 
 /**
@@ -1189,23 +1288,26 @@ async function capturesPendingExtraction(projectId, { limit = 25, excludeIds = [
  */
 async function capturesForRuns(runIds = []) {
   const out = new Map();
-  if (!isSupabaseConfigured() || !runIds.length) return out;
+  if (!db.isDatabaseConfigured() || !runIds.length) return out;
 
-  const { data, error } = await getSupabase()
-    .from('ai_visibility_captures')
-    // The singular reader this replaced also returned web_queries and
-    // model_version, and captureView maps both — omitting them left the
-    // /report route serving captures with those fields silently undefined.
-    .select(`${CAPTURE_REPORT_COLUMNS}, run_id, citations, competitors_mentioned, `
-      + 'web_queries, model_version')
-    .in('run_id', runIds)
-    .order('captured_at', { ascending: true });
-
-  if (error) {
+  let data;
+  try {
+    data = await db.rows(
+      // The singular reader this replaced also returned web_queries and
+      // model_version, and captureView maps both — omitting them left the
+      // /report route serving captures with those fields silently undefined.
+      `select ${CAPTURE_REPORT_COLUMNS}, run_id, citations, competitors_mentioned,
+              web_queries, model_version
+         from ai_visibility_captures
+        where run_id = any($1)
+        order by captured_at asc`,
+      [runIds]
+    );
+  } catch (error) {
     if (isMissingTable(error)) return out;
     fail('capturesForRuns', error);
   }
-  for (const row of data || []) {
+  for (const row of data) {
     if (!out.has(row.run_id)) out.set(row.run_id, []);
     out.get(row.run_id).push(captureView(row));
   }
@@ -1232,7 +1334,7 @@ const CAPTURE_REPORT_COLUMNS = 'id, prompt_id, prompt_text, engine, provider, ac
  * report the UNCLASSIFIED version of the same rows.
  */
 async function capturesForPeriod(projectId, { from, to, pageSize = 1000 } = {}) {
-  if (!isSupabaseConfigured()) return [];
+  if (!db.isDatabaseConfigured()) return [];
 
   // Paged, not capped.
   //
@@ -1252,28 +1354,39 @@ async function capturesForPeriod(projectId, { from, to, pageSize = 1000 } = {}) 
         + `for project ${projectId} — refusing to report on a partial read.`);
     }
     const offset = page * pageSize;
-    let q = getSupabase()
-      .from('ai_visibility_captures')
-      .select(CAPTURE_REPORT_COLUMNS)
-      .eq('project_id', projectId)
-      // `id` breaks ties. captured_at is NOT unique — a run writes dozens of
-      // rows within the same second — and Postgres gives no stable order among
-      // equal sort keys, so a page boundary landing inside a tie could drop or
-      // duplicate captures, silently moving every denominator.
-      .order('captured_at', { ascending: true })
-      .order('id', { ascending: true })
-      .range(offset, offset + pageSize - 1);
-    if (from) q = q.gte('captured_at', `${String(from).slice(0, 10)}T00:00:00Z`);
-    if (to) q = q.lte('captured_at', `${String(to).slice(0, 10)}T23:59:59.999Z`);
+    const params = [projectId];
+    const where = ['project_id = $1'];
+    if (from) {
+      params.push(`${String(from).slice(0, 10)}T00:00:00Z`);
+      where.push(`captured_at >= $${params.length}`);
+    }
+    if (to) {
+      params.push(`${String(to).slice(0, 10)}T23:59:59.999Z`);
+      where.push(`captured_at <= $${params.length}`);
+    }
+    params.push(pageSize, offset);
 
-    // eslint-disable-next-line no-await-in-loop
-    const { data, error } = await q;
-    if (error) {
+    let data;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      data = await db.rows(
+        `select ${CAPTURE_REPORT_COLUMNS}
+           from ai_visibility_captures
+          where ${where.join(' and ')}
+          -- id breaks ties. captured_at is NOT unique — a run writes dozens of
+          -- rows within the same second — and Postgres gives no stable order
+          -- among equal sort keys, so a page boundary landing inside a tie
+          -- could drop or duplicate captures, silently moving every denominator.
+          order by captured_at asc, id asc
+          limit $${params.length - 1} offset $${params.length}`,
+        params
+      );
+    } catch (error) {
       if (isMissingTable(error)) return [];
       fail('capturesForPeriod', error);
     }
-    rows.push(...(data || []));
-    if (!data || data.length < pageSize) break;
+    rows.push(...data);
+    if (data.length < pageSize) break;
   }
 
   return rows.map((row) => ({
@@ -1323,60 +1436,54 @@ function citationView(row) {
 /**
  * Mentions, citations and attributes for a set of captures.
  *
- * Chunked because PostgREST builds `in.(…)` into the URL and a 2,800-capture
- * period would exceed the request line length outright. 500 ids per request is
- * comfortably inside it.
+ * No longer chunked. The 500-id batches existed because PostgREST built
+ * `in.(…)` into the URL and a 2,800-capture period overflowed the request line;
+ * the ids are bound as one array parameter now, so each table is a single query
+ * however long the period is.
  */
 async function entitiesForCaptures(captureIds = []) {
   const empty = { mentions: [], citations: [], attributes: [] };
-  if (!isSupabaseConfigured() || !captureIds.length) return empty;
+  if (!db.isDatabaseConfigured() || !captureIds.length) return empty;
 
-  const db = getSupabase();
-  const chunks = [];
-  for (let i = 0; i < captureIds.length; i += 500) chunks.push(captureIds.slice(i, i + 500));
+  const attributeView = (row) => ({
+    id: row.id,
+    captureId: row.capture_id,
+    brandId: row.brand_id,
+    term: row.term,
+    attributeId: row.attribute_id,
+    occurrences: row.occurrences,
+    mappingVersion: row.mapping_version,
+  });
 
   const out = { mentions: [], citations: [], attributes: [] };
-  for (const ids of chunks) {
-    const [m, c, a] = await Promise.all([
-      db.from('capture_mention')
-        .select('id, capture_id, brand_id, ordinal, char_offset, mention_count, '
-          + 'sentiment_score, negated, is_client, evidence')
-        .in('capture_id', ids),
-      db.from('capture_citation')
-        .select('id, capture_id, url, domain, host, is_inline_cited, is_retrieved, '
-          + 'position, occurrences, url_type, domain_type, ruleset_version, title')
-        .in('capture_id', ids),
-      db.from('capture_attribute')
-        .select('id, capture_id, brand_id, term, attribute_id, occurrences, mapping_version')
-        .in('capture_id', ids),
-    ]);
+  const reads = [
+    ['mentions', mentionView, `select id, capture_id, brand_id, ordinal, char_offset,
+        mention_count, sentiment_score, negated, is_client, evidence
+        from capture_mention where capture_id = any($1)`],
+    ['citations', citationView, `select id, capture_id, url, domain, host, is_inline_cited,
+        is_retrieved, position, occurrences, url_type, domain_type, ruleset_version, title
+        from capture_citation where capture_id = any($1)`],
+    ['attributes', attributeView, `select id, capture_id, brand_id, term, attribute_id,
+        occurrences, mapping_version
+        from capture_attribute where capture_id = any($1)`],
+  ];
 
-    for (const [res, key, view] of [
-      [m, 'mentions', mentionView],
-      [c, 'citations', citationView],
-      [a, 'attributes', (row) => ({
-        id: row.id,
-        captureId: row.capture_id,
-        brandId: row.brand_id,
-        term: row.term,
-        attributeId: row.attribute_id,
-        occurrences: row.occurrences,
-        mappingVersion: row.mapping_version,
-      })],
-    ]) {
-      if (res.error) {
-        // A missing table means 0018 has not been applied. Returning empty
-        // rather than throwing lets the report render its empty states, which
-        // say "not extracted" — the honest answer — instead of a 500.
-        //
-        // `out`, not `empty`: on a missing table this fails on the first chunk
-        // and the two are identical, but discarding chunks already read would
-        // turn any later failure into a silent, partial "nothing extracted".
-        if (isMissingTable(res.error)) return out;
-        fail('entitiesForCaptures', res.error);
-      }
-      out[key].push(...(res.data || []).map(view));
+  for (const [key, view, sql] of reads) {
+    let data;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      data = await db.rows(sql, [captureIds]);
+    } catch (error) {
+      // A missing table means 0018 has not been applied. Returning empty
+      // rather than throwing lets the report render its empty states, which
+      // say "not extracted" — the honest answer — instead of a 500.
+      //
+      // `out`, not `empty`: tables already read are kept, so a failure on a
+      // later one cannot turn into a silent, partial "nothing extracted".
+      if (isMissingTable(error)) return out;
+      fail('entitiesForCaptures', error);
     }
+    out[key].push(...data.map(view));
   }
   return out;
 }
@@ -1393,18 +1500,19 @@ async function entitiesForCaptures(captureIds = []) {
  * months as the audit trail, and nothing in the UI reads it.
  */
 async function captureDetail(projectId, captureId) {
-  if (!isSupabaseConfigured()) return null;
-  const { data, error } = await getSupabase()
-    .from('ai_visibility_captures')
-    .select('id, prompt_id, prompt_text, engine, provider, access, surface_label, status, '
-      + 'failure_reason, answer_text, citations, mentioned, cited, prominence, '
-      + 'competitors_mentioned, web_queries, model_version, task_cost, features, '
-      + 'off_geo, extraction_version, extracted_at, captured_at')
-    .eq('project_id', projectId)
-    .eq('id', captureId)
-    .maybeSingle();
-
-  if (error) {
+  if (!db.isDatabaseConfigured()) return null;
+  let data;
+  try {
+    data = await db.maybeOne(
+      `select id, prompt_id, prompt_text, engine, provider, access, surface_label, status,
+              failure_reason, answer_text, citations, mentioned, cited, prominence,
+              competitors_mentioned, web_queries, model_version, task_cost, features,
+              off_geo, extraction_version, extracted_at, captured_at
+         from ai_visibility_captures
+        where project_id = $1 and id = $2`,
+      [projectId, captureId]
+    );
+  } catch (error) {
     if (isMissingTable(error)) return null;
     fail('captureDetail', error);
   }

@@ -1,13 +1,19 @@
-// ── Location Page Builder persistence — backed by Supabase ───────────────────
-// Was JSON files on disk; now delegates to the shared Supabase store adapter.
+// ── Location Page Builder persistence — backed by Postgres ───────────────────
+// Was JSON files on disk; now delegates to the shared record store adapter.
 // The public API (list/get/findOne/insert/update/remove/upsertBy/replaceAll +
 // cache*) is unchanged, so routes and the seeder need no changes. Each
 // collection maps to a table named `lpb_<lowercased collection>` (see
-// supabase/migrations/0001_init.sql).
+// supabase/migrations/0026_lpb_collections.sql).
+//
+// That pointer used to read 0001_init.sql, which does not exist in this repo
+// and never did — so these tables were absent from every database built from
+// these migrations, and the module died on its first read until 0026 created
+// them. Note that tableFor() below builds the names at runtime, so a grep for
+// a literal table name finds nothing; 0026's header explains what that cost us.
 
 const crypto = require('crypto');
 const config = require('./config');
-const store = require('../services/supabaseStore');
+const store = require('../services/recordStore');
 
 const ROOT = config.dataRoot; // kept for backward-compat exports (unused for IO)
 
@@ -32,7 +38,7 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-// ── Generic CRUD (delegates to the Supabase adapter) ─────────────────────────
+// ── Generic CRUD (delegates to the record store adapter) ─────────────────────
 
 async function list(collection, filter = {}) {
   return store.list(tableFor(collection), filter);
@@ -63,7 +69,7 @@ async function replaceAll(collection, rows) {
 }
 
 // Deterministic-id upsert: safe against concurrent writes for the same record
-// (see supabaseStore.upsertById).
+// (see recordStore.upsertById).
 async function upsertById(collection, data, idPrefix) {
   return store.upsertById(tableFor(collection), data, idPrefix || collection.slice(0, 3));
 }
@@ -96,8 +102,8 @@ const cacheGet = (key, ttlMs) => store.cacheGet(key, ttlMs);
 const cacheSet = (key, value, opts) => store.cacheSet(key, value, opts);
 const cacheKey = (...parts) => store.cacheKey(...parts);
 
-// Best-effort variants. The underlying cache is Supabase-backed and THROWS
-// when Supabase isn't configured (supabaseStore.fail), and call sites
+// Best-effort variants. The underlying cache is database-backed and THROWS
+// when the database isn't configured (recordStore.fail), and call sites
 // typically read the cache OUTSIDE the try/catch that guards their expensive
 // work — so an unwrapped miss propagates and kills the whole run over a cache
 // outage. Every caller that treats caching as an optimization rather than a

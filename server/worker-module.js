@@ -9,12 +9,12 @@
 
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 
-const { isSupabaseConfigured } = require('./services/supabase');
+const { isDatabaseConfigured } = require('./services/db');
 const moduleWorker = require('./services/moduleWorker');
 const executors = require('./services/moduleExecutors');
 
-if (!isSupabaseConfigured()) {
-  console.error('[moduleWorker] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are not set. Nothing to claim.');
+if (!isDatabaseConfigured()) {
+  console.error('[moduleWorker] DATABASE_URL is not set. Nothing to claim.');
   process.exit(1);
 }
 

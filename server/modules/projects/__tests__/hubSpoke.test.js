@@ -215,17 +215,25 @@ test('dates the crawler does not record are null, not guessed', () => {
 });
 
 test('bulk reads are paginated, not single-shot', () => {
-  // PostgREST caps a response at 1,000 rows whatever .limit() says. A single-shot
-  // read of the link graph saw 4 usable edges where 316 existed, and any crawl
-  // over 1,000 URLs would have been clustered from a fraction of its pages.
+  // A single-shot read of the link graph saw 4 usable edges where 316 existed:
+  // PostgREST capped a response at 1,000 rows whatever .limit() said, so any
+  // crawl over 1,000 URLs was clustered from a fraction of its pages.
+  //
+  // Talking to Postgres directly there is no transport cap, but these reads are
+  // still paged — a 750,000-edge link graph should not arrive as one result set —
+  // so the paging helper is what this pins.
   const fs = require('fs');
   const path = require('path');
   const source = fs.readFileSync(path.join(__dirname, '../crawlToArchitect.js'), 'utf8');
   assert.match(source, /async function fetchAll/, 'a paging helper must exist');
-  assert.match(source, /\.range\(/, 'and it must page with .range()');
+  assert.match(source, /limit \$\$\{params\.length \+ 1\} offset \$\$\{params\.length \+ 2\}/,
+    'and it must page with LIMIT/OFFSET');
+  // Every bulk read goes through the helper rather than issuing its own
+  // unbounded select.
   assert.ok(
-    !/\.limit\(2000\d\d\)/.test(source),
-    'a big .limit() is the bug this replaced — PostgREST ignores it',
+    !/from crawl_run_links[\s\S]{0,120}?order by id asc`,\s*\[runId\],\s*\{ label/.test(source)
+    || /fetchAll\(\s*`select from_url, to_url from crawl_run_links/.test(source),
+    'the link-graph read must go through fetchAll',
   );
 });
 

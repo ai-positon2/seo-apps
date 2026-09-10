@@ -16,7 +16,7 @@
 // would quietly let a workspace policy loosen a platform cap, so the direction
 // is declared per key below rather than inferred.
 
-const { getSupabase, isSupabaseConfigured } = require('./supabase');
+const db = require('./db');
 const auditEvents = require('./auditEvents');
 
 // Seeded defaults, mirroring migration 0011's platform version 1. Kept here as
@@ -137,18 +137,20 @@ function validateLimits(limits) {
 
 /** The newest version of one policy scope, or null. */
 async function latestPolicy(scope, scopeRef = null) {
-  if (!isSupabaseConfigured()) return null;
-  let query = getSupabase()
-    .from('admin_limit_policies')
-    .select('*')
-    .eq('scope', scope)
-    .order('version', { ascending: false })
-    .limit(1);
-  query = scopeRef === null ? query.is('scope_ref', null) : query.eq('scope_ref', scopeRef);
-
-  const { data, error } = await query;
-  if (error) fail('latestPolicy', error);
-  return (data && data[0]) || null;
+  if (!db.isDatabaseConfigured()) return null;
+  try {
+    // `is not distinct from` covers both branches at once: a platform policy
+    // has scope_ref NULL, where `=` would never match.
+    return await db.maybeOne(
+      `select * from admin_limit_policies
+        where scope = $1 and scope_ref is not distinct from $2
+        order by version desc
+        limit 1`,
+      [scope, scopeRef]
+    );
+  } catch (error) {
+    fail('latestPolicy', error);
+  }
 }
 
 /**
@@ -210,7 +212,7 @@ function combine(layers = []) {
 async function effectiveLimits({ workspaceId = null, tier = null } = {}) {
   const policies = { platform: null, workspace: null, tier: null };
 
-  if (!isSupabaseConfigured()) return { ...combine([]), policies };
+  if (!db.isDatabaseConfigured()) return { ...combine([]), policies };
 
   const [platform, workspace, tierPolicy] = await Promise.all([
     latestPolicy('platform'),
@@ -246,18 +248,30 @@ async function clamp(key, requested, scopeInput) {
 }
 
 async function listPolicies({ scope = null, scopeRef = null, limit: rowLimit = 50 } = {}) {
-  if (!isSupabaseConfigured()) return [];
-  let query = getSupabase()
-    .from('admin_limit_policies')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(Math.min(Math.max(parseInt(rowLimit, 10) || 50, 1), 200));
-  if (scope) query = query.eq('scope', scope);
-  if (scopeRef) query = query.eq('scope_ref', scopeRef);
+  if (!db.isDatabaseConfigured()) return [];
+  const params = [];
+  const where = [];
+  if (scope) {
+    params.push(scope);
+    where.push(`scope = $${params.length}`);
+  }
+  if (scopeRef) {
+    params.push(scopeRef);
+    where.push(`scope_ref = $${params.length}`);
+  }
+  params.push(Math.min(Math.max(parseInt(rowLimit, 10) || 50, 1), 200));
 
-  const { data, error } = await query;
-  if (error) fail('listPolicies', error);
-  return data || [];
+  try {
+    return await db.rows(
+      `select * from admin_limit_policies
+        ${where.length ? `where ${where.join(' and ')}` : ''}
+        order by created_at desc
+        limit $${params.length}`,
+      params
+    );
+  } catch (error) {
+    fail('listPolicies', error);
+  }
 }
 
 // ── Writes ──────────────────────────────────────────────────────────────────
@@ -268,8 +282,8 @@ async function listPolicies({ scope = null, scopeRef = null, limit: rowLimit = 5
  * effective limit stays readable (§20.10).
  */
 async function createVersion({ scope, scopeRef = null, limits, note, actorUserId, actorEmail }) {
-  if (!isSupabaseConfigured()) {
-    throw Object.assign(new Error('Limit policies need Supabase configured.'), { status: 503 });
+  if (!db.isDatabaseConfigured()) {
+    throw Object.assign(new Error('Limit policies need the database configured.'), { status: 503 });
   }
   if (!['platform', 'workspace', 'tier'].includes(scope)) {
     throw Object.assign(new Error("scope must be 'platform', 'workspace' or 'tier'."), { status: 400 });
@@ -285,22 +299,21 @@ async function createVersion({ scope, scopeRef = null, limits, note, actorUserId
   const previous = await latestPolicy(scope, scopeRef);
   const version = (previous?.version || 0) + 1;
 
-  const { data, error } = await getSupabase()
-    .from('admin_limit_policies')
-    .insert({
+  let data;
+  try {
+    data = await db.insertOne('admin_limit_policies', {
       scope,
       scope_ref: scopeRef,
       version,
       limits: validated,
       note: note || null,
       created_by: actorUserId || null,
-    })
-    .select('*')
-    .single();
-  // Two administrators saving at once: the unique index on
-  // (scope, scope_ref, version) rejects the loser rather than overwriting.
-  if (error) {
-    if (/duplicate key|unique/i.test(error.message)) {
+    });
+  } catch (error) {
+    // Two administrators saving at once: the unique index on
+    // (scope, scope_ref, version) rejects the loser rather than overwriting.
+    // 23505 is Postgres's unique_violation.
+    if (error.code === '23505' || /duplicate key|unique/i.test(error.message || '')) {
       throw Object.assign(
         new Error('Someone else just saved a new version — reload and reapply your change.'),
         { status: 409 },

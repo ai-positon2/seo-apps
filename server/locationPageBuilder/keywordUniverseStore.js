@@ -2,8 +2,8 @@
 // See supabase/migrations/0007_keyword_universe.sql for the table and
 // server/scripts/importKeywordUniverse.js for how rows get in it.
 
-const { getSupabase, isSupabaseConfigured } = require('../services/supabase');
-const supabaseStore = require('../services/supabaseStore');
+const db = require('../services/db');
+const recordStore = require('../services/recordStore');
 const config = require('./config');
 const { universeFilterFor } = require('./keywordUniverseMap');
 
@@ -15,13 +15,16 @@ function norm(s) {
 }
 
 // True once a client has actually imported a universe (avoids a wasted query
-// + a Supabase-not-configured throw for clients that never will).
+// + a database-not-configured throw for clients that never will).
 async function hasUniverse(clientId) {
-  if (!isSupabaseConfigured()) return false;
-  const { count, error } = await getSupabase()
-    .from(TABLE).select('id', { count: 'exact', head: true }).eq('client_id', clientId);
-  if (error) return false;
-  return (count || 0) > 0;
+  if (!db.isDatabaseConfigured()) return false;
+  try {
+    const n = await db.count(
+      `select count(*) from ${TABLE} where client_id = $1`, [clientId]);
+    return n > 0;
+  } catch {
+    return false;
+  }
 }
 
 // Returns CandidateShape rows ({ keyword, volume, difficulty, intent, source })
@@ -36,21 +39,37 @@ async function getUniverseCandidates({ clientId, serviceSlug, city, limit }) {
   // Location-specific rows only — "near me"/implicit-local rows (Geo
   // Detected '-') are excluded on purpose (client wants city-tied keywords,
   // not generic near-me phrasing, even at the cost of lower volume).
-  let q = getSupabase().from(TABLE).select('*').eq('client_id', clientId)
-    .eq('geo_detected_norm', norm(city)).neq('geo_type', 'Implicit Local (Near Me)');
-  q = filter.clusters
-    ? q.in('cluster', filter.clusters)
-    : q.or(filter.keywordLike.map(p => `keyword_norm.ilike.${p}`).join(','));
+  const params = [clientId, norm(city), 'Implicit Local (Near Me)'];
+
+  // Either an exact cluster match or a keyword pattern match, never both —
+  // the same either/or the PostgREST .in()/.or() branch expressed here.
+  let match;
+  if (filter.clusters) {
+    params.push(filter.clusters);
+    match = `cluster = any($${params.length})`;
+  } else {
+    params.push(filter.keywordLike);
+    match = `keyword_norm ilike any($${params.length})`;
+  }
 
   // Highest search volume first, then capped. Without an explicit order the
   // rows Postgres returns are arbitrary, so the cap would silently pick a
   // different (and often worthless) 100 keywords on every run.
-  const { data, error } = await q
-    .order('semrush_sv', { ascending: false })
-    .limit(limit || config.keywords.universePoolSize);
-  if (error) throw new Error(`[keywordUniverseStore.getUniverseCandidates] ${error.message}`);
+  params.push(limit || config.keywords.universePoolSize);
+  const sql =
+    `select * from ${TABLE}
+      where client_id = $1 and geo_detected_norm = $2 and geo_type <> $3 and ${match}
+      order by semrush_sv desc
+      limit $${params.length}`;
 
-  return data.map(r => ({
+  let rows;
+  try {
+    rows = await db.rows(sql, params);
+  } catch (error) {
+    throw new Error(`[keywordUniverseStore.getUniverseCandidates] ${error.message}`);
+  }
+
+  return rows.map(r => ({
     keyword: r.keyword,
     volume: r.semrush_sv || 0,
     difficulty: 0,
@@ -64,7 +83,7 @@ async function getUniverseCandidates({ clientId, serviceSlug, city, limit }) {
 // other-city keywords from the live SERP+SEMrush pull.
 async function getKnownCities(clientId) {
   if (!clientId) return [];
-  return supabaseStore.getSetting(KNOWN_CITIES_SETTING_KEY(clientId), []);
+  return recordStore.getSetting(KNOWN_CITIES_SETTING_KEY(clientId), []);
 }
 
 module.exports = { getUniverseCandidates, hasUniverse, getKnownCities, KNOWN_CITIES_SETTING_KEY };

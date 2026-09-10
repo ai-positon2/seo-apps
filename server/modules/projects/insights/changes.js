@@ -25,7 +25,7 @@
 
 const moduleEvidence = require('../moduleEvidence');
 const overview = require('../overview');
-const { getSupabase, isSupabaseConfigured } = require('../../../services/supabase');
+const db = require('../../../services/db');
 const { normalizeRuleId } = require('./findingIndex');
 
 const SCORED_STATUSES = ['completed', 'insufficient_data'];
@@ -168,8 +168,8 @@ function scoreDelta(current, previous) {
  * @returns {Promise<object>} { modules, crawl, generatedAt }
  */
 async function buildChanges({ access }) {
-  if (!isSupabaseConfigured()) {
-    throw Object.assign(new Error('Change detection needs Supabase configured.'), { status: 503 });
+  if (!db.isDatabaseConfigured()) {
+    throw Object.assign(new Error('Change detection needs the database configured.'), { status: 503 });
   }
 
   const projectId = access.project.id;

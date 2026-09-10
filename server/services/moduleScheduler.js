@@ -15,7 +15,7 @@
 // them serially while every client waits — with it, ten clients fire about six
 // minutes apart and the herd never forms.
 
-const { getSupabase, isSupabaseConfigured } = require('./supabase');
+const db = require('./db');
 const adminLimits = require('./adminLimits');
 const moduleQueue = require('./moduleQueue');
 const { advance, nextRun, isValidCron, isValidTimezone } = require('../modules/crawlScope/shared/cron');
@@ -30,7 +30,9 @@ function fail(op, error) {
 
 /** Missing table = 0019 not applied. Nothing scheduled is the safe reading. */
 function isMissingTable(error) {
-  return /relation .* does not exist|schema cache|Could not find the table/i.test(error?.message || '');
+  // 42P01 undefined_table.
+  if (error?.code === '42P01') return true;
+  return /relation .* does not exist/i.test(error?.message || '');
 }
 
 /**
@@ -78,7 +80,7 @@ async function upsertSchedule({
   access, moduleKey, enabled = true, cron = '0 3 * * *', timezone = 'UTC',
   monthlyBudgetUsd = null, pinMinute = false,
 }) {
-  if (!isSupabaseConfigured()) throw new Error('Supabase is not configured.');
+  if (!db.isDatabaseConfigured()) throw new Error('The database is not configured.');
   if (!isValidCron(cron)) {
     throw Object.assign(new Error(`"${cron}" is not a valid schedule.`), { status: 400, code: 'bad_cron' });
   }
@@ -106,56 +108,67 @@ async function upsertSchedule({
 
   const next = enabled ? nextRun(finalCron, new Date(), timezone) : null;
 
-  const { data, error } = await getSupabase()
-    .from('project_module_schedules')
-    .upsert({
-      project_id: projectId,
-      workspace_id: access.project.workspace_id || null,
-      module_key: moduleKey,
-      enabled,
-      cron: finalCron,
-      timezone,
-      monthly_budget_usd: monthlyBudgetUsd,
-      next_run_at: next ? next.toISOString() : null,
-    }, { onConflict: 'project_id,module_key' })
-    .select(SCHEDULE_COLUMNS)
-    .maybeSingle();
-
-  if (error) fail('upsertSchedule', error);
-  return data;
+  try {
+    return await db.maybeOne(
+      `insert into project_module_schedules
+         (project_id, workspace_id, module_key, enabled, cron, timezone,
+          monthly_budget_usd, next_run_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8)
+       on conflict (project_id, module_key) do update set
+         workspace_id = excluded.workspace_id,
+         enabled = excluded.enabled,
+         cron = excluded.cron,
+         timezone = excluded.timezone,
+         monthly_budget_usd = excluded.monthly_budget_usd,
+         next_run_at = excluded.next_run_at
+       returning ${SCHEDULE_COLUMNS}`,
+      [
+        projectId,
+        access.project.workspace_id || null,
+        moduleKey,
+        enabled,
+        finalCron,
+        timezone,
+        monthlyBudgetUsd,
+        next ? next.toISOString() : null,
+      ]
+    );
+  } catch (error) {
+    fail('upsertSchedule', error);
+  }
 }
 
 async function getSchedule(projectId, moduleKey) {
-  if (!isSupabaseConfigured()) return null;
-  const { data, error } = await getSupabase()
-    .from('project_module_schedules')
-    .select(SCHEDULE_COLUMNS)
-    .eq('project_id', projectId)
-    .eq('module_key', moduleKey)
-    .maybeSingle();
-  if (error) {
+  if (!db.isDatabaseConfigured()) return null;
+  try {
+    return await db.maybeOne(
+      `select ${SCHEDULE_COLUMNS} from project_module_schedules
+        where project_id = $1 and module_key = $2`,
+      [projectId, moduleKey]
+    );
+  } catch (error) {
     if (isMissingTable(error)) return null;
     fail('getSchedule', error);
   }
-  return data;
 }
 
 /** Schedules whose time has come. */
 async function due({ limit = 50, now = new Date() } = {}) {
-  if (!isSupabaseConfigured()) return [];
-  const { data, error } = await getSupabase()
-    .from('project_module_schedules')
-    .select(SCHEDULE_COLUMNS)
-    .eq('enabled', true)
-    .not('next_run_at', 'is', null)
-    .lte('next_run_at', now.toISOString())
-    .order('next_run_at', { ascending: true })
-    .limit(limit);
-  if (error) {
+  if (!db.isDatabaseConfigured()) return [];
+  try {
+    return await db.rows(
+      `select ${SCHEDULE_COLUMNS} from project_module_schedules
+        where enabled = true
+          and next_run_at is not null
+          and next_run_at <= $1
+        order by next_run_at asc
+        limit $2`,
+      [now.toISOString(), limit]
+    );
+  } catch (error) {
     if (isMissingTable(error)) return [];
     fail('due', error);
   }
-  return data || [];
 }
 
 /**
@@ -178,26 +191,20 @@ async function tick({ now = new Date(), limit = 50 } = {}) {
   result.considered = rows.length;
   if (!rows.length) return result;
 
-  const db = getSupabase();
-
   for (const schedule of rows) {
     try {
       const next = advance(schedule.cron, schedule.timezone, schedule.next_run_at, now);
 
       // The CAS: only the replica that still sees the observed next_run_at
       // proceeds. Everyone else finds no row and skips.
-      const { data: won, error } = await db
-        .from('project_module_schedules')
-        .update({
-          next_run_at: next ? next.toISOString() : null,
-          last_run_at: now.toISOString(),
-        })
-        .eq('id', schedule.id)
-        .eq('next_run_at', schedule.next_run_at)
-        .select('id')
-        .maybeSingle();
+      const won = await db.maybeOne(
+        `update project_module_schedules
+            set next_run_at = $1, last_run_at = $2
+          where id = $3 and next_run_at = $4
+          returning id`,
+        [next ? next.toISOString() : null, now.toISOString(), schedule.id, schedule.next_run_at]
+      );
 
-      if (error) throw error;
       if (!won) { result.skipped += 1; continue; }
 
       const run = await moduleQueue.enqueue({
@@ -207,9 +214,10 @@ async function tick({ now = new Date(), limit = 50 } = {}) {
         trigger: 'schedule',
       });
 
-      await db.from('project_module_schedules')
-        .update({ last_run_id: run?.id || null })
-        .eq('id', schedule.id);
+      await db.query(
+        `update project_module_schedules set last_run_id = $1 where id = $2`,
+        [run?.id || null, schedule.id]
+      );
 
       result.enqueued += 1;
     } catch (e) {

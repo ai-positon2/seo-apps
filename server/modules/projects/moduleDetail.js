@@ -16,7 +16,7 @@
 const overview = require('./overview');
 const moduleEvidence = require('./moduleEvidence');
 const moduleRunners = require('./moduleRunners');
-const { isSupabaseConfigured } = require('../../services/supabase');
+const { isDatabaseConfigured } = require('../../services/db');
 
 // Enough history to see a trend without turning the panel into a log.
 const HISTORY_LIMIT = 10;
@@ -27,7 +27,7 @@ function notFound(message) {
 
 function notConfigured() {
   return Object.assign(
-    new Error('Module detail needs Supabase configured.'),
+    new Error('Module detail needs the database configured.'),
     { status: 503, code: 'not_configured' },
   );
 }
@@ -232,7 +232,7 @@ async function technicalDetail({ module, projectId }) {
  * @param {Array}  [input.domains]  project_domains rows, for the cost estimate
  */
 async function buildModuleDetail({ access, moduleKey, domains = [] }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!isDatabaseConfigured()) throw notConfigured();
 
   const module = moduleFor(moduleKey);
   const projectId = access.project.id;

@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { canViewRow, viewerFilter } = require("../db/repo");
+const { canViewRow, viewerScope } = require("../db/repo");
 
 // Who may read a crawl run.
 //
@@ -36,27 +36,31 @@ test("a missing row and a missing viewer are both 'no'", () => {
   assert.equal(canViewRow({ workspace_id: null, owner: USER }, { workspaceIds: [WS_A] }), false);
 });
 
-test("viewerFilter covers both branches", () => {
-  const f = viewerFilter(viewer);
-  assert.ok(f.includes(`workspace_id.in.(${WS_A})`));
-  assert.ok(f.includes(`and(workspace_id.is.null,owner.eq.${USER})`));
+test("viewerScope covers both branches", () => {
+  const scope = viewerScope(viewer);
+  // Workspace membership, and the pre-workspace rows the viewer created.
+  assert.match(scope.sql, /workspace_id = any\(\$1\)/);
+  assert.match(scope.sql, /workspace_id is null and owner = \$2/);
+  assert.deepEqual(scope.params, [[WS_A], USER]);
 });
 
-test("viewerFilter is empty for a viewer with no identity", () => {
-  // Empty MUST mean "no rows" to the caller. A caller that passed '' straight to
-  // .or() would read the entire table, so this is asserted rather than assumed.
-  assert.equal(viewerFilter({}), "");
-  assert.equal(viewerFilter({ workspaceIds: [] }), "");
-  assert.equal(viewerFilter(null), "");
+test("viewerScope is null for a viewer with no identity", () => {
+  // Null MUST mean "no rows" to the caller. A caller that treated it as "no
+  // filter" would read the entire table, so this is asserted rather than assumed.
+  assert.equal(viewerScope({}), null);
+  assert.equal(viewerScope({ workspaceIds: [] }), null);
+  assert.equal(viewerScope(null), null);
 });
 
-test("viewerFilter drops anything that is not a uuid", () => {
-  // These strings become PostgREST query syntax. They come from our own tables
-  // today; this is what keeps that from mattering if it ever changes.
-  assert.equal(viewerFilter({ workspaceIds: ["' or 1=1--"], userId: null }), "");
-  assert.equal(viewerFilter({ workspaceIds: [], userId: "not-a-uuid" }), "");
-  assert.equal(
-    viewerFilter({ workspaceIds: [WS_A, "bogus"], userId: null }),
-    `workspace_id.in.(${WS_A})`,
-  );
+test("viewerScope drops anything that is not a uuid", () => {
+  // Ids are bound as parameters now, so a malformed one cannot become query
+  // syntax. It is still dropped: a viewer whose only ids are junk must come back
+  // with NO rows, and removing them here is what makes that an empty scope
+  // rather than a clause that happens to match nothing.
+  assert.equal(viewerScope({ workspaceIds: ["' or 1=1--"], userId: null }), null);
+  assert.equal(viewerScope({ workspaceIds: [], userId: "not-a-uuid" }), null);
+
+  const scope = viewerScope({ workspaceIds: [WS_A, "bogus"], userId: null });
+  assert.deepEqual(scope.params, [[WS_A]]);
+  assert.doesNotMatch(scope.sql, /owner/);
 });

@@ -18,7 +18,7 @@
 // per request, so their rows carry null and contribute nothing; the ceiling
 // exists for the DataForSEO fallback and for the LLM extraction pass.
 
-const { getSupabase, isSupabaseConfigured } = require('../../services/supabase');
+const db = require('../../services/db');
 
 /** Start of the current UTC month. Budgets are monthly, and months are calendar. */
 function monthStart(now = new Date()) {
@@ -32,36 +32,29 @@ function monthStart(now = new Date()) {
  * a task that returned nothing still charged. Excluding failures would let a
  * project with a high failure rate quietly exceed its ceiling.
  */
-const SPEND_PAGE = 1000;
-
 async function spentThisMonth(projectId, { since = null } = {}) {
-  if (!isSupabaseConfigured()) return 0;
+  if (!db.isDatabaseConfigured()) return 0;
 
-  // Paged.
+  // Summed by the database, in one statement.
   //
-  // This was a single unbounded select, and PostgREST caps a response at its
-  // configured max rows — so past that cap the sum silently omitted the rest
-  // and the ceiling could never be reached. A budget guard that under-reports
-  // spend is worse than none: it reports a number that reads as safety.
-  let total = 0;
-  for (let offset = 0; ; offset += SPEND_PAGE) {
-    // eslint-disable-next-line no-await-in-loop
-    const { data, error } = await getSupabase()
-      .from('ai_visibility_captures')
-      .select('id, task_cost')
-      .eq('project_id', projectId)
-      .gte('captured_at', since || monthStart())
-      .not('task_cost', 'is', null)
-      // `id` is unique, so a page boundary cannot skip or repeat a row the way
-      // ordering on a shared timestamp can.
-      .order('id', { ascending: true })
-      .range(offset, offset + SPEND_PAGE - 1);
-
-    if (error) throw new Error(`[aiVisibility.budget] ${error.message}`);
-    total += (data || []).reduce((sum, r) => sum + Number(r.task_cost || 0), 0);
-    if (!data || data.length < SPEND_PAGE) break;
+  // This used to page through every capture row and add them up here, because a
+  // single unbounded select through PostgREST was silently truncated at its
+  // max-rows ceiling — so past that cap the sum omitted the rest and the
+  // ceiling could never be reached. A budget guard that under-reports spend is
+  // worse than none: it reports a number that reads as safety. Aggregating in
+  // SQL removes both the paging and the hazard it was working around; there is
+  // no row count at which this can come back short.
+  try {
+    const total = await db.value(
+      `select coalesce(sum(task_cost), 0) as spent
+         from ai_visibility_captures
+        where project_id = $1 and captured_at >= $2 and task_cost is not null`,
+      [projectId, since || monthStart()]
+    );
+    return Number(total || 0);
+  } catch (error) {
+    throw new Error(`[aiVisibility.budget] ${error.message}`);
   }
-  return total;
 }
 
 /**
@@ -72,18 +65,20 @@ async function spentThisMonth(projectId, { since = null } = {}) {
  * nobody had got round to configuring.
  */
 async function ceilingFor(projectId) {
-  if (!isSupabaseConfigured()) return null;
-  const { data, error } = await getSupabase()
-    .from('project_module_schedules')
-    .select('monthly_budget_usd')
-    .eq('project_id', projectId)
-    .eq('module_key', 'ai_visibility')
-    .maybeSingle();
-
-  // A missing schedules table means 0019 has not been applied. No ceiling is
-  // the safe reading: refusing every run because a migration is pending would
-  // take the module down.
-  if (error) return null;
+  if (!db.isDatabaseConfigured()) return null;
+  let data;
+  try {
+    data = await db.maybeOne(
+      `select monthly_budget_usd from project_module_schedules
+        where project_id = $1 and module_key = 'ai_visibility'`,
+      [projectId]
+    );
+  } catch {
+    // A missing schedules table means 0019 has not been applied. No ceiling is
+    // the safe reading: refusing every run because a migration is pending would
+    // take the module down.
+    return null;
+  }
   const raw = data?.monthly_budget_usd;
   return raw === null || raw === undefined ? null : Number(raw);
 }

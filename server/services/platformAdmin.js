@@ -19,7 +19,7 @@
 // their first authenticated login, which is what makes this idempotent for an
 // account that already exists.
 
-const { getSupabase, isSupabaseConfigured } = require('./supabase');
+const db = require('./db');
 const auditEvents = require('./auditEvents');
 
 // PRD §1 / §7.3: the initial platform administrator. Kept as a constant — not
@@ -78,14 +78,15 @@ function fail(op, error) {
 // ── Grant records ───────────────────────────────────────────────────────────
 
 async function findActiveGrant(normalizedEmail) {
-  const { data, error } = await getSupabase()
-    .from('platform_admin_grants')
-    .select('*')
-    .eq('normalized_email', normalizedEmail)
-    .eq('status', 'active')
-    .maybeSingle();
-  if (error) fail('findActiveGrant', error);
-  return data || null;
+  try {
+    return await db.maybeOne(
+      `select * from platform_admin_grants
+        where normalized_email = $1 and status = 'active'`,
+      [normalizedEmail]
+    );
+  } catch (error) {
+    fail('findActiveGrant', error);
+  }
 }
 
 /**
@@ -98,21 +99,27 @@ async function findActiveGrant(normalizedEmail) {
  */
 async function ensureBootstrapGrants() {
   const result = { seeded: [], skipped: [] };
-  if (!isSupabaseConfigured()) return result;
+  if (!db.isDatabaseConfigured()) return result;
 
   for (const email of bootstrapEmails()) {
     try {
       const existing = await findActiveGrant(email);
       if (existing) { result.skipped.push(email); continue; }
 
-      const { error } = await getSupabase().from('platform_admin_grants').insert({
-        normalized_email: email,
-        grant_source: 'bootstrap',
-        note: 'Bootstrap platform administrator (PRD §7.3).',
-      });
-      // A concurrent boot (two replicas) loses the unique index race; that is
-      // the index doing its job, not an error worth reporting.
-      if (error && !/duplicate key|unique/i.test(error.message)) fail('ensureBootstrapGrants', error);
+      try {
+        await db.insertOne('platform_admin_grants', {
+          normalized_email: email,
+          grant_source: 'bootstrap',
+          note: 'Bootstrap platform administrator (PRD §7.3).',
+        }, { returning: false });
+      } catch (error) {
+        // A concurrent boot (two replicas) loses the unique index race; that is
+        // the index doing its job, not an error worth reporting. 23505 is
+        // Postgres's unique_violation.
+        if (error.code !== '23505' && !/duplicate key|unique/i.test(error.message || '')) {
+          fail('ensureBootstrapGrants', error);
+        }
+      }
 
       invalidate(email);
       result.seeded.push(email);
@@ -139,7 +146,7 @@ async function ensureBootstrapGrants() {
  * Idempotent — an already-linked grant is left alone.
  */
 async function linkGrantForUser({ userId, email }) {
-  if (!isSupabaseConfigured() || !userId) return null;
+  if (!db.isDatabaseConfigured() || !userId) return null;
   const normalized = normalizeEmail(email);
   if (!normalized) return null;
 
@@ -148,13 +155,11 @@ async function linkGrantForUser({ userId, email }) {
     if (!grant) return null;
     if (grant.user_id === userId) return grant;
 
-    const { data, error } = await getSupabase()
-      .from('platform_admin_grants')
-      .update({ user_id: userId, linked_at: new Date().toISOString() })
-      .eq('id', grant.id)
-      .select('*')
-      .single();
-    if (error) fail('linkGrantForUser', error);
+    const data = await db.one(
+      `update platform_admin_grants set user_id = $1, linked_at = $2
+        where id = $3 returning *`,
+      [userId, new Date().toISOString(), grant.id]
+    );
 
     invalidate(normalized);
     await auditEvents.record({
@@ -181,7 +186,7 @@ async function linkGrantForUser({ userId, email }) {
 async function isPlatformAdmin({ email, userId } = {}) {
   const normalized = normalizeEmail(email);
   if (!normalized) return false;
-  if (!isSupabaseConfigured()) {
+  if (!db.isDatabaseConfigured()) {
     // No database means no grants table to consult. Falling back to the
     // bootstrap constant here would be a frontend-style hardcode with extra
     // steps; refusing is the safe answer, and the admin UI says why.
@@ -227,16 +232,19 @@ function requirePlatformAdmin(req, res, next) {
 // ── Admin UI operations ─────────────────────────────────────────────────────
 
 async function listGrants({ includeRevoked = false } = {}) {
-  if (!isSupabaseConfigured()) return [];
-  let query = getSupabase()
-    .from('platform_admin_grants')
-    .select('id, normalized_email, user_id, status, grant_source, granted_at, linked_at, revoked_at, note')
-    .order('granted_at', { ascending: false });
-  if (!includeRevoked) query = query.eq('status', 'active');
-
-  const { data, error } = await query;
-  if (error) fail('listGrants', error);
-  return data || [];
+  if (!db.isDatabaseConfigured()) return [];
+  const where = includeRevoked ? '' : `where status = 'active'`;
+  try {
+    return await db.rows(
+      `select id, normalized_email, user_id, status, grant_source,
+              granted_at, linked_at, revoked_at, note
+         from platform_admin_grants
+         ${where}
+        order by granted_at desc`
+    );
+  } catch (error) {
+    fail('listGrants', error);
+  }
 }
 
 /**
@@ -253,22 +261,27 @@ async function grantAdmin({ email, actorUserId, actorEmail, note }) {
   if (existing) return existing; // idempotent
 
   // If they already have an app_users row, link it immediately.
-  const { data: user } = await getSupabase()
-    .from('app_users').select('id').eq('email', normalized).maybeSingle();
+  let user = null;
+  try {
+    user = await db.maybeOne(`select id from app_users where email = $1`, [normalized]);
+  } catch {
+    // Matching the previous behaviour: a failed lookup here just means the
+    // grant is created unlinked, and the next login links it.
+  }
 
-  const { data, error } = await getSupabase()
-    .from('platform_admin_grants')
-    .insert({
+  let data;
+  try {
+    data = await db.insertOne('platform_admin_grants', {
       normalized_email: normalized,
       user_id: user?.id || null,
       linked_at: user?.id ? new Date().toISOString() : null,
       grant_source: 'admin_ui',
       granted_by: actorUserId || null,
       note: note || null,
-    })
-    .select('*')
-    .single();
-  if (error) fail('grantAdmin', error);
+    });
+  } catch (error) {
+    fail('grantAdmin', error);
+  }
 
   invalidate(normalized);
   await auditEvents.record({
@@ -292,32 +305,44 @@ async function grantAdmin({ email, actorUserId, actorEmail, note }) {
  * access, which is a lockout, not a permission decision.
  */
 async function revokeAdmin({ grantId, actorUserId, actorEmail, reason }) {
-  const sb = getSupabase();
-  const { data: grant, error: findErr } = await sb
-    .from('platform_admin_grants').select('*').eq('id', grantId).maybeSingle();
-  if (findErr) fail('revokeAdmin(find)', findErr);
-  if (!grant) throw Object.assign(new Error('Grant not found.'), { status: 404 });
-  if (grant.status === 'revoked') return grant;
+  // Read, count and write in one transaction, locking the active grants while
+  // the count is taken. Over three independent requests — which is all
+  // PostgREST could do — two concurrent revokes could each see two active
+  // grants and each proceed, revoking both and locking the installation out of
+  // its own limits configuration. That is the exact outcome the guard below
+  // exists to prevent, so it has to be atomic.
+  let grant;
+  let data;
+  try {
+    ({ grant, data } = await db.tx(async (t) => {
+      const found = await t.maybeOne(
+        `select * from platform_admin_grants where id = $1`, [grantId]);
+      if (!found) throw Object.assign(new Error('Grant not found.'), { status: 404 });
+      if (found.status === 'revoked') return { grant: found, data: found };
 
-  const { count, error: countErr } = await sb
-    .from('platform_admin_grants')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'active');
-  if (countErr) fail('revokeAdmin(count)', countErr);
-  if ((count || 0) <= 1) {
-    throw Object.assign(
-      new Error('This is the last platform administrator — grant another one before revoking this.'),
-      { status: 400 },
-    );
+      const active = await t.value(
+        `select count(*) from platform_admin_grants where status = 'active' for update`);
+      if (Number(active || 0) <= 1) {
+        throw Object.assign(
+          new Error('This is the last platform administrator — grant another one before revoking this.'),
+          { status: 400 },
+        );
+      }
+
+      const updated = await t.one(
+        `update platform_admin_grants
+            set status = 'revoked', revoked_at = $1, revoked_by = $2
+          where id = $3 returning *`,
+        [new Date().toISOString(), actorUserId || null, grantId]
+      );
+      return { grant: found, data: updated };
+    }));
+  } catch (error) {
+    if (error.status) throw error;
+    fail('revokeAdmin', error);
   }
 
-  const { data, error } = await sb
-    .from('platform_admin_grants')
-    .update({ status: 'revoked', revoked_at: new Date().toISOString(), revoked_by: actorUserId || null })
-    .eq('id', grantId)
-    .select('*')
-    .single();
-  if (error) fail('revokeAdmin', error);
+  if (data.status === 'revoked' && grant.status === 'revoked') return grant;
 
   invalidate(grant.normalized_email);
   await auditEvents.record({

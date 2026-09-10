@@ -2,7 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
-const { isSupabaseConfigured } = require('../services/supabase');
+const { isDatabaseConfigured } = require('../services/db');
 const identityStore = require('../services/identityStore');
 const platformAdmin = require('../services/platformAdmin');
 const { peekWorkspaceId } = require('../services/workspaceContext');
@@ -238,7 +238,7 @@ router.get('/verify', async (req, res) => {
     //
     // `hasProfile` defaults true: a session with no userId skips the profile step.
     const [profile, isPlatformAdmin] = await Promise.all([
-      payload.userId && isSupabaseConfigured()
+      payload.userId && isDatabaseConfigured()
         ? identityStore.getProfile(payload.userId)
         : Promise.resolve(true),
       // Sent so the client can render the admin nav. It is a hint, never an
@@ -357,7 +357,7 @@ router.get('/google/callback', async (req, res) => {
     }
 
     let userId;
-    if (isSupabaseConfigured()) {
+    if (isDatabaseConfigured()) {
       const user = await identityStore.getOrCreateUser(payload.email);
       userId = user.id;
       // This is the one moment both the Google-verified email and the app_users

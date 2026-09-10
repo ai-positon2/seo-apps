@@ -15,17 +15,21 @@
 //   3. Nothing is ever deleted. A page that 404s this week may be back next week,
 //      and its owner, notes, exclusion and audit history all have to survive it.
 
-const { getSupabase, isSupabaseConfigured } = require('../../services/supabase');
+const db = require('../../services/db');
 const crawledPages = require('./crawledPages');
 
-// Supabase rejects very large upserts; pages go in batches. A 5,000-page crawl is
-// within the platform's configured URL ceiling, so this has to work at that size.
+// Pages go in batches: one statement per 500 keeps the bound-parameter count
+// well inside Postgres's limit. A 5,000-page crawl is within the platform's
+// configured URL ceiling, so this has to work at that size.
 const UPSERT_BATCH = 500;
-const READ_PAGE = 1000;   // PostgREST caps a response regardless of .limit()
+// Reads are paged too. There is no transport ceiling any more — this used to
+// exist because PostgREST capped a response regardless of .limit() — but a
+// 5,000-page inventory is still better read in windows than as one result set.
+const READ_PAGE = 1000;
 
 function notConfigured() {
   return Object.assign(
-    new Error('Reading project pages needs Supabase configured.'),
+    new Error('Reading project pages needs the database configured.'),
     { status: 503, code: 'not_configured' },
   );
 }
@@ -45,7 +49,8 @@ function fail(where, error) {
 /** True when the table has not been created yet. */
 function isMissingTable(error) {
   return error?.code === '42P01'
-    || /Could not find the table|does not exist/i.test(error?.message || '');
+    || error?.code === '42703'
+    || /does not exist/i.test(error?.message || '');
 }
 
 let warnedMissing = false;
@@ -94,15 +99,21 @@ function view(row) {
   };
 }
 
-async function readAll(build, label) {
+// `sql` must end in an ORDER BY (or nothing) and carry no LIMIT/OFFSET of its
+// own — this appends the window.
+async function readAll(sql, params, label) {
   const rows = [];
   for (let from = 0; ; from += READ_PAGE) {
-    const { data, error } = await build().range(from, from + READ_PAGE - 1);
-    if (error) {
+    let data;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      data = await db.rows(`${sql} limit $${params.length + 1} offset $${params.length + 2}`,
+        [...params, READ_PAGE, from]);
+    } catch (error) {
       if (isMissingTable(error)) { warnMissingOnce(); return []; }
       fail(label, error);
     }
-    if (!data?.length) break;
+    if (!data.length) break;
     rows.push(...data);
     if (data.length < READ_PAGE) break;
   }
@@ -149,7 +160,7 @@ function retirementAllowed(crawl) {
 }
 
 async function syncFromCrawl({ access, crawlRunId = null }) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
   const projectId = access.project.id;
   const workspaceId = access.project.workspace_id || null;
@@ -178,10 +189,10 @@ async function syncFromCrawl({ access, crawlRunId = null }) {
 
   // Existing rows, so created-vs-updated is a real count rather than a guess.
   const existing = await readAll(
-    () => getSupabase()
-      .from('project_pages')
-      .select('id, canonical_key, retired_at')
-      .eq('project_id', projectId),
+    `select id, canonical_key, retired_at from project_pages
+      where project_id = $1
+      order by id asc`,
+    [projectId],
     'syncFromCrawl.existing',
   );
   const existingByKey = new Map(existing.map((r) => [r.canonical_key, r]));
@@ -215,10 +226,10 @@ async function syncFromCrawl({ access, crawlRunId = null }) {
 
   for (let i = 0; i < rows.length; i += UPSERT_BATCH) {
     const batch = rows.slice(i, i + UPSERT_BATCH);
-    const { error } = await getSupabase()
-      .from('project_pages')
-      .upsert(batch, { onConflict: 'project_id,canonical_key' });
-    if (error) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await db.upsert('project_pages', batch, ['project_id', 'canonical_key']);
+    } catch (error) {
       if (isMissingTable(error)) { warnMissingOnce(); throw notFound('project_pages does not exist yet — apply migration 0015.'); }
       fail('syncFromCrawl.upsert', error);
     }
@@ -234,12 +245,16 @@ async function syncFromCrawl({ access, crawlRunId = null }) {
   const newKeys = [...seenKeys].filter((k) => !existingByKey.has(k));
   for (let i = 0; i < newKeys.length; i += UPSERT_BATCH) {
     const batch = newKeys.slice(i, i + UPSERT_BATCH);
-    const { error } = await getSupabase()
-      .from('project_pages')
-      .update({ first_seen_at: seenAt, first_seen_run: crawl.crawl.id })
-      .eq('project_id', projectId)
-      .in('canonical_key', batch);
-    if (error) fail('syncFromCrawl.firstSeen', error);
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await db.query(
+        `update project_pages set first_seen_at = $1, first_seen_run = $2
+          where project_id = $3 and canonical_key = any($4)`,
+        [seenAt, crawl.crawl.id, projectId, batch]
+      );
+    } catch (error) {
+      fail('syncFromCrawl.firstSeen', error);
+    }
   }
 
   // ── Pages the crawl did not see ─────────────────────────────────────────
@@ -257,16 +272,19 @@ async function syncFromCrawl({ access, crawlRunId = null }) {
       retirementWithheld = missing.length;
     } else {
       const ids = missing.map((r) => r.id);
+      const reason = `Not found in the crawl of ${seenAt}, which completed without `
+        + 'hitting its URL limit — so the page is genuinely absent rather than unreached.';
       for (let i = 0; i < ids.length; i += UPSERT_BATCH) {
-        const { error } = await getSupabase()
-          .from('project_pages')
-          .update({
-            retired_at: seenAt,
-            retired_reason: `Not found in the crawl of ${seenAt}, which completed without `
-              + 'hitting its URL limit — so the page is genuinely absent rather than unreached.',
-          })
-          .in('id', ids.slice(i, i + UPSERT_BATCH));
-        if (error) fail('syncFromCrawl.retire', error);
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await db.query(
+            `update project_pages set retired_at = $1, retired_reason = $2
+              where id = any($3)`,
+            [seenAt, reason, ids.slice(i, i + UPSERT_BATCH)]
+          );
+        } catch (error) {
+          fail('syncFromCrawl.retire', error);
+        }
       }
       retired = ids.length;
     }
@@ -300,14 +318,15 @@ async function syncFromCrawl({ access, crawlRunId = null }) {
  * always knows what it is not being shown.
  */
 async function listPages(projectId, { includeRetired = false, includeExcluded = true } = {}) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
   const rows = await readAll(
-    () => getSupabase()
-      .from('project_pages')
-      .select('*')
-      .eq('project_id', projectId)
-      .order('inbound_links', { ascending: false, nullsFirst: false }),
+    // nulls last matches the old { nullsFirst: false }: a page with no inbound
+    // link count sorts after every page that has one, not before.
+    `select * from project_pages
+      where project_id = $1
+      order by inbound_links desc nulls last, id asc`,
+    [projectId],
     'listPages',
   );
 
@@ -330,27 +349,26 @@ async function listPages(projectId, { includeRetired = false, includeExcluded = 
 
 /** The canonical keys of every excluded page, for the backlog to subtract. */
 async function excludedKeys(projectId) {
-  if (!isSupabaseConfigured()) return new Set();
+  if (!db.isDatabaseConfigured()) return new Set();
   const rows = await readAll(
-    () => getSupabase()
-      .from('project_pages')
-      .select('canonical_key')
-      .eq('project_id', projectId)
-      .not('excluded_at', 'is', null),
+    `select canonical_key from project_pages
+      where project_id = $1 and excluded_at is not null
+      order by id asc`,
+    [projectId],
     'excludedKeys',
   );
   return new Set(rows.map((r) => r.canonical_key));
 }
 
 async function getPage(projectId, pageId) {
-  if (!isSupabaseConfigured()) throw notConfigured();
-  const { data, error } = await getSupabase()
-    .from('project_pages')
-    .select('*')
-    .eq('project_id', projectId)
-    .eq('id', pageId)
-    .maybeSingle();
-  if (error) {
+  if (!db.isDatabaseConfigured()) throw notConfigured();
+  let data;
+  try {
+    data = await db.maybeOne(
+      `select * from project_pages where project_id = $1 and id = $2`,
+      [projectId, pageId]
+    );
+  } catch (error) {
     if (isMissingTable(error)) { warnMissingOnce(); return null; }
     fail('getPage', error);
   }
@@ -361,13 +379,13 @@ async function getPage(projectId, pageId) {
 async function findByUrl(projectId, url) {
   const key = crawledPages.canonicalKey(url);
   if (!key) return null;
-  const { data, error } = await getSupabase()
-    .from('project_pages')
-    .select('*')
-    .eq('project_id', projectId)
-    .eq('canonical_key', key)
-    .maybeSingle();
-  if (error) {
+  let data;
+  try {
+    data = await db.maybeOne(
+      `select * from project_pages where project_id = $1 and canonical_key = $2`,
+      [projectId, key]
+    );
+  } catch (error) {
     if (isMissingTable(error)) { warnMissingOnce(); return null; }
     fail('findByUrl', error);
   }
@@ -377,10 +395,10 @@ async function findByUrl(projectId, url) {
 /** canonical key → page id, for resolving a run's findings onto pages. */
 async function keyToId(projectId) {
   const rows = await readAll(
-    () => getSupabase()
-      .from('project_pages')
-      .select('id, canonical_key')
-      .eq('project_id', projectId),
+    `select id, canonical_key from project_pages
+      where project_id = $1
+      order by id asc`,
+    [projectId],
     'keyToId',
   );
   return new Map(rows.map((r) => [r.canonical_key, r.id]));
@@ -397,16 +415,16 @@ async function updatePage(projectId, pageId, patch) {
   if (patch.notes !== undefined) update.notes = patch.notes ? String(patch.notes) : null;
   if (!Object.keys(update).length) throw invalid('Nothing to update.', 'empty_patch');
 
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
-  const { data, error } = await getSupabase()
-    .from('project_pages')
-    .update(update)
-    .eq('project_id', projectId)
-    .eq('id', pageId)
-    .select()
-    .maybeSingle();
-  if (error) fail('updatePage', error);
+  let data;
+  try {
+    const rows = await db.updateWhere(
+      'project_pages', update, { project_id: projectId, id: pageId }, { returning: '*' });
+    [data] = rows;
+  } catch (error) {
+    fail('updatePage', error);
+  }
   if (!data) throw notFound('Page not found.');
   return view(data);
 }
@@ -426,34 +444,38 @@ async function excludePage(projectId, pageId, { reason, by }) {
   if (!clean) {
     throw invalid('Excluding a page needs a reason.', 'reason_required');
   }
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
-  const { data, error } = await getSupabase()
-    .from('project_pages')
-    .update({
-      excluded_at: new Date().toISOString(),
-      excluded_reason: clean,
-      excluded_by: by || null,
-    })
-    .eq('project_id', projectId)
-    .eq('id', pageId)
-    .select()
-    .maybeSingle();
-  if (error) fail('excludePage', error);
+  let data;
+  try {
+    data = await db.maybeOne(
+      `update project_pages
+          set excluded_at = $1, excluded_reason = $2, excluded_by = $3
+        where project_id = $4 and id = $5
+        returning *`,
+      [new Date().toISOString(), clean, by || null, projectId, pageId]
+    );
+  } catch (error) {
+    fail('excludePage', error);
+  }
   if (!data) throw notFound('Page not found.');
   return view(data);
 }
 
 async function includePage(projectId, pageId) {
-  if (!isSupabaseConfigured()) throw notConfigured();
-  const { data, error } = await getSupabase()
-    .from('project_pages')
-    .update({ excluded_at: null, excluded_reason: null, excluded_by: null })
-    .eq('project_id', projectId)
-    .eq('id', pageId)
-    .select()
-    .maybeSingle();
-  if (error) fail('includePage', error);
+  if (!db.isDatabaseConfigured()) throw notConfigured();
+  let data;
+  try {
+    data = await db.maybeOne(
+      `update project_pages
+          set excluded_at = null, excluded_reason = null, excluded_by = null
+        where project_id = $1 and id = $2
+        returning *`,
+      [projectId, pageId]
+    );
+  } catch (error) {
+    fail('includePage', error);
+  }
   if (!data) throw notFound('Page not found.');
   return view(data);
 }
@@ -468,29 +490,27 @@ async function includePage(projectId, pageId) {
  * than a foreign key.
  */
 async function pageHistory(projectId, pageId) {
-  if (!isSupabaseConfigured()) throw notConfigured();
+  if (!db.isDatabaseConfigured()) throw notConfigured();
 
   const page = await getPage(projectId, pageId);
   if (!page) throw notFound('Page not found.');
 
+  const HISTORY_COLUMNS =
+    'id, run_id, module_key, status, score, band, counts, error, finished_at, created_at';
+
   const byId = await readAll(
-    () => getSupabase()
-      .from('project_module_page_runs')
-      .select('id, run_id, module_key, status, score, band, counts, error, finished_at, created_at')
-      .eq('project_id', projectId)
-      .eq('page_id', pageId)
-      .order('created_at', { ascending: false }),
+    `select ${HISTORY_COLUMNS} from project_module_page_runs
+      where project_id = $1 and page_id = $2
+      order by created_at desc, id desc`,
+    [projectId, pageId],
     'pageHistory.byId',
   );
 
   const byUrl = await readAll(
-    () => getSupabase()
-      .from('project_module_page_runs')
-      .select('id, run_id, module_key, status, score, band, counts, error, finished_at, created_at')
-      .eq('project_id', projectId)
-      .is('page_id', null)
-      .eq('url', page.url)
-      .order('created_at', { ascending: false }),
+    `select ${HISTORY_COLUMNS} from project_module_page_runs
+      where project_id = $1 and page_id is null and url = $2
+      order by created_at desc, id desc`,
+    [projectId, page.url],
     'pageHistory.byUrl',
   );
 

@@ -37,7 +37,7 @@
 // at 'running' and the sweeper fails them within their allowance. Fixing that
 // needs the leased job model (plan B2); nothing here can recover a dead process.
 
-const { getSupabase, isSupabaseConfigured } = require('../../services/supabase');
+const db = require('../../services/db');
 const adminLimits = require('../../services/adminLimits');
 const moduleEvidence = require('./moduleEvidence');
 const projectPages = require('./pages');
@@ -74,13 +74,14 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** The crawl's current status, or null if it has gone. */
 async function crawlStatus(crawlRunId) {
-  const { data, error } = await getSupabase()
-    .from('crawl_runs')
-    .select('id, status, finished_at, created_at, options')
-    .eq('id', crawlRunId)
-    .maybeSingle();
-  if (error) throw new Error(`[streamingAudit.crawlStatus] ${error.message}`);
-  return data || null;
+  try {
+    return await db.maybeOne(
+      `select id, status, finished_at, created_at, options from crawl_runs where id = $1`,
+      [crawlRunId]
+    );
+  } catch (error) {
+    throw new Error(`[streamingAudit.crawlStatus] ${error.message}`);
+  }
 }
 
 /**
@@ -92,18 +93,21 @@ async function crawlStatus(crawlRunId) {
  * about what counts as an auditable page.
  */
 async function pagesSoFar(crawlRunId, afterId = 0) {
-  const { data, error } = await getSupabase()
-    .from('crawl_run_results')
-    .select('id, url, status, data')
-    .eq('run_id', crawlRunId)
-    .eq('data->>scope', 'Internal')
-    .gt('id', afterId)
-    .order('id', { ascending: true })
-    .limit(200);
-  if (error) throw new Error(`[streamingAudit.pagesSoFar] ${error.message}`);
+  let data;
+  try {
+    data = await db.rows(
+      `select id, url, status, data from crawl_run_results
+        where run_id = $1 and data->>'scope' = 'Internal' and id > $2
+        order by id asc
+        limit 200`,
+      [crawlRunId, afterId]
+    );
+  } catch (error) {
+    throw new Error(`[streamingAudit.pagesSoFar] ${error.message}`);
+  }
 
   const usable = [];
-  for (const row of (data || [])) {
+  for (const row of data) {
     const d = row.data || {};
     const url = d.url || row.url;
     if (!url) continue;
@@ -142,8 +146,8 @@ function keywordsForUrl(project, url, requestKeywords) {
 async function followCrawl({
   access, project, crawlRunId, moduleKeys, audits, keywords = null, trigger = 'audit_all',
 }) {
-  if (!isSupabaseConfigured()) {
-    throw Object.assign(new Error('Streaming audits need Supabase configured.'), { status: 503 });
+  if (!db.isDatabaseConfigured()) {
+    throw Object.assign(new Error('Streaming audits need the database configured.'), { status: 503 });
   }
 
   const budget = (await adminLimits
