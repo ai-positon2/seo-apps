@@ -37,6 +37,22 @@ function baseCity(city, region) {
   return c;
 }
 
+// Prepends a vertical qualifier to a SERP seed, but only when the seed does
+// not already imply it — so an ambiguous service name gets the vertical
+// attached ("IOP Long Beach" -> "mental health IOP Long Beach") while an
+// unambiguous one is left alone rather than padded into a query nobody types.
+//
+// Here rather than in keywordAdapter (which owns the dental-specific
+// `disambiguate`) because lsProfiles needs the same function and must not pull
+// the SERP/SEMrush stack in to call one string helper.
+function qualifySeed(seed, qualifier) {
+  const raw = String(seed || '').trim();
+  const q = String(qualifier || '').trim();
+  if (!raw || !q) return raw;
+  const haystack = raw.toLowerCase();
+  return q.toLowerCase().split(/\s+/).some(w => w && haystack.includes(w)) ? raw : `${q} ${raw}`;
+}
+
 function wordCount(s) {
   const n = normalize(s);
   return n ? n.split(' ').length : 0;
@@ -295,7 +311,7 @@ function countLocalizedFaqs(items, city) {
 }
 
 module.exports = {
-  normalize, escapeRegex, baseCity, normalizeBlockHtml,
+  normalize, escapeRegex, baseCity, normalizeBlockHtml, qualifySeed,
   wordCount, shingles, similarity, pageBodyText,
   STOPWORDS, stem, words, containsAllKeywordWords, countKeywordOccurrences,
   matchAnyKeyword, countAnyKeywordOccurrences, findForcedKeywordPhrases,

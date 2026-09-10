@@ -43,6 +43,20 @@ const urlsFile = (id) => path.join(DATA_ROOT, `${id}_urls.json`);
 const clustersFile = (id) => path.join(DATA_ROOT, `${id}_clusters.json`); // Stage 3 draft clusters only
 const fullAnalysisFile = (id) => path.join(DATA_ROOT, `${id}_full_analysis.json`); // Stage 4-7 real analysis
 
+// Creation, background analysis and UI requests can update the list together.
+// Serialize read/modify/write operations so one does not erase another's entry.
+let projectWrites = Promise.resolve();
+function mutateProjects(change) {
+  const operation = projectWrites.then(async () => {
+    const all = await listProjects();
+    const result = await change(all);
+    await writeAtomic(projectsFile(), all);
+    return result;
+  });
+  projectWrites = operation.catch(() => {});
+  return operation;
+}
+
 async function listProjects() {
   return readJson(projectsFile(), []);
 }
@@ -52,37 +66,71 @@ async function getProject(id) {
   return all.find((p) => p.id === id) || null;
 }
 
-async function createProject({ domain, host }) {
-  const all = await listProjects();
-  const project = {
+function newProject({ domain, host, platformProjectId = null, workspaceId = null }) {
+  return {
     id: genId('proj'),
+    platformProjectId,
+    workspaceId,
     domain, // canonical origin, e.g. "https://www.example.com"
     name: host,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    workflowState: 'created',
+    workflowState: platformProjectId ? 'waiting_for_crawl' : 'created',
     vertical: null,
     sitemapSource: null,
     crawlMode: null,
     stats: { urlsFound: 0, urlsSelected: 0, urlsAnalyzed: 0, urlsExcluded: 0, clusterCount: 0, gapHubCount: 0, orphanCount: 0, unassignedCount: 0, meanHealth: null },
   };
-  all.push(project);
-  await writeAtomic(projectsFile(), all);
-  return project;
+}
+
+async function createProject(input) {
+  return mutateProjects((all) => {
+    const project = newProject(input);
+    all.push(project);
+    return project;
+  });
+}
+
+/** A stable module entry per platform project, including before its first crawl. */
+async function ensureProject({ platformProjectId, workspaceId, domain, host }) {
+  if (!platformProjectId) throw new Error('A platform project is required.');
+  const existing = (await listProjects()).find((p) => p.platformProjectId === platformProjectId);
+  if (existing) return existing;
+  return mutateProjects((all) => {
+    const linked = all.find((p) => p.platformProjectId === platformProjectId);
+    if (linked) return linked;
+    // Legacy standalone analyses can be reused once. Never share a linked
+    // record between projects/workspaces that happen to track the same site.
+    const site = (value) => {
+      try { return new URL(value).host.toLowerCase().replace(/^www\./, ''); }
+      catch { return null; }
+    };
+    const legacy = all.find((p) => !p.platformProjectId && site(domain)
+      && site(p.domain) === site(domain));
+    if (legacy) {
+      Object.assign(legacy, { platformProjectId, workspaceId, updatedAt: new Date().toISOString() });
+      return legacy;
+    }
+    const project = newProject({ domain, host, platformProjectId, workspaceId });
+    all.push(project);
+    return project;
+  });
 }
 
 async function updateProject(id, patch) {
-  const all = await listProjects();
-  const idx = all.findIndex((p) => p.id === id);
-  if (idx === -1) throw new Error('Project not found');
-  all[idx] = { ...all[idx], ...patch, updatedAt: new Date().toISOString() };
-  await writeAtomic(projectsFile(), all);
-  return all[idx];
+  return mutateProjects((all) => {
+    const idx = all.findIndex((p) => p.id === id);
+    if (idx === -1) throw new Error('Project not found');
+    all[idx] = { ...all[idx], ...patch, updatedAt: new Date().toISOString() };
+    return all[idx];
+  });
 }
 
 async function deleteProject(id) {
-  const all = await listProjects();
-  await writeAtomic(projectsFile(), all.filter((p) => p.id !== id));
+  await mutateProjects((all) => {
+    const idx = all.findIndex((p) => p.id === id);
+    if (idx !== -1) all.splice(idx, 1);
+  });
   await fs.unlink(patternsFile(id)).catch(() => {});
   await fs.unlink(urlsFile(id)).catch(() => {});
   await fs.unlink(clustersFile(id)).catch(() => {});
@@ -127,7 +175,7 @@ async function saveFullAnalysis(id, analysis) {
 }
 
 module.exports = {
-  listProjects, getProject, createProject, updateProject, deleteProject,
+  listProjects, getProject, createProject, ensureProject, updateProject, deleteProject,
   getPatterns, savePatterns, getUrls, saveUrls, getClusters, saveClusters,
   getFullAnalysis, saveFullAnalysis,
 };

@@ -59,6 +59,17 @@ export default function GentleDentalPagesPage() {
         </div>
       </div>
 
+      {/* This page is the module's front door, and the module now runs three
+          separate flows. Without this strip the other two are reachable only by
+          typing their URL — which is how the Neuro dashboard came to look like
+          it had been removed. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Clients</span>
+        <span style={{ ...btnStyle, fontWeight: 600, color: 'var(--primary)', background: 'var(--primary-soft)', border: 'none', cursor: 'default' }}>Gentle Dental</span>
+        <button style={btnStyle} onClick={() => navigate('/location-page-builder/clear-behavioral-health')}>Clear Behavioral Health</button>
+        <button style={btnStyle} onClick={() => navigate('/location-page-builder/neuro')}>Neuro Wellness Spa</button>
+      </div>
+
       {error && <p style={{ fontSize: '0.875rem', color: 'var(--danger,#EF4444)', marginBottom: '0.75rem' }}>{error}</p>}
 
       <input

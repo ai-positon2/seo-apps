@@ -11,10 +11,20 @@
 -- because 0009 does `alter table cache add column ...` against a table nothing
 -- here creates. That failure is the whole reason this file exists.
 --
--- Only two tables are affected. An audit of every `.from('<table>')` call in
+-- Two tables are recovered here. An audit of every `.from('<table>')` call in
 -- server/ against every `create table` in this directory found exactly these
--- two queried-but-never-created — the other 33 are all accounted for. So this
--- is the complete set of what 0001-0006 still owed us, not a partial guess.
+-- two queried-but-never-created — the other 33 are all accounted for.
+--
+-- CORRECTION (see 0026_lpb_collections.sql): this file used to claim that made
+-- the above "the complete set of what 0001-0006 still owed us, not a partial
+-- guess". It was a partial guess. The audit could only see table names written
+-- as literals, and the Location Page Builder's ten collection tables are named
+-- at runtime by store.js's tableFor() — `lpb_${collection.toLowerCase()}` — so
+-- the string "lpb_clients" occurs nowhere in server/ for a grep to find. All
+-- ten were missing too, and every Location + Service Pages screen was dead on
+-- its first read until 0026 created them. Do not treat the count above as a
+-- clean bill of health, and do not audit this schema by grepping for literal
+-- table names.
 --
 -- The column shapes are recovered from the only consumer of either table,
 -- server/services/supabaseStore.js:

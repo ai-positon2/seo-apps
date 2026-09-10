@@ -14,7 +14,7 @@
 
 const store = require('./store');
 const config = require('./config');
-const { escapeRegex, baseCity } = require('./text');
+const { escapeRegex, baseCity, qualifySeed } = require('./text');
 const { searchGoogle } = require('../services/googleSearch');
 const { getUrlKeywords } = require('../services/semrush');
 const { getUniverseCandidates, getKnownCities } = require('./keywordUniverseStore');
@@ -39,6 +39,9 @@ function classifyIntent(keyword) {
 function disambiguate(seed) {
   return /dental|dentist/i.test(seed) ? seed : `Dental ${seed}`;
 }
+
+// The vertical-neutral form lives in text.js (text.qualifySeed) so lsProfiles
+// can share it without importing this module's SERP/SEMrush stack.
 
 // escapeRegex and baseCity now live in text.js, so compose.js can resolve the
 // same parent city without importing this module's SERP/SEMrush/LLM chain.
@@ -118,11 +121,17 @@ async function getOtherCityRegex(clientId, targetCity, allowTerms = []) {
   }
 }
 
-async function getKeywordCandidates({ service, city, state, stateName, region, seedQuery, clientId, serviceSlug }) {
+// `qualifier` is the vertical word the SERP needs when the service name alone
+// is ambiguous. Gentle Dental passes none and keeps `disambiguate`'s "Dental"
+// default, which is correct for a dental catalogue and wrong for every other
+// brand — a behavioral-health page searching "Dental IOP Long Beach" returns
+// nothing usable. Template-driven clients pass their own from their profile
+// (lsProfiles.seedQualifier).
+async function getKeywordCandidates({ service, city, state, stateName, region, seedQuery, clientId, serviceSlug, qualifier }) {
   const rawSeed = (seedQuery || `${service} ${city} ${state}`).trim();
   if (!rawSeed) throw new Error('A service+city+state or seedQuery is required.');
   if (!process.env.SEMRUSH_API_KEY) throw new Error('SEMRUSH_API_KEY not configured on server.');
-  const seed = disambiguate(rawSeed);
+  const seed = qualifier ? qualifySeed(rawSeed, qualifier) : disambiguate(rawSeed);
   // Strip any sub-area label before matching keywords (see baseCity).
   const searchCity = baseCity(city, region);
 

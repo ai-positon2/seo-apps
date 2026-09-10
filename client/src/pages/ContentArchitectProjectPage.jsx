@@ -11,6 +11,8 @@ import { useToast } from '../ui/Toast';
 import ModuleRuns from '../components/ModuleRuns';
 import HubSpokeReport, { healthVariant } from '../components/contentArchitect/HubSpokeReport';
 import { ca } from '../lib/contentArchitectApi';
+import { useActiveProjectId } from '../lib/activeProject';
+import { projectsApi } from '../lib/projectsApi';
 
 const DISCOVER_STEPS = [
   { id: 'sitemap', label: 'Find sitemap' },
@@ -43,6 +45,7 @@ export default function ContentArchitectProjectPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
+  const [activeProjectId, setActiveProjectId] = useActiveProjectId();
 
   const [project, setProject] = useState(null);
   const [screen, setScreen] = useState('loading'); // loading | discovering | patterns | clusters | analyzing | results
@@ -64,10 +67,29 @@ export default function ContentArchitectProjectPage() {
   useEffect(() => () => esRef.current?.close(), []);
 
   useEffect(() => {
+    if (project?.platformProjectId && activeProjectId
+      && activeProjectId !== project.platformProjectId) navigate('/content-architect');
+  }, [activeProjectId, project?.platformProjectId, navigate]);
+
+  useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
         const proj = await ca.getProject(id);
+        if (cancelled) return;
         setProject(proj);
+        if (proj.platformProjectId) {
+          if (!activeProjectId) setActiveProjectId(proj.platformProjectId);
+          const existingAnalysis = await ca.getFullAnalysis(id).catch(() => null);
+          if (cancelled) return;
+          if (existingAnalysis) {
+            setAnalysis(existingAnalysis);
+            setScreen('results');
+          } else {
+            navigate('/content-architect', { replace: true });
+          }
+          return;
+        }
         if (proj.workflowState === 'created') {
           if (!startedRef.current) { startedRef.current = true; startDiscovery(); }
         } else {
@@ -92,8 +114,18 @@ export default function ContentArchitectProjectPage() {
         setError(e.message);
       }
     })();
+    return () => { cancelled = true; esRef.current?.close(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  async function refreshProjectAnalysis() {
+    try {
+      await projectsApi.connectContentArchitect(project.platformProjectId, { retry: true });
+      navigate('/content-architect');
+    } catch (e) {
+      toast.add({ title: 'Could not start analysis', description: e.message, variant: 'danger' });
+    }
+  }
 
   async function startDiscovery() {
     setScreen('discovering');
@@ -252,7 +284,7 @@ export default function ContentArchitectProjectPage() {
         <Card style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span style={{ color: 'var(--danger)', flex: 1, fontSize: 13 }}>{error}</span>
-            <Button variant="secondary" size="sm" onClick={startDiscovery}>Retry</Button>
+            <Button variant="secondary" size="sm" onClick={project?.platformProjectId ? () => navigate('/content-architect') : startDiscovery}>Retry</Button>
           </div>
         </Card>
       )}
@@ -477,8 +509,8 @@ export default function ContentArchitectProjectPage() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <Button variant="secondary" size="sm" onClick={() => setScreen('clusters')}>Back to Draft</Button>
-                <Button variant="secondary" size="sm" onClick={startAnalysis} loading={screen === 'analyzing'}>Re-run Analysis</Button>
+                {!project?.platformProjectId && <Button variant="secondary" size="sm" onClick={() => setScreen('clusters')}>Back to Draft</Button>}
+                <Button variant="secondary" size="sm" onClick={project?.platformProjectId ? refreshProjectAnalysis : startAnalysis} loading={screen === 'analyzing'}>Re-run Analysis</Button>
                 <Button size="sm" onClick={() => downloadExport('xlsx')} loading={exportingFormat === 'xlsx'} disabled={!!exportingFormat}>
                   Download Excel
                 </Button>
@@ -534,4 +566,3 @@ function HealthDonut({ value }) {
     </div>
   );
 }
-

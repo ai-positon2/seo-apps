@@ -139,7 +139,8 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
       setDetail(next);
       setError(null);
       const first = defaultPage(next.pages);
-      if (first) setSelectedId((current) => current || first.pageRunId);
+      if (first) setSelectedId((current) => (next.pages || []).some((p) => p.pageRunId === current)
+        ? current : first.pageRunId);
     } catch (e) {
       // A speculative read the list has not confirmed yet is allowed to fail
       // quietly: `project` is about to resolve and this effect will run again
@@ -221,7 +222,7 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
     const hasStored = detail.isPerPage
       ? (detail.pages || []).length > 0
       : Boolean(detail.payload?.native);
-    if (!hasStored) emitResolved('none');
+    if (!hasStored) emitResolved(detail.inFlightRun ? 'loading' : 'none');
   }, [projects, project, detail, error, emitResolved]);
 
   const ordered = useMemo(() => orderWorstFirst(pages), [pages]);
@@ -255,6 +256,9 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
     }
 
     if (!selectedId) return;
+    // A page row exists before its report does. Do not consume the once-per-page
+    // guard until it finishes, or the first homepage report never opens.
+    if (selected && ['queued', 'running'].includes(selected.status)) return;
     const key = `${runId}:${selectedId}`;
     if (openedKey.current === key) return;
     openedKey.current = key;
@@ -296,7 +300,7 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
       cancelled = true;
       if (!settled && openedKey.current === key) openedKey.current = null;
     };
-  }, [project, detail, isPerPage, pages.length, selectedId, emitResolved]);
+  }, [project, detail, isPerPage, pages.length, selectedId, selected?.status, emitResolved]);
 
   // ── Analyze another page ──────────────────────────────────────────────────
   //
@@ -361,6 +365,8 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
   if (!project || !detail) return null;
 
   const { card, run, payload } = detail;
+  const homepageOnly = (detail.pagesFromInFlightRun ? detail.inFlightRun?.trigger === 'project_setup'
+    : payload?.scope === 'homepage') && pages.length <= 1;
   const label = detail.module?.label || moduleKey;
   const scored = Boolean(card?.scored);
 
@@ -371,18 +377,21 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
   const perPageRun = isPerPage && pages.length > 0;
 
   // Nothing stored yet: one line, and the way to get a report.
-  if (!run || (!pages.length && !payload?.native)) {
+  if ((!run && !pages.length) || (!pages.length && !payload?.native)) {
+    const pending = detail.inFlightRun;
     return (
       <Bar>
         <Group>
           <Eyebrow>{project.name}</Eyebrow>
           <Text>
-            No stored <strong>{label}</strong> report yet
-            {payload?.reason === 'no_completed_crawl' ? ' — these audits run across the pages a crawl finds' : ''}
+            {pending ? <><strong>{label}</strong> · {pending.status === 'queued' ? 'queued' : 'auditing now'}
+              {pending.trigger === 'project_setup' ? ' · homepage audit starts automatically' : ''}</>
+              : <>No stored <strong>{label}</strong> report yet
+                {payload?.reason === 'no_completed_crawl' ? ' — these audits run across the pages a crawl finds' : ''}</>}
           </Text>
         </Group>
         <Spacer />
-        {detail.module?.runnable && <Action onClick={rerun} busy={busy}>{busy ? 'Running…' : 'Run it now'}</Action>}
+        {!pending && detail.module?.runnable && <Action onClick={rerun} busy={busy}>{busy ? 'Running…' : 'Run it now'}</Action>}
         {error && <ErrorText>{error.message}</ErrorText>}
       </Bar>
     );
@@ -395,7 +404,7 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
         <Text>
           {detail.pagesFromInFlightRun
             ? `${label} · auditing now`
-            : `${label} · stored run ${run.finishedAt ? relativeTime(run.finishedAt) : ''}`}
+            : `${label} · stored run ${run?.finishedAt ? relativeTime(run.finishedAt) : ''}`}
         </Text>
       </Group>
 
@@ -405,8 +414,8 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
         <Group>
           <Eyebrow>In progress</Eyebrow>
           <Text>
-            {pages.length} page{pages.length === 1 ? '' : 's'} done
-            {' '}<Dim>more appear as the crawl finds them</Dim>
+            {pages.filter((p) => !['queued', 'running'].includes(p.status)).length} page{pages.length === 1 ? '' : 's'} done
+            {' '}<Dim>{homepageOnly ? 'auditing the homepage' : 'more appear as the crawl finds them'}</Dim>
           </Text>
         </Group>
       )}
@@ -415,12 +424,12 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
           score. */}
       {perPageRun && (
         <Group>
-          <Eyebrow>Site average</Eyebrow>
+          <Eyebrow>{homepageOnly ? 'Homepage score' : 'Site average'}</Eyebrow>
           <Text>
             {scored ? <strong>{card.score}/100</strong> : <em>not scored</em>}
             {' '}
             <Dim>
-              {scored
+              {homepageOnly ? 'homepage only' : scored
                 ? `mean of ${payload?.pagesScored ?? pages.length} page${(payload?.pagesScored ?? pages.length) === 1 ? '' : 's'}`
                 : 'this module reports findings'}
             </Dim>
@@ -434,7 +443,7 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
         <Group>
           <Eyebrow>Coverage</Eyebrow>
           <Text title={payload.pageSelection ? `Pages chosen: ${payload.pageSelection}` : undefined}>
-            {payload.pagesAudited} of {payload.pagesCrawled} crawled
+            {homepageOnly ? 'Homepage only' : `${payload.pagesAudited} of ${payload.pagesCrawled} crawled`}
             {payload.pagesSkipped
               ? (
                 <Dim>
@@ -502,7 +511,7 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
 
       {loadingPage && <Dim>loading…</Dim>}
 
-      {isPerPage && (
+      {isPerPage && !detail.inFlightRun && (
         <div style={{ position: 'relative' }}>
           <Action onClick={openAdd} busy={adding}>
             {adding ? 'Analyzing…' : 'Analyze another page'}
@@ -520,7 +529,7 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
         </div>
       )}
 
-      <Action onClick={rerun} busy={busy}>{busy ? 'Re-running…' : 'Re-run'}</Action>
+      {!detail.inFlightRun && <Action onClick={rerun} busy={busy}>{busy ? 'Re-running…' : 'Re-run'}</Action>}
       <Link to="/" style={linkStyle}>Dashboard</Link>
       {error && <ErrorText>{error.message}</ErrorText>}
     </Bar>

@@ -191,4 +191,90 @@ function generateDentalSchema({ scaffold, client, location, service }) {
   };
 }
 
-module.exports = { generateSchema, generateDentalSchema };
+// ── Template-driven pages (docs/ybh-ls-pages.md §12 + the FAQ rich result) ───
+// BreadcrumbList > business node (MedicalBusiness by default, from the
+// profile) > MedicalWebPage > Service > FAQPage. Each returned as a MINIFIED
+// JSON string, the same contract the dental generator uses, so one exporter
+// and one QC gate cover both.
+//
+// NAP fields are included ONLY when the location record holds them: §6's
+// Missing Data Rule applies to structured data as much as to visible copy, and
+// an addressLocality with no street address is honest where an invented street
+// address is not. `areaServed` likewise comes from the location's own serving
+// areas, never from the cities the brand would like to rank in.
+function generateLsSchema({ scaffold, client, location, service, profile }) {
+  const m = scaffold.meta || {};
+  const sec = scaffold.sections || {};
+  const info = sec.locationInfo || {};
+  const brand = m.brandName || client?.name || '';
+  const businessType = m.businessType || profile?.businessType || 'MedicalBusiness';
+  const url = m.canonical || '';
+
+  const breadcrumbList = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: (sec.breadcrumb?.items || []).map((it, i) => ({
+      '@type': 'ListItem', position: i + 1, name: it.label, item: it.url,
+    })),
+  };
+
+  const business = {
+    '@context': 'https://schema.org',
+    '@type': businessType,
+    name: `${brand} — ${info.name || location?.city || ''}`,
+    url,
+    ...(info.phone ? { telephone: info.phone } : {}),
+    address: {
+      '@type': 'PostalAddress',
+      ...(location?.street_address ? { streetAddress: location.street_address } : {}),
+      addressLocality: location?.city || '',
+      addressRegion: location?.state_abbreviation || '',
+      ...(location?.zip_code ? { postalCode: location.zip_code } : {}),
+      addressCountry: 'US',
+    },
+    ...(location?.latitude && location?.longitude
+      ? { geo: { '@type': 'GeoCoordinates', latitude: location.latitude, longitude: location.longitude } }
+      : {}),
+    ...((info.servingAreas || []).length ? { areaServed: info.servingAreas } : {}),
+    sameAs: [location?.gbp_url, ...(client?.brand_static?.sameAs || [])].filter(Boolean),
+  };
+
+  const medicalWebPage = {
+    '@context': 'https://schema.org',
+    '@type': 'MedicalWebPage',
+    url,
+    name: m.title || '',
+    description: m.metaDescription || '',
+    about: { '@type': 'MedicalTherapy', name: service?.name || '' },
+  };
+
+  const serviceNode = {
+    '@context': 'https://schema.org',
+    '@type': 'Service',
+    name: `${service?.name || ''} in ${info.name || location?.city || ''}`,
+    description: m.metaDescription || sec.hero?.oneLiner || '',
+    provider: { '@type': businessType, name: brand },
+    ...((info.servingAreas || []).length ? { areaServed: info.servingAreas } : {}),
+  };
+
+  // Mirrors the VISIBLE FAQs exactly — a FAQPage block that does not match
+  // what is on the page is a structured-data violation, not an optimization.
+  const faqPage = {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: (sec.faq?.items || []).map(f => ({
+      '@type': 'Question', name: f.q,
+      acceptedAnswer: { '@type': 'Answer', text: f.a },
+    })),
+  };
+
+  return {
+    breadcrumbList: JSON.stringify(breadcrumbList),
+    business: JSON.stringify(business),
+    medicalWebPage: JSON.stringify(medicalWebPage),
+    service: JSON.stringify(serviceNode),
+    faqPage: JSON.stringify(faqPage),
+  };
+}
+
+module.exports = { generateSchema, generateDentalSchema, generateLsSchema };

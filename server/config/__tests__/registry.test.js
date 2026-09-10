@@ -47,9 +47,10 @@ const SERVER_DIR = path.join(__dirname, '../..');
 
 // Every `router.<method>('<path>')` declared in a route file, with :params
 // filled in so the declarations can be matched as concrete request paths.
-function declaredRoutes(file) {
+function declaredRoutes(file, prefix = '') {
   const source = fs.readFileSync(path.join(SERVER_DIR, file), 'utf8');
   const routes = [];
+  const join = p => `${prefix}${p}`.replace(/\/{2,}/g, '/');
   // Both quote styles: this app writes route paths in single quotes, but the
   // ported CrawlScope module keeps its original double-quoted style. A
   // single-quote-only pattern found none of its routes, which failed loudly
@@ -58,12 +59,27 @@ function declaredRoutes(file) {
   const re = /router\.(get|post|put|patch|delete)\(\s*['"]([^'"]+)['"]/g;
   let m;
   while ((m = re.exec(source)) !== null) {
+    const declared = join(m[2]);
     routes.push({
       method: m[1].toUpperCase(),
-      declared: m[2],
-      concrete: m[2].replace(/:[A-Za-z0-9_]+/g, 'sample-value'),
+      declared,
+      concrete: declared.replace(/:[A-Za-z0-9_]+/g, 'sample-value'),
     });
   }
+
+  // Follow sub-routers: `router.use('/ls', require('./lsPages'))`. A module
+  // large enough to split its routes across files was invisible to this scan,
+  // so its matchers all looked orphaned — and, worse, the reverse case (a
+  // sub-router route that nothing tracks) went unguarded entirely. The prefix
+  // is carried down so the paths compare as the request paths they really are.
+  const mountRe = /router\.use\(\s*['"]([^'"]+)['"]\s*,\s*require\(\s*['"](\.[^'"]+)['"]\s*\)/g;
+  while ((m = mountRe.exec(source)) !== null) {
+    const target = path.join(path.dirname(file), m[2]).replace(/\\/g, '/');
+    const resolved = target.endsWith('.js') ? target : `${target}.js`;
+    if (!fs.existsSync(path.join(SERVER_DIR, resolved))) continue;
+    routes.push(...declaredRoutes(resolved, join(m[1])));
+  }
+
   return routes;
 }
 

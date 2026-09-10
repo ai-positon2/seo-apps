@@ -12,6 +12,22 @@ const { runFullAnalysis } = require('./fullAnalysis');
 const { buildWorkbook, buildMarkdownNarrative } = require('./exporter');
 
 const analyzeSessions = new Map();
+const projectAccess = require('../../services/projectAccess');
+
+// Automatically linked entries inherit the platform project's workspace access.
+router.param('id', async (req, res, next, id) => {
+  try {
+    const project = await store.getProject(id);
+    if (project?.platformProjectId) {
+      const capability = req.method === 'GET' ? 'view'
+        : req.method === 'DELETE' ? 'editProjectSettings' : 'startRun';
+      await projectAccess.requireProject(req, project.platformProjectId, capability);
+    }
+    next();
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.status ? e.message : 'Could not load project.' });
+  }
+});
 
 // Init-token + SSE stream — work starts only once the stream itself is open
 // (headers flushed) so no progress event can be emitted before the client is
@@ -24,7 +40,22 @@ function generateToken() {
 }
 
 router.get('/projects', async (req, res) => {
-  res.json(await store.listProjects());
+  try {
+    const projects = await store.listProjects();
+    const visible = await Promise.all(projects.map(async (project) => {
+      if (!project.platformProjectId) return project;
+      try {
+        await projectAccess.requireProject(req, project.platformProjectId, 'view');
+        return project;
+      } catch (e) {
+        if (e.status === 403 || e.status === 404) return null;
+        throw e;
+      }
+    }));
+    res.json(visible.filter(Boolean));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: 'Could not load projects.' });
+  }
 });
 
 router.post('/projects', async (req, res) => {

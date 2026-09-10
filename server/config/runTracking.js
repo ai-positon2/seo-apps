@@ -174,6 +174,14 @@ const RUN_TRACKING = {
       { method: 'POST', path: /^\/pages\/([^/]+)\/content\/regen-field$/, action: 'regen-field',
         label: ({ match }) => `page ${match[1]}` },
       { method: 'POST', path: '/wizard/generate', action: 'wizard' },
+      // The template-driven engine (routes/lsPages.js). Only the calls that
+      // cost money or minutes are rows: the billed keyword pull, the brief
+      // planner, the writer, and a per-field rewrite. Saving an edited brief,
+      // running QC and exporting are local work, not runs.
+      { method: 'POST', path: '/ls/keyword-candidates', action: 'ls-keywords' },
+      { method: 'POST', path: '/ls/brief', action: 'ls-brief' },
+      { method: 'POST', path: '/ls/copy', action: 'ls-content' },
+      { method: 'POST', path: '/ls/regenerate', action: 'ls-regen' },
     ],
   },
 

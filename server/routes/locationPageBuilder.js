@@ -43,6 +43,13 @@ function mintToken(payload) {
   return token;
 }
 
+// ── Template-driven engine (docs/ybh-ls-pages.md) ───────────────────────────
+// Mounted here rather than on its own base path so the whole module keeps ONE
+// front door: the feature flag above, the app's auth and the client's API base
+// URL all apply to it unchanged. Its routes are in their own file because they
+// share no page shape with the two flows below (see routes/lsPages.js).
+router.use('/ls', require('./lsPages'));
+
 // ── Reference data (L1/L2) ───────────────────────────────────────────────────
 router.post('/seed', async (req, res) => {
   try { res.json(await seedNeuroWellness()); }
@@ -93,14 +100,19 @@ router.delete('/entities/:collection/:id', wrap(async (req, res) => {
 
 // ── Pages: tracking dashboard + detail ──────────────────────────────────────
 // This dashboard + LocationPageDetailPage.jsx are built entirely around the
-// Neuro page_object shape (approach/competitor_section/faqs). Dental wizard
-// pages have a completely different shape (hero/breadcrumb/officeInfo/
-// servicesInCity/educationalBody/faq/schema) and are reviewed inline in the
-// wizard itself, not through this dashboard — exclude them so they don't
-// appear as broken-looking rows here or crash the detail page if clicked.
+// Neuro page_object shape (approach/competitor_section/faqs). The other two
+// engines' pages have completely different shapes — the dental wizard's
+// (hero/breadcrumb/officeInfo/servicesInCity/educationalBody/faq/schema) and
+// the template-driven one's (hero/locationInfo/body/faq + an editable brief) —
+// and both are reviewed inline in their own wizard, not here. So this list is
+// an ALLOW-list rather than a deny-list: a deny-list only excluded dental, so
+// the template-driven pages leaked in the moment that engine was added, as
+// broken-looking rows that crash the detail page when clicked. A row with no
+// page_type at all predates the field and is Neuro's.
+const NEURO_PAGE_TYPES = new Set([undefined, null, '', 'location_service']);
 router.get('/pages', wrap(async (req, res) => {
   const all = await store.list('pages', req.query.client_id ? { client_id: req.query.client_id } : {});
-  const pages = all.filter(p => p.page_type !== 'dental_location_service');
+  const pages = all.filter(p => NEURO_PAGE_TYPES.has(p.page_type));
   // Enrich with service/location names for the dashboard.
   const [services, locations, clients] = await Promise.all([
     store.list('services'), store.list('locations'), store.list('clients'),
@@ -123,8 +135,12 @@ router.get('/pages', wrap(async (req, res) => {
 router.get('/pages/:id', wrap(async (req, res) => {
   const page = await store.get('pages', req.params.id);
   if (!page) return res.status(404).json({ error: 'Page not found.' });
-  if (page.page_type === 'dental_location_service') {
-    return res.status(400).json({ error: 'This is a Gentle Dental wizard page — review it from the wizard, not this detail view.' });
+  if (!NEURO_PAGE_TYPES.has(page.page_type)) {
+    return res.status(400).json({
+      error: page.page_type === 'dental_location_service'
+        ? 'This is a Gentle Dental wizard page — review it from the wizard, not this detail view.'
+        : 'This page was built by the template-driven wizard — review it there, not in this detail view.',
+    });
   }
   res.json(page);
 }));
@@ -470,27 +486,41 @@ router.get('/pages/:id/export/:format', wrap(async (req, res) => {
   // async handler, the rejection went unhandled and took the whole server
   // process down. Dental pages now get their own exporters, and every
   // shape-dependent call stays inside the try.
+  //
+  // The template-driven engine's pages are a THIRD shape, and they reach this
+  // route whenever someone has the page id (the engine's own export POSTs the
+  // on-screen page instead, so unsaved edits are included). Falling through to
+  // the Neuro exporters would throw on a missing page_data, so each shape is
+  // dispatched to its own exporter here.
   const dental = page.page_type === 'dental_location_service';
+  const ls = page.page_type === 'ls_location_service';
   const fmt = req.params.format;
   try {
     const fname = exporter.safeFilename(page.page_object);
+    // Version snapshots are a Neuro-pipeline concept (that pipeline owns
+    // versions[] and its approval gates); the other two engines keep one
+    // upserted row per tuple and have nothing to snapshot into.
+    const snapshot = (formats) => (dental || ls ? null : pageService.snapshotVersion(req.params.id, formats));
     if (fmt === 'json') {
-      await pageService.snapshotVersion(req.params.id, ['json']);
+      await snapshot(['json']);
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Content-Disposition', `attachment; filename="${fname}.json"`);
-      return res.send(exporter.toJSON(page.page_object));
+      return res.send(ls ? exporter.toLsJSON(page.page_object) : exporter.toJSON(page.page_object));
     }
     if (fmt === 'markdown' || fmt === 'md') {
-      await pageService.snapshotVersion(req.params.id, ['markdown']);
+      await snapshot(['markdown']);
       res.setHeader('Content-Type', 'text/markdown');
       res.setHeader('Content-Disposition', `attachment; filename="${fname}.md"`);
+      if (ls) return res.send(exporter.toLsMarkdown(page.page_object));
       return res.send(dental ? exporter.toDentalMarkdown(page.page_object) : exporter.toMarkdown(page.page_object));
     }
     if (fmt === 'docx') {
-      const buffer = dental
-        ? await exporter.toDentalDocxBuffer(page.page_object)
-        : await exporter.toDocxBuffer(page.page_object);
-      await pageService.snapshotVersion(req.params.id, ['docx']);
+      const buffer = ls
+        ? await exporter.toLsDocxBuffer(page.page_object)
+        : dental
+          ? await exporter.toDentalDocxBuffer(page.page_object)
+          : await exporter.toDocxBuffer(page.page_object);
+      await snapshot(['docx']);
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
       res.setHeader('Content-Disposition', `attachment; filename="${fname}.docx"`);
       return res.send(buffer);
@@ -506,7 +536,9 @@ router.get('/pages/:id/preview/:format', wrap(async (req, res) => {
   if (req.params.format === 'markdown') {
     const md = page.page_type === 'dental_location_service'
       ? exporter.toDentalMarkdown(page.page_object)
-      : exporter.toMarkdown(page.page_object);
+      : page.page_type === 'ls_location_service'
+        ? exporter.toLsMarkdown(page.page_object)
+        : exporter.toMarkdown(page.page_object);
     return res.type('text/plain').send(md);
   }
   res.json(page.page_object);

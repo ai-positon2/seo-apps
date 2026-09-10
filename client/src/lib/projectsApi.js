@@ -49,6 +49,12 @@ export const projectsApi = {
 
   get: (projectId) => req(`${BASE}/${projectId}`),
 
+  contentArchitect: (projectId) => req(`${BASE}/${projectId}/content-architect`),
+  connectContentArchitect: (projectId, { retry = false } = {}) =>
+    req(`${BASE}/${projectId}/content-architect`, {
+      method: 'POST', body: JSON.stringify({ retry }),
+    }),
+
   overview: (projectId) => req(`${BASE}/${projectId}/overview`),
 
   // Just the live crawl. Cheap enough for the app shell to poll from any screen.

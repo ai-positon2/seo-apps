@@ -56,6 +56,12 @@ module.exports = {
     // silently degrades to that module's default rather than erroring.
     dentalOutlineModel: process.env.LPB_DENTAL_OUTLINE_MODEL || 'claude-sonnet-5',
     dentalWriterModel: process.env.LPB_DENTAL_WRITER_MODEL || 'gpt-5.4-mini',
+    // The template-driven engine (lsBrief plans, lsWriter writes) splits the
+    // same two jobs the same way, and gets its own ids so a brand on the
+    // template flow can be moved to a different model without touching
+    // Gentle Dental. Same defaults, deliberately: the split is what matters.
+    lsBriefModel: process.env.LPB_LS_BRIEF_MODEL || 'claude-sonnet-5',
+    lsWriterModel: process.env.LPB_LS_WRITER_MODEL || 'claude-sonnet-5',
     classificationTemperature: 0, // Spec §6 Stage 5: temperature 0
     // Master pool cap fed to the LLM. Must cover the full live pull
     // (TOP_URLS x semrush.keywordsPerUrl = 300) plus keywords.universePoolSize
@@ -130,6 +136,83 @@ module.exports = {
     // accept* is the QC gate; target* is what the writer is asked for —
     // deliberately inside the gate so normal variance still passes.
     pageWords: { acceptMin: 500, acceptMax: 900, targetMin: 600, targetMax: 860 },
+  },
+
+  // ── Template-driven Location + Service pages (docs/ybh-ls-pages.md) ────────
+  // The generic engine behind lsProfiles/lsBrief/lsWriter/lsQa. Gentle Dental
+  // keeps its own `dental` block above: its budgets were tuned against a
+  // different deliverable (finished copy only, 6-7 blocks, 500-900 words) and
+  // moving it onto these numbers would silently re-gate every existing page.
+  //
+  // `defaults` are the template's own numbers. `clients` overrides them per
+  // client id, one level deep per key, so the SEO team can retune one brand
+  // without touching the others (see lsProfiles.resolveProfile).
+  //
+  // The numbers interlock the same way the dental ones do. The binding gate is
+  // per-SECTION characters (sectionChars), so the page total is derived rather
+  // than chosen:
+  //   floor   blocks.min x sectionChars.min = 5 x 500 = 2500 chars (~400 words)
+  //           + hero 30 + FAQ intro 30 + 5 FAQs x ~35 = ~635 words
+  //   ceiling blocks.max x sectionChars.max = 8 x 700 = 5600 chars (~900 words)
+  //           + hero 45 + FAQ intro 40 + 7 FAQs x ~60 = ~1405 words
+  // Both sit inside pageWords.accept, which is what makes the writer prompt
+  // satisfiable against its own QC gates. Widening blocks or sectionChars
+  // without re-checking that arithmetic is how you get a prompt that cannot
+  // pass (regression-tested in __tests__/lsPages.test.js).
+  lsPages: {
+    defaults: {
+      // Template §3: "approximately 50 to 60 characters where practical".
+      seoTitle: { min: 50, max: 60 },
+      // Template §4: "Target approximately 140 to 160 characters".
+      metaDescription: { min: 140, max: 160 },
+      // Template §5: one concise sentence under the H1.
+      heroOneLiner: { minWords: 25, maxWords: 45 },
+      // Template §7/§8: the section count is decided by competitor coverage,
+      // not fixed — this is the band the planner is held to.
+      blocks: { min: 5, max: 8 },
+      // Template §7: "Suggested content length: 500 to 700 characters".
+      sectionChars: { min: 500, max: 700 },
+      paragraphsPerBlock: { min: 1, max: 3 },
+      paragraphWords: { min: 30, max: 45, hardMax: 50, hardMaxChars: 300 },
+      listItemMaxWords: 25,
+      // Template §9: "Create 5 to 7 FAQs with answers."
+      faqs: {
+        min: 5,
+        max: 7,
+        // How many FAQs must name the location. Template §9 explicitly warns
+        // against making every FAQ "...in {location}?", so this is a floor
+        // paired with the meaningfulness gate in lsQa — a city may only sit in
+        // a question whose answer the location actually changes.
+        minLocalized: 2,
+      },
+      faqAnswerMaxWords: 60,
+      // Template §9 FAQ intro: "2 to 3 sentences", "max ~300 characters",
+      // "30 to 40 words".
+      faqIntro: { maxChars: 300, minWords: 30, maxWords: 40 },
+      // A sanity band around the derived total, not a target in its own right.
+      // accept* is what QC gates on; target* is what the writer is asked for.
+      pageWords: { acceptMin: 600, acceptMax: 1500, targetMin: 800, targetMax: 1300 },
+      // Same reasoning as dental.minKeywordUses: a MINIMUM presence. Template
+      // §13.8 forbids keyword stuffing outright, so a quota here would be
+      // asking the writer to break the rule the page is judged on.
+      minKeywordUses: 1,
+      maxKeywordDensity: 0.025,
+      internalLinksMin: 3,
+      // URL shape from template §2. `{location_slug}` and `{service_slug}` are
+      // the only placeholders; a client whose site nests pages differently
+      // overrides this rather than getting a hardcoded branch.
+      urlPattern: '/locations/{location_slug}/{service_slug}',
+      trailingSlash: false,
+    },
+    clients: {
+      // Clear Behavioral Health — YMYL behavioral health, California.
+      client_clear_behavioral_health: {
+        // Service names like "PHP" or "IOP" are meaningless to a SERP without
+        // the vertical attached; the qualifier is added only when the query
+        // does not already imply it (see lsProfiles.qualifySeed).
+        seedQualifier: 'mental health',
+      },
+    },
   },
 
   keywords: {

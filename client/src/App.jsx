@@ -34,6 +34,7 @@ import LocationPageBuilderPage from './pages/LocationPageBuilderPage';
 import LocationPageDetailPage from './pages/LocationPageDetailPage';
 import LocationServiceWizardPage from './pages/LocationServiceWizardPage';
 import GentleDentalPagesPage from './pages/GentleDentalPagesPage';
+import ClearBehavioralHealthPage from './pages/ClearBehavioralHealthPage';
 import RobotsMonitorPage from './pages/RobotsMonitorPage';
 import MarketPotentialPage from './pages/MarketPotentialPage';
 import CompetitorAnalysisDashboardPage from './pages/CompetitorAnalysisDashboardPage';
@@ -116,6 +117,10 @@ export default function App() {
           {/* Kept so existing links and bookmarks still resolve. */}
           <Route path="/location-page-builder/gentle-dental-pages" element={<GentleDentalPagesPage />} />
           <Route path="/location-page-builder/neuro" element={<LocationPageBuilderPage />} />
+          {/* Template-driven clients (docs/ybh-ls-pages.md). One route per
+              brand, all rendering the same wizard with a different client id —
+              the brand's own facts and budgets are data, not a code path. */}
+          <Route path="/location-page-builder/clear-behavioral-health" element={<ClearBehavioralHealthPage />} />
           <Route path="/location-page-builder/:id" element={<LocationPageDetailPage />} />
           <Route path="/robots-monitor" element={<RobotsMonitorPage />} />
           <Route path="/market-potential" element={<MarketPotentialPage />} />

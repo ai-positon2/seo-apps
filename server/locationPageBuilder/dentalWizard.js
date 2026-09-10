@@ -6,7 +6,6 @@
 // orchestrator rather than threading page_type conditionals through
 // pageService's Neuro-specific functions.
 
-const crypto = require('crypto');
 const store = require('./store');
 const config = require('./config');
 const compose = require('./compose');
@@ -108,72 +107,12 @@ async function savePage({ clientId, serviceId, locationId, scaffold, existing })
 }
 
 // ── Approved keyword selections ─────────────────────────────────────────────
-// The SEO team's approved primary/secondary picks, saved the MOMENT they're
-// approved rather than only as a byproduct of generating a page. Two reasons:
-// approving and navigating away used to lose the work outright, and re-opening
-// a saved page had nothing to rehydrate from, so it silently re-ran the BILLED
-// research call. Keyed by the same (client, service, location) tuple as the
-// page row; tuple_key exists so the store's single-field upsertBy can match it.
-function tupleKey({ clientId, serviceId, locationId }) {
-  return `${clientId}|${serviceId}|${locationId}`;
-}
-
-// The row id is a pure function of the tuple, so concurrent writers (the
-// client saving an approval while a generate call records its own) address the
-// SAME row and upsert converges instead of inserting a duplicate. A read-then-
-// write upsert cannot guarantee that -- and a duplicate would be worse than no
-// record at all, since reads would then pick between them arbitrarily.
-function selectionId(tuple) {
-  return `kws_${crypto.createHash('sha1').update(tupleKey(tuple)).digest('hex').slice(0, 16)}`;
-}
-
-// Full candidate objects are stored, not bare keyword strings, so the step-2
-// table (volume / difficulty / intent / source columns) renders identically on
-// reload instead of degrading to zero-volume rows.
-// `approved` distinguishes a deliberate human approval from the pool that gets
-// saved automatically after a research run. Both are worth persisting (the
-// automatic one is what stops a revisit from re-billing research), but only the
-// first is an actual sign-off, and the two must not be conflated.
-async function saveSelection({ clientId, serviceId, locationId, primary, secondary, candidates, approved = true }) {
-  const tuple = { clientId, serviceId, locationId };
-  const id = selectionId(tuple);
-  const previous = await store.get('keywordSelections', id);
-  const record = {
-    id,
-    tuple_key: tupleKey(tuple),
-    client_id: clientId, service_id: serviceId, location_id: locationId,
-    primary: primary || [],
-    secondary: secondary || [],
-    candidates: candidates || [],
-    approved: !!approved,
-    // Preserve the moment of the FIRST real approval; an automatic save must
-    // never stamp (or clear) it.
-    approved_at: approved ? store.nowIso() : (previous?.approved_at || null),
-  };
-  const saved = await store.upsertById('keywordSelections', record, 'kws');
-
-  // Self-heal: drop any row for this tuple left behind under a
-  // non-deterministic id (written before this id scheme, or by an earlier
-  // duplicate-producing race). Best-effort -- never fail a save over cleanup.
-  try {
-    const strays = await store.list('keywordSelections', { tuple_key: record.tuple_key });
-    for (const row of strays) {
-      if (row.id !== id) await store.remove('keywordSelections', row.id);
-    }
-  } catch (e) {
-    console.error('[dentalWizard] Failed to clean duplicate keyword selections:', e.message);
-  }
-  return saved;
-}
-
-// Reads by the deterministic id first so the result is unambiguous even if a
-// stray legacy row for the same tuple still exists.
-async function getSelection({ clientId, serviceId, locationId }) {
-  const tuple = { clientId, serviceId, locationId };
-  const byId = await store.get('keywordSelections', selectionId(tuple));
-  if (byId) return byId;
-  return store.findOne('keywordSelections', { tuple_key: tupleKey(tuple) });
-}
+// Keyed by the same (client, service, location) tuple as the page row. The
+// implementation moved to keywordSelectionStore.js when the template-driven
+// engine needed the identical records — nothing about it was dental-specific,
+// and its deterministic-id upsert is too subtle to keep two copies of. They
+// are re-exported below so this module's API is unchanged.
+const { tupleKey, saveSelection, getSelection, recordApproval } = require('./keywordSelectionStore');
 
 // ── Editing an already-generated page ───────────────────────────────────────
 // Manual edits in step 4 were previously held in React state only and lost on
@@ -268,24 +207,13 @@ async function generatePage({ clientId, serviceId, locationId, primaryKeywords, 
   // explicit approve step still leaves a durable keyword record behind.
   // Non-fatal: never lose a generated page over a bookkeeping write.
   try {
-    const existingSelection = await getSelection({ clientId, serviceId, locationId });
-    // Only keyword STRINGS reach this function, so re-use the rich candidate
-    // object (volume/difficulty/intent/source) already stored for the same
-    // keyword where one exists -- otherwise generating would flatten a
-    // just-approved selection back to bare keywords.
-    const known = new Map(
-      [...(existingSelection?.primary || []), ...(existingSelection?.secondary || []),
-       ...(existingSelection?.candidates || [])]
-        .filter(c => c && c.keyword)
-        .map(c => [c.keyword, c]),
-    );
-    const hydrate = k => known.get(k) || { keyword: k };
-    await saveSelection({
+    // Only keyword STRINGS reach this function; recordApproval re-uses the
+    // rich candidate objects (volume/difficulty/intent/source) already stored
+    // for the same keywords, so generating cannot flatten a just-approved
+    // selection back to bare keywords.
+    await recordApproval({
       clientId, serviceId, locationId,
-      primary: primaries.map(hydrate),
-      secondary: mergedSecondary.map(hydrate),
-      candidates: existingSelection?.candidates || [],
-      approved: true, // generating a page IS the approval
+      primary: primaries, secondary: mergedSecondary,
     });
   } catch (e) {
     console.error('[dentalWizard] Failed to record keyword selection:', e.message);
