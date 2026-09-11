@@ -228,7 +228,9 @@ const INSTANCE_KEYS_LIGHT = ['severity', 'url'];
 // every consumer then renders as a string that happens to look right and
 // compares as one that does not. `->` returns the JSON value with its type
 // intact; the two were diffed key-by-key over 1,000 rows to confirm it.
-const selectFor = (keys) => keys.map((k) => `${k}:data->${k}`).join(',');
+// The keys are the constants above, never anything from a request, and the
+// quoted alias is what keeps the camelCase spelling the callers read.
+const selectFor = (keys) => keys.map((k) => `data->'${k}' as "${k}"`).join(', ');
 const INSTANCE_SELECT = selectFor(INSTANCE_KEYS);
 const INSTANCE_SELECT_LIGHT = selectFor(INSTANCE_KEYS_LIGHT);
 

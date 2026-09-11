@@ -61,19 +61,17 @@ async function streamRun(req, res, client, runId, viewer = null) {
     for (;;) {
       if (closed) break;
 
-      let rowsQuery = client
-        .from("crawl_run_results")
-        .select("id,data")
-        .eq("run_id", runId);
       // The run was authorized above and these rows are the run's, so run_id is
       // the tenancy check here. It used to also filter on owner, which meant a
       // teammate who could open the run streamed zero result rows into it.
-      const rows = await rowsQuery
-        .gt("id", cursor)
-        .order("id", { ascending: true })
-        .limit(PAGE);
-      if (rows.error) throw new Error(rows.error.message);
-      for (const row of rows.data) {
+      const rows = await client.rows(
+        `select id, data from crawl_run_results
+          where run_id = $1 and id > $2
+          order by id asc
+          limit $3`,
+        [runId, cursor, PAGE],
+      );
+      for (const row of rows) {
         send("result", row.data, row.id);
         cursor = row.id;
       }
@@ -100,7 +98,7 @@ async function streamRun(req, res, client, runId, viewer = null) {
         });
         if (TERMINAL.has(run.status)) {
           // Drain any final rows written after the last page.
-          if (rows.data.length === PAGE) continue;
+          if (rows.length === PAGE) continue;
           send("complete", {
             status: run.status,
             summary: run.summary || null,

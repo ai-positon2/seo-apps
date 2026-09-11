@@ -6,13 +6,17 @@
 // the rows in place. A hand-written fake could only restate the assumption, so
 // this runs the real SQL.
 //
-// Needs DATABASE_URL. Without one it skips rather than fails, so `npm test`
-// still passes on a checkout with no database configured.
+// Needs TEST_DATABASE_URL — a throwaway database, NOT the app's, for the same
+// reason as the queue suite: these write capture rows and sweep them, and a live
+// worker on the same database is doing its own writes underneath. Without it the
+// suite skips, so `npm test` still passes on a fresh checkout.
 //
 // Everything is created under one throwaway project and deleted afterwards.
 
 const assert = require('assert');
 require('dotenv').config({ path: require('path').join(__dirname, '../../../../.env') });
+
+const { useTestDatabase } = require('../../../services/__tests__/helpers/testDatabase');
 
 const db = require('../../../services/db');
 const budget = require('../budget');
@@ -75,10 +79,7 @@ async function teardown() {
 }
 
 (async () => {
-  if (!db.isDatabaseConfigured()) {
-    console.log('aiVisibility budget/retention: SKIPPED — set DATABASE_URL to run these against Postgres.');
-    return;
-  }
+  if (!useTestDatabase('aiVisibility budget/retention')) return;
 
   await setup();
   try {

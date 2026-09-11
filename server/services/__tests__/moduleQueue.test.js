@@ -6,14 +6,19 @@
 // UPDATE matches nothing once the row has moved on. A hand-written fake can
 // only restate the assumption being tested, so this runs the real SQL.
 //
-// It needs DATABASE_URL. Without one it skips rather than fails, so `npm test`
-// still passes on a checkout with no database configured.
+// It needs TEST_DATABASE_URL — a throwaway database, NOT the app's. These tests
+// queue runs, and a live module worker sharing the database claims and executes
+// them within seconds; see services/__tests__/helpers/testDatabase.js for the
+// measurement. Without it the suite skips, so `npm test` still passes on a
+// fresh checkout.
 //
 // Everything is created under one throwaway project and deleted afterwards, so
 // the suite never reads or writes another project's rows.
 
 const assert = require('assert');
 require('dotenv').config({ path: require('path').join(__dirname, '../../../.env') });
+
+const { useTestDatabase } = require('./helpers/testDatabase');
 
 const db = require('../db');
 const queue = require('../moduleQueue');
@@ -70,10 +75,7 @@ async function teardown() {
 }
 
 (async () => {
-  if (!db.isDatabaseConfigured()) {
-    console.log('moduleQueue: SKIPPED — set DATABASE_URL to run the queue tests against Postgres.');
-    return;
-  }
+  if (!useTestDatabase('moduleQueue')) return;
 
   await setup();
   try {
