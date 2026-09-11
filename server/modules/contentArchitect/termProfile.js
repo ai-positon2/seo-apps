@@ -137,4 +137,4 @@ function buildCorpusTermProfiles(pages, { domain, vertical }) {
   });
 }
 
-module.exports = { buildRawTermProfile, buildCorpusTermProfiles, deriveBrandTokens, tokenizeWords };
+module.exports = { buildRawTermProfile, buildCorpusTermProfiles, deriveBrandTokens, tokenizeWords, cleanTokens };

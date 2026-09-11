@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { refreshSemrushBalance } from '../lib/semrushBalanceStore';
 import { notifyAgentRunStarted, notifyAgentRunFinished } from '../lib/agentRunSignal';
 import ModuleRuns from '../components/ModuleRuns';
@@ -74,9 +75,14 @@ const PAGE_TYPE_STYLES = {
 const cardShadow = '0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.04)';
 
 export default function KeywordResearchPage() {
-  const [keyword, setKeyword] = useState('');
+  const navigate = useNavigate();
+  const prefill = useMemo(() => {
+    const q = new URLSearchParams(window.location.search);
+    return { keyword: q.get('keyword') || '', client: q.get('client') || '' };
+  }, []);
+  const [keyword, setKeyword] = useState(prefill.keyword);
   const [intent, setIntent] = useState('commercial');
-  const [client, setClient] = useState('');
+  const [client, setClient] = useState(prefill.client);
   const [feedbackKbIds, setFeedbackKbIds] = useState([]);
   const [running, setRunning] = useState(false);
   const [started, setStarted] = useState(false);
@@ -669,6 +675,30 @@ export default function KeywordResearchPage() {
 
           {/* Copy + Edit toggle */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
+            <button
+              onClick={() => {
+                const params = new URLSearchParams({ keyword: primaryList[0]?.keyword || '', client });
+                navigate(`/article-recommendation?${params.toString()}`);
+              }}
+              disabled={primaryList.length === 0}
+              title={primaryList.length === 0 ? 'Choose at least one primary keyword first' : 'Recommend an article for this keyword'}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 13,
+                fontWeight: 600,
+                padding: '8px 14px',
+                borderRadius: 8,
+                border: '1px solid var(--primary)',
+                background: primaryList.length === 0 ? 'var(--surface)' : 'var(--primary)',
+                color: primaryList.length === 0 ? 'var(--text-3)' : '#fff',
+                cursor: primaryList.length === 0 ? 'not-allowed' : 'pointer',
+                transition: 'all 0.15s',
+              }}
+            >
+              Recommend Article
+            </button>
             <button
               onClick={copyKeywordsTable}
               style={{

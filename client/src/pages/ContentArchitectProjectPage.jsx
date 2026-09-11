@@ -36,7 +36,12 @@ const CLASSIFICATION_META = {
   location: { label: 'Location', variant: 'info' },
   exclude: { label: 'Exclude', variant: 'danger' },
   static: { label: 'Static', variant: 'neutral' },
-  unknown: { label: 'Unknown', variant: 'warning' },
+  // Catch-all for anything that doesn't fit article/service/location: staff
+  // bios, press releases, one-off offer pages, or genuinely unclassifiable
+  // patterns. These don't get their own named category — a site-specific page
+  // type would never stop growing the list — so they all land here, unchecked
+  // by default, for the user to glance at rather than being auto-included.
+  unknown: { label: 'Other', variant: 'warning' },
 };
 
 const VERTICAL_OPTIONS = ['dental', 'healthcare', 'legal', 'saas', 'ecommerce', 'home-services', 'other'];
@@ -61,10 +66,30 @@ export default function ContentArchitectProjectPage() {
   const [analyzeSteps, setAnalyzeSteps] = useState({});
   const [analysis, setAnalysis] = useState(null);
   const [exportingFormat, setExportingFormat] = useState(null);
+  const [competitorsText, setCompetitorsText] = useState('');
+  const [savingCompetitors, setSavingCompetitors] = useState(false);
   const esRef = useRef(null);
   const startedRef = useRef(false);
 
   useEffect(() => () => esRef.current?.close(), []);
+
+  // Set once here, reused automatically by every "Suggest spokes" click after
+  // this — not re-asked per suggestion request.
+  useEffect(() => { setCompetitorsText((project?.competitors || []).join(', ')); }, [project?.id]);
+
+  async function saveCompetitors() {
+    setSavingCompetitors(true);
+    try {
+      const competitors = competitorsText.split(',').map((s) => s.trim()).filter(Boolean);
+      const updated = await ca.setCompetitors(id, competitors);
+      setProject(updated);
+      toast.add({ title: 'Competitors saved', description: 'Used automatically by "Suggest new spokes".' });
+    } catch (e) {
+      toast.add({ title: 'Save failed', description: e.message, variant: 'danger' });
+    } finally {
+      setSavingCompetitors(false);
+    }
+  }
 
   useEffect(() => {
     if (project?.platformProjectId && activeProjectId
@@ -519,6 +544,19 @@ export default function ContentArchitectProjectPage() {
                 </Button>
               </div>
             </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Competitor domains:</span>
+              <input
+                type="text"
+                value={competitorsText}
+                onChange={(e) => setCompetitorsText(e.target.value)}
+                placeholder="competitor1.com, competitor2.com"
+                style={{ flex: '1 1 260px', minWidth: 200, fontSize: 12, padding: '5px 8px', borderRadius: 'var(--r-md)', border: '1px solid var(--border-strong)', background: 'var(--card)', color: 'var(--text)' }}
+              />
+              <Button variant="secondary" size="sm" onClick={saveCompetitors} loading={savingCompetitors}>Save</Button>
+              <span style={{ fontSize: 10.5, color: 'var(--text-3)' }}>Set once — used automatically by "Suggest new spokes" below, no need to re-enter.</span>
+            </div>
           </Card>
 
           {analysis.crawlMeta?.sampled && (
@@ -530,7 +568,17 @@ export default function ContentArchitectProjectPage() {
             </Card>
           )}
 
-          <HubSpokeReport analysis={analysis} pageById={pageById} navigate={navigate} />
+          <HubSpokeReport
+            analysis={analysis}
+            pageById={pageById}
+            navigate={navigate}
+            projectId={id}
+            siteName={project?.name}
+            onSuggestions={(clusterId, result) => setAnalysis((prev) => ({
+              ...prev,
+              spokeSuggestionsByCluster: { ...(prev.spokeSuggestionsByCluster || {}), [clusterId]: result },
+            }))}
+          />
 
           <div style={{ fontSize: 11, color: 'var(--text-3)', textAlign: 'center' }}>
             For the full retire/refresh reasoning, excluded-page detail, and every column, download the Excel above.

@@ -77,6 +77,10 @@ function newProject({ domain, host, platformProjectId = null, workspaceId = null
     updatedAt: new Date().toISOString(),
     workflowState: platformProjectId ? 'waiting_for_crawl' : 'created',
     vertical: null,
+    // Set once (Domains-style input, not asked again per spoke-suggestion
+    // request) and reused automatically by spokeSuggestions.js's competitive
+    // signal — see routes.js PUT /projects/:id/competitors.
+    competitors: [],
     sitemapSource: null,
     crawlMode: null,
     stats: { urlsFound: 0, urlsSelected: 0, urlsAnalyzed: 0, urlsExcluded: 0, clusterCount: 0, gapHubCount: 0, orphanCount: 0, unassignedCount: 0, meanHealth: null },
