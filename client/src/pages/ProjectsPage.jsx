@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { projectsApi, relativeTime, countryLabel } from '../lib/projectsApi';
+import { setActiveProjectId } from '../lib/activeProject';
 import {
   Card, Kicker, Muted, Tag, Btn, FadingRule, SectionHead, Spinner,
 } from '../components/studio/primitives';
@@ -182,7 +183,11 @@ export default function ProjectsPage() {
               project={selected}
               capabilities={capabilities}
               onMutate={mutate}
-              onOpenDashboard={() => navigate('/')}
+              // The homepage reads which client to show from localStorage
+              // (activeProject.js), not from anything in this URL — so
+              // navigating here without setting it first opened whichever
+              // project was already active, not the one on screen.
+              onOpenDashboard={() => { setActiveProjectId(selected.id); navigate('/'); }}
             />
           )}
         </div>
