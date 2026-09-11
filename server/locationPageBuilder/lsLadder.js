@@ -39,14 +39,25 @@ const MASS_NOUN_WORDS = new Set([
   'disorder', 'grief', 'loss', 'stress', 'trauma', 'burnout', 'pain', 'anger',
   'insomnia', 'abuse', 'use', 'sleep', 'mood', 'fatigue', 'guilt', 'shame',
   'withdrawal', 'relapse', 'wellbeing', 'esteem',
+  // Named presentations rather than countable things: "What Is Failure to
+  // Launch?" and "What Is School Refusal?", never "a Failure to Launch".
+  'launch', 'refusal',
 ]);
 
 function isProperName(name) {
   return /[®™]/.test(String(name || ''));
 }
 
+// The head noun that decides the article. A trailing parenthetical is dropped
+// first: half this vertical's programme names carry one ("Partial
+// Hospitalization Program (PHP)", "Outpatient Mental Health Treatment (IOP)"),
+// and reading the article off "(PHP)" makes it an acronym — so the rung came
+// out as "What Is Partial Hospitalization Program (PHP)?" instead of "What Is
+// a Partial Hospitalization Program (PHP)?". The parenthetical is still part of
+// the heading; it just does not get a vote on the grammar.
 function lastWord(name) {
-  return String(name || '').trim().split(/\s+/).pop() || '';
+  const withoutParenthetical = String(name || '').trim().replace(/\s*\([^)]*\)\s*$/, '');
+  return (withoutParenthetical || String(name || '')).trim().split(/\s+/).pop() || '';
 }
 
 // Acronym services ("PHP", "IOP", "TMS", "ADHD") are read letter by letter, so

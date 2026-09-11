@@ -337,6 +337,16 @@ try {
   console.error('[CachePurge] Scheduler init failed:', err.message);
 }
 
+// Watches how close the database is to its size cap. The cap is real and
+// hard: when it was hit, the only symptom was an unrelated insert failing
+// ("could not extend file because project size limit has been exceeded"), and
+// nothing had warned. Read-only — it reports, it never deletes.
+try {
+  require('./services/dbCapacity').init();
+} catch (err) {
+  console.error('[DbCapacity] Watch init failed:', err.message);
+}
+
 require('./modules/robotsMonitor/monitorStore').init().then(() => {
   require('./modules/robotsMonitor/monitorScheduler').init().catch(err => {
     console.error('[RobotsMonitor] Scheduler init failed:', err.message);

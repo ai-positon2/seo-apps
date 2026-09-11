@@ -49,9 +49,29 @@ function buildServices({ clientId, idPrefix, serviceDefs }) {
   });
 }
 
-function buildLocations({ clientId, idPrefix, locationDefs, serviceIds, stateNames }) {
+// Which services a location actually offers, resolved from the slugs the data
+// file lists against it. This is a FACTUAL claim — §13.18 forbids inventing
+// service availability, and `services_available_ids` is what decides which
+// pages can be built and which siblings get linked — so an unknown slug is an
+// error rather than a silently shorter list. A location that names no slugs at
+// all offers everything, which is the right default for a single-site client.
+function resolveServiceIds({ locationName, serviceSlugs, servicesBySlug, allServiceIds }) {
+  if (!serviceSlugs) return allServiceIds;
+  return serviceSlugs.map((slug) => {
+    const id = servicesBySlug.get(slug);
+    if (!id) throw new Error(`Location "${locationName}" lists service slug "${slug}", which no service defines.`);
+    return id;
+  });
+}
+
+function buildLocations({ clientId, idPrefix, locationDefs, serviceIds, stateNames, servicesBySlug = new Map() }) {
   return locationDefs.map(([locationName, city, stateAbbr, opts = {}]) => {
-    const locationSlug = opts.locationSlug || slugify(city || locationName);
+    // Slugged from the location NAME, not the city: a client can run several
+    // facilities in one city ("Redondo Beach Outpatient" and "Redondo Beach
+    // Residential" are different buildings with different addresses), and a
+    // city-based slug would give them the same URL. For the usual case, where
+    // the location is named after its city, the two are identical anyway.
+    const locationSlug = opts.locationSlug || slugify(locationName || city);
     const row = {
       id: `${idPrefix}loc_${slugify(locationName || city)}`,
       client_id: clientId,
@@ -83,7 +103,8 @@ function buildLocations({ clientId, idPrefix, locationDefs, serviceIds, stateNam
       // Eligibility guardrail (a page is only built for a real location); the
       // NAP itself is still flagged field by field below.
       verified: true,
-      services_available_ids: opts.serviceIds || serviceIds,
+      services_available_ids: opts.serviceIds
+        || resolveServiceIds({ locationName, serviceSlugs: opts.serviceSlugs, servicesBySlug, allServiceIds: serviceIds }),
     };
     row.nap_todo = NAP_FIELDS.filter(f => !hasValue(row[f]));
     return row;
@@ -104,6 +125,7 @@ async function seedLsClient(data, { idPrefix }) {
     clientId, idPrefix,
     locationDefs: data.LOCATION_DEFS || [],
     serviceIds,
+    servicesBySlug: new Map(services.map(s => [s.slug, s.id])),
     stateNames: data.STATE_NAMES || {},
   });
   const stored = await store.list('locations', { client_id: clientId });
@@ -131,4 +153,4 @@ async function seedClearBehavioralHealth() {
   return seedLsClient(data, { idPrefix: 'cbh_' });
 }
 
-module.exports = { seedLsClient, seedClearBehavioralHealth, buildServices, buildLocations, NAP_FIELDS };
+module.exports = { seedLsClient, seedClearBehavioralHealth, buildServices, buildLocations, resolveServiceIds, NAP_FIELDS };

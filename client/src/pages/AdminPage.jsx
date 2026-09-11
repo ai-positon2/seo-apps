@@ -191,6 +191,9 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* ── Database capacity ──────────────────────────────────────────────── */}
+      <DatabaseCapacityCard />
+
       {/* ── Limits ─────────────────────────────────────────────────────────── */}
       <Card style={{ padding: 18 }}>
         <SectionHead
@@ -293,6 +296,128 @@ export default function AdminPage() {
  * assignments underneath. A flag with no assignment at all is off — that is the
  * resolver's default, not a missing row, so it is stated rather than left blank.
  */
+// ── Database capacity ───────────────────────────────────────────────────────
+// The database has a hard size cap, and before this card the only sign of
+// hitting it was an unrelated write failing deep inside a feature ("could not
+// extend file because project size limit has been exceeded") — a message that
+// names the unlucky insert rather than the table that filled the disk. So this
+// shows the headroom and, when there is something to act on, the tables
+// actually accounting for it.
+//
+// It loads on its own rather than joining the page's main load(): capacity is
+// diagnostic, and a slow or failing size query must not stop an admin reaching
+// the limits and grants they came here for.
+function DatabaseCapacityCard() {
+  const [usage, setUsage] = useState(null);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async (refresh = false) => {
+    setBusy(true);
+    try {
+      setUsage(await adminApi.databaseCapacity({ refresh }));
+      setError(null);
+    } catch (e) {
+      setError(e);
+    }
+    setBusy(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (error) {
+    return (
+      <Card style={{ padding: 18 }}>
+        <SectionHead title="Database capacity" right={<Btn onClick={() => load(true)}>Retry</Btn>} />
+        <Muted size={12.5}>Couldn’t read the database size: {error.message}</Muted>
+      </Card>
+    );
+  }
+  if (!usage) {
+    return (
+      <Card style={{ padding: 18 }}>
+        <SectionHead title="Database capacity" />
+        <Spinner />
+      </Card>
+    );
+  }
+  if (!usage.configured) return null;
+
+  const tone = usage.level === 'critical' ? 'var(--viz-neg)'
+    : usage.level === 'warning' ? 'var(--viz-warn)'
+      : 'var(--primary)';
+  const pct = usage.percent == null ? null : Math.min(100, usage.percent);
+
+  return (
+    <Card style={{ padding: 18 }}>
+      <SectionHead
+        title="Database capacity"
+        right={<Btn onClick={() => load(true)} disabled={busy}>{busy ? 'Checking…' : 'Refresh'}</Btn>}
+      />
+
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+        <span style={{ fontSize: 22, fontWeight: 500, color: tone }}>{usage.pretty}</span>
+        <Muted size={13}>
+          of {usage.limitPretty}
+          {pct != null && ` — ${pct}% used, ${usage.freePretty} free`}
+        </Muted>
+        {usage.level !== 'ok' && (
+          <Tag tone={usage.level === 'critical' ? 'neg' : 'warn'}>
+            {usage.level === 'critical' ? 'Critical' : 'Warning'}
+          </Tag>
+        )}
+      </div>
+
+      {pct != null && (
+        <div style={{ height: 6, borderRadius: 3, background: 'var(--surface)', overflow: 'hidden', marginBottom: 10 }}>
+          <div style={{ width: `${pct}%`, height: '100%', background: tone, transition: 'width 240ms ease' }} />
+        </div>
+      )}
+
+      <Muted size={12.5} style={{ display: 'block', marginBottom: 12 }}>
+        {usage.level === 'critical'
+          ? 'Writes will start failing when this is full, in whichever feature happens to write next.'
+          : usage.level === 'warning'
+            ? 'Worth planning a clean-up before this fills — a full database fails the next write, not the one that filled it.'
+            : `Warns at ${Math.round((usage.thresholds?.warn ?? 0.75) * 100)}%, critical at ${Math.round((usage.thresholds?.critical ?? 0.9) * 100)}%.`}
+      </Muted>
+
+      {!!(usage.tables || []).length && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr>
+                {['Largest tables', 'Rows', 'Size'].map((h, i) => (
+                  <th
+                    key={h}
+                    style={{
+                      textAlign: i === 0 ? 'left' : 'right',
+                      fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase',
+                      color: 'var(--text-3)', padding: '6px 8px', fontWeight: 600,
+                      borderBottom: '1px solid var(--border)',
+                    }}
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {usage.tables.map((t) => (
+                <tr key={t.table} style={{ borderBottom: '1px solid color-mix(in srgb, var(--border) 55%, transparent)' }}>
+                  <td style={{ padding: 8, fontFamily: 'var(--font-mono)', fontSize: 12.5 }}>{t.table}</td>
+                  <td style={{ padding: 8, textAlign: 'right', color: 'var(--text-2)' }}>{t.rows.toLocaleString()}</td>
+                  <td style={{ padding: 8, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{t.pretty}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function FlagsCard({ flagKeys, assignments, onMutate }) {
   const byFlag = useMemo(() => {
     const map = new Map(flagKeys.map((key) => [key, []]));

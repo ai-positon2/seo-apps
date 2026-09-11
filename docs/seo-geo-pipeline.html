@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>html{color-scheme:light dark}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>The SEO and GEO Pipeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&display=swap">
+</head>
+<body>
+<style>
+:root{
+  --ground:#F5F7FA; --surface:#FFFFFF; --surface-2:#EDF1F7;
+  --ink:#12233F; --ink-2:#3C4E68; --muted:#5A6B84; --faint:#8B9AB0;
+  --rule:#DCE4EE; --rule-soft:#E8EDF4;
+  --accent:#E2610D; --gate:#2E86DE;
+  --live:#12916A; --build:#7C8CA6; --new:#93A3B8;
+  --shadow:0 1px 2px rgba(18,35,63,.06), 0 8px 24px -16px rgba(18,35,63,.28);
+  --display:'Archivo','Segoe UI',system-ui,sans-serif;
+  --body:'Source Sans 3','Segoe UI',system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0C1320; --surface:#141E2E; --surface-2:#1A2536;
+    --ink:#E7EEF7; --ink-2:#C3CFDE; --muted:#94A5BA; --faint:#6E7F95;
+    --rule:#27364B; --rule-soft:#1F2C3E;
+    --accent:#FF8A3D; --gate:#4E9FE8;
+    --live:#32C08D; --build:#8FA1B8; --new:#7F91A8;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 30px -18px rgba(0,0,0,.8);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0C1320; --surface:#141E2E; --surface-2:#1A2536;
+  --ink:#E7EEF7; --ink-2:#C3CFDE; --muted:#94A5BA; --faint:#6E7F95;
+  --rule:#27364B; --rule-soft:#1F2C3E;
+  --accent:#FF8A3D; --gate:#4E9FE8;
+  --live:#32C08D; --build:#8FA1B8; --new:#7F91A8;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 30px -18px rgba(0,0,0,.8);
+}
+*{box-sizing:border-box}
+body{
+  background:var(--ground); color:var(--ink); font-family:var(--body);
+  font-size:15px; line-height:1.5; margin:0; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1340px; margin:0 auto; padding-inline:20px; padding-block:34px 56px}
+
+.eyebrow{
+  font-family:var(--display); font-size:11px; font-weight:600; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--accent); margin:0 0 10px;
+}
+h1{
+  font-family:var(--display); font-weight:700; font-size:clamp(28px,4.4vw,44px);
+  line-height:1.06; letter-spacing:-.02em; margin:0; text-wrap:balance; color:var(--ink);
+}
+.dek{margin:12px 0 0; max-width:64ch; color:var(--muted); font-size:16.5px}
+.masthead{display:flex; flex-wrap:wrap; gap:20px 40px; align-items:flex-end; justify-content:space-between}
+.brandmark{font-family:var(--display); font-weight:700; font-size:20px; letter-spacing:-.01em; color:var(--muted); margin:0}
+.brandmark sup{font-size:.62em; position:relative; top:-.55em}
+
+.legend{
+  display:flex; flex-wrap:wrap; gap:10px 26px; align-items:center;
+  margin-top:26px; padding-block:14px; border-top:2px solid var(--ink); border-bottom:1px solid var(--rule);
+}
+.leg{display:inline-flex; align-items:center; gap:8px; font-size:13px; color:var(--muted)}
+.leg b{color:var(--ink); font-weight:600; font-variant-numeric:tabular-nums}
+.swatch{width:9px; height:9px; border-radius:50%; flex:none}
+.sw-live{background:var(--live)}
+.sw-build{background:transparent; border:1.5px solid var(--build)}
+.sw-new{width:15px; height:10px; border-radius:2px; border:1.5px dashed var(--new); background:transparent}
+.sw-gate{width:9px; height:9px; background:var(--accent); transform:rotate(45deg); border-radius:1px}
+
+.board-scroll{overflow-x:auto; margin-top:26px; padding-bottom:4px}
+.board{display:grid; grid-template-columns:210px repeat(5,minmax(190px,1fr)); min-width:1120px}
+.row{display:contents}
+.cell{padding:12px 12px 14px; display:flex; flex-direction:column; gap:8px}
+.gl{border-left:1.5px dashed var(--gate)}
+.cell-phase{display:none}
+
+.gaterow .cell{padding:0 12px 9px; justify-content:flex-end}
+.gatelabel{
+  font-family:var(--display); font-size:10.5px; font-weight:700; letter-spacing:.11em;
+  text-transform:uppercase; color:var(--accent); display:flex; align-items:center; gap:7px; line-height:1.25;
+}
+.gatelabel::before{
+  content:''; width:9px; height:9px; background:var(--accent);
+  transform:rotate(45deg); border-radius:1px; flex:none;
+}
+
+.heads .cell{padding-block:0 14px; gap:0}
+.phase{
+  background:var(--surface); border:1px solid var(--rule); border-radius:3px;
+  padding:9px 12px; display:flex; align-items:baseline; gap:9px; box-shadow:var(--shadow);
+}
+.phase .num{font-family:var(--display); font-weight:600; font-size:12px; color:var(--gate); font-variant-numeric:tabular-nums}
+.phase .nm{font-family:var(--display); font-weight:700; font-size:15px; letter-spacing:.03em; text-transform:uppercase}
+.outcome{font-size:12.5px; color:var(--muted); margin:9px 2px 0; line-height:1.4}
+.heads .stub{display:flex; align-items:flex-end; padding:0 12px 14px}
+.stub-t{font-family:var(--display); font-size:11px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; color:var(--faint)}
+
+.lane .cell, .lane .lanehead{border-top:1px solid var(--rule)}
+.lane:nth-of-type(even) .cell, .lane:nth-of-type(even) .lanehead{background:var(--surface-2)}
+.lanehead{padding:14px 14px 16px 0}
+.lane-n{font-family:var(--display); font-weight:700; font-size:13.5px; color:var(--ink); margin:0; display:flex; gap:8px; align-items:baseline}
+.lane-n i{font-style:normal; font-size:10px; font-weight:600; color:var(--accent); letter-spacing:.08em; flex:none}
+.lane-q{margin:5px 0 0; font-size:12.5px; font-style:italic; color:var(--muted); line-height:1.35}
+
+.chip{
+  background:var(--surface); border:1px solid var(--rule); border-radius:3px;
+  padding:8px 10px 9px; display:grid; grid-template-columns:auto 1fr; gap:3px 8px; align-items:start;
+}
+.chip .dot{width:8px; height:8px; border-radius:50%; margin-top:5px; flex:none}
+.chip-t{font-family:var(--display); font-weight:600; font-size:12.5px; margin:0; line-height:1.25; color:var(--ink)}
+.chip-d{grid-column:2; margin:0; font-size:11.5px; line-height:1.34; color:var(--muted)}
+.s-live{box-shadow:var(--shadow)}
+.s-live .dot{background:var(--live)}
+.s-build{box-shadow:var(--shadow)}
+.s-build .dot{background:transparent; border:1.5px solid var(--build)}
+.s-new{background:transparent; border:1.5px dashed var(--new); box-shadow:none}
+.s-new .chip-t{color:var(--ink-2)}
+.s-new .dot{background:transparent; border:1.5px dashed var(--new); border-radius:2px; width:9px; height:9px; margin-top:4px}
+
+.optimize{display:flex; align-items:center; gap:14px; margin-top:18px; padding:11px 4px; border-top:1px solid var(--rule); border-bottom:1px solid var(--rule)}
+.optimize .arrow{flex:none; color:var(--gate)}
+.optimize p{margin:0; font-size:12.5px; color:var(--muted)}
+.optimize b{font-family:var(--display); font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--gate)}
+
+.always{
+  margin-top:26px; background:var(--surface); border:1px solid var(--rule); border-radius:4px;
+  padding:18px 20px; display:grid; grid-template-columns:240px 1fr; gap:18px 28px; box-shadow:var(--shadow);
+}
+.always h2{font-family:var(--display); font-size:11px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; margin:0 0 7px; color:var(--ink)}
+.always p{margin:0; font-size:12.5px; color:var(--muted)}
+.always-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; align-content:start}
+
+.gates, .next{margin-top:42px}
+.sect-h{font-family:var(--display); font-size:11px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; color:var(--accent); margin:0 0 5px}
+.sect-d{margin:0 0 18px; color:var(--muted); font-size:14px; max-width:62ch}
+.gatelist{display:grid; grid-template-columns:repeat(auto-fit,minmax(268px,1fr)); gap:1px; background:var(--rule); border:1px solid var(--rule); border-radius:4px; overflow:hidden}
+.gatecard{background:var(--surface); padding:18px 20px 20px}
+.gatecard .when{font-family:var(--display); font-size:10px; font-weight:600; letter-spacing:.12em; text-transform:uppercase; color:var(--faint)}
+.gatecard h3{font-family:var(--display); font-size:15px; font-weight:700; margin:7px 0 8px; display:flex; align-items:center; gap:8px; color:var(--ink)}
+.gatecard h3::before{content:''; width:9px; height:9px; background:var(--accent); transform:rotate(45deg); border-radius:1px; flex:none}
+.gatecard p{margin:0; font-size:13.5px; color:var(--muted); line-height:1.5}
+
+.nextlist{display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px}
+.nextcard{background:var(--surface); border:1px solid var(--rule); border-left:3px solid var(--accent); border-radius:3px; padding:15px 17px; box-shadow:var(--shadow)}
+.nextcard h3{font-family:var(--display); font-size:13.5px; font-weight:700; margin:0 0 5px; color:var(--ink)}
+.nextcard p{margin:0; font-size:13px; color:var(--muted); line-height:1.45}
+.nextcard .tagline{font-family:var(--display); font-size:10px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--faint); display:block; margin-bottom:7px}
+
+footer{margin-top:44px; padding-top:16px; border-top:1px solid var(--rule); display:flex; flex-wrap:wrap; gap:8px 20px; justify-content:space-between; font-size:12px; color:var(--faint)}
+footer sup{font-size:.7em; position:relative; top:-.4em}
+
+@media (max-width:880px){
+  .board-scroll{overflow-x:visible}
+  .board{display:block; min-width:0}
+  .row{display:block}
+  .gaterow, .heads{display:none}
+  .lane{border:1px solid var(--rule); border-radius:4px; background:var(--surface); margin-bottom:14px; overflow:hidden}
+  .lane:nth-of-type(even) .cell{background:transparent}
+  .lanehead{padding:15px 16px; border-top:none; border-bottom:1px solid var(--rule); background:var(--surface-2)}
+  .lane .cell{border-top:none; border-left:none; padding:13px 16px 4px}
+  .lane .cell:last-child{padding-bottom:16px}
+  .cell-phase{display:block; font-family:var(--display); font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--faint); margin:0}
+  .always{grid-template-columns:1fr}
+}
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">Discipline detail &middot; one row of the campaign pipeline, opened up</p>
+      <h1>The SEO and GEO Pipeline</h1>
+      <p class="dek">Six capability lanes, five phases, three expert gates. Agents do the work; experts hold the gates. Every box below is either running today, in build, or the next thing worth building.</p>
+    </div>
+    <p class="brandmark">position<sup>2</sup></p>
+  </header>
+
+  <div class="legend" id="legend"></div>
+
+  <div class="board-scroll">
+    <div class="board" id="board"></div>
+  </div>
+
+  <div class="optimize">
+    <svg class="arrow" width="46" height="10" viewBox="0 0 46 10" fill="none" aria-hidden="true">
+      <path d="M45 5H2M2 5l4.5-4M2 5l4.5 4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <p><b>Optimize</b> &nbsp;What ships feeds back into the baseline &mdash; the next crawl, the next page score and the next AI-visibility read all measure against it.</p>
+  </div>
+
+  <section class="always" aria-labelledby="always-h">
+    <div>
+      <h2 id="always-h">Always on</h2>
+      <p>Runs under every phase rather than inside one, and raises exceptions into the nearest expert gate instead of waiting for the next reporting cycle.</p>
+    </div>
+    <div class="always-grid" id="always"></div>
+  </section>
+
+  <section class="gates" aria-labelledby="gates-h">
+    <p class="sect-h" id="gates-h">Three expert gates</p>
+    <p class="sect-d">No agent output reaches a client site unreviewed. Each gate has a named owner and produces a decision, not a status update.</p>
+    <div class="gatelist" id="gatelist"></div>
+  </section>
+
+  <section class="next" aria-labelledby="next-h">
+    <p class="sect-h" id="next-h">What we would build next</p>
+    <p class="sect-d">The proposed agents above, ordered by what a CMO asks for today and cannot yet be given.</p>
+    <div class="nextlist" id="nextlist"></div>
+  </section>
+
+  <footer>
+    <span>Status reflects the platform as it stands. Dashed boxes are proposed, not built.</span>
+    <span>Confidential &middot; &copy; Position<sup>2</sup>, 2026</span>
+  </footer>
+</div>
+
+<script>
+const PHASES = [
+  {n:'01', nm:'Onboard',  out:'One project record every agent reads from.'},
+  {n:'02', nm:'Baseline', out:'A scored picture of the site, the market and the AI answers.'},
+  {n:'03', nm:'Plan',     out:'A ranked plan with the value of each action attached.'},
+  {n:'04', nm:'Build',    out:'Publish-ready pages and fixes, every change traceable.'},
+  {n:'05', nm:'Launch',   out:'Monitoring that catches a regression before it costs traffic.'}
+];
+const GATES = {2:'Review the diagnosis', 3:'Approve the plan', 4:'Approve what ships'};
+
+const LANES = [
+  {
+    id:'A', nm:'Technical health', q:'Can search engines and AI crawlers actually get in?',
+    cells:[
+      [{t:'Project Setup', s:'live', d:'Primary and competitor domains, country and crawl scope in one record.'}],
+      [{t:'Site Crawler', s:'build', d:'Whole-site crawl, audited against 92 checks in 8 categories.'}],
+      [{t:'Fix Prioritizer', s:'new', d:'Orders findings by traffic at risk, not by severity label.'}],
+      [{t:'Schema Builder', s:'new', d:'Writes and validates the markup each template is missing.'}],
+      [{t:'Robots Monitor', s:'live', d:'Daily noindex checks on prod and staging; Slack alert when a live page goes dark.'}]
+    ]
+  },
+  {
+    id:'B', nm:'Competitive &amp; demand intelligence', q:'Where is the demand we can actually win?',
+    cells:[
+      [{t:'Competitor Set', s:'live', d:'The rivals we agree to be measured against, fixed for the engagement.'}],
+      [{t:'Competitor Research', s:'build', d:'Who ranks, for what, and where the gap against us sits.'}],
+      [
+        {t:'Keyword Research', s:'live', d:'2 primary and 10 secondary keywords, drawn from real competitor rankings.'},
+        {t:'Market Potential', s:'build', d:'Ranks metros by commercial demand, indexed to your home market.'}
+      ],
+      [{t:'Content Calendar', s:'new', d:'Turns the approved keyword map into a dated queue with owners.'}],
+      [{t:'Share of Voice Report', s:'new', d:'One board-level number: our slice of category search and AI answers.'}]
+    ]
+  },
+  {
+    id:'C', nm:'Content architecture', q:'Does the site have a structure worth ranking?',
+    cells:[
+      [{t:'Site Inventory', s:'build', d:'Every URL from the sitemap, grouped into templates you confirm.'}],
+      [{t:'Content Architect', s:'build', d:'Clusters pages by what they are about; surfaces hubs, orphans and gaps.'}],
+      [{t:'Hub and Spoke Plan', s:'build', d:'The hub each cluster needs and the spokes still to write.'}],
+      [{t:'Internal Link Builder', s:'new', d:'Places the links that make a hub behave like one.'}],
+      [{t:'Cannibalization Watch', s:'new', d:'Flags the moment two of our own pages compete for one query.'}]
+    ]
+  },
+  {
+    id:'D', nm:'Content production', q:'Does the work ship on brand, at volume?',
+    cells:[
+      [{t:'Knowledge Base', s:'live', d:'Brand voice, compliance rules and client feedback, injected into every run.'}],
+      [{t:'Page Scorer', s:'build', d:'200+ SEO and GEO checks across 21 categories, scored per page.'}],
+      [{t:'Content Brief Agent', s:'live', d:'Heading structure, word-count benchmark and FAQs from the top 10 pages.'}],
+      [
+        {t:'Article Enhancer', s:'live', d:'Five parallel analyses &mdash; SEO, GEO, intent, E-E-A-T, UX &mdash; every change highlighted.'},
+        {t:'Location + Service Pages', s:'build', d:'Approved page packages per client, service and location.'}
+      ],
+      [{t:'Pre-publish QA Gate', s:'new', d:'Holds any page that fails a brand, claim or schema check.'}]
+    ]
+  },
+  {
+    id:'E', nm:'AI answer visibility (GEO)', q:'When an AI assistant is asked, does it name us?',
+    cells:[
+      [{t:'Prompt Set Setup', s:'new', d:'The buyer questions we agree to be measured on, fixed up front.'}],
+      [
+        {t:'AI Visibility', s:'build', d:'Where the brand shows up in AI answers, and who gets cited instead.'},
+        {t:'Agent Readiness Audit', s:'live', d:'13 checks on bot access, discoverability and MCP; 0&ndash;100 with a CMO brief.'}
+      ],
+      [{t:'Answer Gap Planner', s:'new', d:'Questions AI answers today without us, ranked by buying intent.'}],
+      [{t:'Answer Block Writer', s:'live', d:'Answer-first blocks, FAQs, citations and schema, copy-ready.'}],
+      [{t:'Citation Monitor', s:'new', d:'Tracks which sources AI cites in our category, and what it takes to be one.'}]
+    ]
+  },
+  {
+    id:'F', nm:'Local &amp; multi-location', q:'Is every branch held to the same standard?',
+    cells:[
+      [{t:'Location Roster', s:'new', d:'Branches, services and contact details as one source of truth.'}],
+      [{t:'Local Presence Audit', s:'new', d:'Coverage gaps read as branch by service, not as a site average.'}],
+      [{t:'Page Matrix Plan', s:'build', d:'Which client, service and location pages to build, and in what order.'}],
+      [
+        {t:'GBP QC Agent', s:'live', d:'Brand-checked posts generated for every location, export-ready.'},
+        {t:'Image Alt Audit', s:'build', d:'Alt tags and clean filenames across 100+ location pages.'}
+      ],
+      [{t:'Local Rank Grid', s:'new', d:'Rankings by location, so a regional dip shows before revenue moves.'}]
+    ]
+  }
+];
+
+const ALWAYS = [
+  {t:'Robots Monitor', s:'live', d:'Indexability, every day, across every client domain.'},
+  {t:'Scheduled Crawls', s:'build', d:'The same crawl re-runs weekly and emails the workbook.'},
+  {t:'AI Visibility Tracking', s:'build', d:'Repeat reads against the agreed prompt set.'},
+  {t:'Anomaly Inbox', s:'new', d:'One queue for what moved, with the run that caught it.'},
+  {t:'Executive Brief', s:'new', d:'Monthly: what changed, why, and what it cost or earned.'}
+];
+
+const GATE_DETAIL = [
+  {when:'After baseline, before planning', h:'Review the diagnosis', p:'The strategist confirms what the crawl, the competitive set and the AI answers actually say &mdash; and discards the findings that do not matter for this client &mdash; before anyone plans against them.'},
+  {when:'After planning, before build', h:'Approve the plan', p:'The account lead signs the ranked plan: which pages, in what order, what each is worth, and what we are deliberately not doing this quarter.'},
+  {when:'After build, before launch', h:'Approve what ships', p:'An editor approves every page and every claim. Agent output stays a draft with its sources attached until a person says otherwise.'}
+];
+
+const NEXT = [
+  {tag:'Answers: what does this cost us?', h:'Fix Prioritizer', p:'A crawl returns hundreds of findings ranked by severity. A CMO asks which ones cost money. This ranks them by the traffic and revenue actually at risk, so the plan defends itself in a budget meeting.'},
+  {tag:'Answers: what do we do about AI?', h:'Answer Gap Planner + Citation Monitor', p:'We can already measure whether AI names the brand. Neither tells you what to do about it. These name the buyer questions AI answers without us, and the sources it trusts instead &mdash; turning a visibility score into a content order.'},
+  {tag:'Answers: what changed this month?', h:'Share of Voice Report + Executive Brief', p:'A single category-level number, and a monthly page saying what moved and why. The two artifacts a CMO forwards rather than reads.'},
+  {tag:'Answers: can we scale this safely?', h:'Pre-publish QA Gate', p:'Volume is only an asset if nothing wrong goes out. An automated hold on brand, claim and schema failures is what makes agent-written pages safe to scale in a regulated category.'}
+];
+
+const chip = c => '<div class="chip s-' + c.s + '"><span class="dot"></span><p class="chip-t">' + c.t + '</p><p class="chip-d">' + c.d + '</p></div>';
+
+let html = '';
+
+html += '<div class="row gaterow"><div></div>';
+PHASES.forEach(function(p, i){
+  const g = GATES[i];
+  html += '<div class="cell' + (i >= 2 ? ' gl' : '') + '">' + (g ? '<span class="gatelabel">' + g + '</span>' : '') + '</div>';
+});
+html += '</div>';
+
+html += '<div class="row heads"><div class="stub"><span class="stub-t">SEO and GEO</span></div>';
+PHASES.forEach(function(p, i){
+  html += '<div class="cell' + (i >= 2 ? ' gl' : '') + '">'
+       +  '<div class="phase"><span class="num">' + p.n + '</span><span class="nm">' + p.nm + '</span></div>'
+       +  '<p class="outcome">' + p.out + '</p></div>';
+});
+html += '</div>';
+
+LANES.forEach(function(l){
+  html += '<div class="row lane"><div class="lanehead"><p class="lane-n"><i>' + l.id + '</i>' + l.nm + '</p>'
+       +  '<p class="lane-q">' + l.q + '</p></div>';
+  l.cells.forEach(function(cs, i){
+    html += '<div class="cell' + (i >= 2 ? ' gl' : '') + '">'
+         +  '<p class="cell-phase">' + PHASES[i].n + ' &middot; ' + PHASES[i].nm + '</p>'
+         +  cs.map(chip).join('') + '</div>';
+  });
+  html += '</div>';
+});
+document.getElementById('board').innerHTML = html;
+
+const all = LANES.reduce(function(a, l){ return a.concat(l.cells.reduce(function(b, c){ return b.concat(c); }, [])); }, []);
+const n = s => all.filter(function(c){ return c.s === s; }).length;
+document.getElementById('legend').innerHTML =
+   '<span class="leg"><span class="swatch sw-live"></span>Live today <b>' + n('live') + '</b></span>'
+ + '<span class="leg"><span class="swatch sw-build"></span>In build <b>' + n('build') + '</b></span>'
+ + '<span class="leg"><span class="swatch sw-new"></span>Proposed <b>' + n('new') + '</b></span>'
+ + '<span class="leg"><span class="swatch sw-gate"></span>Expert gate <b>3</b></span>'
+ + '<span class="leg">Always-on monitors <b>' + ALWAYS.length + '</b></span>';
+
+document.getElementById('always').innerHTML = ALWAYS.map(chip).join('');
+document.getElementById('gatelist').innerHTML = GATE_DETAIL.map(function(g){
+  return '<div class="gatecard"><span class="when">' + g.when + '</span><h3>' + g.h + '</h3><p>' + g.p + '</p></div>';
+}).join('');
+document.getElementById('nextlist').innerHTML = NEXT.map(function(c){
+  return '<div class="nextcard"><span class="tagline">' + c.tag + '</span><h3>' + c.h + '</h3><p>' + c.p + '</p></div>';
+}).join('');
+</script>
+</body>
+</html>

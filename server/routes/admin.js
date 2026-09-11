@@ -8,6 +8,7 @@
 //   POST   /api/admin/grants                      grant admin to an email
 //   DELETE /api/admin/grants/:grantId             revoke
 //   GET    /api/admin/audit-events                the immutable trail
+//   GET    /api/admin/database-capacity           how full the database is
 //
 // Every route is behind requirePlatformAdmin, which reads the persisted grant
 // (services/platformAdmin.js) — not a JWT claim, not a header, and not anything
@@ -19,6 +20,7 @@ const platformAdmin = require('../services/platformAdmin');
 const adminLimits = require('../services/adminLimits');
 const featureFlags = require('../services/featureFlags');
 const auditEvents = require('../services/auditEvents');
+const dbCapacity = require('../services/dbCapacity');
 const { isDatabaseConfigured } = require('../services/db');
 
 const router = express.Router();
@@ -176,6 +178,20 @@ router.get('/audit-events', async (req, res) => {
       actions: auditEvents.ACTIONS,
     });
   } catch (e) { handleError(res, e, 'auditEvents'); }
+});
+
+// ── Database capacity ───────────────────────────────────────────────────────
+
+// GET /api/admin/database-capacity
+// How full the database is, and which tables account for it. Exists because
+// the cap is hard and its only previous symptom was an unrelated write
+// failing deep inside a feature — see services/dbCapacity.js. Read-only:
+// nothing here deletes, since what is safe to drop is a product judgement.
+router.get('/database-capacity', async (req, res) => {
+  if (!requireConfigured(res)) return;
+  try {
+    res.json(await dbCapacity.getUsage({ withTables: true, force: req.query.refresh === '1' }));
+  } catch (e) { handleError(res, e, 'databaseCapacity'); }
 });
 
 module.exports = router;

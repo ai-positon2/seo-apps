@@ -778,12 +778,120 @@ test('a fully supplied location entry flags nothing', () => {
   assert.deepStrictEqual(row.nap_todo, []);
 });
 
-test('the reference-data file ships with no invented services or locations', () => {
-  const data = require('../data/clearBehavioralHealth');
-  assert.strictEqual(data.SERVICE_DEFS.length, 0, 'a plausible placeholder is how an invented fact reaches a page');
-  assert.strictEqual(data.LOCATION_DEFS.length, 0);
-  assert.strictEqual(data.CLIENT.brand_rules.ymyl, true);
-  assert.ok(data.CLIENT.brand_rules.prohibited_claims.length);
+test('an unknown service slug on a location is an error, not a silently short list', () => {
+  assert.throws(
+    () => lsSeed.resolveServiceIds({
+      locationName: 'Torrance', serviceSlugs: ['no-such-service'],
+      servicesBySlug: new Map([['anxiety', 'id']]), allServiceIds: ['id'],
+    }),
+    /no service defines/,
+    'a typo must not quietly remove a service from a location',
+  );
+});
+
+test('a location naming no services offers all of them', () => {
+  const ids = lsSeed.resolveServiceIds({
+    locationName: 'Torrance', serviceSlugs: undefined,
+    servicesBySlug: new Map(), allServiceIds: ['a', 'b'],
+  });
+  assert.deepStrictEqual(ids, ['a', 'b']);
+});
+
+// ── Clear Behavioral Health reference data ──────────────────────────────────
+// The client's own service taxonomy and location list. These assert the
+// invariants that make the data USABLE — unique slugs, resolvable availability,
+// English headings, no invented NAP — rather than restating the list, which
+// would just be the file written twice.
+console.log('\nClear Behavioral Health data');
+
+const CBH = require('../data/clearBehavioralHealth');
+const cbhServices = lsSeed.buildServices({ clientId: CBH.CLIENT_ID, idPrefix: 'cbh_', serviceDefs: CBH.SERVICE_DEFS });
+const cbhLocations = lsSeed.buildLocations({
+  clientId: CBH.CLIENT_ID, idPrefix: 'cbh_', locationDefs: CBH.LOCATION_DEFS,
+  serviceIds: cbhServices.map(s => s.id),
+  servicesBySlug: new Map(cbhServices.map(s => [s.slug, s.id])),
+  stateNames: CBH.STATE_NAMES,
+});
+
+test('the brand carries its YMYL posture and prohibited claims', () => {
+  assert.strictEqual(CBH.CLIENT.brand_rules.ymyl, true);
+  assert.ok(CBH.CLIENT.brand_rules.prohibited_claims.length >= 5);
+});
+
+test('service and location slugs are unique, so no two pages share a URL', () => {
+  const serviceSlugs = cbhServices.map(s => s.slug);
+  const locationSlugs = cbhLocations.map(l => l.location_slug);
+  assert.strictEqual(new Set(serviceSlugs).size, serviceSlugs.length, 'duplicate service slug');
+  assert.strictEqual(new Set(locationSlugs).size, locationSlugs.length, 'duplicate location slug');
+});
+
+test('one row per city — no two locations share a city', () => {
+  const cities = cbhLocations.map(l => l.city);
+  assert.strictEqual(new Set(cities).size, cities.length,
+    `a city listed once per programme is still one location: ${cities.filter((c, i) => cities.indexOf(c) !== i)}`);
+});
+
+test('every location carries a region, and regions group more than one city where they should', () => {
+  cbhLocations.forEach(l => assert.ok(l.region, `${l.location_name} has no region`));
+  const southBay = cbhLocations.filter(l => l.region === 'South Bay');
+  assert.ok(southBay.length > 1, 'the region is what orders sibling links, so it has to actually group');
+});
+
+test('every location offers the full catalogue', () => {
+  // The client confirmed availability is not location-scoped, so the seed says
+  // so explicitly rather than leaving it to each page to imply.
+  cbhLocations.forEach(l => assert.strictEqual(
+    l.services_available_ids.length, cbhServices.length,
+    `${l.location_name} offers ${l.services_available_ids.length} of ${cbhServices.length} services`,
+  ));
+});
+
+test('every service and location combination resolves to a distinct URL', () => {
+  const profile = lsProfiles.resolveProfile(CBH.CLIENT);
+  const urls = new Set();
+  cbhLocations.forEach((location) => {
+    cbhServices.forEach((service) => {
+      const url = lsProfiles.lsPageUrl(profile, location, service);
+      assert.ok(!urls.has(url), `two pages would live at ${url}`);
+      urls.add(url);
+    });
+  });
+  assert.strictEqual(urls.size, cbhLocations.length * cbhServices.length);
+});
+
+test('no location ships an invented address, phone or serving area', () => {
+  cbhLocations.forEach((l) => {
+    assert.strictEqual(l.street_address, '', `${l.location_name} has a street address nobody supplied`);
+    assert.strictEqual(l.phone_number, '');
+    assert.deepStrictEqual(l.serving_areas, []);
+    assert.strictEqual(l.ages_served, '');
+    assert.strictEqual(l.location_page_url, '', 'a breadcrumb URL must not be guessed');
+    assert.ok(l.nap_todo.length, `${l.location_name} must flag what the client still owes`);
+  });
+});
+
+test('every service produces English ladder headings', () => {
+  cbhServices.forEach((service) => {
+    lsLadder.ladderHeadings(service).forEach((heading) => {
+      assert.ok(!/(a|an) (?:[A-Z]?[a-z]*(?:tion|ty|ness|ism|osis)|Depression|Anxiety|Stress|Grief|Anger|Burnout|Autism)/.test(heading),
+        `"${service.name}" produced "${heading}" — an article on an uncountable noun`);
+      assert.ok(!/What Are (?:Teen )?(?:ADHD|PTSD|OCD)/.test(heading),
+        `"${service.name}" produced "${heading}" — wrong agreement`);
+      assert.ok(!/a (?:[AEIOU])/.test(heading), `"${service.name}" produced "${heading}" — wrong article`);
+    });
+  });
+});
+
+test('a trailing acronym does not decide the article', () => {
+  assert.strictEqual(
+    lsLadder.ladderHeadings({ name: 'Partial Hospitalization Program (PHP)', category: 'program' })[0],
+    'What Is a Partial Hospitalization Program (PHP)?',
+    'the head noun before the parenthetical is what takes the article',
+  );
+  assert.strictEqual(
+    lsLadder.ladderHeadings({ name: 'Obsessive Compulsive Disorder (OCD)', category: 'condition', conditions_treated: ['OCD'] })[0],
+    'What Is OCD?',
+  );
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -316,6 +316,11 @@ export const adminApi = {
     req(`${ADMIN}/grants`, { method: 'POST', body: JSON.stringify({ email, note }) }),
   revokeAdmin: (grantId, reason) =>
     req(`${ADMIN}/grants/${grantId}`, { method: 'DELETE', body: JSON.stringify({ reason }) }),
+
+  // How full the database is, and which tables account for it. `refresh`
+  // bypasses the server's short cache, for the button on the card.
+  databaseCapacity: ({ refresh = false } = {}) =>
+    req(`${ADMIN}/database-capacity${refresh ? '?refresh=1' : ''}`),
 };
 
 // ── Shared presentation ─────────────────────────────────────────────────────
