@@ -22,7 +22,14 @@ function ceilings() {
     maxExternalUrls: intCeiling("MAX_EXTERNAL_CEILING", 500),
     concurrency: intCeiling("MAX_CONCURRENCY_CEILING", 8),
     timeout: intCeiling("TIMEOUT_CEILING_MS", 30_000),
-    perHostDelay: intCeiling("PER_HOST_DELAY_MS", 250),
+    // Every request to one host is serialized to one every `perHostDelay`
+    // (crawler.js#_throttleHost), independent of `concurrency` — concurrency
+    // only helps when a crawl is spread across multiple hosts, which a normal
+    // same-site crawl is not. So this single number is the real floor on how
+    // long a crawl takes: at 250ms, a 500-page site crawl needed 125s just
+    // from spacing, before any fetch time. 100ms is still real pacing (10
+    // requests/sec to one host) while cutting that floor by more than half.
+    perHostDelay: intCeiling("PER_HOST_DELAY_MS", 100),
     // Trap-control ceilings. A crawl used to be bounded by maxUrls alone, which
     // a calendar or a faceted-nav grid will happily consume in full before the
     // real site is reached.
