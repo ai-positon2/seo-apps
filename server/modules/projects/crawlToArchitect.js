@@ -33,32 +33,46 @@ const HEADING_SEPARATOR = ' | ';
 // is 3, so below this there is nothing for the pipeline to find.
 const MIN_PAGES_TO_ANALYZE = 5;
 
-// PostgREST caps every response at its server-configured maximum (1,000 rows
-// here) NO MATTER what .limit() asks for. An unpaginated read of a big table
-// therefore returns a silently truncated slice: measured on a real 50-page crawl,
-// reading the link graph in one call saw 4 usable edges where 316 existed,
-// because the first thousand rows were all outbound links from the homepage.
+// An unpaginated read of a big table returns a silently truncated slice:
+// measured on a real 50-page crawl, reading the link graph in one call saw 4
+// usable edges where 316 existed, because the first thousand rows were all
+// outbound links from the homepage. Worse, the same flaw applied to the pages
+// themselves — any crawl over 1,000 URLs would have been clustered from a
+// fraction of its pages, with no error and a plausible-looking result. So
+// every bulk read here pages through explicitly.
 //
-// Worse, the same flaw applied to the pages themselves — any crawl over 1,000
-// URLs would have been clustered from a fraction of its pages, with no error and
-// a plausible-looking result. So every bulk read here pages through explicitly.
-const PAGE_SIZE = 1000;
+// Keyset (id > lastSeenId), not OFFSET — OFFSET's cost grows with how deep
+// into the table a page is, and a 272k-row crawl's link graph started failing
+// past the halfway point even paginated. Keyset costs the same per page
+// regardless of how many pages came before it, so `sql` must select `id` and
+// end in "order by id asc" with no LIMIT/OFFSET of its own — this appends the
+// cursor condition and the window.
+const PAGE_SIZE = 500;
 
-// `sql` must end in an ORDER BY and carry no LIMIT/OFFSET of its own — this
-// appends the window.
+const ORDER_CLAUSE = 'order by id asc';
+
 async function fetchAll(sql, params, { label, cap = 500000 }) {
+  const idx = sql.lastIndexOf(ORDER_CLAUSE);
+  if (idx === -1) {
+    throw new Error(`[crawlToArchitect.${label}] fetchAll expects SQL ending in "${ORDER_CLAUSE}"`);
+  }
+  const beforeOrder = sql.slice(0, idx).trimEnd();
+
   const rows = [];
-  for (let from = 0; from < cap; from += PAGE_SIZE) {
+  let lastId = 0;
+  for (;;) {
+    const cursorIdx = params.length + 1;
+    const paged = `${beforeOrder} and id > $${cursorIdx} ${ORDER_CLAUSE} limit $${cursorIdx + 1}`;
     let data;
     try {
       // eslint-disable-next-line no-await-in-loop
-      data = await db.rows(`${sql} limit $${params.length + 1} offset $${params.length + 2}`,
-        [...params, PAGE_SIZE, from]);
+      data = await db.rows(paged, [...params, lastId, PAGE_SIZE]);
     } catch (error) {
       throw new Error(`[crawlToArchitect.${label}] ${error.message}`);
     }
     if (!data.length) break;
     rows.push(...data);
+    lastId = data[data.length - 1].id;
     if (data.length < PAGE_SIZE) break;
     if (rows.length >= cap) {
       // A cap that silently truncated would be the very bug this function
@@ -141,7 +155,7 @@ async function buildFromCrawl(runId, { maxUrls = null } = {}) {
   // Internal pages only: an external URL was status-checked, not read, so it has
   // no title or body to cluster on.
   const results = await fetchAll(
-    `select url, status, data from crawl_run_results
+    `select id, url, status, data from crawl_run_results
       where run_id = $1 and data->>'scope' = 'Internal'
       order by id asc`,
     [runId],
@@ -172,7 +186,7 @@ async function buildFromCrawl(runId, { maxUrls = null } = {}) {
   // record of how far each page was from the start URL, so nothing is re-fetched
   // to work them out.
   const edges = await fetchAll(
-    `select from_url, to_url from crawl_run_links
+    `select id, from_url, to_url from crawl_run_links
       where run_id = $1
       order by id asc`,
     [runId],

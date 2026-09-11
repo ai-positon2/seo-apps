@@ -11,10 +11,16 @@
 const db = require('../../services/db');
 const adminLimits = require('../../services/adminLimits');
 
-// PostgREST caps a response at its configured maximum whatever .limit() asks
-// for, so bulk reads page through. Learned the hard way: a single-shot read of a
-// crawl's link graph returned 4 of 316 usable rows, silently.
-const PAGE_SIZE = 1000;
+// A large crawl's link graph runs to hundreds of thousands of rows, so bulk
+// reads page through explicitly rather than trusting one round trip. Learned
+// twice: once as a single-shot read returning 4 of 316 rows silently
+// (PostgREST's own max-rows ceiling), and again after paging fix #1 used
+// OFFSET, whose cost grows with how deep into the table a page is — a 272k-row
+// crawl's pages started failing past the halfway point even paginated. Keyset
+// (id > lastSeenId) costs the same per page regardless of how many pages came
+// before it, so `sql` must select `id` and end in "order by id asc" with no
+// LIMIT/OFFSET of its own — this appends the cursor condition and the window.
+const PAGE_SIZE = 500;
 
 function notConfigured() {
   return Object.assign(
@@ -23,21 +29,30 @@ function notConfigured() {
   );
 }
 
-// `sql` must end in an ORDER BY and carry no LIMIT/OFFSET of its own — this
-// appends the window.
+const ORDER_CLAUSE = 'order by id asc';
+
 async function fetchAll(sql, params, label) {
+  const idx = sql.lastIndexOf(ORDER_CLAUSE);
+  if (idx === -1) {
+    throw new Error(`[crawledPages.${label}] fetchAll expects SQL ending in "${ORDER_CLAUSE}"`);
+  }
+  const beforeOrder = sql.slice(0, idx).trimEnd();
+
   const rows = [];
-  for (let from = 0; ; from += PAGE_SIZE) {
+  let lastId = 0;
+  for (;;) {
+    const cursorIdx = params.length + 1;
+    const paged = `${beforeOrder} and id > $${cursorIdx} ${ORDER_CLAUSE} limit $${cursorIdx + 1}`;
     let data;
     try {
       // eslint-disable-next-line no-await-in-loop
-      data = await db.rows(`${sql} limit $${params.length + 1} offset $${params.length + 2}`,
-        [...params, PAGE_SIZE, from]);
+      data = await db.rows(paged, [...params, lastId, PAGE_SIZE]);
     } catch (error) {
       throw new Error(`[crawledPages.${label}] ${error.message}`);
     }
     if (!data.length) break;
     rows.push(...data);
+    lastId = data[data.length - 1].id;
     if (data.length < PAGE_SIZE) break;
   }
   return rows;
@@ -92,7 +107,7 @@ function canonicalKey(url) {
  */
 async function inboundCounts(runId) {
   const edges = await fetchAll(
-    `select from_url, to_url from crawl_run_links
+    `select id, from_url, to_url from crawl_run_links
       where run_id = $1
       order by id asc`,
     [runId],
@@ -192,7 +207,7 @@ async function listCrawledPages(projectId, { limit = null, workspaceId = null } 
 
   const [rows, inbound] = await Promise.all([
     fetchAll(
-      `select url, status, data from crawl_run_results
+      `select id, url, status, data from crawl_run_results
         where run_id = $1 and data->>'scope' = 'Internal'
         order by id asc`,
       [crawl.id],
@@ -298,7 +313,7 @@ async function listPageContent(projectId, { limit = 60 } = {}) {
 
   const [rows, inbound] = await Promise.all([
     fetchAll(
-      `select url, status, data from crawl_run_results
+      `select id, url, status, data from crawl_run_results
         where run_id = $1 and data->>'scope' = 'Internal'
         order by id asc`,
       [crawl.id],
