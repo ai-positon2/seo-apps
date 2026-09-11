@@ -48,6 +48,7 @@ const moduleQueue = require('../../services/moduleQueue');
 const competitorAutostart = require('./competitorAutostart');
 const contentArchitect = require('./contentArchitect');
 const homepageAutostart = require('./homepageAutostart');
+const crawlAutostart = require('./crawlAutostart');
 const moduleDetail = require('./moduleDetail');
 const insights = require('./insights');
 const pages = require('./pages');
@@ -250,7 +251,21 @@ router.post('/', async (req, res) => {
         return { scheduled: false, reason: 'not_started', note: null };
       });
 
-    res.status(201).json({ project, competitorResearch, homepageAudits });
+    // The initial crawl starts itself too — Hub and Spoke is itself waiting on
+    // a crawl finishing (hubSpokeAutostart.js), and homepageAutostart above
+    // only reaches the homepage, not the rest of the site — so a project with
+    // no crawl yet is the actual reason those cards used to sit on "no data
+    // yet" forever.
+    const initialCrawl = await store.listDomains(project.id)
+      .then((domains) => crawlAutostart.scheduleInitialCrawl({
+        project, domains, ownerId: identity.userId, crawlOptions,
+      }))
+      .catch((e) => {
+        console.error('[projects.create] initial crawl autostart skipped:', e.message);
+        return { scheduled: false, reason: 'not_started', runId: null };
+      });
+
+    res.status(201).json({ project, competitorResearch, homepageAudits, initialCrawl });
   } catch (e) { handleError(res, e, 'create'); }
 });
 
