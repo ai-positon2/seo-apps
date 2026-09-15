@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 import { projectsApi, relativeTime, countryLabel, isModuleInFlight } from '../lib/projectsApi';
 import { useActiveProjectId } from '../lib/activeProject';
 import { cs } from '../lib/crawlScopeApi';
@@ -12,7 +12,6 @@ import AuditRadar from '../components/home/AuditRadar';
 import ProfileStats from '../components/home/ProfileStats';
 import ProjectSetupCard from '../components/home/ProjectSetupCard';
 import HomeSkeleton from '../components/home/HomeSkeleton';
-import { useCrawlStatus } from '../lib/useCrawlStatus';
 import { takePrefetch } from '../lib/homePrefetch';
 
 // How often the dashboard re-reads itself while a crawl is running. The crawl
@@ -192,7 +191,13 @@ export default function HomePage() {
   // The shell owns the crawl status and polls for it; the dashboard only needs
   // to know THAT one is running, so it can re-read its own numbers while the
   // crawl keeps changing them.
-  const { status: crawlStatus, refresh: refreshCrawl } = useCrawlStatus();
+  // The shell already polls this (components/MacWindow.jsx) and draws the crawl
+  // bar from it. This page used to start a SECOND poller against the same
+  // endpoint on the same cadence, so the dashboard asked twice for one answer --
+  // and against the configured database that endpoint is several round trips.
+  // Read from the outlet context instead. The ?? {} keeps this a no-op rather
+  // than a crash if the page is ever rendered outside the shell.
+  const { status: crawlStatus, refresh: refreshCrawl } = useOutletContext() ?? {};
   const liveCrawlRunId = crawlStatus?.runId || null;
 
   useEffect(() => {
@@ -300,7 +305,7 @@ export default function HomePage() {
       setAuditResults({ started: started.started, running: true, crawlRunId: queuedCrawlId });
       // Pull the bar into its live cadence now instead of waiting out the shell's
       // idle interval, so the crawl appears the moment the popup closes.
-      refreshCrawl();
+      refreshCrawl?.();
     } catch (e) {
       // The sheet is already closed, so a failure has to be reported on the page
       // rather than back inside a modal the user has stopped looking at.
@@ -411,6 +416,8 @@ export default function HomePage() {
         )}
         <ProjectSetupCard
           limits={listState.data?.limits}
+          workspaces={listState.data?.workspaces || []}
+          activeWorkspaceId={listState.data?.activeWorkspaceId || null}
           onCreated={async (project, competitorResearch) => {
             setShowSetup(false);
             setActiveProjectId(project.id);
@@ -507,11 +514,32 @@ export default function HomePage() {
                       {activeProject.primaryDomain.host}
                     </a>
                   ) : (
-                    <Tag tone="warn">Primary domain needs attention</Tag>
+                    /* Both of these used to be dead labels: they named a problem
+                       and left you to find the screen that fixes it. They are
+                       buttons now, pointing at the settings panel that holds the
+                       control — which, for the domain, did not exist until the
+                       setter was added there. */
+                    <button
+                      type="button"
+                      onClick={() => navigate('/projects')}
+                      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+                      title="Set this project's primary domain"
+                    >
+                      <Tag tone="warn">Set primary domain →</Tag>
+                    </button>
                   )}
                   {activeProject.countryCode
                     ? <Muted size={12}>· {countryLabel(activeProject.countryCode)}</Muted>
-                    : <Tag tone="warn">Country not set</Tag>}
+                    : (
+                      <button
+                        type="button"
+                        onClick={() => navigate('/projects')}
+                        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+                        title="Set this project's country"
+                      >
+                        <Tag tone="warn">Set country →</Tag>
+                      </button>
+                    )}
                   <Muted size={12}>
                     · {activeProject.schedule.enabled ? 'Weekly crawl on' : 'No schedule'}
                   </Muted>

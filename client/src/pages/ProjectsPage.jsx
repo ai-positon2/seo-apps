@@ -6,6 +6,7 @@ import {
   Card, Kicker, Muted, Tag, Btn, FadingRule, SectionHead, Spinner,
 } from '../components/studio/primitives';
 import ProjectSetupCard from '../components/home/ProjectSetupCard';
+import ModuleRuns from '../components/ModuleRuns';
 
 // ── Projects — settings (PRD §20.9) ─────────────────────────────────────────
 // Primary domain, country, competitors, schedule, verification and the robots
@@ -95,7 +96,7 @@ export default function ProjectsPage() {
             <strong style={{ color: 'var(--text-2)' }}>{state.data?.workspaces?.find((w) => w.id === state.data.activeWorkspaceId)?.myRole || 'contributor'}</strong>.
           </Muted>
         </div>
-        {capabilities.editProjectSettings && (
+        {capabilities.createProject && (
           <Btn variant="primary" onClick={() => setShowSetup((v) => !v)}>
             {showSetup ? 'Close' : 'New project'}
           </Btn>
@@ -119,6 +120,8 @@ export default function ProjectsPage() {
       {showSetup && (
         <ProjectSetupCard
           limits={state.data?.limits}
+          workspaces={state.data?.workspaces || []}
+          activeWorkspaceId={state.data?.activeWorkspaceId || null}
           onCreated={async (project, competitorResearch) => {
             setShowSetup(false);
             setSelectedId(project.id);
@@ -182,6 +185,13 @@ export default function ProjectsPage() {
               key={selected.id}
               project={selected}
               capabilities={capabilities}
+              /* `capabilities` is workspace-wide; whether this particular
+                 project is editable also depends on who created it (the server
+                 grants its creator editProjectSettings on their own project).
+                 Passing the viewer's id lets the panel ask the same question
+                 the server will answer, instead of offering a control that
+                 403s or hiding one that would have worked. */
+              viewerUserId={state.data?.viewerUserId || null}
               onMutate={mutate}
               // The homepage reads which client to show from localStorage
               // (activeProject.js), not from anything in this URL — so
@@ -192,11 +202,25 @@ export default function ProjectsPage() {
           )}
         </div>
       )}
+
+      {/* Project creation, in the shared run history.
+          The other way to create a project — the Site Crawler's form — has
+          always recorded a run here, so the same act was visible or invisible
+          depending on which door it came through. Both are tracked now, and
+          this is where the ones created from this screen show up.
+          Distinct from the per-project History card, which is that project's own
+          audit trail; this is the cross-project record of the act. */}
+      <ModuleRuns
+        toolId="projects"
+        title="Projects created"
+        scopeNote="Creating a project from this screen or the Site Crawler's form."
+        style={{ marginTop: 28 }}
+      />
     </div>
   );
 }
 
-function ProjectDetail({ project, capabilities, onMutate, onOpenDashboard }) {
+function ProjectDetail({ project, capabilities, viewerUserId, onMutate, onOpenDashboard }) {
   const [name, setName] = useState(project.name);
   const [country, setCountry] = useState(project.countryCode || '');
   const [competitor, setCompetitor] = useState('');
@@ -208,6 +232,15 @@ function ProjectDetail({ project, capabilities, onMutate, onOpenDashboard }) {
   // different project.
   const [purging, setPurging] = useState(false);
   const [purgeName, setPurgeName] = useState('');
+  // Changing the primary domain is behind a Change button, because it clears
+  // site verification and any robots override. A project that has NO primary
+  // domain skips that step — there is nothing to lose and the whole point is
+  // that the repair is immediate — and the field opens pre-filled with the URL
+  // the crawler has been using.
+  const [editingDomain, setEditingDomain] = useState(false);
+  const [primaryDomainInput, setPrimaryDomainInput] = useState(
+    project.primaryDomain?.origin || project.legacyUrl || '',
+  );
   // One row per targeted page. Keywords are per page, so this is a list of
   // { url, keywords } rather than a single field — the implants page and the
   // pricing page do not share a target term.
@@ -224,14 +257,29 @@ function ProjectDetail({ project, capabilities, onMutate, onOpenDashboard }) {
     setReason('');
     setPurging(false);
     setPurgeName('');
+    setEditingDomain(false);
+    setPrimaryDomainInput(project.primaryDomain?.origin || project.legacyUrl || '');
     setPages((project.pages || []).map((p) => ({
       url: p.url, keywords: (p.keywords || []).join(', '),
     })));
-  }, [project.id, project.name, project.countryCode, project.pages]);
+  }, [
+    project.id, project.name, project.countryCode, project.pages,
+    // Included so the field re-syncs after a successful change, rather than
+    // holding what was typed while the tag above it shows the new domain.
+    project.primaryDomain?.origin, project.legacyUrl,
+  ]);
 
-  const canEdit = capabilities.editProjectSettings === true;
+  // Mirrors projectAccess.applyCreatorGrant on the server: an approver and above
+  // may edit any project in the workspace, and whoever created a project may
+  // edit that one whatever their role — otherwise a contributor who added a
+  // client could not correct its name or country without asking someone else.
+  const isCreator = Boolean(viewerUserId && project.createdBy === viewerUserId);
+  const canEdit = capabilities.editProjectSettings === true || isCreator;
   const canManageCompetitors = Boolean(capabilities.manageCompetitors);
   const proposeOnly = capabilities.manageCompetitors === 'propose';
+  // Only the full verdict decides a proposal — 'propose' is what creates one.
+  const canDecideProposals = capabilities.manageCompetitors === true;
+  const proposedCompetitors = project.proposedCompetitors || [];
   const weekly = project.schedule.weekly;
   const deleted = project.lifecycleStatus === 'deleted';
 
@@ -392,6 +440,12 @@ function ProjectDetail({ project, capabilities, onMutate, onOpenDashboard }) {
       <Card style={{ padding: 18, gap: 12 }}>
         <SectionHead title="Domains" right={`${project.competitors.length} competitor${project.competitors.length === 1 ? '' : 's'}`} />
 
+        {/* Primary domain.
+            This was read-only: the API and the store function to change it both
+            existed, and no screen called either. A project created by the Site
+            Crawler wrote no project_domains row at all, so it rendered "Missing"
+            permanently with nothing on the page able to fix it. The setter below
+            is that missing control. */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <Muted>Primary</Muted>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -401,13 +455,123 @@ function ProjectDetail({ project, capabilities, onMutate, onOpenDashboard }) {
             {project.primaryDomain?.source === 'backfill' && (
               <Muted>migrated from the previous schema</Muted>
             )}
+            {canEdit && project.primaryDomain && !editingDomain && (
+              <Btn onClick={() => setEditingDomain(true)}>Change</Btn>
+            )}
           </div>
+
+          {/* A missing domain opens straight into the setter, pre-filled with
+              whatever the crawler has been using: the fix is one click from the
+              problem, not somewhere else. */}
+          {canEdit && (!project.primaryDomain || editingDomain) && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input
+                  id={`primary-domain-${project.id}`}
+                  style={{ ...inputStyle, minWidth: 260, flex: 1 }}
+                  value={primaryDomainInput}
+                  onChange={(e) => setPrimaryDomainInput(e.target.value)}
+                  placeholder="gentledental.com"
+                  aria-label="Primary domain"
+                />
+                <Btn
+                  variant="primary"
+                  disabled={
+                    !primaryDomainInput.trim()
+                    || primaryDomainInput.trim() === project.primaryDomain?.origin
+                  }
+                  onClick={() => onMutate(
+                    async () => {
+                      const result = await projectsApi.setPrimaryDomain(
+                        project.id, primaryDomainInput.trim(),
+                        'Set from project settings',
+                      );
+                      setEditingDomain(false);
+                      return result;
+                    },
+                    (result) => `Primary domain set. ${result?.competitorResearch?.note || ''}`.trim(),
+                  )}
+                >
+                  {project.primaryDomain ? 'Change domain' : 'Set domain'}
+                </Btn>
+                {project.primaryDomain && (
+                  <Btn onClick={() => { setEditingDomain(false); setPrimaryDomainInput(project.primaryDomain?.origin || ''); }}>
+                    Cancel
+                  </Btn>
+                )}
+              </div>
+
+              {/* Stating what the server already does, before it does it. Both
+                  are cleared because they described the previous site. */}
+              <Muted size={11}>
+                {project.primaryDomain
+                  ? 'Changing the domain clears this project’s site verification and any robots.txt override — they applied to the previous site. The weekly crawl re-points to the new one.'
+                  : 'This is the site every audit and score on this project describes. Pre-filled with the URL the crawler has been using.'}
+              </Muted>
+            </div>
+          )}
+
+          {!canEdit && !project.primaryDomain && (
+            <Muted size={11}>
+              An approver or administrator can set this — or whoever created the project.
+            </Muted>
+          )}
         </div>
 
         <FadingRule />
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <Muted>Competitors — used for comparative evidence only; their sites are never crawled.</Muted>
+
+          {/* Awaiting a decision.
+              A contributor can only PROPOSE a competitor, and until now the row
+              they wrote was filtered out of every read — proposed, then
+              invisible to everyone including the person who proposed it. It
+              shows above the tracked list because it is the part with something
+              outstanding. */}
+          {proposedCompetitors.length > 0 && (
+            <div style={{
+              display: 'flex', flexDirection: 'column', gap: 8,
+              padding: '10px 12px', borderRadius: 'var(--r-md)',
+              border: '1px solid color-mix(in srgb, var(--viz-warn, #d97706) 35%, transparent)',
+              background: 'color-mix(in srgb, var(--viz-warn, #d97706) 8%, transparent)',
+            }}>
+              <Muted size={12}>
+                {canDecideProposals
+                  ? `Awaiting your decision — ${proposedCompetitors.length} proposed competitor${proposedCompetitors.length === 1 ? '' : 's'}. Accepting one starts a comparison against it, which spends SEMrush units.`
+                  : `Proposed — waiting for an approver or administrator to accept. ${proposedCompetitors.length === 1 ? 'It is' : 'They are'} not tracked yet.`}
+              </Muted>
+
+              {proposedCompetitors.map((domain) => (
+                <div key={domain.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                }}>
+                  <Tag tone="warn">{domain.host}</Tag>
+                  {canDecideProposals && (
+                    <>
+                      <Btn
+                        onClick={() => onMutate(
+                          () => projectsApi.approveCompetitor(project.id, domain.id),
+                          (result) => result?.message || `${domain.host} is now tracked.`,
+                        )}
+                      >
+                        Approve
+                      </Btn>
+                      <Btn
+                        onClick={() => onMutate(
+                          () => projectsApi.rejectCompetitor(project.id, domain.id),
+                          (result) => result?.message || `${domain.host} was not accepted.`,
+                        )}
+                      >
+                        Reject
+                      </Btn>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {!project.competitors.length && <Muted size={12}>None tracked.</Muted>}
             {project.competitors.map((domain) => (
@@ -525,7 +689,7 @@ function ProjectDetail({ project, capabilities, onMutate, onOpenDashboard }) {
             audit log. Changing the primary domain clears both the verification and the override.
           </Muted>
 
-          {!project.siteVerifiedAt && capabilities.editProjectSettings && (
+          {!project.siteVerifiedAt && canEdit && (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <input
                 style={{ ...inputStyle, minWidth: 260, flex: 1 }}
@@ -570,8 +734,10 @@ function ProjectDetail({ project, capabilities, onMutate, onOpenDashboard }) {
         </Card>
       )}
 
-      {/* Lifecycle */}
-      {capabilities.editProjectSettings && (
+      {/* Lifecycle — deleting is editProjectSettings (so a creator may delete
+          their own project); the permanent purge inside has its own stricter
+          gate and is NOT part of the creator grant. */}
+      {canEdit && (
         <Card style={{ padding: 18, gap: 10 }}>
           <SectionHead title="Lifecycle" right={deleted ? 'Deleted — recoverable' : 'Active'} />
           <Muted size={12.5}>
@@ -641,6 +807,106 @@ function ProjectDetail({ project, capabilities, onMutate, onOpenDashboard }) {
           )}
         </Card>
       )}
+
+      <ProjectHistory projectId={project.id} />
     </div>
+  );
+}
+
+// ── History ─────────────────────────────────────────────────────────────────
+//
+// The project's audit trail. Every domain change, override, verification and
+// lifecycle decision has been written to audit_events all along — and until now
+// nothing read it back. The route existed, the API client method existed, and no
+// screen called either, so the trail was write-only: a record kept for a
+// question nobody could ask.
+//
+// Read-only by construction: audit_events has a trigger rejecting UPDATE and
+// DELETE, so what is shown here is what happened.
+
+const ACTION_LABELS = {
+  'project.created': 'Project created',
+  'project.updated': 'Settings changed',
+  'project.deleted': 'Deleted',
+  'project.restored': 'Restored',
+  'project.purged': 'Permanently deleted',
+  'project.verified': 'Site verified',
+  'project.robots_override_set': 'robots.txt override',
+  'project_domain.added': 'Competitor added',
+  'project_domain.removed': 'Domain removed',
+  'project_domain.primary_changed': 'Primary domain changed',
+  'project_domain.proposal_approved': 'Competitor approved',
+  'project_domain.proposal_rejected': 'Competitor rejected',
+  'project_pages.synced': 'Pages synced',
+};
+
+// The one detail worth putting on the row, per action. Anything longer belongs
+// in the stored state, not in a list someone is scanning.
+function historyDetail(event) {
+  const next = event.new_state || {};
+  const prev = event.old_state || {};
+  if (event.action === 'project_domain.primary_changed') {
+    return `${prev.origin || '—'} → ${next.origin || '—'}`;
+  }
+  if (event.action.startsWith('project_domain.')) {
+    return next.origin || prev.origin || null;
+  }
+  if (event.action === 'project.created') return next.primaryDomain || null;
+  if (event.action === 'project.robots_override_set') {
+    return next.robotsOverride ? 'enabled' : 'disabled';
+  }
+  return null;
+}
+
+function ProjectHistory({ projectId }) {
+  const [events, setEvents] = useState(null);
+
+  useEffect(() => {
+    let live = true;
+    setEvents(null);
+    projectsApi.auditEvents(projectId, { limit: 50 })
+      .then((d) => { if (live) setEvents(d.events || []); })
+      // An unreadable trail should not take the settings screen down with it.
+      .catch(() => { if (live) setEvents([]); });
+    return () => { live = false; };
+  }, [projectId]);
+
+  if (events === null) return null;
+
+  return (
+    <Card style={{ padding: 18, gap: 10 }}>
+      <SectionHead title="History" right={events.length ? `${events.length} recorded` : ''} />
+      {events.length ? (
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {events.map((e) => {
+            const detail = historyDetail(e);
+            return (
+              <div
+                key={e.id}
+                style={{
+                  display: 'flex', justifyContent: 'space-between', gap: 12,
+                  padding: '7px 0', borderBottom: '1px solid var(--border)',
+                  fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5,
+                }}
+              >
+                <span style={{ minWidth: 0 }}>
+                  {ACTION_LABELS[e.action] || e.action}
+                  {detail && <span style={{ color: 'var(--text-3)' }}> · {detail}</span>}
+                  {e.actor_email && <span style={{ color: 'var(--text-3)' }}> · {e.actor_email}</span>}
+                  {e.reason && <span style={{ color: 'var(--text-3)' }}> · “{e.reason}”</span>}
+                </span>
+                <span style={{ color: 'var(--text-3)', fontSize: 11, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                  {relativeTime(e.created_at)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <Muted size={12.5}>
+          Nothing recorded yet for this project.
+        </Muted>
+      )}
+    </Card>
   );
 }

@@ -2,6 +2,26 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 
+// Express 4 does not catch a rejected promise returned by a handler: it never
+// reaches next(), so server.js's error handler never sees it, no response is
+// ever written, and the request hangs until the client times out. Nine handlers
+// here had no try/catch and no wrapper, and this router registers no error
+// middleware of its own, so any throw in them was a hung request rather than a
+// 500.
+//
+// That is reachable, not theoretical. store.writeAtomic() rethrows whatever the
+// filesystem gave it, and the data root is resolved from
+// CONTENT_ARCHITECT_DATA_ROOT — which services/dataRoot.js warns is ephemeral
+// inside a container image. Pointed at a path that is not writable, every
+// mutation here hung instead of reporting a failure.
+//
+// Same shape as the wrappers already used in routes/lsPages.js,
+// routes/locationPageBuilder.js and modules/crawlScope/api/routes.js.
+const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch((e) => {
+  console.error(`[contentArchitect] ${req.method} ${req.originalUrl} failed:`, e.message);
+  if (!res.headersSent) res.status(500).json({ error: 'Something went wrong handling that request.' });
+});
+
 const store = require('./store');
 const { resolveDomain, UnreachableDomainError } = require('./domainResolver');
 const { discoverUrls, crawlFallback } = require('./sitemapDiscovery');
@@ -73,22 +93,29 @@ router.post('/projects', async (req, res) => {
     if (err instanceof UnreachableDomainError || err instanceof UnsafeUrlError) {
       return res.status(400).json({ error: err.message });
     }
-    res.status(500).json({ error: err.message });
+    // The two cases above are the caller's problem and say so. Anything else is
+    // ours, and its message is not the caller's to read: createProject() writes
+    // through store.writeAtomic(), whose errors are raw filesystem ones
+    // ("EACCES: permission denied, open '/data/content-architect/projects.json'"),
+    // which disclose the deployment's paths. Matches the sibling handler on
+    // router.param('id') just above, which already generalises its 500.
+    console.error('[contentArchitect] POST /projects failed:', err.stack || err.message);
+    res.status(500).json({ error: 'Could not create that project.' });
   }
 });
 
-router.get('/projects/:id', async (req, res) => {
+router.get('/projects/:id', wrap(async (req, res) => {
   const project = await store.getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
   res.json(project);
-});
+}));
 
 // Set once (like the vertical dropdown), reused automatically by every
 // "Suggest spokes" click after this — not re-asked per request. Content
 // Architect's own store has no competitor tracking otherwise (unlike the
 // Projects module's project_domains), so this is the standalone tool's only
 // source of real competitor domain names.
-router.put('/projects/:id/competitors', async (req, res) => {
+router.put('/projects/:id/competitors', wrap(async (req, res) => {
   const { competitors } = req.body || {};
   if (!Array.isArray(competitors)) return res.status(400).json({ error: 'competitors must be an array of domains.' });
   const project = await store.getProject(req.params.id);
@@ -96,23 +123,23 @@ router.put('/projects/:id/competitors', async (req, res) => {
   const cleaned = [...new Set(competitors.map((d) => String(d || '').trim()).filter(Boolean))].slice(0, 10);
   const updated = await store.updateProject(req.params.id, { competitors: cleaned });
   res.json(updated);
-});
+}));
 
-router.delete('/projects/:id', async (req, res) => {
+router.delete('/projects/:id', wrap(async (req, res) => {
   await store.deleteProject(req.params.id);
   res.json({ ok: true });
-});
+}));
 
 // ── Stage 1: sitemap discovery (SSE) ──────────────────────────────────────────
 
-router.post('/projects/:id/discover', async (req, res) => {
+router.post('/projects/:id/discover', wrap(async (req, res) => {
   const project = await store.getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
   const token = generateToken();
   discoverSessions.set(token, { projectId: project.id });
   setTimeout(() => discoverSessions.delete(token), 120000);
   res.json({ token });
-});
+}));
 
 router.get('/projects/:id/discover/stream/:token', async (req, res) => {
   const session = discoverSessions.get(req.params.token);
@@ -201,13 +228,13 @@ router.get('/projects/:id/discover/stream/:token', async (req, res) => {
 
 // ── Stage 2: pattern selection ────────────────────────────────────────────────
 
-router.get('/projects/:id/patterns', async (req, res) => {
+router.get('/projects/:id/patterns', wrap(async (req, res) => {
   const patterns = await store.getPatterns(req.params.id);
   if (!patterns) return res.status(404).json({ error: 'No patterns yet — run discovery first.' });
   res.json(patterns);
-});
+}));
 
-router.put('/projects/:id/patterns', async (req, res) => {
+router.put('/projects/:id/patterns', wrap(async (req, res) => {
   const { included, vertical } = req.body || {};
   const patterns = await store.getPatterns(req.params.id);
   if (!patterns) return res.status(404).json({ error: 'No patterns yet — run discovery first.' });
@@ -216,14 +243,21 @@ router.put('/projects/:id/patterns', async (req, res) => {
   const updated = patterns.map((p) => (includedMap.has(p.pattern) ? { ...p, included: includedMap.get(p.pattern) } : p));
   await store.savePatterns(req.params.id, updated);
 
+  // Checked for null. The guard above only establishes that the PATTERNS exist,
+  // and patterns live in their own sidecar file (`<id>_patterns.json`) rather
+  // than in projects.json — so "patterns present" does not imply "project
+  // present". deleteProject() removes the project from projects.json first and
+  // unlinks the four sidecars after, and a request landing in that window found
+  // patterns, got null here, and spread `...project.stats` into a TypeError.
   const project = await store.getProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
   const urlsSelected = updated.filter((p) => p.included).reduce((sum, p) => sum + p.count, 0);
   const patch = { stats: { ...project.stats, urlsSelected } };
   if (vertical) patch.vertical = vertical;
   await store.updateProject(req.params.id, patch);
 
   res.json(updated);
-});
+}));
 
 // ── Stage 3: instant slug-only draft clustering ──────────────────────────────
 // Provisional endpoint name — Checkpoint 3 will fold this into the spec's
@@ -263,14 +297,14 @@ router.post('/projects/:id/draft-clusters', async (req, res) => {
   }
 });
 
-router.get('/projects/:id/clusters', async (req, res) => {
+router.get('/projects/:id/clusters', wrap(async (req, res) => {
   const clusters = await store.getClusters(req.params.id);
   if (!clusters) return res.status(404).json({ error: 'No clusters yet.' });
   res.json(clusters);
-});
+}));
 
 // ── Stages 4-7: full analysis (crawl -> cluster -> name -> hub -> diagnose) ──
-router.post('/projects/:id/analyze', async (req, res) => {
+router.post('/projects/:id/analyze', wrap(async (req, res) => {
   const project = await store.getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
   const patterns = await store.getPatterns(req.params.id);
@@ -281,7 +315,7 @@ router.post('/projects/:id/analyze', async (req, res) => {
   analyzeSessions.set(token, { projectId: project.id });
   setTimeout(() => analyzeSessions.delete(token), 7200000); // 2h, per spec's job-map TTL
   res.json({ token });
-});
+}));
 
 router.get('/projects/:id/analyze/stream/:token', async (req, res) => {
   const session = analyzeSessions.get(req.params.token);
@@ -353,11 +387,11 @@ router.get('/projects/:id/analyze/stream/:token', async (req, res) => {
   if (!isClosed) res.end();
 });
 
-router.get('/projects/:id/full-analysis', async (req, res) => {
+router.get('/projects/:id/full-analysis', wrap(async (req, res) => {
   const analysis = await store.getFullAnalysis(req.params.id);
   if (!analysis) return res.status(404).json({ error: 'No analysis yet.' });
   res.json(analysis);
-});
+}));
 
 // On demand, per cluster — never run automatically as part of /analyze, since
 // it spends real SEMrush units and a search API call (see spokeSuggestions.js

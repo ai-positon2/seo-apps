@@ -1,4 +1,4 @@
-import { useState, useCallback, createContext, useContext, useRef } from 'react';
+import { useState, useCallback, useMemo, createContext, useContext, useRef } from 'react';
 
 const ToastCtx = createContext(null);
 
@@ -43,8 +43,15 @@ export function ToastProvider({ children }) {
     setToasts(t => t.filter(x => x.id !== id));
   }, []);
 
+  // add and remove are already useCallback([]) and therefore permanently
+  // stable; the object literal around them was not, so every consumer of this
+  // context re-rendered whenever a toast appeared AND again when it expired
+  // five seconds later. Twelve files call useToast. With the value memoized,
+  // nothing outside this provider re-renders for a toast at all.
+  const value = useMemo(() => ({ add, remove }), [add, remove]);
+
   return (
-    <ToastCtx.Provider value={{ add, remove }}>
+    <ToastCtx.Provider value={value}>
       {children}
       {/* Toast stack */}
       <div style={{

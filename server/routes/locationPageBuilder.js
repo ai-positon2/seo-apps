@@ -205,7 +205,17 @@ router.get('/stream/:token', async (req, res) => {
   res.flushHeaders();
 
   let closed = false;
-  res.on('close', () => { closed = true; });
+  // Clearing the heartbeat here, not only after the work finishes. `closed` alone
+  // made every subsequent tick a no-op but left the timer itself alive — and
+  // alive for the REST OF THE JOB, which for the keyword pipeline is SERP +
+  // SEMrush + LLM and can be minutes. A viewer who closes the tab five seconds
+  // in therefore left a 15s timer, holding a reference to this response object,
+  // running until the pipeline it is no longer watching completes.
+  // `heartbeat` is a const declared a few lines below, so this closure reads it
+  // from the temporal dead zone if it ever runs before that line. It cannot:
+  // 'close' is emitted asynchronously, never during this synchronous setup, so
+  // the declaration has always executed by the time this handler fires.
+  res.on('close', () => { closed = true; clearInterval(heartbeat); });
   const emit = (event, data) => { if (!closed) { try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch { closed = true; } } };
   const onStep = (step) => emit('step', step);
 

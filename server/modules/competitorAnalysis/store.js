@@ -3,6 +3,8 @@ const path = require('path');
 const crypto = require('crypto');
 
 const { resolveDataRoot } = require('../../services/dataRoot');
+// Traversal guard: clientId reaches these paths from req.params.
+const { assertSafeFileId } = require('../../services/safeFileId');
 
 // Ephemeral inside the image on a container platform; see services/dataRoot.js.
 const DATA_ROOT = resolveDataRoot(
@@ -78,8 +80,8 @@ async function deleteClient(clientId) {
   const list = await getClients();
   const next = list.filter((c) => c.id !== clientId);
   await writeAtomic(CLIENTS_FILE, next);
-  await fs.rm(path.join(SNAPSHOTS_DIR, `${clientId}.json`), { force: true });
-  await fs.rm(path.join(CONTENT_ANALYSIS_DIR, `${clientId}.json`), { force: true });
+  await fs.rm(path.join(SNAPSHOTS_DIR, `${assertSafeFileId(clientId, 'clientId')}.json`), { force: true });
+  await fs.rm(path.join(CONTENT_ANALYSIS_DIR, `${assertSafeFileId(clientId, 'clientId')}.json`), { force: true });
 }
 
 // ── Competitors ──────────────────────────────────────────────────────────────
@@ -112,22 +114,22 @@ async function removeCompetitor(clientId, competitorId) {
 // ── Snapshots ────────────────────────────────────────────────────────────────
 
 async function getSnapshot(clientId) {
-  return readJson(path.join(SNAPSHOTS_DIR, `${clientId}.json`), null);
+  return readJson(path.join(SNAPSHOTS_DIR, `${assertSafeFileId(clientId, 'clientId')}.json`), null);
 }
 
 async function saveSnapshot(clientId, snapshot) {
-  await writeAtomic(path.join(SNAPSHOTS_DIR, `${clientId}.json`), snapshot);
+  await writeAtomic(path.join(SNAPSHOTS_DIR, `${assertSafeFileId(clientId, 'clientId')}.json`), snapshot);
 }
 
 // ── Content Analysis (separate file per client — kept apart from the main
 // SEMrush snapshot since it can carry its own sizable page-type data) ───────
 
 async function getContentAnalysis(clientId) {
-  return readJson(path.join(CONTENT_ANALYSIS_DIR, `${clientId}.json`), null);
+  return readJson(path.join(CONTENT_ANALYSIS_DIR, `${assertSafeFileId(clientId, 'clientId')}.json`), null);
 }
 
 async function saveContentAnalysis(clientId, data) {
-  await writeAtomic(path.join(CONTENT_ANALYSIS_DIR, `${clientId}.json`), data);
+  await writeAtomic(path.join(CONTENT_ANALYSIS_DIR, `${assertSafeFileId(clientId, 'clientId')}.json`), data);
 }
 
 module.exports = {

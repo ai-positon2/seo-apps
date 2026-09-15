@@ -74,6 +74,11 @@ function domainView(row) {
 function projectView(project, domains = []) {
   const primary = domains.find((d) => d.role === 'primary' && d.status === 'active');
   const competitors = domains.filter((d) => d.role === 'competitor' && d.status === 'active');
+  // Competitors a contributor has proposed but nobody has accepted yet (§7.2).
+  // Empty unless the caller fetched with ACTIVE_AND_PROPOSED — which the project
+  // read paths do, and the runners deliberately do not: a proposal is not
+  // tracked, and nothing should measure against it until it is accepted.
+  const proposedCompetitors = domains.filter((d) => d.role === 'competitor' && d.status === 'proposed');
   const weekly = cron.parseWeeklyCron(project.cron);
 
   return {
@@ -92,6 +97,7 @@ function projectView(project, domains = []) {
     primaryDomainSource: primary ? 'project_domains' : 'legacy_url_column',
     legacyUrl: project.url,
     competitors: competitors.map(domainView),
+    proposedCompetitors: proposedCompetitors.map(domainView),
     schedule: {
       cron: project.cron,
       timezone: project.timezone,
@@ -125,15 +131,26 @@ function projectView(project, domains = []) {
 
 // ── Reads ───────────────────────────────────────────────────────────────────
 
-async function domainsForProjects(projectIds) {
+// Read active rows unless asked otherwise.
+//
+// 'active' being the default is what keeps every existing caller — the module
+// runners, the autostart scheduler, the report — measuring only domains that are
+// really tracked. But it was also hardcoded into the SQL, which made a
+// 'proposed' row unreadable by anything: a contributor's competitor was written
+// and then returned by nothing, ever. Callers that need to SEE a proposal ask
+// for it; callers that ACT on domains keep the default.
+const ACTIVE_ONLY = ['active'];
+const ACTIVE_AND_PROPOSED = ['active', 'proposed'];
+
+async function domainsForProjects(projectIds, { statuses = ACTIVE_ONLY } = {}) {
   if (!projectIds.length) return new Map();
   let data;
   try {
     data = await db.rows(
       `select * from project_domains
-        where project_id = any($1) and status = 'active'
+        where project_id = any($1) and status = any($2)
         order by created_at asc`,
-      [projectIds]
+      [projectIds, statuses]
     );
   } catch (error) {
     fail('domainsForProjects', error);
@@ -148,16 +165,18 @@ async function domainsForProjects(projectIds) {
 }
 
 /**
- * Every active domain row for one project, in DB shape.
+ * Every domain row for one project, in DB shape. Active only by default.
  *
  * projectView() splits domains into primaryDomain/competitors and renames the
  * columns for the client. Callers that work on the rows themselves — the module
  * runners, which need normalized_origin and role — get them unmapped from here
  * rather than reassembling them from the view.
+ *
+ * @param {string[]} [opts.statuses] pass ACTIVE_AND_PROPOSED to include proposals
  */
-async function listDomains(projectId) {
+async function listDomains(projectId, { statuses = ACTIVE_ONLY } = {}) {
   if (!projectId) return [];
-  const byProject = await domainsForProjects([projectId]);
+  const byProject = await domainsForProjects([projectId], { statuses });
   return byProject.get(projectId) || [];
 }
 
@@ -188,8 +207,55 @@ async function listProjects({ workspaceIds, workspaceId = null, includeDeleted =
   } catch (error) {
     fail('listProjects', error);
   }
-  const byProject = await domainsForProjects(projects.map((p) => p.id));
+  // Proposals included: the projects list is where an approver notices there is
+  // something to approve, and a pending item nobody can see is the whole defect
+  // this fixes.
+  const byProject = await domainsForProjects(projects.map((p) => p.id), { statuses: ACTIVE_AND_PROPOSED });
   return projects.map((p) => projectView(p, byProject.get(p.id) || []));
+}
+
+/**
+ * The project in this workspace already tracking an origin, or null.
+ *
+ * PRD §18.2 wants a duplicate primary domain to WARN and ask for confirmation
+ * rather than be rejected, so creation needs to know. That check used to fetch
+ * the workspace's projects with listProjects() and scan them in JavaScript —
+ * which carried listProjects' default `limit: 100`, so in a workspace with more
+ * than a hundred projects the warning silently stopped appearing. A bug that
+ * only shows up once a workspace gets big, as a missing warning rather than an
+ * error, is one nobody reports.
+ *
+ * Asking the database the actual question has no limit to get wrong, and uses
+ * the (project_id, normalized_origin) index instead of reading every project's
+ * settings blob to compare one field.
+ */
+async function projectTrackingOrigin({ workspaceId, normalizedOrigin, excludeProjectId = null }) {
+  if (!db.isDatabaseConfigured()) throw notConfigured();
+  if (!workspaceId || !normalizedOrigin) return null;
+
+  const params = [workspaceId, normalizedOrigin];
+  let exclude = '';
+  if (excludeProjectId) {
+    params.push(excludeProjectId);
+    exclude = ` and p.id <> $${params.length}`;
+  }
+
+  try {
+    return await db.maybeOne(
+      `select p.id, p.name, p.url
+         from project_domains d
+         join crawl_projects p on p.id = d.project_id
+        where p.workspace_id = $1
+          and d.normalized_origin = $2
+          and d.role = 'primary'
+          and d.status = 'active'
+          and p.lifecycle_status <> 'deleted'${exclude}
+        limit 1`,
+      params
+    );
+  } catch (error) {
+    fail('projectTrackingOrigin', error);
+  }
 }
 
 /** Best-effort host from the legacy url column. Null, never a guess. */
@@ -249,9 +315,14 @@ async function summariesForWorkspaces(workspaceIds) {
   return byWorkspace;
 }
 
-/** One project plus its domains. The caller has already been authorized. */
+/**
+ * One project plus its domains. The caller has already been authorized.
+ *
+ * Fetches proposals alongside the active rows — one query, not two — so the
+ * screen showing a project can also show what is waiting on an approver.
+ */
 async function getProject(projectRow) {
-  const byProject = await domainsForProjects([projectRow.id]);
+  const byProject = await domainsForProjects([projectRow.id], { statuses: ACTIVE_AND_PROPOSED });
   return projectView(projectRow, byProject.get(projectRow.id) || []);
 }
 
@@ -268,12 +339,33 @@ async function getProject(projectRow) {
  * showed as needing a domain rather than as broken. Speaking SQL directly there
  * is no need to pick the least-bad partial state — either the project exists
  * with its domains or it does not exist at all.
+ *
+ * This is the ONLY function permitted to insert a crawl_projects row. CrawlScope
+ * used to have its own (repo.createProject), which wrote the project and nothing
+ * else — no primary domain, no country — so every project it made read as
+ * 'legacy_url_column' forever. Both endpoints come through here now, and
+ * migration 0027 enforces the invariant in the database so a third writer cannot
+ * quietly reappear:
+ *
+ *   no crawl_projects row without an active primary project_domains row
+ *
+ * @param {boolean} [requireCountry=true] AC-004 makes country mandatory on
+ *   /api/projects. CrawlScope's endpoint predates that rule and has callers that
+ *   send no country; refusing them with a 400 would break working integrations.
+ *   Passing false leaves country_code NULL, which surfaces as countryMissing in
+ *   projectView and is repaired in project settings. Never defaulted to a guess
+ *   — an invented market is worse than an absent one (§24.2).
  */
-async function createProject({ access, name, primaryDomain, country, competitors = [], schedule = {}, recipients = [], crawlOptions = {}, autoFindCompetitors = false }) {
+async function createProject({ access, name, primaryDomain, country, competitors = [], schedule = {}, recipients = [], crawlOptions = {}, autoFindCompetitors = false, requireCountry = true }) {
   if (!db.isDatabaseConfigured()) throw notConfigured();
 
   const primary = domainsLib.normalizeOrigin(primaryDomain);
-  const countryCode = domainsLib.normalizeCountry(country);
+  // A country that IS supplied is always validated, even when not required —
+  // "XG" should fail loudly rather than be stored and later hand the rank
+  // provider a market that does not exist.
+  const countryCode = (!requireCountry && (country == null || String(country).trim() === ''))
+    ? null
+    : domainsLib.normalizeCountry(country);
   const competitorDomains = domainsLib.normalizeCompetitors(competitors, {
     primaryOrigin: primary.normalizedOrigin,
   });
@@ -632,7 +724,11 @@ async function addCompetitor({ access, domain, status = 'active', source = 'user
   if (!db.isDatabaseConfigured()) throw notConfigured();
   const project = access.project;
 
-  const current = await domainsForProjects([project.id]);
+  // Proposals included deliberately. The partial unique index that makes a
+  // duplicate add a no-op is `where status = 'active'`, so it does not see a
+  // pending proposal: without this, proposing the same domain twice wrote two
+  // rows, and an approver was shown the same competitor waiting for them twice.
+  const current = await domainsForProjects([project.id], { statuses: ACTIVE_AND_PROPOSED });
   const rows = current.get(project.id) || [];
   const primary = rows.find((d) => d.role === 'primary' && d.status === 'active');
 
@@ -640,6 +736,18 @@ async function addCompetitor({ access, domain, status = 'active', source = 'user
     primaryOrigin: primary?.normalized_origin || null,
   });
   if (!normalized) throw invalid('A competitor domain is required.');
+
+  const alreadyProposed = rows.find(
+    (d) => d.role === 'competitor'
+      && d.status === 'proposed'
+      && d.normalized_origin === normalized.normalizedOrigin,
+  );
+  if (alreadyProposed) {
+    throw Object.assign(
+      new Error(`${normalized.host} has already been proposed on this project and is waiting for approval.`),
+      { status: 409, code: 'already_proposed' },
+    );
+  }
 
   const { limits } = await adminLimits.effectiveLimits({ workspaceId: project.workspace_id });
   void limits; // competitor-count caps are provider limits (§10.2); not enforced yet
@@ -679,6 +787,114 @@ async function addCompetitor({ access, domain, status = 'active', source = 'user
     newState: { role: 'competitor', origin: normalized.normalizedOrigin, status, domainSource: source },
     source: 'api.projects',
   });
+
+  return domainView(data);
+}
+
+/**
+ * Decides a proposed competitor (PRD §7.2).
+ *
+ * A contributor holds 'propose' on manageCompetitors, so their additions land as
+ * status='proposed'. Until now nothing could move them off it: no route listed
+ * proposals, none accepted them, and every read filtered them out — the row was
+ * written and then invisible forever. These are the two ways out.
+ *
+ * Approving flips the row to 'active', which is the moment it becomes something
+ * the app will spend metered SEMrush units measuring — so it is audited under
+ * its own action, with the approver named.
+ *
+ * Rejecting marks it 'removed' rather than deleting it: the same reasoning as
+ * removeDomain. What someone proposed, and that it was turned down, is part of
+ * the project's history, and the partial unique indexes free the origin up so
+ * the domain can be proposed again later.
+ *
+ * @param {'approve'|'reject'} decision
+ */
+async function decideCompetitorProposal({ access, domainId, decision, reason }) {
+  if (!db.isDatabaseConfigured()) throw notConfigured();
+  const project = access.project;
+
+  let existing;
+  try {
+    // Scoped to this project: a domain id from another project is a 404, not a
+    // forbidden — knowing an id must not confirm it exists (AC-001).
+    existing = await db.maybeOne(
+      `select * from project_domains where id = $1 and project_id = $2`,
+      [domainId, project.id]
+    );
+  } catch (error) {
+    fail('decideCompetitorProposal(find)', error);
+  }
+  if (!existing) throw Object.assign(new Error('Domain not found on this project.'), { status: 404 });
+
+  if (existing.status !== 'proposed') {
+    throw invalid(
+      existing.status === 'active'
+        ? `${existing.host} is already tracked on this project.`
+        : `${existing.host} is not awaiting a decision (its status is "${existing.status}").`,
+    );
+  }
+  if (existing.role !== 'competitor') {
+    throw invalid('Only a proposed competitor can be approved or rejected.');
+  }
+
+  const approving = decision === 'approve';
+  const nextStatus = approving ? 'active' : 'removed';
+
+  let data;
+  try {
+    // `and status = 'proposed'` is the race guard, not decoration. The status
+    // was read a few lines above, and two approvers clicking at once both read
+    // 'proposed' and both used to succeed — leaving the row correctly active but
+    // writing TWO "approved" rows into an append-only log whose whole job is to
+    // answer who accepted this competitor. Making the UPDATE conditional means
+    // exactly one caller changes the row; the loser matches zero rows and is
+    // told the decision was already made.
+    data = await db.one(
+      `update project_domains set status = $2
+        where id = $1 and status = 'proposed'
+        returning *`,
+      [domainId, nextStatus]
+    );
+  } catch (error) {
+    if (/expected exactly one row, got 0/.test(error.message || '')) {
+      throw Object.assign(
+        new Error(`${existing.host} has already been decided by someone else.`),
+        { status: 409, code: 'already_decided' },
+      );
+    }
+    // Approving re-enters the partial unique index on (project_id,
+    // normalized_origin) where active. It can collide if the same domain was
+    // accepted by another route while this proposal sat pending — which is an
+    // answer ("already tracked"), not a failure.
+    if (error.code === '23505' || /duplicate key|unique/i.test(error.message || '')) {
+      throw Object.assign(
+        new Error(`${existing.host} is already tracked on this project — this proposal is redundant.`),
+        { status: 409, code: 'already_tracked' },
+      );
+    }
+    fail('decideCompetitorProposal', error);
+  }
+
+  await auditEvents.record({
+    action: approving
+      ? auditEvents.ACTIONS.DOMAIN_PROPOSAL_APPROVED
+      : auditEvents.ACTIONS.DOMAIN_PROPOSAL_REJECTED,
+    workspaceId: project.workspace_id,
+    projectId: project.id,
+    actorUserId: access.userId,
+    actorEmail: access.actorEmail,
+    actorRole: access.role,
+    entityType: 'project_domain',
+    entityId: domainId,
+    reason: reason || null,
+    oldState: { origin: existing.normalized_origin, status: 'proposed', proposedBy: existing.created_by },
+    newState: { status: nextStatus },
+    source: 'api.projects',
+  // Approving releases metered spend and rejecting overrules a colleague;
+  // both are decisions a person is accountable for, so a silently dropped
+  // audit row would leave nobody answerable.
+  }, { strict: true });
 
   return domainView(data);
 }
@@ -748,19 +964,27 @@ async function setPrimaryDomain({ access, domain, reason }) {
   const project = access.project;
   const normalized = domainsLib.normalizeOrigin(domain);
 
-  const current = await domainsForProjects([project.id]);
+  const current = await domainsForProjects([project.id], { statuses: ACTIVE_AND_PROPOSED });
   const rows = current.get(project.id) || [];
   const oldPrimary = rows.find((d) => d.role === 'primary' && d.status === 'active');
 
   if (oldPrimary?.normalized_origin === normalized.normalizedOrigin) {
     return getProject(project);
   }
+  // A PROPOSED competitor clashes too. The unique index only covers active
+  // rows, so without this the domain could become the primary while a proposal
+  // for the same origin sat pending — and approving it later would fail on the
+  // index, with the error pointing at the approval rather than at this.
   const clashingCompetitor = rows.find(
-    (d) => d.role === 'competitor' && d.status === 'active' && d.normalized_origin === normalized.normalizedOrigin,
+    (d) => d.role === 'competitor'
+      && (d.status === 'active' || d.status === 'proposed')
+      && d.normalized_origin === normalized.normalizedOrigin,
   );
   if (clashingCompetitor) {
     throw invalid(
-      `${normalized.host} is tracked as a competitor on this project — remove it there before making it the primary domain.`,
+      clashingCompetitor.status === 'proposed'
+        ? `${normalized.host} has been proposed as a competitor on this project — reject that proposal before making it the primary domain.`
+        : `${normalized.host} is tracked as a competitor on this project — remove it there before making it the primary domain.`,
     );
   }
 
@@ -790,13 +1014,24 @@ async function setPrimaryDomain({ access, domain, reason }) {
       // Verification does not survive a domain change, and neither does a
       // robots override that was only granted because the old site was
       // verified (§22.2).
+      //
+      // Keyed on id alone. This used to carry `and workspace_id = $3`, which
+      // added no safety — requireProject has already authorised this caller
+      // against this project's workspace, and re-asserting it here cannot catch
+      // anything that check missed — but did add a trap: for a project whose
+      // workspace_id was NULL, `workspace_id = NULL` is never true in SQL, so
+      // t.one() matched zero rows and threw. Setting the primary domain on a
+      // workspace-less project failed with "expected exactly one row, got 0",
+      // which is exactly the project most in need of a primary domain.
+      // Migration 0027 makes workspace_id NOT NULL, so the null case is gone
+      // too — but the predicate stays out, because it was never doing work.
       return t.one(
         `update crawl_projects
             set url = $1, site_verified_at = null, site_verified_by = null,
                 robots_override = false
-          where id = $2 and workspace_id = $3
+          where id = $2
           returning *`,
-        [normalized.normalizedOrigin, project.id, project.workspace_id]
+        [normalized.normalizedOrigin, project.id]
       );
     });
   } catch (error) {
@@ -1109,11 +1344,15 @@ module.exports = {
   listProjects,
   summariesForWorkspaces,
   listDomains,
+  projectTrackingOrigin,
   getProject,
   createProject,
   updateProject,
   addCompetitor,
+  decideCompetitorProposal,
   removeDomain,
+  ACTIVE_ONLY,
+  ACTIVE_AND_PROPOSED,
   setPrimaryDomain,
   setRobotsOverride,
   deleteProject,

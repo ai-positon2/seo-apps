@@ -2,6 +2,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
+const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
 
@@ -53,6 +54,30 @@ const PORT = process.env.PORT || 5000;
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(cookieParser());
+
+// Responses shipped uncompressed until here: the client bundle is ~3.1 MB of
+// JavaScript, and the crawl report's findings JSON runs to megabytes on a large
+// run (see crawlScope/db/repo.js, which measured 2.0 MB / 9.8 s for a 500-page
+// crawl). Mounted before the route mounts and before express.static below, so
+// it covers both the API and the bundle.
+//
+// The filter is the load-bearing part, not boilerplate. text/event-stream is
+// absent from mime-db, so compressible() falls through to its ^text/ regex and
+// reports SSE as compressible -- and gzip then buffers until its window fills,
+// which stalls a live-progress stream and releases it in one burst at the end.
+// This server has twelve SSE endpoints (crawlScope/api/sse.js, contentArchitect
+// x2, agentReadinessAudit, articleEnhancement, articleEnhancementLite,
+// articleRecommendation, competitorAnalysis, imageAltAudit, keywordResearch,
+// locationPageBuilder, seoGeoAudit), so the default filter would regress twelve
+// screens at once. Sniffing the response Content-Type is how
+// middleware/runTracking.js already recognises a stream.
+app.use(compression({
+  filter: (req, res) => (
+    String(res.getHeader('Content-Type') || '').includes('text/event-stream')
+      ? false
+      : compression.filter(req, res)
+  ),
+}));
 // NOTE: express.json() is deliberately NOT registered here. It is mounted after
 // the rate limiter below, so a 20 MB body from an unauthenticated caller is
 // counted and rejected before Express spends memory and CPU parsing it.
@@ -190,7 +215,11 @@ app.use('/api/runs',                    kbLimiter, requireAuth, runsRoutes);
 // Workspace-owned projects (PRD §18.2). Chatty like the other dashboard mounts —
 // the home screen loads the project list plus one overview per selected project
 // — so it takes the higher limiter rather than the 20/min global one.
-app.use('/api/projects',                lpbLimiter, requireAuth, projectsRoutes);
+// track('projects') records project CREATION only (see config/runTracking.js).
+// The module runs under this mount keep their own record in project_module_runs;
+// the matcher does not fire for them, and a request with no matcher passes
+// straight through without the middleware wrapping anything.
+app.use('/api/projects',                lpbLimiter, requireAuth, track('projects'), projectsRoutes);
 // Platform administration (PRD §18.7). requireAuth establishes *who*; the router
 // itself re-checks the persisted platform-admin grant on every request.
 app.use('/api/admin',                   kbLimiter, requireAuth, adminRoutes);
@@ -213,7 +242,38 @@ app.use('/api/competitor-analysis', requireSeo, track('competitor-analysis-repor
 
 // ── Serve React frontend ─────────────────────────────────────────────────────
 const clientBuild = path.join(__dirname, '../client/dist');
-app.use(express.static(clientBuild));
+// Vite writes content-hashed filenames into dist/assets, so those are safe to
+// cache forever: a new build produces new names rather than new contents at the
+// same name. index.html is NOT hashed and is served from this same directory,
+// so it deliberately keeps express.static's default (max-age=0) -- caching the
+// shell would pin a browser to an old build's asset names indefinitely.
+app.use(express.static(clientBuild, {
+  setHeaders: (res, filePath) => {
+    // Normalised first: express.static hands back a native path, so this is
+    // backslash-separated on Windows and '/'-separated in the container.
+    if (filePath.replace(/\\/g, "/").includes("/assets/")) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  },
+}));
+
+// A missing /assets/* file is a 404, not the SPA shell -- the same reasoning as
+// the /api guard below, and for code-split routes it matters more. After a
+// deploy, a tab holding the previous index.html requests chunk filenames that
+// no longer exist; without this they fall through to the catch-all and come
+// back as index.html with HTTP 200 and Content-Type text/html, which surfaces
+// in the browser as an opaque module parse error instead of a plain 404.
+// client/src/components/ChunkErrorBoundary.jsx handles the recovery; this makes
+// the cause diagnosable.
+app.use('/assets', (req, res) => {
+  res.status(404).type('text/plain').send('Not found');
+});
+
+// No favicon is referenced by index.html, so browsers request /favicon.ico on
+// every cold load and the catch-all answered each one with the whole of
+// index.html at HTTP 200. Registered after express.static so a real favicon
+// added to the build still wins.
+app.get('/favicon.ico', (req, res) => res.status(204).end());
 
 // An unmatched /api/* path is a 404 — not the SPA shell. Reached by the catch-all
 // below, a mistyped, renamed or removed endpoint answered index.html with HTTP
@@ -457,8 +517,13 @@ const server = app.listen(PORT, () => {
   console.log(`   ANTHROPIC_API_KEY: ${process.env.ANTHROPIC_API_KEY ? '✓' : '○ optional (Claude Sonnet 5 in Article Enhancer)'}`);
   console.log(`   GEMINI_API_KEY:    ${process.env.GEMINI_API_KEY ? '✓' : '○ optional (Gemini 3.5 Flash in Article Enhancer)'}`);
   console.log(`   SEMRUSH_API_KEY:   ${process.env.SEMRUSH_API_KEY ? '✓' : '✗ missing'}`);
-  console.log(`   APP_USERNAME:      ${process.env.APP_USERNAME ? '✓' : '✗ missing'}`);
+  // APP_USERNAME was reported here until it was the last trace of the removed
+  // shared-token login. Nothing read it, no file documented it, and the check
+  // could therefore only ever print "✗ missing" — telling every operator their
+  // configuration was incomplete and sending them to look for a variable that
+  // does not exist. Removed rather than documented: there is nothing to set.
   console.log(`   JWT_SECRET:        ${process.env.JWT_SECRET ? '✓' : '✗ missing'}`);
+  console.log(`   DATAFORSEO:        ${process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD ? '✓' : '○ optional (AI Visibility surfaces, Market Potential)'}`);
   console.log(`   GOOGLE_PSI_KEY:    ${process.env.GOOGLE_PSI_API_KEY ? '✓' : '○ optional (PageSpeed)'}`);
   console.log(`   RESEND_API_KEY:    ${process.env.RESEND_API_KEY ? '✓' : '○ optional (CrawlScope report email)'}`);
   console.log(`   CRAWLSCOPE_WORKER: ${CRAWLSCOPE_WORKER}${crawlScopeWorker ? ` (${crawlScopeWorker.workerId})` : ''}`);

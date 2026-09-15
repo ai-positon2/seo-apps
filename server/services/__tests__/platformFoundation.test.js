@@ -99,6 +99,81 @@ test('a contributor can still view, run and review', () => {
   }
 });
 
+// Creating a project and editing one are separate acts, and only the second is
+// restricted. Bringing a new site under the team's view is the first thing any
+// member needs to do; changing an existing project's settings alters something
+// colleagues already depend on. These were briefly the same capability, which
+// left a contributor unable to add their own client's site at all.
+test('every role can add a new project, including a contributor', () => {
+  for (const role of ['contributor', 'approver', 'admin', 'owner']) {
+    assert.strictEqual(
+      projectAccess.capabilityFor(role, 'createProject'), true,
+      `${role} must be able to create a project`,
+    );
+  }
+});
+
+test('being able to create a project does not imply being able to edit one', () => {
+  assert.strictEqual(projectAccess.capabilityFor('contributor', 'createProject'), true);
+  assert.strictEqual(projectAccess.capabilityFor('contributor', 'editProjectSettings'), false);
+});
+
+// ── The creator's grant ─────────────────────────────────────────────────────
+// The single, named exception to the role table: whoever created a project may
+// edit that project. Without it, a contributor who added a client could not
+// correct its name or country without asking an approver.
+
+// Builds what requireProject hands to applyCreatorGrant, for a given role.
+function contextFor(role, userId) {
+  const ctx = {
+    userId,
+    role,
+    capabilities: projectAccess.capabilityMap(role),
+  };
+  ctx.can = (name) => projectAccess.capabilityFor(role, name);
+  return ctx;
+}
+
+test('a contributor may edit the project they created', () => {
+  const ctx = contextFor('contributor', 'user-1');
+  projectAccess.applyCreatorGrant(ctx, { owner: 'user-1' });
+  assert.strictEqual(ctx.can('editProjectSettings'), true);
+  assert.strictEqual(ctx.capabilities.editProjectSettings, true, 'the map the client reads must agree');
+  assert.strictEqual(ctx.isCreator, true);
+});
+
+test("a contributor may NOT edit a colleague's project", () => {
+  const ctx = contextFor('contributor', 'user-1');
+  projectAccess.applyCreatorGrant(ctx, { owner: 'user-2' });
+  assert.strictEqual(ctx.can('editProjectSettings'), false);
+  assert.strictEqual(ctx.capabilities.editProjectSettings, false);
+  assert.ok(!ctx.isCreator);
+});
+
+test('the creator grant covers editing and nothing else', () => {
+  const ctx = contextFor('contributor', 'user-1');
+  projectAccess.applyCreatorGrant(ctx, { owner: 'user-1' });
+  // Approving, destroying and workspace administration are not yours just
+  // because you made the project.
+  for (const capability of [
+    'approveRecommendation', 'overrideMachineOutcome', 'purgeProject',
+    'manageWorkspaceMembers', 'configureLimits', 'transferOwnership',
+  ]) {
+    assert.strictEqual(ctx.can(capability), false, `creator must not gain ${capability}`);
+  }
+  // Competitors stay on the propose/approve path: each one costs metered
+  // SEMrush units, which is what that review is for.
+  assert.strictEqual(ctx.can('manageCompetitors'), 'propose');
+});
+
+test('a project with no owner recorded grants nothing', () => {
+  const ctx = contextFor('contributor', 'user-1');
+  projectAccess.applyCreatorGrant(ctx, { owner: null });
+  assert.strictEqual(ctx.can('editProjectSettings'), false);
+  projectAccess.applyCreatorGrant(ctx, null);
+  assert.strictEqual(ctx.can('editProjectSettings'), false);
+});
+
 test('a contributor may only PROPOSE a competitor', () => {
   assert.strictEqual(projectAccess.capabilityFor('contributor', 'manageCompetitors'), 'propose');
   assert.strictEqual(projectAccess.capabilityFor('approver', 'manageCompetitors'), true);

@@ -127,6 +127,23 @@ export const projectsApi = {
   discoverCompetitors: (projectId) =>
     req(`${BASE}/${projectId}/domains/competitors/discover`, { method: 'POST' }),
 
+  /**
+   * Decides a competitor a contributor proposed (§7.2).
+   *
+   * Approving marks it tracked and starts the comparison — which spends metered
+   * SEMrush units, so it is a deliberate click and never implied by opening a
+   * screen. Rejecting retires the row; the domain can be proposed again later.
+   */
+  approveCompetitor: (projectId, domainId, reason) =>
+    req(`${BASE}/${projectId}/domains/${domainId}/approve`, {
+      method: 'POST', body: JSON.stringify({ reason }),
+    }),
+
+  rejectCompetitor: (projectId, domainId, reason) =>
+    req(`${BASE}/${projectId}/domains/${domainId}/reject`, {
+      method: 'POST', body: JSON.stringify({ reason }),
+    }),
+
   setPrimaryDomain: (projectId, domain, reason) =>
     req(`${BASE}/${projectId}/domains/primary`, {
       method: 'POST', body: JSON.stringify({ domain, reason }),

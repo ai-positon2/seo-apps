@@ -47,6 +47,19 @@ function workspaceView(workspace, identity) {
   };
 }
 
+// Every read here goes through runStore and identityStore, whose failures carry
+// database detail: a dead upstream is reported as `upstream unavailable:
+// connect ECONNREFUSED <host>:<port>` and a bad credential as `password
+// authentication failed for user "…"`. Those messages were being returned
+// verbatim to any signed-in caller. An error raised deliberately (one carrying
+// a status) still speaks for itself; anything else is logged and generalised,
+// matching routes/admin.js and server.js's final error handler.
+function handleError(res, e, req) {
+  if (e && e.status) return res.status(e.status).json({ error: e.message, code: e.code });
+  console.error('[runs]', req?.method, req?.originalUrl, e?.stack || e?.message || e);
+  res.status(500).json({ error: 'Something went wrong loading run history.' });
+}
+
 function notConfigured(res) {
   return res.status(503).json({
     error: 'Run history needs the database configured (DATABASE_URL).',
@@ -88,7 +101,7 @@ router.get('/', async (req, res) => {
       viewerUserId: identity.userId || null,
     });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    handleError(res, e, req);
   }
 });
 
@@ -109,7 +122,7 @@ router.get('/stats', async (req, res) => {
     });
     res.json({ ...stats, days, workspace: workspaceView(workspace, identity), trackedTools: TRACKED_TOOL_IDS });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    handleError(res, e, req);
   }
 });
 
@@ -128,7 +141,7 @@ router.get('/:id', async (req, res) => {
 
     res.json({ run });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    handleError(res, e, req);
   }
 });
 

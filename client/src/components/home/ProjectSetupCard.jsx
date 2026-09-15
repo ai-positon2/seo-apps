@@ -63,7 +63,15 @@ const Field = ({ label, hint, children, required }) => (
   </label>
 );
 
-export default function ProjectSetupCard({ limits, onCreated, onCancel }) {
+export default function ProjectSetupCard({
+  limits, onCreated, onCancel,
+  // The workspaces this caller belongs to, and which one is active. Both come
+  // straight from GET /api/projects, which already returns them.
+  workspaces = [], activeWorkspaceId = null,
+}) {
+  const [workspaceId, setWorkspaceId] = useState(
+    activeWorkspaceId || workspaces[0]?.id || '',
+  );
   const [name, setName] = useState('');
   const [primaryDomain, setPrimaryDomain] = useState('');
   const [country, setCountry] = useState('US');
@@ -102,6 +110,9 @@ export default function ProjectSetupCard({ limits, onCreated, onCancel }) {
         competitors,
         autoFindCompetitors,
         confirmDuplicate: Boolean(duplicate),
+        // Omitted when there was no choice to make, so the server falls back to
+        // the session's active workspace exactly as before.
+        ...(workspaceId ? { workspaceId } : {}),
       });
 
       if (result?.duplicate) {
@@ -169,6 +180,32 @@ export default function ProjectSetupCard({ limits, onCreated, onCancel }) {
             ))}
           </select>
         </Field>
+
+        {/* Which workspace this lands in.
+            Only shown when there is a real choice — with one workspace the
+            question has one answer and the control is noise. The server has
+            always accepted a workspaceId here and membership-checked it; the
+            client simply never sent one, so a project went to whichever
+            workspace happened to be active. That is how a workspace named after
+            a client ends up holding none of that client's work. */}
+        {workspaces.length > 1 && (
+          <Field
+            label="Workspace"
+            hint="Everyone in this workspace can open this project and everything it records."
+          >
+            <select
+              style={inputStyle}
+              value={workspaceId}
+              onChange={(e) => setWorkspaceId(e.target.value)}
+            >
+              {workspaces.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}{w.isPersonal ? ' (personal)' : ''}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <span style={{ fontSize: 12, color: 'var(--text-2)' }}>Competitor domains</span>

@@ -29,6 +29,23 @@ const IDLE_MS = 15000;
  *   and would otherwise 401 against this endpoint every fifteen seconds forever
  *   — the catch below swallows the failure, so it would never even look broken.
  */
+// Each poll parses fresh JSON, so every tick produced an object that was equal
+// in value but new in identity -- and this hook lives in the app shell, so that
+// re-rendered the shell (and its 37 sidebar buttons) every 4 seconds during a
+// crawl and every 15 idle, for a status that had not changed.
+//
+// The comparison is over the union of both objects' keys rather than a chosen
+// few, which is what makes it safe: it cannot report "same" for objects that
+// differ, whatever fields this status grows later. The worst case is that it
+// stops helping, never that the bar goes stale.
+function sameStatus(a, b) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of keys) if (!Object.is(a[k], b[k])) return false;
+  return true;
+}
+
 export function useCrawlStatus({ enabled = true } = {}) {
   const [activeProjectId] = useActiveProjectId();
   const [status, setStatus] = useState(null);
@@ -61,7 +78,7 @@ export function useCrawlStatus({ enabled = true } = {}) {
     const tick = async () => {
       const next = await poll(projectId);
       if (cancelled) return;
-      setStatus(next);
+      setStatus((prev) => (sameStatus(prev, next) ? prev : next));
       timer.current = setTimeout(tick, next ? LIVE_MS : IDLE_MS);
     };
 
@@ -78,7 +95,7 @@ export function useCrawlStatus({ enabled = true } = {}) {
 
   const refresh = useCallback(async () => {
     const next = await poll(projectId);
-    setStatus(next);
+    setStatus((prev) => (sameStatus(prev, next) ? prev : next));
     return next;
   }, [poll, projectId]);
 

@@ -195,16 +195,20 @@ router.post('/', async (req, res) => {
     if (!workspaceId) {
       return res.status(400).json({ error: 'No workspace is active for this session.' });
     }
-    const access = await projectAccess.requireWorkspace(req, workspaceId, 'editProjectSettings');
+    // 'createProject', not 'editProjectSettings': every member of a workspace
+    // may add a project to it. See the capability table for why the two are
+    // deliberately separate.
+    const access = await projectAccess.requireWorkspace(req, workspaceId, 'createProject');
 
     // PRD §18.2: a duplicate domain in the same workspace warns and needs
     // confirmation rather than being rejected outright.
     const normalized = domainsLib.normalizeOrigin(primaryDomain);
-    const existing = await store.listProjects({ workspaceIds: [workspaceId] });
-    const clash = existing.find((p) => p.primaryDomain?.origin === normalized.normalizedOrigin);
+    const clash = await store.projectTrackingOrigin({
+      workspaceId, normalizedOrigin: normalized.normalizedOrigin,
+    });
     if (clash && req.body.confirmDuplicate !== true) {
       return res.status(409).json({
-        error: `"${clash.name}" already tracks ${normalized.host} in this workspace.`,
+        error: `"${clash.name || clash.url}" already tracks ${normalized.host} in this workspace.`,
         code: 'duplicate_domain',
         needsConfirmation: true,
         existingProjectId: clash.id,
@@ -235,35 +239,45 @@ router.post('/', async (req, res) => {
     // workspace-level context above: `startRun` is a different capability from
     // the one that created the project, and the runner needs the raw project
     // row that context does not carry.
-    const competitorResearch = await projectAccess
+    // Both autostarts below need the same domain list and neither needs the
+    // other's result, but they were awaited in series and each fetched the
+    // domains itself. Against the configured database a round trip is ~260ms,
+    // so that was one redundant fetch plus two scheduling passes laid end to
+    // end on a request somebody is watching a spinner for. Read once, run both
+    // together. Each keeps its own catch, so one failing still cannot fail the
+    // other or the response -- the project is already created by this point.
+    const domains = await store.listDomains(project.id);
+
+    const [competitorResearch, initialCrawl] = await Promise.all([
+    projectAccess
       .requireProject(req, project.id, 'startRun')
-      .then((runAccess) => store.listDomains(project.id).then((domains) => (
+      .then((runAccess) => (
         competitorAutostart.scheduleCompetitorResearch({
           access: runAccess,
           domains,
           delayMs: competitorAutostart.SETUP_DELAY_MS,
         })
-      )))
+      ))
       .catch((e) => {
         // Creating the project succeeded. Failing the response because the
         // comparison could not be queued would report the opposite.
         console.error('[projects.create] competitor autostart skipped:', e.message);
         return { scheduled: false, reason: 'not_started', note: null };
-      });
+      }),
 
     // The initial crawl starts itself too — Hub and Spoke is itself waiting on
     // a crawl finishing (hubSpokeAutostart.js), and homepageAutostart above
     // only reaches the homepage, not the rest of the site — so a project with
     // no crawl yet is the actual reason those cards used to sit on "no data
     // yet" forever.
-    const initialCrawl = await store.listDomains(project.id)
-      .then((domains) => crawlAutostart.scheduleInitialCrawl({
+    crawlAutostart.scheduleInitialCrawl({
         project, domains, ownerId: identity.userId, crawlOptions,
-      }))
+      })
       .catch((e) => {
         console.error('[projects.create] initial crawl autostart skipped:', e.message);
         return { scheduled: false, reason: 'not_started', runId: null };
-      });
+      }),
+    ]);
 
     res.status(201).json({ project, competitorResearch, homepageAudits, initialCrawl });
   } catch (e) { handleError(res, e, 'create'); }
@@ -364,9 +378,58 @@ router.get('/:projectId/domains', async (req, res) => {
   try {
     const access = await projectAccess.requireProject(req, req.params.projectId, 'view');
     const project = await store.getProject(access.project);
-    res.json({ primary: project.primaryDomain, competitors: project.competitors });
+    res.json({
+      primary: project.primaryDomain,
+      competitors: project.competitors,
+      // Proposals are returned to everyone who can view the project, not only
+      // to those who can decide them: a contributor needs to see that what they
+      // proposed is still waiting, and the alternative is a domain that
+      // vanishes on submit.
+      proposedCompetitors: project.proposedCompetitors,
+      canDecideProposals: access.can('manageCompetitors') === true,
+    });
   } catch (e) { handleError(res, e, 'domains'); }
 });
+
+// POST /api/projects/:projectId/domains/:domainId/approve
+// POST /api/projects/:projectId/domains/:domainId/reject
+//
+// The other half of the propose/accept split (§7.2). A contributor's competitor
+// lands as 'proposed' and — until these existed — stayed there permanently:
+// nothing listed proposals, nothing accepted them, and no role that could have
+// accepted one was assignable. All three of those are fixed; this is the part
+// that actually moves the row.
+//
+// Gated on the full verdict, not the 'propose' one: assertCapability already
+// refuses a 'propose' grant with a message saying an approver has to apply it,
+// which is exactly right here.
+for (const decision of ['approve', 'reject']) {
+  router.post(`/:projectId/domains/:domainId/${decision}`, async (req, res) => {
+    if (!requireConfigured(res)) return;
+    try {
+      const access = await projectAccess.requireProject(req, req.params.projectId, 'manageCompetitors');
+      const domain = await store.decideCompetitorProposal({
+        access, domainId: req.params.domainId, decision, reason: req.body?.reason,
+      });
+
+      // Approving makes the domain tracked, which is the condition Competitor
+      // Research was waiting on — the same autostart every other route that
+      // changes domains fires. Rejecting changes nothing measurable, so it
+      // starts nothing.
+      const competitorResearch = decision === 'approve'
+        ? await autostartAfterDomainChange(access)
+        : { scheduled: false, reason: 'proposal_rejected', runId: null, note: null };
+
+      res.json({
+        domain,
+        competitorResearch,
+        message: decision === 'approve'
+          ? `${domain.host} is now tracked. ${competitorResearch.note || ''}`.trim()
+          : `${domain.host} was not accepted. It can be proposed again later.`,
+      });
+    } catch (e) { handleError(res, e, `${decision}Proposal`); }
+  });
+}
 
 // POST /api/projects/:projectId/domains/competitors
 // A contributor may only *propose* a competitor (§7.2), so this route branches
@@ -424,7 +487,12 @@ router.post('/:projectId/domains/competitors/discover', async (req, res) => {
       return res.status(403).json({ error: 'Your role cannot add competitor domains.' });
     }
 
-    const rows = await store.listDomains(access.project.id);
+    // Proposals included. moduleRunners.autoDiscoverCompetitors documents this
+    // list as "hosts already tracked or proposed", but listDomains returned
+    // active rows only — so a domain already waiting for approval was offered
+    // up again as a fresh discovery, and the second copy was refused by the
+    // duplicate check after the SEMrush units for it had already been spent.
+    const rows = await store.listDomains(access.project.id, { statuses: store.ACTIVE_AND_PROPOSED });
     const primary = rows.find((d) => d.role === 'primary' && d.status === 'active');
     const existingCompetitors = rows
       .filter((d) => d.role === 'competitor')

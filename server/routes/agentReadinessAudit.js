@@ -7,6 +7,10 @@ const chromium = require('@sparticuz/chromium');
 const fs = require('fs');
 const { runOnPageChecks } = require('../checks/onpage');
 const { discoverLinks } = require('../utils/linkDiscovery');
+// The SSRF guard. Lives under contentArchitect because that module needed it
+// first, but it is generic (assertPublicHost / isBlockedIp / UnsafeUrlError) and
+// is imported here rather than reimplemented — see the note at its call site.
+const { assertPublicHost } = require('../modules/contentArchitect/urlSafety');
 
 function findLocalBrowser() {
   const candidates = [
@@ -368,6 +372,27 @@ const EFFORT_TIME_MAP = {
   mcp: '2–4 wks', agentskills: '4–6 wks', webmcp: '4–8 wks', captcha: '2–4 wks',
 };
 
+// Everything interpolated into the template below arrives as `data` from
+// POST /pdf, which passes `req.body` through verbatim — so it is
+// caller-controlled text being written into HTML that puppeteer then renders,
+// with --no-sandbox whenever a local Chrome is used. Unescaped, a body like
+//   { site: {...}, checks: [{ detail: "<img src=x onerror=fetch('http://169.254.169.254/…')>" }] }
+// executed in that browser context, and `waitUntil: 'networkidle0'` politely
+// waited for the injected request to finish. The same applied inside style
+// attributes (`width:${w}%`, `color:${col}`), where a crafted value breaks out
+// of the attribute.
+//
+// Values DERIVED here — badge colours, the bar colour from a numeric score —
+// come from literal palettes and are safe; everything that originates in `data`
+// is escaped, and anything used in a numeric CSS position is coerced to a number.
+const esc = (v) => String(v == null ? '' : v)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+
 function buildPdfHtml(data) {
   const { site, cats, checks, cmoBrief, onPageChecks } = data;
   const allChecks = [...(checks || []), ...(onPageChecks || [])];
@@ -396,30 +421,30 @@ function buildPdfHtml(data) {
     return `
     <div style="border:1px solid #E5E7EB;border-radius:8px;padding:14px 16px;margin-bottom:10px;page-break-inside:avoid;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-        <span style="background:${badgeBg};color:${badgeColor};padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;white-space:nowrap;">${badgeIcon} ${badgeLabel}</span>
-        <span style="font-weight:600;font-size:13px;flex:1;">${c.label}</span>
-        <span style="font-size:11px;color:#6B7280;white-space:nowrap;">${c.cat || ''}</span>
-        ${effort ? `<span style="font-size:10px;color:#6B7280;border:1px solid #D1D5DB;padding:1px 6px;border-radius:3px;white-space:nowrap;">${effort} effort</span>` : ''}
+        <span style="background:${badgeBg};color:${badgeColor};padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;white-space:nowrap;">${badgeIcon} ${esc(badgeLabel)}</span>
+        <span style="font-weight:600;font-size:13px;flex:1;">${esc(c.label)}</span>
+        <span style="font-size:11px;color:#6B7280;white-space:nowrap;">${esc(c.cat || '')}</span>
+        ${effort ? `<span style="font-size:10px;color:#6B7280;border:1px solid #D1D5DB;padding:1px 6px;border-radius:3px;white-space:nowrap;">${esc(effort)} effort</span>` : ''}
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;${showDetail || c.action ? 'margin-bottom:8px;' : ''}">
         <div style="background:#F9FAFB;border-radius:6px;padding:8px 10px;">
           <div style="font-size:9px;color:#9CA3AF;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px;font-weight:600;">Technical finding</div>
-          <div style="font-size:11px;color:#374151;line-height:1.5;">${c.tech || '—'}</div>
+          <div style="font-size:11px;color:#374151;line-height:1.5;">${esc(c.tech || '—')}</div>
         </div>
         <div style="background:#F9FAFB;border-radius:6px;padding:8px 10px;">
           <div style="font-size:9px;color:#9CA3AF;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px;font-weight:600;">Business impact</div>
-          <div style="font-size:11px;color:#374151;line-height:1.5;">${c.business || '—'}</div>
+          <div style="font-size:11px;color:#374151;line-height:1.5;">${esc(c.business || '—')}</div>
         </div>
       </div>
       ${showDetail ? `
       <div style="background:#FAEEDA;border-left:3px solid #EF9F27;border-radius:6px;padding:8px 10px;${c.action ? 'margin-bottom:8px;' : ''}">
         <div style="font-size:9px;font-weight:600;color:#92400E;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px;">Specific issues found</div>
-        <div style="font-size:11px;color:#374151;line-height:1.5;">${c.detail}</div>
+        <div style="font-size:11px;color:#374151;line-height:1.5;">${esc(c.detail)}</div>
       </div>` : ''}
       ${c.action ? `
       <div style="background:#E6F1FB;border-left:3px solid #185FA5;border-radius:6px;padding:8px 10px;">
         <div style="font-size:9px;font-weight:600;color:#185FA5;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px;">Recommended action</div>
-        <div style="font-size:11px;color:#374151;line-height:1.5;">${c.action}</div>
+        <div style="font-size:11px;color:#374151;line-height:1.5;">${esc(c.action)}</div>
       </div>` : ''}
     </div>`;
   }).join('');
@@ -430,33 +455,33 @@ function buildPdfHtml(data) {
     return `
     <div style="margin-bottom:12px;">
       <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-        <span style="font-size:12px;color:#6B7280;">${cat.id}</span>
-        <span style="font-size:12px;font-weight:500;color:${col};">${cat.score}</span>
+        <span style="font-size:12px;color:#6B7280;">${esc(cat.id)}</span>
+        <span style="font-size:12px;font-weight:500;color:${col};">${esc(cat.score)}</span>
       </div>
       <div style="height:6px;border-radius:3px;background:#F3F4F6;overflow:hidden;">
-        <div style="height:100%;width:${w}%;background:${col};border-radius:3px;"></div>
+        <div style="height:100%;width:${num(w)}%;background:${col};border-radius:3px;"></div>
       </div>
-      <div style="font-size:11px;color:#9CA3AF;margin-top:2px;">${cat.passed} of ${cat.total} passed</div>
+      <div style="font-size:11px;color:#9CA3AF;margin-top:2px;">${esc(cat.passed)} of ${esc(cat.total)} passed</div>
     </div>`;
   }).join('');
 
   const brief = cmoBrief ? `
     <div style="background:#EEEDFE;border-radius:10px;padding:16px 20px;margin-bottom:24px;">
       <div style="font-size:10px;font-weight:600;color:#534AB7;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">✦ Executive Summary</div>
-      <p style="font-size:16px;font-weight:500;color:#111827;margin:0 0 8px;line-height:1.4;">${cmoBrief.headline}</p>
-      <p style="font-size:12px;color:#6B7280;margin:0 0 12px;line-height:1.7;">${cmoBrief.summary}</p>
+      <p style="font-size:16px;font-weight:500;color:#111827;margin:0 0 8px;line-height:1.4;">${esc(cmoBrief.headline)}</p>
+      <p style="font-size:12px;color:#6B7280;margin:0 0 12px;line-height:1.7;">${esc(cmoBrief.summary)}</p>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
         <div style="background:#FCEBEB;border-radius:6px;padding:8px 10px;">
           <div style="font-size:10px;font-weight:600;color:#A32D2D;margin-bottom:4px;">TOP RISK</div>
-          <p style="font-size:11px;color:#791F1F;margin:0;line-height:1.5;">${cmoBrief.risk}</p>
+          <p style="font-size:11px;color:#791F1F;margin:0;line-height:1.5;">${esc(cmoBrief.risk)}</p>
         </div>
         <div style="background:#EAF3DE;border-radius:6px;padding:8px 10px;">
           <div style="font-size:10px;font-weight:600;color:#3B6D11;margin-bottom:4px;">60-DAY OPPORTUNITY</div>
-          <p style="font-size:11px;color:#27500A;margin:0;line-height:1.5;">${cmoBrief.opportunity}</p>
+          <p style="font-size:11px;color:#27500A;margin:0;line-height:1.5;">${esc(cmoBrief.opportunity)}</p>
         </div>
         <div style="background:#E6F1FB;border-radius:6px;padding:8px 10px;">
           <div style="font-size:10px;font-weight:600;color:#185FA5;margin-bottom:4px;">COMPETITIVE CONTEXT</div>
-          <p style="font-size:11px;color:#0C447C;margin:0;line-height:1.5;">${cmoBrief.competitive}</p>
+          <p style="font-size:11px;color:#0C447C;margin:0;line-height:1.5;">${esc(cmoBrief.competitive)}</p>
         </div>
       </div>
     </div>` : '';
@@ -536,11 +561,11 @@ function buildPdfHtml(data) {
   <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid #E5E7EB;">
     <div>
       <div style="font-size:10px;color:#9CA3AF;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">Agent Readiness Audit</div>
-      <h1>${site.url}</h1>
-      <div style="font-size:13px;color:#6B7280;margin-top:4px;">${site.level} &nbsp;·&nbsp; Scanned ${site.date}</div>
+      <h1>${esc(site.url)}</h1>
+      <div style="font-size:13px;color:#6B7280;margin-top:4px;">${esc(site.level)} &nbsp;·&nbsp; Scanned ${esc(site.date)}</div>
     </div>
     <div style="text-align:right;">
-      <div style="font-size:36px;font-weight:600;color:${scoreColor};line-height:1;">${site.score}</div>
+      <div style="font-size:36px;font-weight:600;color:${scoreColor};line-height:1;">${esc(site.score)}</div>
       <div style="font-size:11px;color:#9CA3AF;">out of 100</div>
       <div style="margin-top:6px;font-size:11px;">
         <span style="color:#3B6D11;">✓ ${pass} passed</span> &nbsp;
@@ -562,7 +587,7 @@ function buildPdfHtml(data) {
   <div>${checkCards}</div>
 
   <div style="margin-top:24px;padding-top:16px;border-top:1px solid #E5E7EB;">
-    <p style="font-size:12px;color:#6B7280;line-height:1.6;">This report covers ${allChecks.length} checks across HTTP discoverability, bot access, API/auth/MCP protocols, and on-page agent signals. Scores are weighted by business impact. On-page checks require browser rendering and are only available when additional URLs are provided. Generated by Arena · ${site.date}</p>
+    <p style="font-size:12px;color:#6B7280;line-height:1.6;">This report covers ${allChecks.length} checks across HTTP discoverability, bot access, API/auth/MCP protocols, and on-page agent signals. Scores are weighted by business impact. On-page checks require browser rendering and are only available when additional URLs are provided. Generated by Arena · ${esc(site.date)}</p>
   </div>
 </body>
 </html>`;
@@ -623,6 +648,34 @@ async function runAgentReadiness({ url, url_homepage, url_action, url_form, skip
     url_action: parseOptional(url_action),
     url_form: parseOptional(url_form),
   };
+
+  // SSRF guard. Everything below fetches these URLs from the server, and
+  // safeFetch() is deliberately permissive — validateStatus: () => true and
+  // maxRedirects: 3 — so a 401 or a redirect into a private network still comes
+  // back as status, headers and body, and the check results carry that outward.
+  //
+  // Without this a signed-in caller could aim the audit at
+  // http://169.254.169.254/latest/meta-data/ (the cloud instance-metadata
+  // address, and 169.254.0.0/16 is one of the ranges blocked below), or at any
+  // internal host the container can route to and their own browser cannot. That
+  // is a privilege boundary, not merely an odd input.
+  //
+  // Reuses modules/contentArchitect/urlSafety rather than adding a third
+  // implementation — the repo already has that one and crawlScope's
+  // net/guard.js, both tested. It resolves the name and rejects if ANY returned
+  // address is private, which a hostname allowlist alone would not catch.
+  // Redirects remain a gap here: axios follows up to 3 hops itself, so a public
+  // host that 302s to a private one is still reachable. Closing that needs
+  // fetchSafe()'s per-hop validation, which is a larger change to safeFetch().
+  await Promise.all(
+    Object.values(urls).filter(Boolean).map(async (u) => {
+      try {
+        await assertPublicHost(new URL(u).hostname);
+      } catch (e) {
+        throw Object.assign(new Error(e.message), { status: 400 });
+      }
+    }),
+  );
 
   try {
     // Run HTTP checks and on-page checks in parallel

@@ -3,6 +3,8 @@
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
+// SSRF guard, shared with contentArchitect rather than reimplemented (see call site).
+const { assertPublicHost } = require('../modules/contentArchitect/urlSafety');
 const OpenAI = require('openai');
 const { runContentEnhancementChecks } = require('../checks/contentEnhancementChecks');
 const { searchGoogle } = require('../services/googleSearch');
@@ -987,6 +989,18 @@ function mergeRecommendations(ai, baseline) {
 router.post('/run', async (req, res) => {
   const { inputMode, url, html, primaryKeyword, pageType, clientContext } = req.body || {};
   const mode = inputMode === 'url' ? 'url' : 'html';
+
+  // SSRF guard — see the note in routes/agentReadinessAudit.js. The URL is
+  // fetched by this server, so a parseable string is not the same as a host this
+  // server should be made to reach: 169.254.169.254 (cloud instance metadata)
+  // and every private range are refused here rather than fetched.
+  if (mode === 'url' && url) {
+    try {
+      await assertPublicHost(new URL(String(url).startsWith('http') ? url : `https://${url}`).hostname);
+    } catch (e) {
+      return res.status(400).json({ error: e.message });
+    }
+  }
 
   try {
     let rawHtml = '';

@@ -7,6 +7,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const { resolveDataRoot } = require('../../services/dataRoot');
+const { assertSafeFileId } = require('../../services/safeFileId');
 
 // Ephemeral inside the image on a container platform; see services/dataRoot.js.
 const DATA_ROOT = resolveDataRoot(
@@ -21,11 +22,43 @@ async function ensureDataRoot() {
   if (!fsSync.existsSync(DATA_ROOT)) await fs.mkdir(DATA_ROOT, { recursive: true });
 }
 
+// Windows refuses a rename onto a path another handle still holds open, and a
+// virus scanner or search indexer takes one for a few milliseconds after a file
+// is written. That is transient by nature, so it is retried rather than failed.
+const RENAME_RETRIES = 5;
+const RENAME_BACKOFF_MS = 20;
+
 async function writeAtomic(filePath, data) {
   await ensureDataRoot();
-  const tmp = `${filePath}.tmp`;
+
+  // The temp name is unique per write, not a shared `${filePath}.tmp`.
+  //
+  // With a shared name, two concurrent writes to the same file race on one temp
+  // path: both write it, both try to rename it, and the loser either fails with
+  // EPERM (Windows) or silently renames the winner's half-written bytes over the
+  // destination (POSIX). mutateProjects() serializes writes to projects.json,
+  // but nothing serializes the per-project sidecars, and two requests touching
+  // one project's analysis is ordinary. A unique temp path makes the rename the
+  // only contended step, which is the one step the filesystem makes atomic.
+  const tmp = `${filePath}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
   await fs.writeFile(tmp, JSON.stringify(data, null, 2), 'utf8');
-  await fs.rename(tmp, filePath);
+
+  let lastError;
+  for (let attempt = 0; attempt < RENAME_RETRIES; attempt += 1) {
+    try {
+      await fs.rename(tmp, filePath);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (error.code !== 'EPERM' && error.code !== 'EACCES' && error.code !== 'EBUSY') break;
+      await new Promise((r) => setTimeout(r, RENAME_BACKOFF_MS * 2 ** attempt));
+    }
+  }
+
+  // Never leave the temp file behind: the data root is listed elsewhere, and a
+  // stray `.tmp` there reads as a real sidecar with a corrupt name.
+  await fs.rm(tmp, { force: true }).catch(() => {});
+  throw lastError;
 }
 
 async function readJson(filePath, fallback) {
@@ -38,10 +71,17 @@ async function readJson(filePath, fallback) {
 }
 
 const projectsFile = () => path.join(DATA_ROOT, 'projects.json');
-const patternsFile = (id) => path.join(DATA_ROOT, `${id}_patterns.json`);
-const urlsFile = (id) => path.join(DATA_ROOT, `${id}_urls.json`);
-const clustersFile = (id) => path.join(DATA_ROOT, `${id}_clusters.json`); // Stage 3 draft clusters only
-const fullAnalysisFile = (id) => path.join(DATA_ROOT, `${id}_full_analysis.json`); // Stage 4-7 real analysis
+// Every sidecar path is built from an id that reaches this module straight from
+// req.params. path.join resolves `..` silently, so `../../x` yielded a path
+// OUTSIDE DATA_ROOT and the store then read, wrote or unlinked there — and
+// deleteProject() unlinks all four of these, which made DELETE
+// /projects/:id an arbitrary file delete for anything ending in these suffixes.
+// Validated here, at the interpolation itself, so no caller can bypass it.
+const sid = (id) => assertSafeFileId(id, 'projectId');
+const patternsFile = (id) => path.join(DATA_ROOT, `${sid(id)}_patterns.json`);
+const urlsFile = (id) => path.join(DATA_ROOT, `${sid(id)}_urls.json`);
+const clustersFile = (id) => path.join(DATA_ROOT, `${sid(id)}_clusters.json`); // Stage 3 draft clusters only
+const fullAnalysisFile = (id) => path.join(DATA_ROOT, `${sid(id)}_full_analysis.json`); // Stage 4-7 real analysis
 
 // Creation, background analysis and UI requests can update the list together.
 // Serialize read/modify/write operations so one does not erase another's entry.

@@ -76,9 +76,27 @@ create table if not exists category_rule (
   created_at timestamptz not null default now()
 );
 
-alter table page_category
-  add constraint page_category_client_rule_fk
-  foreign key (client_rule_id) references category_rule(id) on delete set null;
+-- Guarded like every other constraint in this schema (see 0012, 0027). Postgres
+-- has no ADD CONSTRAINT IF NOT EXISTS, and this statement was the one piece of
+-- DDL in this file that was not re-runnable — the two create tables and both
+-- indexes above all carry `if not exists`.
+--
+-- It matters for a database that had 0022 applied by hand before the migration
+-- runner existed and was never baselined: the runner sees 0022 as pending,
+-- re-runs it, and this line raises 42710 (constraint already exists). The
+-- runner stops at the first failure by design, so that one statement blocks
+-- 0023 through 0027 as well. Wrapping it costs nothing and removes the trap.
+do $mig$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'page_category_client_rule_fk'
+  ) then
+    alter table page_category
+      add constraint page_category_client_rule_fk
+      foreign key (client_rule_id) references category_rule(id) on delete set null;
+  end if;
+end
+$mig$;
 
 create index if not exists idx_category_rule_project on category_rule (project_id, priority);
 

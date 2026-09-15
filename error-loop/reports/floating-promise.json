@@ -1,0 +1,13 @@
+{
+  "generatedAt": "2026-09-13T18:13:35.968Z",
+  "targets": [
+    "server"
+  ],
+  "findings": [
+    {
+      "file": "server/scripts/auditPages.js",
+      "line": 90,
+      "name": "main"
+    }
+  ]
+}

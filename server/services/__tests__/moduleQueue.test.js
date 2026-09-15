@@ -19,6 +19,7 @@ const assert = require('assert');
 require('dotenv').config({ path: require('path').join(__dirname, '../../../.env') });
 
 const { useTestDatabase } = require('./helpers/testDatabase');
+const { createProjectFixture, dropProjectFixture } = require('./helpers/projectFixture');
 
 const db = require('../db');
 const queue = require('../moduleQueue');
@@ -57,20 +58,24 @@ async function insertRun(over = {}) {
 
 const readRun = (id) => db.one(`select * from project_module_runs where id = $1`, [id]);
 
+// A project is a workspace + membership + row + active primary domain, and
+// since migration 0027 the database rejects anything less at COMMIT. The helper
+// builds the whole aggregate so a fixture that is missing a domain cannot look
+// like a queue bug.
+let fixture = null;
+
 async function setup() {
-  ownerId = (await db.one(
-    `insert into app_users (email) values ($1) returning id`,
-    [`_queuetest_${Date.now()}@position2.com`]
-  )).id;
-  projectId = (await db.one(
-    `insert into crawl_projects (owner, url, cron, name) values ($1, $2, $3, $4) returning id`,
-    [ownerId, 'https://queue-selftest.invalid', '0 3 * * *', 'moduleQueue self-test']
-  )).id;
+  fixture = await createProjectFixture({
+    prefix: 'queuetest',
+    url: 'https://queue-selftest.invalid',
+    name: 'moduleQueue self-test',
+  });
+  ownerId = fixture.userId;
+  projectId = fixture.projectId;
 }
 
 async function teardown() {
-  if (projectId) await db.query(`delete from crawl_projects where id = $1`, [projectId]);
-  if (ownerId) await db.query(`delete from app_users where id = $1`, [ownerId]);
+  await dropProjectFixture(fixture);
   await db.end();
 }
 

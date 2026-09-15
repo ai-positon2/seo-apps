@@ -830,7 +830,13 @@ export default function AgentReadinessAuditPage() {
                         color: delta.diff > 0 ? 'var(--success)' : delta.diff < 0 ? 'var(--warning)' : 'var(--text-2)',
                         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
                         <span>{delta.diff > 0 ? `↑ ${delta.diff} pts` : delta.diff < 0 ? `↓ ${Math.abs(delta.diff)} pts` : 'No change'} since {delta.prevDate}</span>
-                        <button type="button" onClick={() => { setDelta(null); localStorage.removeItem(`ara_last_${new URL(result.site.full).hostname}`); }}
+                        {/* Wrapped like the read and write of this same key above:
+                            accessing localStorage THROWS outright when site data is
+                            blocked, so an unguarded removeItem here threw inside the
+                            click handler. React does not route event-handler errors to
+                            an error boundary, so it surfaced as an uncaught exception
+                            while the dismissal appeared to half-work. */}
+                        <button type="button" onClick={() => { setDelta(null); try { localStorage.removeItem(`ara_last_${new URL(result.site.full).hostname}`); } catch { /* storage blocked — the dismissal still applies to this view */ } }}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 12, padding: 0, lineHeight: 1 }}>&times;</button>
                       </div>
                     )}

@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
-import { useEffect } from 'react';
+import { lazy, useEffect } from 'react';
 import { getToolByPath } from './toolsMeta';
 import { notifyRouteChange } from './lib/agentRunSignal';
 import { ThemeProvider } from './components/ThemeContext';
@@ -8,40 +8,53 @@ import { useAuth } from './context/AuthContext';
 import MacWindow from './components/MacWindow';
 import LoginPage from './pages/LoginPage';
 import ProfileSetupPage from './pages/ProfileSetupPage';
-import WorkspacesPage from './pages/WorkspacesPage';
-import ProjectsPage from './pages/ProjectsPage';
-import AdminPage from './pages/AdminPage';
-import RunsPage from './pages/RunsPage';
-import HomePage from './pages/HomePage';
-import ContentResearchPage from './pages/ContentResearchPage';
-import KeywordResearchPage from './pages/KeywordResearchPage';
-import KeywordResearchPublicPage from './pages/KeywordResearchPublicPage';
-import KnowledgeBasePage from './pages/KnowledgeBasePage';
-import KBEditorPage from './pages/KBEditorPage';
-import CreateKBPage from './pages/CreateKBPage';
-import ModuleAuditPage from './pages/ModuleAuditPage';
-import ClientFeedbackPage from './pages/ClientFeedbackPage';
-import ArticleRecommendationPage from './pages/ArticleRecommendationPage';
-import ImageAltAuditPage from './pages/ImageAltAuditPage';
-import AgentReadinessAuditPage from './pages/AgentReadinessAuditPage';
-import AgentReadinessSummaryPage from './pages/AgentReadinessSummaryPage';
-import SeoGeoAuditPage from './pages/SeoGeoAuditPage';
-import AiVisibilityPage from './pages/AiVisibilityPage';
-import ContentEnhancementPage from './pages/ContentEnhancementPage';
-import ArticleEnhancementPage from './pages/ArticleEnhancementPage';
-import ArticleEnhancementLitePage from './pages/ArticleEnhancementLitePage';
-import LocationPageBuilderPage from './pages/LocationPageBuilderPage';
-import LocationPageDetailPage from './pages/LocationPageDetailPage';
-import LocationServiceWizardPage from './pages/LocationServiceWizardPage';
-import GentleDentalPagesPage from './pages/GentleDentalPagesPage';
-import ClearBehavioralHealthPage from './pages/ClearBehavioralHealthPage';
-import RobotsMonitorPage from './pages/RobotsMonitorPage';
-import MarketPotentialPage from './pages/MarketPotentialPage';
-import CompetitorAnalysisDashboardPage from './pages/CompetitorAnalysisDashboardPage';
-import ContentArchitectPage from './pages/ContentArchitectPage';
-import ContentArchitectProjectPage from './pages/ContentArchitectProjectPage';
-import CrawlScopePage from './pages/CrawlScopePage';
-import CrawlScopeRunPage from './pages/CrawlScopeRunPage';
+
+// Every page below is fetched on first navigation rather than shipped in the
+// entry bundle. MacWindow already wraps <Outlet /> in <Suspense> (see the note
+// above RouteFallback there, which describes routes as code-split); this is the
+// half that was never done, so those boundaries had nothing to wait on and the
+// whole app -- 36 pages, an Excel writer, a Word writer, a markdown editor and a
+// US state map -- was one 3.1 MB chunk that every visitor parsed before the
+// login screen could paint.
+//
+// LoginPage and ProfileSetupPage stay static on purpose: they render above
+// <Routes>, outside every Suspense boundary, so a lazy one would throw a promise
+// with nothing to catch it -- and the unauthenticated path is the last place to
+// add a round trip.
+const WorkspacesPage = lazy(() => import('./pages/WorkspacesPage'));
+const ProjectsPage = lazy(() => import('./pages/ProjectsPage'));
+const AdminPage = lazy(() => import('./pages/AdminPage'));
+const RunsPage = lazy(() => import('./pages/RunsPage'));
+const HomePage = lazy(() => import('./pages/HomePage'));
+const ContentResearchPage = lazy(() => import('./pages/ContentResearchPage'));
+const KeywordResearchPage = lazy(() => import('./pages/KeywordResearchPage'));
+const KeywordResearchPublicPage = lazy(() => import('./pages/KeywordResearchPublicPage'));
+const KnowledgeBasePage = lazy(() => import('./pages/KnowledgeBasePage'));
+const KBEditorPage = lazy(() => import('./pages/KBEditorPage'));
+const CreateKBPage = lazy(() => import('./pages/CreateKBPage'));
+const ModuleAuditPage = lazy(() => import('./pages/ModuleAuditPage'));
+const ClientFeedbackPage = lazy(() => import('./pages/ClientFeedbackPage'));
+const ArticleRecommendationPage = lazy(() => import('./pages/ArticleRecommendationPage'));
+const ImageAltAuditPage = lazy(() => import('./pages/ImageAltAuditPage'));
+const AgentReadinessAuditPage = lazy(() => import('./pages/AgentReadinessAuditPage'));
+const AgentReadinessSummaryPage = lazy(() => import('./pages/AgentReadinessSummaryPage'));
+const SeoGeoAuditPage = lazy(() => import('./pages/SeoGeoAuditPage'));
+const AiVisibilityPage = lazy(() => import('./pages/AiVisibilityPage'));
+const ContentEnhancementPage = lazy(() => import('./pages/ContentEnhancementPage'));
+const ArticleEnhancementPage = lazy(() => import('./pages/ArticleEnhancementPage'));
+const ArticleEnhancementLitePage = lazy(() => import('./pages/ArticleEnhancementLitePage'));
+const LocationPageBuilderPage = lazy(() => import('./pages/LocationPageBuilderPage'));
+const LocationPageDetailPage = lazy(() => import('./pages/LocationPageDetailPage'));
+const LocationServiceWizardPage = lazy(() => import('./pages/LocationServiceWizardPage'));
+const GentleDentalPagesPage = lazy(() => import('./pages/GentleDentalPagesPage'));
+const ClearBehavioralHealthPage = lazy(() => import('./pages/ClearBehavioralHealthPage'));
+const RobotsMonitorPage = lazy(() => import('./pages/RobotsMonitorPage'));
+const MarketPotentialPage = lazy(() => import('./pages/MarketPotentialPage'));
+const CompetitorAnalysisDashboardPage = lazy(() => import('./pages/CompetitorAnalysisDashboardPage'));
+const ContentArchitectPage = lazy(() => import('./pages/ContentArchitectPage'));
+const ContentArchitectProjectPage = lazy(() => import('./pages/ContentArchitectProjectPage'));
+const CrawlScopePage = lazy(() => import('./pages/CrawlScopePage'));
+const CrawlScopeRunPage = lazy(() => import('./pages/CrawlScopeRunPage'));
 
 // Keeps the parent Intelligence Platform shell's URL + breadcrumb in sync with
 // the tool the user navigates to here. The shell embeds us in a cross-origin

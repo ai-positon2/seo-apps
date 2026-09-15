@@ -6,8 +6,16 @@
 // project-scoped read and write must therefore carry the workspace filter
 // itself, and a route that forgets is not a failed request —
 // it is a silent cross-tenant read. Centralizing it means there is exactly one
-// implementation to review, and the tests in
-// server/services/__tests__/projectAccess.test.js pin its decisions.
+// implementation to review, and the "Workspace authorization — role
+// capabilities" section of server/services/__tests__/platformFoundation.test.js
+// pins its decisions.
+//
+// What that section covers is the capability TABLE — capabilityFor, role
+// normalization, the propose verdict, platform-admin behaviour. What it does
+// not yet cover is requireWorkspace/requireProject, which touch the database:
+// membership resolution, the legacy owner fallback, and the rule that a project
+// in another workspace answers 404 rather than 403 (AC-001). Those need the
+// database-backed harness (services/__tests__/helpers/testDatabase.js).
 //
 // Two boundaries, in order:
 //   1. Workspace membership. `crawl_projects.workspace_id` is the boundary
@@ -41,6 +49,17 @@ const CAPABILITIES = {
   //                            contributor  approver  admin  owner  platformAdmin
   view:                        [true,        true,     true,  true,  true],
   startRun:                    [true,        true,     true,  true,  true],
+  // Adding a NEW project is open to every member of a workspace, which is why
+  // this is its own capability rather than a reuse of editProjectSettings.
+  // The two are different acts: creating a project brings a site under the
+  // team's view, and changing an existing project's settings alters something
+  // colleagues already rely on. Gating creation behind the edit capability made
+  // a contributor unable to bring in their own client's site at all — the one
+  // thing everyone needs to do to start working.
+  //
+  // The workspace is still the boundary: this says what a MEMBER may do, and
+  // requireWorkspace has already established membership before consulting it.
+  createProject:               [true,        true,     true,  true,  true],
   editProjectSettings:         [false,       true,     true,  true,  true],
   manageCompetitors:           ['propose',   true,     true,  true,  true],
   reviewFinding:               [true,        true,     true,  true,  true],
@@ -111,8 +130,64 @@ function notConfigured() {
 // ── Membership ──────────────────────────────────────────────────────────────
 
 /** The caller's role in a workspace, or null if they are not a member. */
+// This lookup runs on EVERY project-scoped request -- which means every tick of
+// the dashboard's 4-second crawl-status poll and its 8-second overview poll.
+// Measured against the configured database, a trivial round trip costs ~260ms,
+// so this single membership check was a quarter of a second added to every one
+// of those, doing no work anybody was waiting to read.
+//
+// Cached the way platformAdmin.js caches the same kind of decision, and with the
+// same discipline: a short TTL, plus an explicit invalidate() that every
+// membership mutation calls, so a role change or a removal takes effect on the
+// next request rather than at the end of a window.
+//
+// Only POSITIVE answers are cached. A null role means "not a member", and that
+// is precisely the state that flips the moment someone is added to a workspace
+// -- identityStore inserts a membership row when a workspace is created, so
+// caching the negative would lock a person out of a workspace they had just
+// made. A non-member arriving here is the error path and can pay the query.
+const ROLE_TTL_MS = 30 * 1000;
+const ROLE_CACHE_MAX = 5000;
+const roleCache = new Map(); // `${workspaceId}|${userId}` -> { value, expires }
+
+const roleKey = (workspaceId, userId) => `${workspaceId}|${userId}`;
+
+function roleCacheGet(key) {
+  const hit = roleCache.get(key);
+  if (!hit) return undefined;
+  if (hit.expires < Date.now()) { roleCache.delete(key); return undefined; }
+  return hit.value;
+}
+
+function roleCacheSet(key, value) {
+  // Bounded, unlike the other in-process caches in this directory: evict the
+  // entry closest to expiry rather than letting the map grow for the life of
+  // the process. The cap is far above any real concurrent-user count, so this
+  // branch is effectively unreachable in practice.
+  if (roleCache.size >= ROLE_CACHE_MAX) {
+    let oldestKey = null; let oldest = Infinity;
+    for (const [k, v] of roleCache) { if (v.expires < oldest) { oldest = v.expires; oldestKey = k; } }
+    if (oldestKey) roleCache.delete(oldestKey);
+  }
+  roleCache.set(key, { value, expires: Date.now() + ROLE_TTL_MS });
+}
+
+/**
+ * Drops cached membership. Called by identityStore whenever a member is added,
+ * has their role changed, or is removed. With no arguments, clears everything.
+ */
+function invalidateRole(workspaceId, userId) {
+  if (workspaceId && userId) roleCache.delete(roleKey(workspaceId, userId));
+  else if (workspaceId) {
+    for (const k of roleCache.keys()) if (k.startsWith(`${workspaceId}|`)) roleCache.delete(k);
+  } else roleCache.clear();
+}
+
 async function workspaceRole(workspaceId, userId) {
   if (!workspaceId || !userId) return null;
+  const key = roleKey(workspaceId, userId);
+  const cached = roleCacheGet(key);
+  if (cached !== undefined) return cached;
   let data;
   try {
     data = await db.maybeOne(
@@ -122,7 +197,9 @@ async function workspaceRole(workspaceId, userId) {
   } catch (error) {
     throw new Error(`[projectAccess.workspaceRole] ${error.message}`);
   }
-  return data ? normalizeRole(data.role) : null;
+  const role = data ? normalizeRole(data.role) : null;
+  if (role) roleCacheSet(key, role);
+  return role;
 }
 
 /**
@@ -164,9 +241,16 @@ async function requireWorkspace(req, workspaceId, capability) {
   // the database layer — importing at module load would make this file's
   // require graph fan out into the audit trail for a plain membership check.
   const platformAdmin = require('./platformAdmin');
-  const isAdmin = await platformAdmin.isPlatformAdmin({ email: actorEmail, userId });
 
-  const role = await workspaceRole(workspaceId, userId);
+  // Independent of each other: one asks whether this email holds a platform
+  // grant, the other whether this user is a member of this workspace. They were
+  // awaited in series, which at ~260ms per round trip made every project request
+  // pay half a second before its handler began. Neither writes anything, so
+  // running them together changes nothing except what they cost.
+  const [isAdmin, role] = await Promise.all([
+    platformAdmin.isPlatformAdmin({ email: actorEmail, userId }),
+    workspaceRole(workspaceId, userId),
+  ]);
   if (!role && !isAdmin) throw notFound('Workspace not found.');
 
   const context = {
@@ -213,30 +297,56 @@ async function requireProject(req, projectId, capability, { includeDeleted = fal
   if (!project) throw notFound();
   if (!includeDeleted && project.lifecycle_status === 'deleted') throw notFound();
 
-  // A project that predates migration 0011's backfill has no workspace. It
-  // cannot be authorized by the workspace boundary, so fall back to its
-  // creator — the rule 0010 shipped — rather than either exposing it to a
-  // whole workspace or hiding a user's own project from them.
-  if (!project.workspace_id) {
-    if (project.owner !== userId) throw notFound();
-    const context = {
-      workspaceId: null,
-      userId,
-      actorEmail: req.user?.username || null,
-      role: 'owner',
-      isPlatformAdmin: false,
-      legacyOwnerScoped: true,
-      capabilities: capabilityMap('owner'),
-      project,
-    };
-    context.can = (name) => capabilityFor('owner', name);
-    if (capability) assertCapability(context, capability);
-    return context;
-  }
-
+  // There used to be a fallback here for a project with no workspace: authorize
+  // it by its creator instead, because the workspace boundary had nothing to
+  // check. Migration 0027 made crawl_projects.workspace_id NOT NULL and
+  // backfilled every row, so that branch became unreachable and is gone.
+  //
+  // It is worth knowing why it is not merely dead but unwanted: it was a SECOND
+  // authorization rule, reachable only for rows in a state the schema now
+  // forbids, granting full 'owner' capabilities off a column (`owner`) that
+  // §7.4 says must never decide access. One boundary is reviewable; two, where
+  // the second is rarely exercised, is how a gap survives.
   const context = await requireWorkspace(req, project.workspace_id);
   context.project = project;
+  applyCreatorGrant(context, project);
   if (capability) assertCapability(context, capability);
+  return context;
+}
+
+// ── The creator's grant on their own project ────────────────────────────────
+// Every workspace member may create a project ('createProject'). Without this,
+// a contributor who did so could not then rename it, correct its country, or
+// set its primary domain — they would have to ask an approver to finish
+// something they started, over a typo.
+//
+// So the person who created a project may edit that project, whatever their
+// role. It is scoped to the single project they own: a contributor still cannot
+// edit a colleague's project, which is what editProjectSettings is protecting.
+//
+// Deliberately just this one capability. 'manageCompetitors' is NOT included —
+// a competitor costs metered SEMrush units per domain and the propose/approve
+// path exists for that review, so a contributor's additions keep going through
+// it. (They can still name competitors at setup, which is charged the same way;
+// if that inconsistency matters, widen this list rather than the role table.)
+//
+// Nothing about approval, deletion or workspace administration is here:
+// approveRecommendation, purgeProject and manageWorkspaceMembers stay with the
+// roles that hold them, on your own project as much as anyone else's.
+const CREATOR_CAPABILITIES = ['editProjectSettings'];
+
+/**
+ * Upgrades a context in place when the caller created the project.
+ * A no-op for everyone else, so the role table is the rule and this is the
+ * single, named exception to it.
+ */
+function applyCreatorGrant(context, project) {
+  if (!project || !project.owner || project.owner !== context.userId) return context;
+
+  context.isCreator = true;
+  const roleVerdict = context.can;
+  context.can = (name) => (CREATOR_CAPABILITIES.includes(name) ? true : roleVerdict(name));
+  for (const name of CREATOR_CAPABILITIES) context.capabilities[name] = true;
   return context;
 }
 
@@ -269,10 +379,13 @@ function describeCapability(capability) {
 module.exports = {
   ROLES,
   CAPABILITIES,
+  CREATOR_CAPABILITIES,
+  applyCreatorGrant,
   normalizeRole,
   capabilityFor,
   capabilityMap,
   workspaceRole,
+  invalidateRole,
   accessibleWorkspaceIds,
   requireWorkspace,
   requireProject,

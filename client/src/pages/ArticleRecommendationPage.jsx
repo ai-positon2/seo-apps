@@ -1,5 +1,4 @@
 import { useState, useRef, useMemo } from 'react';
-import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import { saveAs } from 'file-saver';
 import { notifyAgentRunStarted, notifyAgentRunFinished } from '../lib/agentRunSignal';
 import ModuleRuns from '../components/ModuleRuns';
@@ -164,6 +163,11 @@ function BriefRenderer({ markdown }) {
 
 // Client-side .docx generator from markdown
 async function downloadDocx(keyword, markdown) {
+  // docx is ~316 kB and is reachable from one button. This function was already
+  // async and its caller already shows a spinner and disables the button for its
+  // duration (handleDownloadDocx below), so awaiting the import here is not
+  // visible to anyone using it.
+  const { Document, Packer, Paragraph, TextRun, HeadingLevel } = await import('docx');
   const lines = markdown.split('\n');
   const children = [];
 

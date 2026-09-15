@@ -1,6 +1,26 @@
 const express = require('express');
 const router = express.Router();
 
+// Express 4 does not pass a handler's rejected promise to next(), and this
+// router registers no error middleware, so an unguarded throw wrote no response
+// at all and the request hung until the client timed out. server.js's
+// process-level unhandledRejection handler logged it and the process carried on,
+// which is why it never looked like a fault.
+//
+// The store makes that reachable two ways. Its writeAtomic() does not catch, so
+// fs.writeFile/fs.rename errors surface raw — and COMPETITOR_ANALYSIS_DATA_ROOT
+// is, per services/dataRoot.js, ephemeral inside a container image. It also
+// throws DELIBERATE validation errors ('Client not found', 'domain is required',
+// 'Maximum of 4 competitors per client'), which were meant to become 4xx and
+// instead became hung requests.
+//
+// Same shape as routes/lsPages.js, routes/locationPageBuilder.js,
+// modules/crawlScope/api/routes.js and modules/contentArchitect/routes.js.
+const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch((e) => {
+  console.error(`[competitorAnalysis] ${req.method} ${req.originalUrl} failed:`, e.message);
+  if (!res.headersSent) res.status(500).json({ error: 'Something went wrong handling that request.' });
+});
+
 const store = require('./store');
 const { fetchClientDashboardData, refreshPageSpeedOnly, refreshStalePageSpeed } = require('./dataFetcher');
 const { MAX_UNITS_PER_RUN, estimateDomainCost, maxDomainsForBudget, estimateDiscoveryCost } = require('./unitCosts');
@@ -40,9 +60,9 @@ router.get('/meta', (req, res) => {
 
 // ── Clients ──────────────────────────────────────────────────────────────────
 
-router.get('/clients', async (req, res) => {
+router.get('/clients', wrap(async (req, res) => {
   res.json({ clients: await store.getClients() });
-});
+}));
 
 router.post('/clients', async (req, res) => {
   try {
@@ -58,13 +78,13 @@ router.patch('/clients/:clientId', async (req, res) => {
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
-router.delete('/clients/:clientId', async (req, res) => {
+router.delete('/clients/:clientId', wrap(async (req, res) => {
   await store.deleteClient(req.params.clientId);
   runs.delete(req.params.clientId);
   pageSpeedRuns.delete(req.params.clientId);
   contentAnalysisRuns.delete(req.params.clientId);
   res.json({ ok: true });
-});
+}));
 
 router.post('/clients/:clientId/competitors', async (req, res) => {
   try {
@@ -85,7 +105,7 @@ router.delete('/clients/:clientId/competitors/:competitorId', async (req, res) =
 // used below for the multi-minute SEMrush+PSI actions. Nothing is persisted
 // here; the frontend reviews the candidates and adds any it keeps via the
 // existing POST /competitors endpoint above, one call per candidate.
-router.post('/clients/:clientId/discover-competitors', async (req, res) => {
+router.post('/clients/:clientId/discover-competitors', wrap(async (req, res) => {
   const { clientId } = req.params;
   const client = await store.getClient(clientId);
   if (!client) return res.status(404).json({ error: 'Client not found' });
@@ -103,20 +123,20 @@ router.post('/clients/:clientId/discover-competitors', async (req, res) => {
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
-});
+}));
 
 // ── Dashboard (cached read — never triggers a fetch) ─────────────────────────
 
-router.get('/clients/:clientId/dashboard', async (req, res) => {
+router.get('/clients/:clientId/dashboard', wrap(async (req, res) => {
   const client = await store.getClient(req.params.clientId);
   if (!client) return res.status(404).json({ error: 'Client not found' });
   const snapshot = await store.getSnapshot(req.params.clientId);
   res.json({ client, snapshot });
-});
+}));
 
 // ── Run ──────────────────────────────────────────────────────────────────────
 
-router.post('/clients/:clientId/run', async (req, res) => {
+router.post('/clients/:clientId/run', wrap(async (req, res) => {
   const { clientId } = req.params;
   const client = await store.getClient(clientId);
   if (!client) return res.status(404).json({ error: 'Client not found' });
@@ -150,7 +170,7 @@ router.post('/clients/:clientId/run', async (req, res) => {
       run?.fail(err.message, { output: { clientId, clientName: client.name } });
     }
   })();
-});
+}));
 
 router.get('/clients/:clientId/run/status', (req, res) => {
   const run = runs.get(req.params.clientId);
@@ -159,7 +179,7 @@ router.get('/clients/:clientId/run/status', (req, res) => {
 
 // ── Page Speed-only refresh (no SEMrush spend) ───────────────────────────────
 
-router.post('/clients/:clientId/run-pagespeed', async (req, res) => {
+router.post('/clients/:clientId/run-pagespeed', wrap(async (req, res) => {
   const { clientId } = req.params;
   const client = await store.getClient(clientId);
   if (!client) return res.status(404).json({ error: 'Client not found' });
@@ -197,7 +217,7 @@ router.post('/clients/:clientId/run-pagespeed', async (req, res) => {
       run?.fail(err.message, { output: { clientId, clientName: client.name, force } });
     }
   })();
-});
+}));
 
 router.get('/clients/:clientId/run-pagespeed/status', (req, res) => {
   const run = pageSpeedRuns.get(req.params.clientId);
@@ -206,14 +226,14 @@ router.get('/clients/:clientId/run-pagespeed/status', (req, res) => {
 
 // ── Content Analysis (top-pages content mix + sitemap structure) ────────────
 
-router.get('/clients/:clientId/content-analysis', async (req, res) => {
+router.get('/clients/:clientId/content-analysis', wrap(async (req, res) => {
   const client = await store.getClient(req.params.clientId);
   if (!client) return res.status(404).json({ error: 'Client not found' });
   const contentAnalysis = await store.getContentAnalysis(req.params.clientId);
   res.json({ client, contentAnalysis });
-});
+}));
 
-router.post('/clients/:clientId/content-analysis/run', async (req, res) => {
+router.post('/clients/:clientId/content-analysis/run', wrap(async (req, res) => {
   const { clientId } = req.params;
   const client = await store.getClient(clientId);
   if (!client) return res.status(404).json({ error: 'Client not found' });
@@ -241,7 +261,7 @@ router.post('/clients/:clientId/content-analysis/run', async (req, res) => {
       run?.fail(err.message, { output: { clientId, clientName: client.name } });
     }
   })();
-});
+}));
 
 router.get('/clients/:clientId/content-analysis/run/status', (req, res) => {
   const run = contentAnalysisRuns.get(req.params.clientId);
@@ -313,7 +333,7 @@ router.post('/clients/:clientId/content-analysis/summary/sitemap', async (req, r
 // run, so this never makes a live SEMrush or PageSpeed call. The one thing it
 // may do is a few short GPT calls for narrative text, cached on the snapshot
 // (see reportExport.js) so repeat downloads of the same run are instant.
-router.post('/clients/:clientId/export', async (req, res) => {
+router.post('/clients/:clientId/export', wrap(async (req, res) => {
   const { clientId } = req.params;
   const client = await store.getClient(clientId);
   if (!client) return res.status(404).json({ error: 'Client not found' });
@@ -334,6 +354,6 @@ router.post('/clients/:clientId/export', async (req, res) => {
     console.error('[CompetitorAnalysis] export error:', err.message);
     res.status(500).json({ error: 'Report generation failed: ' + err.message });
   }
-});
+}));
 
 module.exports = router;

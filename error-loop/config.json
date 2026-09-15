@@ -1,0 +1,67 @@
+{
+  "_comment": "Drives the 28-loop repo error sweep. See error-loop/PLAN.md. Ledger is error-loop/PROGRESS.md.",
+
+  "_comment_gate": "All four must be green before a loop is complete. There is no lint or typecheck in this repo - no eslint, typescript, prettier or biome in any package.json, and no config file for any of them. The client is JSX built by Vite, not TypeScript. Adding a toolchain is out of scope for a defect sweep, so the gate is syntax + link integrity + tests + build.",
+  "gate": {
+    "syntax_cmd": "node --check {{FILE}}",
+    "linkcheck_cmd": "node error-loop/tools/require-graph.js",
+    "test_cmd": "npm test --prefix server",
+    "build_cmd": "npm run build --prefix client",
+    "lint_cmd": null,
+    "typecheck_cmd": null
+  },
+
+  "_comment_baseline": "Measured 2026-09-13 on branch unified-app before loop 1.",
+  "baseline": {
+    "syntax_errors": 0,
+    "server_tests": { "pass": 191, "fail": 0 },
+    "client_build": "ok",
+    "require_graph": { "unresolved": 0, "missing_exports": 0 },
+    "working_tree": { "modified": 25, "untracked": 10, "committed": false }
+  },
+
+  "_comment_passes": "Two runs per area with different lenses, so run 2 is a second look and not a repeat. Pass A's fixes must be landed and green before Pass B on the same area starts.",
+  "passes": [
+    { "id": "A", "name": "contract", "prompt": "error-loop/prompts/pass-a-contract.md" },
+    { "id": "B", "name": "behaviour", "prompt": "error-loop/prompts/pass-b-behaviour.md" }
+  ],
+
+  "_comment_severity": "P1 and P2 are fixed in the pass that finds them. P3 is fixed only when the change is small and local. Refactors, renames, dependency bumps and style changes are out of scope.",
+  "severity": {
+    "P1": "wrong behaviour on a production path, data loss, or an auth/tenancy hole",
+    "P2": "wrong behaviour on an edge path, or a user-visible defect",
+    "P3": "latent, robustness, or cosmetic"
+  },
+
+  "_comment_verification": "The load-bearing rule. The first draft of require-graph.js reported 36 defects and every one was a false positive - a require that existed only inside a comment, and an overlapping-regex bug that ate every other name in an export list. A finding without a written failure scenario is recorded as unconfirmed, never fixed.",
+  "verification": {
+    "require_failure_scenario": true,
+    "self_test_detectors": true
+  },
+
+  "_comment_areas": "14 areas, 2 passes each = 28 loops. Ordered so foundations are correct before the code above them, and so the highest merge-risk surfaces come first.",
+  "areas": [
+    { "loops": [1, 2],   "name": "HTTP boundary & auth",      "scope": ["server/routes", "server/middleware"], "loc": 11100 },
+    { "loops": [3, 4],   "name": "Platform services",         "scope": ["server/services"], "loc": 7722 },
+    { "loops": [5, 6],   "name": "Config & bootstrap",        "scope": ["server/config", "server/jobs", "server/server.js", "server/worker-module.js"], "loc": 800 },
+    { "loops": [7, 8],   "name": "Database layer",            "scope": ["supabase/migrations", "server/**/*.sql-strings"], "loc": 0, "note": "24 migrations plus every SQL string in server/" },
+    { "loops": [9, 10],  "name": "Projects module",           "scope": ["server/modules/projects"], "loc": 12973 },
+    { "loops": [11, 12], "name": "CrawlScope",                "scope": ["server/modules/crawlScope"], "loc": 11552 },
+    { "loops": [13, 14], "name": "AI Visibility",             "scope": ["server/modules/aiVisibility"], "loc": 10916 },
+    { "loops": [15, 16], "name": "Location Page Builder",     "scope": ["server/locationPageBuilder"], "loc": 9940 },
+    { "loops": [17, 18], "name": "Checks & scripts",          "scope": ["server/checks", "server/scripts"], "loc": 5860 },
+    { "loops": [19, 20], "name": "Content Architect",         "scope": ["server/modules/contentArchitect"], "loc": 3929 },
+    { "loops": [21, 22], "name": "Competitor Analysis",       "scope": ["server/modules/competitorAnalysis"], "loc": 3094 },
+    { "loops": [23, 24], "name": "Small modules",             "scope": ["server/modules/onPageAudit", "server/modules/marketPotential", "server/modules/robotsMonitor"], "loc": 5161 },
+    { "loops": [25, 26], "name": "Client API & state",        "scope": ["client/src/lib", "client/src/hooks", "client/src/context"], "loc": 6000 },
+    { "loops": [27, 28], "name": "Client pages & components", "scope": ["client/src/pages", "client/src/components", "client/src/ui"], "loc": 45000 }
+  ],
+
+  "_comment_tools": "Mechanical evidence. Each is self-tested before use: inject a known-bad case, confirm the detector fires, remove the case. A detector reporting zero without having been proven to fire is broken, not good news.",
+  "tools": {
+    "require-graph.js": { "status": "built, self-tested", "finds": "unresolved relative requires; destructured names the target never exports" },
+    "sql-refs.js":      { "status": "build at loop 7",    "finds": "table/column names in server SQL that no migration defines" },
+    "env-refs.js":      { "status": "build at loop 5",    "finds": "process.env keys absent from .env.example" },
+    "api-contract.js":  { "status": "build at loop 25",   "finds": "client fetch paths with no matching Express route, and the reverse" }
+  }
+}

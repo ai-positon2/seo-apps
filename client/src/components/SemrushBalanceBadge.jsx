@@ -1,10 +1,14 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { subscribeSemrushBalance, refreshSemrushBalance } from '../lib/semrushBalanceStore';
 
 // A units read-out for the app header. Token-based, so it is legible in both
 // themes — it used to be painted with white alphas for the old navy sidebar,
 // which disappeared against the light palette.
-export default function SemrushBalanceBadge() {
+// Takes no props, and sits in the app header beside the nav search box — so it
+// re-rendered on every keystroke there and on every crawl-status tick, for a
+// value that changes when SEMrush units change. memo() with no props is a
+// comparison that can never fail, which makes this the cheapest possible win.
+function SemrushBalanceBadge() {
   const [state, setState] = useState({ balance: null, loading: false, error: null });
 
   useEffect(() => {
@@ -39,3 +43,5 @@ export default function SemrushBalanceBadge() {
     </div>
   );
 }
+
+export default memo(SemrushBalanceBadge);

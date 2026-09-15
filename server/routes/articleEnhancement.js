@@ -3,6 +3,8 @@ const router = express.Router();
 const crypto = require('crypto');
 const axios = require('axios');
 const cheerio = require('cheerio');
+// SSRF guard, shared with contentArchitect rather than reimplemented (see call site).
+const { assertPublicHost } = require('../modules/contentArchitect/urlSafety');
 const OpenAI = require('openai');
 const { Document, Packer, Paragraph, TextRun, BorderStyle, AlignmentType, Table, TableRow, TableCell, WidthType, ShadingType } = require('docx');
 const store = require('../services/kbStore');
@@ -27,12 +29,26 @@ function generateToken() {
 // ── POST /init ─────────────────────────────────────────────────────────────────
 const VALID_CONTENT_TYPES = new Set(['article', 'hub', 'thin-content']);
 
-router.post('/init', (req, res) => {
+// async because the SSRF guard below resolves the host before accepting it.
+router.post('/init', async (req, res) => {
   const { url, kbId, manualContent, contentType, models } = req.body;
   if (!url?.trim()) return res.status(400).json({ error: 'url is required' });
   let parsedUrl;
   try { parsedUrl = new URL(url.trim()); }
   catch { return res.status(400).json({ error: 'Invalid URL format' }); }
+
+  // SSRF guard — see the note in routes/agentReadinessAudit.js. `new URL()`
+  // above proves the string parses; it says nothing about whether this server
+  // should be made to fetch that host. The stream this token unlocks does fetch
+  // it, so the check belongs here, before a token is minted.
+  //
+  // Wrapped: Express 4 does not forward a handler rejection, so an unguarded
+  // await here would hang the request instead of answering it.
+  try {
+    await assertPublicHost(parsedUrl.hostname);
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
 
   const token = generateToken();
   sessions.set(token, {

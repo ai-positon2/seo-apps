@@ -39,6 +39,7 @@ const ROUTE_FILES = {
   'location-page-builder': 'routes/locationPageBuilder.js',
   'content-architect': 'modules/contentArchitect/routes.js',
   'crawl-scope': 'modules/crawlScope/api/routes.js',
+  projects: 'modules/projects/routes.js',
   'knowledge-base': 'routes/kb.js',
   'robots-monitor': 'modules/robotsMonitor/routes.js',
 };

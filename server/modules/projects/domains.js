@@ -1,7 +1,8 @@
 // ── Domain + country normalization (PRD §8.2, §9.1, §3.2.3, §30.1) ──────────
 // Pure functions: no database, no network. Everything here is unit-tested in
-// server/modules/projects/__tests__/domains.test.js, which is the point of
-// keeping it separate from the store.
+// server/modules/projects/__tests__/projects.test.js — see its three "Domains"
+// sections (origin normalization, country, competitor lists) — which is the
+// point of keeping it separate from the store.
 //
 // Origin normalization is deliberately conservative, matching the default
 // behaviour PRD §9.1 specifies for normalization version 1:

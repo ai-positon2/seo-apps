@@ -200,6 +200,9 @@ function authorizeCreation() {
   mock.method(projectAccess, 'requireWorkspace', async () => access);
   mock.method(projectAccess, 'requireProject', async () => access);
   mock.method(projectsStore, 'listProjects', async () => []);
+  // The duplicate-domain check now asks the database rather than scanning
+  // listProjects() in JavaScript, so it needs its own stand-in here.
+  mock.method(projectsStore, 'projectTrackingOrigin', async () => null);
   mock.method(projectsStore, 'listDomains', async () => []);
   mock.method(require('../contentArchitect'), 'ensureProject', async () => ({}));
   mock.method(require('../competitorAutostart'), 'scheduleCompetitorResearch', async () => ({ scheduled: false }));
@@ -218,7 +221,14 @@ test('the main project creation API queues the homepage audits before returning 
 test('the Site Crawler project form also starts homepage audits at setup', async () => {
   authorizeCreation();
   const repo = require('../../crawlScope/db/repo');
-  mock.method(repo, 'createProject', async () => access.project);
+  // The Site Crawler form no longer inserts crawl_projects itself — it goes
+  // through the shared project store (which also writes the primary domain) and
+  // reads the raw row back for its own internals. authorizeCreation() above
+  // already mocks the workspace check this route now performs.
+  mock.method(projectsStore, 'createProject', async () => ({
+    id: access.project.id, workspaceId: 'workspace-a', primaryDomain: { origin: access.project.url },
+  }));
+  mock.method(repo, 'getProject', async () => access.project);
   mock.method(repo, 'createRun', async () => ({ id: 'initial-crawl' }));
   const res = response();
   await handler(require('../../crawlScope/api/routes'), '/projects')({

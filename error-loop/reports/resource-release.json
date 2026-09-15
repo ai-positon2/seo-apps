@@ -1,0 +1,50 @@
+{
+  "generatedAt": "2026-09-13T18:13:49.208Z",
+  "targets": [
+    "server"
+  ],
+  "findings": [
+    {
+      "file": "server/modules/aiVisibility/captureEngines/browser.js",
+      "line": 76,
+      "resource": "browser",
+      "why": "no release call in this function"
+    },
+    {
+      "file": "server/scripts/importKeywordUniverse.js",
+      "line": 81,
+      "resource": "read stream",
+      "why": "no release call in this function"
+    },
+    {
+      "file": "server/server.js",
+      "line": 313,
+      "resource": "interval",
+      "why": "no release call in this function"
+    },
+    {
+      "file": "server/services/dbCapacity.js",
+      "line": 159,
+      "resource": "interval",
+      "why": "released, but not in a finally"
+    },
+    {
+      "file": "server/services/moduleWorker.js",
+      "line": 93,
+      "resource": "interval",
+      "why": "released, but not in a finally"
+    },
+    {
+      "file": "server/services/moduleWorker.js",
+      "line": 106,
+      "resource": "interval",
+      "why": "released, but not in a finally"
+    },
+    {
+      "file": "server/services/moduleWorker.js",
+      "line": 119,
+      "resource": "interval",
+      "why": "released, but not in a finally"
+    }
+  ]
+}

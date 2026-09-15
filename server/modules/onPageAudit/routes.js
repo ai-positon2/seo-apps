@@ -4,6 +4,20 @@ const { getAudit, listAudits, deleteAudit } = require('./store');
 
 const router = express.Router();
 
+// Express 4 does not pass a rejected handler promise to next(), and this router
+// registers no error middleware, so an unguarded throw wrote no response at all
+// and the request hung until the client timed out — logged by server.js's
+// process-level unhandledRejection handler, which is why it never looked like a
+// fault. The store writes through fs.writeFile under ON_PAGE_AUDIT_DATA_ROOT,
+// which services/dataRoot.js warns is ephemeral inside a container image.
+//
+// Same shape as routes/lsPages.js, modules/crawlScope/api/routes.js,
+// modules/contentArchitect/routes.js and modules/competitorAnalysis/routes.js.
+const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch((e) => {
+  console.error(`[onPageAudit] ${req.method} ${req.originalUrl} failed:`, e.message);
+  if (!res.headersSent) res.status(500).json({ error: 'Something went wrong handling that request.' });
+});
+
 // In-memory job tracking for polling
 const jobs = new Map(); // jobId → { status, auditId, progress, error }
 
@@ -54,22 +68,22 @@ router.get('/status/:jobId', (req, res) => {
 });
 
 // GET /api/on-page-audit/result/:auditId
-router.get('/result/:auditId', async (req, res) => {
+router.get('/result/:auditId', wrap(async (req, res) => {
   const audit = await getAudit(req.params.auditId);
   if (!audit) return res.status(404).json({ error: 'Audit not found' });
   res.json(audit);
-});
+}));
 
 // GET /api/on-page-audit/list
-router.get('/list', async (req, res) => {
+router.get('/list', wrap(async (req, res) => {
   const audits = await listAudits();
   res.json(audits);
-});
+}));
 
 // DELETE /api/on-page-audit/:auditId
-router.delete('/:auditId', async (req, res) => {
+router.delete('/:auditId', wrap(async (req, res) => {
   await deleteAudit(req.params.auditId);
   res.json({ ok: true });
-});
+}));
 
 module.exports = router;

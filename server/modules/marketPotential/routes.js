@@ -9,6 +9,21 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 
+// Express 4 does not pass a rejected handler promise to next(), and this router
+// registers no error middleware, so an unguarded throw wrote no response at all
+// and the request hung until the client timed out — logged by server.js's
+// process-level unhandledRejection handler, which is why it never looked like a
+// fault. Reachable here through the provider clients (SEMrush / DataForSEO) and
+// through the store's writes under MARKET_POTENTIAL_DATA_ROOT, which
+// services/dataRoot.js warns is ephemeral inside a container image.
+//
+// Same shape as routes/lsPages.js, modules/crawlScope/api/routes.js,
+// modules/contentArchitect/routes.js and modules/competitorAnalysis/routes.js.
+const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch((e) => {
+  console.error(`[marketPotential] ${req.method} ${req.originalUrl} failed:`, e.message);
+  if (!res.headersSent) res.status(500).json({ error: 'Something went wrong handling that request.' });
+});
+
 const store = require('./store');
 const geo = require('./geoData');
 const { proposeBasket } = require('./basketAgent');
@@ -32,7 +47,7 @@ function maxCompareRegions() {
 
 // ── Meta / status ──────────────────────────────────────────────────────────────
 
-router.get('/meta', async (req, res) => {
+router.get('/meta', wrap(async (req, res) => {
   const provider = getProvider();
   const trackUnits = unitTrackingActive();
   const dataSource = provider.name === 'semrush'
@@ -53,12 +68,12 @@ router.get('/meta', async (req, res) => {
       topN: Math.min(Math.max(parseInt(process.env.MP_DENSITY_TOPN) || 10, 1), 20),
     },
   });
-});
+}));
 
 // Live usage snapshot — for the UI banner / cost preview after a run.
-router.get('/usage', async (req, res) => {
+router.get('/usage', wrap(async (req, res) => {
   res.json({ enabled: unitTrackingActive(), ...(await usage.getStatus()) });
-});
+}));
 
 // ── Geo resolution (Section 9) ────────────────────────────────────────────────
 // Never auto-pick on ambiguity — return all candidates, the user confirms.
@@ -385,10 +400,10 @@ router.post('/summary', async (req, res) => {
 
 // ── Scenarios (Section 7, M5) — save/version for reproducibility ──────────────
 
-router.get('/scenarios', async (req, res) => {
+router.get('/scenarios', wrap(async (req, res) => {
   const userId = req.user?.username || 'anon';
   res.json({ scenarios: await store.getScenarios(userId) });
-});
+}));
 
 router.post('/scenarios', async (req, res) => {
   try {
@@ -404,10 +419,10 @@ router.post('/scenarios', async (req, res) => {
   }
 });
 
-router.delete('/scenarios/:id', async (req, res) => {
+router.delete('/scenarios/:id', wrap(async (req, res) => {
   const ok = await store.deleteScenario(req.params.id);
   if (!ok) return res.status(404).json({ error: 'Scenario not found' });
   res.json({ ok: true });
-});
+}));
 
 module.exports = router;

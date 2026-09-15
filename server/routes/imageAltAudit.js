@@ -3,6 +3,8 @@ const router = express.Router();
 const crypto = require('crypto');
 const axios = require('axios');
 const cheerio = require('cheerio');
+// SSRF guard, shared with contentArchitect rather than reimplemented (see call site).
+const { assertPublicHost } = require('../modules/contentArchitect/urlSafety');
 const ExcelJS = require('exceljs');
 const OpenAI = require('openai');
 
@@ -741,7 +743,8 @@ async function buildExcel(results, config, brandSlug) {
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 // POST /init — validate + store session, return token
-router.post('/init', (req, res) => {
+// async because the SSRF guard below resolves each host before accepting it.
+router.post('/init', async (req, res) => {
   const { urls, config } = req.body;
   if (!Array.isArray(urls) || urls.length === 0) {
     return res.status(400).json({ error: 'urls array is required' });
@@ -752,6 +755,34 @@ router.post('/init', (req, res) => {
   });
   if (validUrls.length === 0) {
     return res.status(400).json({ error: 'No valid URLs provided' });
+  }
+
+  // SSRF guard — `new URL(u)` above proves the string parses, not that the host
+  // is one this server should be made to fetch. Every one of these is fetched
+  // server-side, so without this a signed-in caller could enumerate internal
+  // hosts, or read http://169.254.169.254/ (cloud instance metadata), through a
+  // tool whose whole job is to report what it found on a page.
+  // Rejects the whole batch rather than silently dropping entries: a partial
+  // audit that does not say what it skipped is the failure mode this repo's
+  // own findings-are-partial marking exists to avoid.
+  // The outer try/catch is not redundant with the inner one: the inner catch
+  // turns a rejected host into an entry in `unsafe`, but a DNS layer failure
+  // outside that call would otherwise reject Promise.all and — Express 4 not
+  // forwarding handler rejections — hang this request instead of answering it.
+  // That is the defect class this repo spent Round 1 removing; adding a guard
+  // must not reintroduce it.
+  const unsafe = [];
+  try {
+    await Promise.all(validUrls.map(async (u) => {
+      try { await assertPublicHost(new URL(u).hostname); }
+      catch (e) { unsafe.push(`${u} — ${e.message}`); }
+    }));
+  } catch (e) {
+    console.error('[imageAltAudit] host validation failed:', e.message);
+    return res.status(500).json({ error: 'Could not validate the supplied URLs.' });
+  }
+  if (unsafe.length) {
+    return res.status(400).json({ error: `Refusing to fetch ${unsafe.length} URL(s): ${unsafe.join('; ')}` });
   }
 
   const mergedConfig = { ...DEFAULT_CONFIG, ...(config || {}) };

@@ -1,0 +1,120 @@
+{
+  "generatedAt": "2026-09-13T18:22:56.566Z",
+  "serverRouteCount": 275,
+  "clientCallCount": 202,
+  "missing": [],
+  "skipped": [
+    {
+      "file": "client/src/lib/aiVisibilityApi.js",
+      "line": 40,
+      "method": "POST",
+      "path": "/api/ai-visibility/*/prompts*` : ''}",
+      "raw": "${BASE}/${projectId}/prompts${qs ? `?${qs}` : ''}",
+      "why": "unparsed template expression"
+    },
+    {
+      "file": "client/src/lib/aiVisibilityApi.js",
+      "line": 104,
+      "method": "GET",
+      "path": "/api/ai-visibility/*/reports/**` : ''}",
+      "raw": "${BASE}/${projectId}/reports/${reportId}${qs ? `?${qs}` : ''}",
+      "why": "unparsed template expression"
+    },
+    {
+      "file": "client/src/lib/competitorTrackerApi.js",
+      "line": 4,
+      "method": "GET",
+      "path": "/api/competitor-tracker*",
+      "raw": "${BASE}${path}",
+      "why": "helper definition"
+    },
+    {
+      "file": "client/src/lib/contentArchitectApi.js",
+      "line": 4,
+      "method": "GET",
+      "path": "/api/content-architect*",
+      "raw": "${BASE}${path}",
+      "why": "helper definition"
+    },
+    {
+      "file": "client/src/lib/crawlScopeApi.js",
+      "line": 11,
+      "method": "GET",
+      "path": "/api/crawl-scope*",
+      "raw": "${BASE}${path}",
+      "why": "helper definition"
+    },
+    {
+      "file": "client/src/lib/lpbApi.js",
+      "line": 5,
+      "method": "GET",
+      "path": "/api/location-page-builder*",
+      "raw": "${BASE}${path}",
+      "why": "helper definition"
+    },
+    {
+      "file": "client/src/lib/lpbApi.js",
+      "line": 24,
+      "method": "POST",
+      "path": "/api/location-page-builder/entities/**` : ''}",
+      "raw": "/entities/${c}${clientId ? `?client_id=${clientId}` : ''}",
+      "why": "unparsed template expression"
+    },
+    {
+      "file": "client/src/lib/lpbApi.js",
+      "line": 28,
+      "method": "POST",
+      "path": "/api/location-page-builder/pages*` : ''}",
+      "raw": "/pages${clientId ? `?client_id=${clientId}` : ''}",
+      "why": "unparsed template expression"
+    },
+    {
+      "file": "client/src/lib/lsPagesApi.js",
+      "line": 9,
+      "method": "GET",
+      "path": "/api/location-page-builder/ls*",
+      "raw": "${BASE}${path}",
+      "why": "helper definition"
+    },
+    {
+      "file": "client/src/lib/marketPotentialApi.js",
+      "line": 4,
+      "method": "GET",
+      "path": "/api/market-potential*",
+      "raw": "${BASE}${path}",
+      "why": "helper definition"
+    },
+    {
+      "file": "client/src/lib/projectsApi.js",
+      "line": 47,
+      "method": "GET",
+      "path": "/api/projects*` : ''}",
+      "raw": "${BASE}${qs ? `?${qs}` : ''}",
+      "why": "unparsed template expression"
+    },
+    {
+      "file": "client/src/lib/projectsApi.js",
+      "line": 262,
+      "method": "POST",
+      "path": "/api/projects/*/recommendations*` : ''}",
+      "raw": "${BASE}/${projectId}/recommendations${status ? `?status=${status}` : ''}",
+      "why": "unparsed template expression"
+    },
+    {
+      "file": "client/src/lib/robotsMonitorApi.js",
+      "line": 4,
+      "method": "GET",
+      "path": "/api/robots-monitor*",
+      "raw": "${BASE}${path}",
+      "why": "helper definition"
+    },
+    {
+      "file": "client/src/lib/semrushApi.js",
+      "line": 4,
+      "method": "GET",
+      "path": "/api/semrush*",
+      "raw": "${BASE}${path}",
+      "why": "helper definition"
+    }
+  ]
+}

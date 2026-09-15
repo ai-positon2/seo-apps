@@ -30,9 +30,20 @@ const ACTIONS = {
   DOMAIN_ADDED:            'project_domain.added',
   DOMAIN_REMOVED:          'project_domain.removed',
   DOMAIN_PRIMARY_CHANGED:  'project_domain.primary_changed',
+  // A contributor may only PROPOSE a competitor (§7.2); these two are the
+  // decision on that proposal. Worth their own actions rather than reusing
+  // DOMAIN_ADDED/REMOVED: the question "who accepted this competitor, and when"
+  // is about accountability for metered spend — approving a domain is what
+  // releases SEMrush units to measure it.
+  DOMAIN_PROPOSAL_APPROVED: 'project_domain.proposal_approved',
+  DOMAIN_PROPOSAL_REJECTED: 'project_domain.proposal_rejected',
   LIMITS_VERSION_CREATED:  'admin_limits.version_created',
   FEATURE_FLAG_CHANGED:    'feature_flag.changed',
   WORKSPACE_ROLE_CHANGED:  'workspace.role_changed',
+  // Deletion and restore were recorded from the start; creation was not, which
+  // left the trail able to say a workspace was destroyed but not that it ever
+  // came into being.
+  WORKSPACE_CREATED:       'workspace.created',
   // Phase 3: a module executed against a project (migration 0012). Deliberately
   // not constrained in SQL — see that migration's section 3 for why a DB-side
   // list would turn a vocabulary drift into a silent audit gap.

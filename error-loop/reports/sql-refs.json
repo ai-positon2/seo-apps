@@ -1,0 +1,40 @@
+{
+  "generatedAt": "2026-09-13T18:13:47.814Z",
+  "targets": [
+    "server"
+  ],
+  "tablesKnown": 46,
+  "badTables": [
+    {
+      "file": "server/modules/crawlScope/report-writer.js",
+      "line": 478,
+      "table": "the"
+    },
+    {
+      "file": "server/scripts/copyFromSupabase.js",
+      "line": 129,
+      "table": ""
+    },
+    {
+      "file": "server/scripts/migrate.js",
+      "line": 112,
+      "table": "schema_migrations"
+    },
+    {
+      "file": "server/scripts/migrate.js",
+      "line": 180,
+      "table": "schema_migrations"
+    },
+    {
+      "file": "server/scripts/migrate.js",
+      "line": 251,
+      "table": "schema_migrations"
+    },
+    {
+      "file": "server/scripts/migrate.js",
+      "line": 294,
+      "table": "schema_migrations"
+    }
+  ],
+  "badColumns": []
+}

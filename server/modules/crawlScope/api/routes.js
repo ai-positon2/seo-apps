@@ -38,6 +38,10 @@ const { RunManager, CONTROL_POLL_MS } = require("../run/manager");
 const { serviceClient, isDatabaseConfigured } = require("../db/client");
 const { resolveIdentity } = require("../../../services/workspaceContext");
 const projectAccess = require("../../../services/projectAccess");
+// The single writer for the project aggregate. CrawlScope used to insert
+// crawl_projects directly through repo.createProject, which wrote no
+// project_domains row and no country — see the POST /projects handler.
+const projectStore = require("../../projects/store");
 const { parseCrawlRequest, ValidationError } = require("../shared/options");
 const {
   isValidCron,
@@ -117,9 +121,11 @@ async function crawlScopeContext(req, res, next) {
   }
 }
 
-// The issue catalog is static reference data (92 checks: names, categories,
+// The issue catalog is static reference data (96 checks: names, categories,
 // severities) the UI needs to render any result, so it is readable by any
-// signed-in user without a DB round trip.
+// signed-in user without a DB round trip. The count is asserted against the
+// file rather than trusted: issue-catalog.json holds 96 entries (27 error,
+// 54 warning, 15 notice), matching audit-loop/rules/rule-classes.json's _meta.
 router.get("/catalog", (_req, res) => res.json(catalog));
 
 router.use(crawlScopeContext);
@@ -621,18 +627,50 @@ router.post(
     if (!isValidCron(cron, timezone)) {
       throw new ValidationError("That schedule never occurs. Check the day, hour, and timezone.");
     }
-    const next = nextRun(cron, new Date(), timezone);
-    const project = await repo.createProject(req.db, req.user.id, {
-      workspace_id: req.crawlWorkspaceId,
+    // Built through the shared project store, not repo.createProject.
+    //
+    // This endpoint used to insert crawl_projects on its own and stop there: no
+    // project_domains row, no country. Every project it created therefore read
+    // back with primaryDomain: null and primaryDomainSource 'legacy_url_column',
+    // which the projects screen renders as "Missing — the crawler is using
+    // {url}". It crawled fine and was broken everywhere else.
+    //
+    // store.createProject writes the project and its primary domain in one
+    // transaction, so there is no longer a way to create half a project. Three
+    // details are preserved deliberately so existing callers see no change:
+    //
+    //   * the cron/timezone resolved above are passed through verbatim, rather
+    //     than letting the store pick its weekly default — CrawlScope requires a
+    //     schedule and has its own stagger seed.
+    //   * `enabled` keeps CrawlScope's "on unless explicitly false" default,
+    //     which is the opposite of /api/projects' "off unless asked". This
+    //     endpoint queues an immediate run; that is its contract.
+    //   * requireCountry: false — this endpoint has callers that send no
+    //     country, and a 400 would break them. country_code stays NULL and
+    //     surfaces as countryMissing for repair in project settings.
+    // 'createProject' is held by every workspace member, so routing this
+    // endpoint through the shared store did not quietly narrow who may use it:
+    // before the move it applied no capability check at all, and matching it to
+    // /api/projects is the point of having one writer.
+    const access = await projectAccess.requireWorkspace(
+      req, req.crawlWorkspaceId, "createProject",
+    );
+    const created = await projectStore.createProject({
+      access,
       name: body.name,
-      url,
-      options,
-      cron,
-      timezone,
+      primaryDomain: url,
+      country: body.country,
+      requireCountry: false,
+      crawlOptions: options,
       recipients: emailList(body.recipients),
-      enabled: body.enabled !== false,
-      next_run_at: next ? next.toISOString() : null,
+      schedule: { cron, timezone, enabled: body.enabled !== false },
     });
+
+    // The store returns the client-facing projectView (camelCase). Everything
+    // below — queueProjectRun, and this endpoint's own response shape — is
+    // written against the raw crawl_projects row, so read it back rather than
+    // translating between the two shapes at every call site.
+    const project = await repo.getProject(req.db, created.id);
 
     // The first crawl starts immediately; the cron governs every one after it.
     await require('../../projects/contentArchitect').ensureProject(project).catch((error) => {
@@ -765,10 +803,26 @@ router.post(
 // ---- error handler ----
 // Router-scoped so a ValidationError from these handlers becomes a 400 here
 // rather than falling through to the app's generic handling.
+// A 4xx here was raised deliberately and its message is written for the caller
+// (ValidationError carries status 400), so it is passed through unchanged.
+//
+// A 5xx is not. Nothing in db/repo.js catches: `createRun` and its neighbours
+// call client.one(...) directly, so a driver error travels raw through
+// asyncRoute's .catch(next) to here. That put the database's own words in the
+// response body for any signed-in caller — `connect ECONNREFUSED <host>:<port>`
+// when the database is unreachable, `password authentication failed for user
+// "…"` on a bad credential, or a constraint name like
+// `crawl_runs_project_id_fkey` on a violation, each naming internal
+// infrastructure or schema. Logged in full, answered generically — the same
+// rule server.js's final error handler, routes/admin.js and
+// modules/projects/routes.js already follow.
 router.use((error, _req, res, _next) => {
   const status = error.status || 500;
-  if (status >= 500) console.error("[crawlScope]", error);
-  res.status(status).json({ error: error.message || "Server error." });
+  if (status < 500) {
+    return res.status(status).json({ error: error.message || "Bad request.", code: error.code });
+  }
+  console.error("[crawlScope]", error);
+  res.status(status).json({ error: "Something went wrong handling that crawl request." });
 });
 
 module.exports = router;

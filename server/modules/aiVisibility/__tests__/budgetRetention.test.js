@@ -17,6 +17,7 @@ const assert = require('assert');
 require('dotenv').config({ path: require('path').join(__dirname, '../../../../.env') });
 
 const { useTestDatabase } = require('../../../services/__tests__/helpers/testDatabase');
+const { createProjectFixture, dropProjectFixture } = require('../../../services/__tests__/helpers/projectFixture');
 
 const db = require('../../../services/db');
 const budget = require('../budget');
@@ -56,15 +57,20 @@ const setCeiling = (usd) => db.query(
   [projectId, usd]
 );
 
+// A project is a workspace + membership + row + active primary domain, and
+// since migration 0027 the database rejects anything less at COMMIT. The helper
+// builds the whole aggregate so a fixture that is missing a domain cannot look
+// like a budget or retention bug.
+let fixture = null;
+
 async function setup() {
-  ownerId = (await db.one(
-    `insert into app_users (email) values ($1) returning id`,
-    [`_aivtest_${Date.now()}@position2.com`]
-  )).id;
-  projectId = (await db.one(
-    `insert into crawl_projects (owner, url, cron, name) values ($1, $2, $3, $4) returning id`,
-    [ownerId, 'https://aiv-selftest.invalid', '0 3 * * *', 'aiVisibility self-test']
-  )).id;
+  fixture = await createProjectFixture({
+    prefix: 'aivtest',
+    url: 'https://aiv-selftest.invalid',
+    name: 'aiVisibility self-test',
+  });
+  ownerId = fixture.userId;
+  projectId = fixture.projectId;
   runId = (await db.one(
     `insert into project_module_runs (project_id, module_key, status)
        values ($1, 'ai_visibility', 'completed') returning id`,
@@ -73,8 +79,7 @@ async function setup() {
 }
 
 async function teardown() {
-  if (projectId) await db.query(`delete from crawl_projects where id = $1`, [projectId]);
-  if (ownerId) await db.query(`delete from app_users where id = $1`, [ownerId]);
+  await dropProjectFixture(fixture);
   await db.end();
 }
 

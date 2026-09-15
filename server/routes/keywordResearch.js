@@ -81,13 +81,36 @@ function scoreUrl(urlObj, bestPosition, seedKeyword) {
   );
 }
 
+// The TTL decides whether a hit is still fresh; on its own it never removed
+// anything. A stale entry was only displaced if the exact same query came back,
+// so the map grew by one retained SERP payload per distinct query for the life
+// of the process — and each keyword issues up to MAX_VARIANTS + 1 queries, so a
+// few thousand keywords is tens of thousands of entries that are never freed.
+// Bounded and swept here, the same shape as the pending-input map in
+// middleware/runTracking.js.
+const SERP_CACHE_MAX = 2000;
+
+function cacheSerp(query, results) {
+  serpCache.set(query, { results, ts: Date.now() });
+  if (serpCache.size <= SERP_CACHE_MAX) return;
+  const cutoff = Date.now() - SERP_CACHE_TTL;
+  for (const [key, entry] of serpCache) {
+    if (entry.ts < cutoff) serpCache.delete(key);
+  }
+  // Still oversized (more live queries than the cap) — drop oldest first, which
+  // is insertion order for a Map.
+  while (serpCache.size > SERP_CACHE_MAX) {
+    serpCache.delete(serpCache.keys().next().value);
+  }
+}
+
 async function cachedSearch(query) {
   const cached = serpCache.get(query);
   if (cached && Date.now() - cached.ts < SERP_CACHE_TTL) {
     return { ...cached.results, fromCache: true };
   }
   const results = await searchGoogle(query);
-  serpCache.set(query, { results, ts: Date.now() });
+  cacheSerp(query, results);
   return results;
 }
 

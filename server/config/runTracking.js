@@ -257,6 +257,35 @@ const RUN_TRACKING = {
     ],
   },
 
+  // ── Projects ──────────────────────────────────────────────────────────────
+  // ONLY project creation. Everything else under /api/projects is either a read
+  // or a project-module run, and module runs are recorded in
+  // project_module_runs by moduleEvidence — tracking them here as well would
+  // double-count every audit in the runs list.
+  //
+  // Creation is tracked because the OTHER way to create a project — CrawlScope's
+  // POST /projects, right above — always was. The two endpoints now share one
+  // writer (modules/projects/store.js createProject), and it would be odd for
+  // the run history to show a project appearing only when it came in through
+  // one of the two doors.
+  //
+  // Not deferred: the row is written, its domains with it, and the response
+  // carries the created project. The Competitor Research this may queue is a
+  // module run with its own record; this request really does complete.
+  projects: {
+    toolId: 'projects',
+    matchers: [
+      {
+        method: 'POST',
+        path: '/',
+        action: 'create',
+        // primaryDomain is what identifies a project in a list; `name` is
+        // optional and defaults to the host server-side, so it can be absent.
+        label: ({ input }) => input?.primaryDomain || input?.name || null,
+      },
+    ],
+  },
+
   // ── Monitor ───────────────────────────────────────────────────────────────
   'robots-monitor': {
     toolId: 'robots-monitor',

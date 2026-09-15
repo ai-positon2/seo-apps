@@ -1,4 +1,6 @@
 const fs = require('fs').promises;
+// Traversal guard: `${id}.json` from req.params would otherwise resolve outside DATA_ROOT.
+const { assertSafeFileId } = require('../../services/safeFileId');
 const path = require('path');
 const crypto = require('crypto');
 
@@ -22,14 +24,14 @@ async function saveAudit(audit) {
   // Strip raw HTML from saved file to keep size manageable
   const { _html, ...saveData } = audit;
   await fs.writeFile(
-    path.join(DATA_ROOT, `${audit.id}.json`),
+    path.join(DATA_ROOT, `${assertSafeFileId(audit.id, 'auditId')}.json`),
     JSON.stringify(saveData, null, 2)
   );
 }
 
 async function getAudit(id) {
   try {
-    const raw = await fs.readFile(path.join(DATA_ROOT, `${id}.json`), 'utf8');
+    const raw = await fs.readFile(path.join(DATA_ROOT, `${assertSafeFileId(id, 'auditId')}.json`), 'utf8');
     return JSON.parse(raw);
   } catch { return null; }
 }
@@ -62,7 +64,7 @@ async function listAudits() {
 }
 
 async function deleteAudit(id) {
-  await fs.unlink(path.join(DATA_ROOT, `${id}.json`)).catch(() => {});
+  await fs.unlink(path.join(DATA_ROOT, `${assertSafeFileId(id, 'auditId')}.json`)).catch(() => {});
 }
 
 async function init() {

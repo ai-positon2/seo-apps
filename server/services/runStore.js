@@ -262,36 +262,51 @@ async function runStats({ workspaceId, days = 30, toolId = null }) {
       params.push(toolId);
       narrowTool = ` and tool_id = $${params.length}`;
     }
+    // Aggregated by the database, not by fetching rows and counting them here.
+    //
+    // This used to `select … order by created_at desc limit 5000` and tally the
+    // rows in JavaScript. The limit made the answer quietly wrong rather than
+    // slow: for any workspace with more than 5000 runs inside the window, the
+    // "totals" were the totals of the most recent 5000 only, the per-tool
+    // breakdown was skewed toward whichever tools ran most recently, and
+    // avgDurationMs averaged that same truncated set — all presented as figures
+    // for the whole period, with nothing marking them as capped. 20 tracked
+    // tools plus module runs and crawls reaches 5000 in a month at ~167 runs a
+    // day, which a busy workspace does.
+    //
+    // Grouping in SQL removes the cap entirely (the result is one row per tool,
+    // not one per run) and is cheaper besides — ~20 rows over the wire instead
+    // of 5000.
     const data = await db.rows(
-      `select tool_id, status, duration_ms, created_at
+      `select tool_id,
+              count(*)::int                                          as total,
+              count(*) filter (where status = 'completed')::int       as completed,
+              count(*) filter (where status = 'failed')::int          as failed,
+              count(*) filter (where status = 'running')::int         as running,
+              count(*) filter (where status = 'cancelled')::int       as cancelled,
+              avg(duration_ms) filter (where duration_ms is not null) as avg_duration_ms,
+              max(created_at)                                        as last_run_at
          from tool_runs
         where workspace_id = $1 and created_at >= $2${narrowTool}
-        order by created_at desc
-        limit 5000`,
+        group by tool_id`,
       params
     );
 
     const totals = { total: 0, completed: 0, failed: 0, running: 0, cancelled: 0 };
-    const byTool = new Map();
-    for (const row of data || []) {
-      totals.total += 1;
-      if (totals[row.status] !== undefined) totals[row.status] += 1;
-      let t = byTool.get(row.tool_id);
-      if (!t) {
-        t = { toolId: row.tool_id, total: 0, completed: 0, failed: 0, running: 0, cancelled: 0, durationSum: 0, durationCount: 0, lastRunAt: row.created_at };
-        byTool.set(row.tool_id, t);
-      }
-      t.total += 1;
-      if (t[row.status] !== undefined) t[row.status] += 1;
-      if (Number.isFinite(row.duration_ms)) { t.durationSum += row.duration_ms; t.durationCount += 1; }
-      if (row.created_at > t.lastRunAt) t.lastRunAt = row.created_at;
-    }
-
-    const tools = [...byTool.values()].map(t => ({
-      toolId: t.toolId, total: t.total, completed: t.completed, failed: t.failed,
-      running: t.running, cancelled: t.cancelled, lastRunAt: t.lastRunAt,
-      avgDurationMs: t.durationCount ? Math.round(t.durationSum / t.durationCount) : null,
-    })).sort((a, b) => b.total - a.total);
+    const tools = (data || []).map((r) => {
+      for (const k of Object.keys(totals)) totals[k] += Number(r[k] || 0);
+      return {
+        toolId: r.tool_id,
+        total: r.total, completed: r.completed, failed: r.failed,
+        running: r.running, cancelled: r.cancelled,
+        lastRunAt: r.last_run_at,
+        // pg returns avg() as a numeric string, so it has to be coerced before
+        // rounding — Math.round('1234.5') works but Math.round(null) is 0, which
+        // would report a real average of zero for a tool that has never
+        // recorded a duration.
+        avgDurationMs: r.avg_duration_ms == null ? null : Math.round(Number(r.avg_duration_ms)),
+      };
+    }).sort((a, b) => b.total - a.total);
 
     return { tools, totals };
   } catch (e) {

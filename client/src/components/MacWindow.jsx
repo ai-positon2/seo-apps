@@ -1,13 +1,15 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { NAV_GROUPS, TAGS, getToolByPath } from '../toolsMeta';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from './ThemeContext';
 import { projectsApi } from '../lib/projectsApi';
 import { useActiveProjectId, useProjectsChanged } from '../lib/activeProject';
+import { switchWorkspace } from '../lib/activeWorkspace';
 import SemrushBalanceBadge from './SemrushBalanceBadge';
 import CrawlStatusBar from './home/CrawlStatusBar';
 import { useCrawlStatus } from '../lib/useCrawlStatus';
+import ChunkErrorBoundary from './ChunkErrorBoundary';
 
 // Shown while a route's chunk is in flight. Routes are code-split (see App.jsx),
 // so navigating to a tool now fetches it — a few hundred milliseconds on a cold
@@ -194,10 +196,19 @@ function HeaderButton({ children, onClick, title, active, style }) {
    i.e. only workspaces the caller belongs to -- and picking one just records the
    choice locally; every request still names the project and is authorised
    server-side. */
-function ClientSwitcher() {
+// No props, rendered in the header next to the nav search. Same reasoning as
+// SemrushBalanceBadge: a props comparison that cannot fail, so memo is free.
+const ClientSwitcher = memo(function ClientSwitcher() {
   const navigate = useNavigate();
   const [activeProjectId, setActiveProjectId] = useActiveProjectId();
   const [projects, setProjects] = useState([]);
+  // The workspace every new project and tool run is RECORDED against. It used
+  // to be visible on exactly one screen (/workspaces), so the answer to "where
+  // is this going to be filed" was invisible everywhere it mattered — and
+  // nothing kept it consistent with the client named right here.
+  const [workspaces, setWorkspaces] = useState([]);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState(null);
+  const [switching, setSwitching] = useState(false);
   const [open, setOpen] = useState(false);
   const boxRef = useRef(null);
   // This component lives in the app shell, which does not unmount as the user
@@ -213,8 +224,17 @@ function ClientSwitcher() {
     // A failure here is not worth an error state in the chrome: the dashboard
     // below reports it properly, and the switcher simply has nothing to offer.
     projectsApi.list()
-      .then((data) => { if (!cancelled) setProjects(data.projects || []); })
-      .catch(() => { if (!cancelled) setProjects([]); });
+      .then((data) => {
+        if (cancelled) return;
+        setProjects(data.projects || []);
+        setWorkspaces(data.workspaces || []);
+        setActiveWorkspaceId(data.activeWorkspaceId || null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setProjects([]);
+        setWorkspaces([]);
+      });
     return () => { cancelled = true; };
   }, [projectsVersion]);
 
@@ -278,8 +298,77 @@ function ClientSwitcher() {
             padding: 6, display: 'flex', flexDirection: 'column', gap: 2,
           }}
         >
+          {/* Workspace, above the clients.
+              Shown only when there is more than one — with a single workspace
+              the choice has one answer and the row is noise. Switching here goes
+              through switchWorkspace(), which activates it, refreshes every
+              list, AND moves the client selection into the new workspace if it
+              was pointing outside it. Those three were previously separate,
+              which is how the header came to name a client in one workspace
+              while new runs were being filed under another. */}
+          {workspaces.length > 1 && (
+            <>
+              <div style={{
+                fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase',
+                color: 'var(--text-3)', fontWeight: 600, padding: '6px 9px 4px',
+              }}>
+                Recording work in
+              </div>
+              {workspaces.map((ws) => {
+                const isActiveWs = ws.id === activeWorkspaceId;
+                return (
+                  <button
+                    key={ws.id}
+                    role="menuitem"
+                    disabled={switching}
+                    onClick={async () => {
+                      if (isActiveWs) return;
+                      setSwitching(true);
+                      try {
+                        const result = await switchWorkspace(ws.id, projects);
+                        setActiveWorkspaceId(result.workspaceId);
+                        setOpen(false);
+                        // The client moved with the workspace, so the screen
+                        // below is about a different project now.
+                        if (result.projectChanged) navigate('/');
+                      } catch {
+                        /* The cookie is unchanged, so both selections still
+                           agree; /workspaces reports the failure properly. */
+                      } finally {
+                        setSwitching(false);
+                      }
+                    }}
+                    style={{
+                      textAlign: 'left', border: 'none',
+                      cursor: isActiveWs || switching ? 'default' : 'pointer',
+                      background: isActiveWs ? 'var(--nav-active-bg)' : 'transparent',
+                      color: 'var(--text)', padding: '6px 9px', borderRadius: 'var(--r-sm)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      gap: 8, fontFamily: 'var(--font-sans)', fontSize: 12.5,
+                    }}
+                  >
+                    <span style={{ fontWeight: isActiveWs ? 600 : 400 }}>
+                      {ws.name}{ws.isPersonal ? ' (personal)' : ''}
+                    </span>
+                    {isActiveWs && (
+                      <span style={{ fontSize: 10, color: 'var(--text-3)' }}>active</span>
+                    )}
+                  </button>
+                );
+              })}
+              <div style={{ height: 1, background: 'var(--border)', margin: '4px 2px' }} />
+              <div style={{
+                fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase',
+                color: 'var(--text-3)', fontWeight: 600, padding: '2px 9px 4px',
+              }}>
+                Clients
+              </div>
+            </>
+          )}
+
           {projects.map((project) => {
             const isActive = active?.id === project.id;
+            const ws = workspaces.find((w) => w.id === project.workspaceId);
             return (
               <button
                 key={project.id}
@@ -297,6 +386,15 @@ function ClientSwitcher() {
                 <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
                   {project.primaryDomain?.host || project.legacyUrl}
                   {project.countryCode ? ' · ' + project.countryCode : ' · country not set'}
+                  {/* Which workspace this client's work is filed under. Only
+                      worth saying when it is NOT the one currently recording,
+                      because that is the case where picking it means work lands
+                      somewhere other than the row above says. */}
+                  {workspaces.length > 1 && project.workspaceId !== activeWorkspaceId && (
+                    <span style={{ color: 'var(--viz-warn)' }}>
+                      {' · in '}{ws?.name || 'another workspace'}
+                    </span>
+                  )}
                 </span>
               </button>
             );
@@ -316,7 +414,7 @@ function ClientSwitcher() {
       )}
     </div>
   );
-}
+});
 
 const ChevronLeftIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
@@ -361,22 +459,28 @@ export default function MacWindow() {
   const isHome = pathname === '/';
   const currentTool = getToolByPath(pathname);
 
-  const filteredGroups = search.trim()
-    ? NAV_GROUPS
-        .map(g => ({
-          ...g,
-          tools: g.tools.filter(t =>
-            t.label.toLowerCase().includes(search.toLowerCase())
-          ),
-        }))
-        .filter(g => g.tools.length > 0)
-    : NAV_GROUPS;
+  // Rebuilt on every render — including every crawl-status tick — and it called
+  // search.toLowerCase() once per tool, so ~37 times per pass. Depends only on
+  // the search box.
+  //
+  // Note the untrimmed toLowerCase(): the guard tests search.trim() but the
+  // filter has always matched on the raw value, so "  seo" matches nothing
+  // today. That is preserved deliberately — hoisting search.trim().toLowerCase()
+  // here would quietly change which results appear, which is a behaviour change
+  // dressed up as a performance one.
+  const filteredGroups = useMemo(() => {
+    if (!search.trim()) return NAV_GROUPS;
+    const needle = search.toLowerCase();
+    return NAV_GROUPS
+      .map(g => ({ ...g, tools: g.tools.filter(t => t.label.toLowerCase().includes(needle)) }))
+      .filter(g => g.tools.length > 0);
+  }, [search]);
 
   // Chrome-less embed: only the tool content, for public framed use.
   if (EMBED_MODE) {
     return (
       <div style={{ minHeight: '100vh', overflowY: 'auto', background: 'var(--bg)' }}>
-        <Suspense fallback={<RouteFallback />}><Outlet /></Suspense>
+        <ChunkErrorBoundary fallback={RouteFallback}><Suspense fallback={<RouteFallback />}><Outlet context={crawl} /></Suspense></ChunkErrorBoundary>
       </div>
     );
   }
@@ -689,7 +793,7 @@ export default function MacWindow() {
                 />
               </div>
             )}
-            <Suspense fallback={<RouteFallback />}><Outlet /></Suspense>
+            <ChunkErrorBoundary fallback={RouteFallback}><Suspense fallback={<RouteFallback />}><Outlet context={crawl} /></Suspense></ChunkErrorBoundary>
           </div>
         </div>
       </div>

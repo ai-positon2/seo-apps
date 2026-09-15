@@ -79,9 +79,23 @@ function getPool() {
     max: Number(process.env.DATABASE_POOL_MAX || 10),
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 15_000,
-    // Long-running module work (crawl completion writes, evidence rollups) can
-    // legitimately outlast a default timeout, so no statement_timeout is set
-    // here; the slow paths that need a bound set their own.
+    // No statement_timeout. Long-running module work (crawl completion writes,
+    // evidence rollups) can legitimately outlast a default, so one set here
+    // would kill legitimate queries.
+    //
+    // This used to add "the slow paths that need a bound set their own", which
+    // is not true and was worth correcting rather than leaving as reassurance:
+    // nothing in server/ sets statement_timeout, query_timeout or lock_timeout
+    // on any query. The only occurrence in the repo is scripts/copyFromSupabase.js,
+    // which sets it to 0 (unlimited) on purpose for a bulk copy. So query
+    // execution is unbounded, and connectionTimeoutMillis below bounds only
+    // ACQUIRING a connection, not running a statement on one.
+    //
+    // The consequence, so it is a known risk rather than a surprise: a query
+    // that blocks — a lock wait, a plan that loses an index — holds its pooled
+    // connection indefinitely, and `max` such queries exhaust the pool and stop
+    // the process serving. Bounding it needs the real p99 of the module writes
+    // above, which is a measurement this sweep has no way to take.
   });
 
   // A pooled connection that dies in the background must not take the process

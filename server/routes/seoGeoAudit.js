@@ -5,6 +5,8 @@ const router = express.Router();
 const axios = require('axios');
 const { createLlmClient } = require('../services/llmProviders');
 const { runAllChecks } = require('../checks/seoGeoChecks');
+// SSRF guard, shared with contentArchitect rather than reimplemented (see call site).
+const { assertPublicHost } = require('../modules/contentArchitect/urlSafety');
 
 // Claude Sonnet through the shared provider factory, which handles the one
 // behavioural difference that matters here: Anthropic's OpenAI-compatible
@@ -663,6 +665,18 @@ router.post('/run', async (req, res) => {
   const body = req.body || {};
   if (!body.url && !body.html) {
     return res.status(400).json({ error: 'Provide a URL or raw HTML.' });
+  }
+
+  // SSRF guard — see the note in routes/agentReadinessAudit.js. The URL is
+  // fetched by this server, so a parseable string is not the same as a host this
+  // server should be made to reach: 169.254.169.254 (cloud instance metadata)
+  // and every private range are refused here rather than fetched.
+  if (body.url) {
+    try {
+      await assertPublicHost(new URL(String(body.url).startsWith('http') ? body.url : `https://${body.url}`).hostname);
+    } catch (e) {
+      return res.status(400).json({ error: e.message });
+    }
   }
 
   res.setHeader('Content-Type', 'text/event-stream');

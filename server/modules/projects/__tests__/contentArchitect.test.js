@@ -199,6 +199,11 @@ test('project creation route initializes Content Architect without a separate mo
   const workspaceMock = mock.method(projectAccess, 'requireWorkspace', async () => access);
   const projectMock = mock.method(projectAccess, 'requireProject', async () => access);
   const listMock = mock.method(projectsStore, 'listProjects', async () => []);
+  // The duplicate-domain check. It used to scan listProjects() in JavaScript;
+  // it now asks the database directly, which this suite's fakeDb deliberately
+  // refuses (only crawl_runs and project_module_runs may be touched here, so
+  // that Content Architect setup staying off other paths is provable).
+  const clashMock = mock.method(projectsStore, 'projectTrackingOrigin', async () => null);
   const createMock = mock.method(projectsStore, 'createProject', async () => ({
     id: access.project.id, workspaceId: 'workspace-a', primaryDomain: { origin: access.project.url },
   }));
@@ -213,13 +218,22 @@ test('project creation route initializes Content Architect without a separate mo
     assert.ok(linked);
     assert.equal(linked.workflowState, 'waiting_for_crawl');
   } finally {
-    for (const m of [identityMock, workspaceMock, projectMock, listMock, createMock, domainsMock, competitorMock]) m.mock.restore();
+    for (const m of [identityMock, workspaceMock, projectMock, listMock, clashMock, createMock, domainsMock, competitorMock]) m.mock.restore();
   }
 });
 
 test('the Site Crawler project form also creates its linked entry before the initial crawl', async () => {
   const repo = require('../../crawlScope/db/repo');
-  const createMock = mock.method(repo, 'createProject', async () => access.project);
+  // This route used to call repo.createProject, which inserted crawl_projects
+  // and nothing else. It now goes through the shared project store, which
+  // writes the project and its primary domain in one transaction, then reads
+  // the raw row back for the internals that expect DB shape. Mocking that trio
+  // is what keeps this test about Content Architect setup rather than about SQL.
+  const workspaceMock = mock.method(projectAccess, 'requireWorkspace', async () => access);
+  const createMock = mock.method(projectsStore, 'createProject', async () => ({
+    id: access.project.id, workspaceId: 'workspace-a', primaryDomain: { origin: access.project.url },
+  }));
+  const getMock = mock.method(repo, 'getProject', async () => access.project);
   const crawlMock = mock.method(repo, 'createRun', async () => {
     assert.ok((await caStore.listProjects()).find((p) => p.platformProjectId === access.project.id));
     return { id: 'initial-crawl' };
@@ -233,9 +247,21 @@ test('the Site Crawler project form also creates its linked entry before the ini
     }, res, (error) => { throw error; });
     assert.equal(res.statusCode, 201);
     assert.equal(res.body.run.id, 'initial-crawl');
+
+    // The point of routing through the store: this endpoint can no longer
+    // create a project without a primary domain, and it asks for the country
+    // to be optional rather than sending a guessed one.
+    assert.equal(createMock.mock.callCount(), 1);
+    const [args] = createMock.mock.calls[0].arguments;
+    assert.equal(args.primaryDomain, access.project.url);
+    assert.equal(args.requireCountry, false);
+    // CrawlScope's own schedule contract survives the move: a schedule is
+    // required here and the project starts enabled, which is the opposite of
+    // the /api/projects default.
+    assert.ok(args.schedule.cron);
+    assert.equal(args.schedule.enabled, true);
   } finally {
-    createMock.mock.restore();
-    crawlMock.mock.restore();
+    for (const m of [workspaceMock, createMock, getMock, crawlMock]) m.mock.restore();
   }
 });
 

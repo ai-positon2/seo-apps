@@ -1,0 +1,30 @@
+{
+  "generatedAt": "2026-09-13T18:22:54.556Z",
+  "targets": [
+    "server/routes",
+    "server/middleware",
+    "server/modules",
+    "server/locationPageBuilder"
+  ],
+  "direct": [
+    {
+      "file": "server/routes/agentReadinessAudit.js",
+      "line": 931,
+      "method": "POST",
+      "unguarded": 1,
+      "lines": [
+        962
+      ]
+    }
+  ],
+  "byWrapper": {
+    "server/routes/locationPageBuilder.js :: wrap": 9,
+    "server/routes/lsPages.js :: wrap": 8,
+    "server/routes/lsPages.js :: wrapStep": 8,
+    "server/modules/competitorAnalysis/routes.js :: wrap": 9,
+    "server/modules/contentArchitect/routes.js :: wrap": 9,
+    "server/modules/crawlScope/api/routes.js :: asyncRoute": 16,
+    "server/modules/marketPotential/routes.js :: wrap": 4,
+    "server/modules/onPageAudit/routes.js :: wrap": 3
+  }
+}

@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import { useSeoGeoAudit } from '../hooks/useSeoGeoAudit';
 import { asText } from '../components/seoGeo/primitives';
@@ -13,7 +12,16 @@ import ReportResolving from '../components/project/ReportResolving';
 import { useOnPageTab } from '../hooks/useOnPageTab';
 
 // ── downloadReport (7 sheets) ─────────────────────────────────────────────────
-function downloadReport(findings, ai) {
+// xlsx is ~282 kB minified and is reachable from exactly one button on one
+// page, so it is fetched on use rather than shipped with the route. The
+// namespace object a dynamic import resolves to has the same shape as
+// `import * as XLSX`, so nothing below this line changes. The effect in the
+// component prefetches it as soon as a report is on screen, which keeps the
+// click itself instant — without that, the first click on a cold cache would
+// sit for a few hundred milliseconds with no feedback, and this button has no
+// loading state.
+async function downloadReport(findings, ai) {
+  const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();
 
   const statusFill = (status) => {
@@ -264,6 +272,9 @@ export default function SeoGeoAuditPage() {
   });
   const { findings, ai } = ctl;
 
+  // Warm the export chunk while the report is being read, not on click.
+  useEffect(() => { if (findings) import('xlsx'); }, [findings]);
+
   // On-Page audit state is held here, not inside the panel that shows it: the
   // PSI run takes 30-60s and switching tabs mid-run would otherwise unmount the
   // poller and throw the work away.
@@ -374,7 +385,7 @@ export default function SeoGeoAuditPage() {
                   Excel button in the header, so here it is. */}
               <button
                 type="button"
-                onClick={() => downloadReport(findings, ai)}
+                onClick={() => { downloadReport(findings, ai).catch((e) => console.error('[seo-geo] Excel export failed:', e)); }}
                 style={{
                   height: 38, padding: '0 16px', fontFamily: 'var(--font-sans)', fontSize: 13,
                   fontWeight: 500, color: 'var(--text)', background: 'transparent',

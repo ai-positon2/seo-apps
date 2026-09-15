@@ -229,10 +229,23 @@ create trigger crawl_projects_touch before update on crawl_projects
   for each row execute function crawl_touch_updated_at();
 
 -- Report storage ────────────────────────────────────────────────────────────
--- Private bucket: the workbook is built once by the worker and served
--- thereafter via a short-lived signed URL issued by the authenticated download
--- route, so the web process never rebuilds a multi-MB workbook on the request
--- path. Override the name with REPORT_STORAGE_BUCKET.
-insert into storage.buckets (id, name, public)
-values ('reports', 'reports', false)
-on conflict (id) do nothing;
+-- This file used to end with:
+--
+--   insert into storage.buckets (id, name, public)
+--   values ('reports', 'reports', false) on conflict (id) do nothing;
+--
+-- creating a private Supabase Storage bucket for the audit workbook, which was
+-- then served through a short-lived signed URL.
+--
+-- REMOVED, because it made the schema impossible to rebuild. `storage.buckets`
+-- is a Supabase-managed table; this app now speaks to plain Postgres, where
+-- that relation does not exist, so applying this migration to a new database
+-- failed at the last statement with `relation "storage.buckets" does not
+-- exist`. Every existing database predates the move and already has the schema,
+-- so the breakage was invisible — until a fresh database was created and the
+-- whole chain stopped at 0010.
+--
+-- Nothing reads the bucket any more. Workbooks are written under the data root
+-- (see modules/crawlScope/run/report.js, which says so at the top), and
+-- REPORT_STORAGE_BUCKET is now a directory name rather than a bucket id. The
+-- statement was dead in every environment before it was deleted here.
