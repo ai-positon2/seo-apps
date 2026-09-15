@@ -18,6 +18,7 @@ const DISCOVER_STEPS = [
   { id: 'sitemap', label: 'Find sitemap' },
   { id: 'crawl-fallback', label: 'Crawl fallback' },
   { id: 'patterns', label: 'Group patterns' },
+  { id: 'classify', label: 'Classify page types' },
 ];
 
 const ANALYZE_STEPS = [
@@ -34,6 +35,7 @@ const CLASSIFICATION_META = {
   article: { label: 'Article', variant: 'success' },
   service: { label: 'Service', variant: 'info' },
   location: { label: 'Location', variant: 'info' },
+  people: { label: 'People', variant: 'neutral' },
   exclude: { label: 'Exclude', variant: 'danger' },
   static: { label: 'Static', variant: 'neutral' },
   // Catch-all for anything that doesn't fit article/service/location: staff
@@ -53,16 +55,13 @@ export default function ContentArchitectProjectPage() {
   const [activeProjectId, setActiveProjectId] = useActiveProjectId();
 
   const [project, setProject] = useState(null);
-  const [screen, setScreen] = useState('loading'); // loading | discovering | patterns | clusters | analyzing | results
+  const [screen, setScreen] = useState('loading'); // loading | discovering | patterns | analyzing | results
   const [steps, setSteps] = useState({});
   const [error, setError] = useState(null);
   const [patterns, setPatterns] = useState([]);
   const [vertical, setVertical] = useState(null);
   const [discoverMeta, setDiscoverMeta] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [clusterResult, setClusterResult] = useState(null);
-  const [clustering, setClustering] = useState(false);
-  const [showUnassigned, setShowUnassigned] = useState(false);
   const [analyzeSteps, setAnalyzeSteps] = useState({});
   const [analysis, setAnalysis] = useState(null);
   const [exportingFormat, setExportingFormat] = useState(null);
@@ -125,13 +124,11 @@ export default function ContentArchitectProjectPage() {
           if (existingAnalysis) {
             setAnalysis(existingAnalysis);
             setScreen('results');
-            return;
-          }
-          const existingClusters = await ca.getClusters(id).catch(() => null);
-          if (existingClusters) {
-            setClusterResult(existingClusters);
-            setScreen('clusters');
           } else {
+            // Discovery finished (or was interrupted) without ever reaching a
+            // saved analysis — most likely the tab closed mid auto-run. Land
+            // in the pattern editor so "Confirm Patterns" can kick the
+            // pipeline off again, rather than showing nothing.
             setScreen('patterns');
           }
         }
@@ -169,7 +166,11 @@ export default function ContentArchitectProjectPage() {
         setPatterns(d.patterns);
         setVertical(d.vertical);
         setDiscoverMeta(d);
-        setScreen('patterns');
+        // No manual confirmation gate — discovery flows straight into
+        // analysis using the classifier's own pattern selection. Anyone who
+        // wants to change what's included can still do so from the results
+        // screen's "Edit Pattern Selection".
+        runAnalysisFor(d.patterns, d.vertical);
       });
       es.addEventListener('fail', (e) => {
         const d = JSON.parse(e.data);
@@ -186,34 +187,26 @@ export default function ContentArchitectProjectPage() {
     setPatterns((prev) => prev.map((p) => (p.pattern === pattern ? { ...p, included: !p.included } : p)));
   }
 
-  async function confirmPatterns() {
+  // Saves the given pattern selection, then runs full analysis directly — no
+  // intermediate draft-clustering preview to click through. Used both right
+  // after discovery (automatically) and from the pattern editor's "Confirm
+  // Patterns" button (manually, after an edit).
+  async function runAnalysisFor(patternsArg, verticalArg) {
     setSaving(true);
     try {
-      await ca.savePatterns(id, patterns.map((p) => ({ pattern: p.pattern, included: p.included })), vertical);
-      setSaving(false);
-      setClustering(true);
-      setScreen('clusters');
-      const result = await ca.computeDraftClusters(id);
-      setClusterResult(result);
+      await ca.savePatterns(id, patternsArg.map((p) => ({ pattern: p.pattern, included: p.included })), verticalArg);
     } catch (e) {
       toast.add({ title: 'Save failed', description: e.message, variant: 'danger' });
-      setScreen('patterns');
-    } finally {
       setSaving(false);
-      setClustering(false);
+      setScreen('patterns');
+      return;
     }
+    setSaving(false);
+    await startAnalysis();
   }
 
-  async function recomputeClusters() {
-    setClustering(true);
-    try {
-      const result = await ca.computeDraftClusters(id);
-      setClusterResult(result);
-    } catch (e) {
-      toast.add({ title: 'Clustering failed', description: e.message, variant: 'danger' });
-    } finally {
-      setClustering(false);
-    }
+  function confirmPatterns() {
+    return runAnalysisFor(patterns, vertical);
   }
 
   async function startAnalysis() {
@@ -235,19 +228,19 @@ export default function ContentArchitectProjectPage() {
           setScreen('results');
         } catch (e) {
           setError(e.message);
-          setScreen('clusters');
+          setScreen('patterns');
         }
       });
       es.addEventListener('fail', (e) => {
         const d = JSON.parse(e.data);
         setError(d.message);
-        setScreen('clusters');
+        setScreen('patterns');
       });
       es.addEventListener('done', () => es.close());
       es.onerror = () => es.close();
     } catch (e) {
       setError(e.message);
-      setScreen('clusters');
+      setScreen('patterns');
     }
   }
 
@@ -356,8 +349,18 @@ export default function ContentArchitectProjectPage() {
                   {VERTICAL_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
                 </select>
               </div>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>
-                Analyzing {selectedUrls.toLocaleString()} of {totalUrls.toLocaleString()} URLs
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>
+                  Analyzing {selectedUrls.toLocaleString()} of {totalUrls.toLocaleString()} URLs
+                </span>
+                {analysis && (
+                  <Button variant="secondary" size="sm" onClick={() => setScreen('results')} disabled={saving}>
+                    Cancel
+                  </Button>
+                )}
+                <Button size="sm" onClick={confirmPatterns} loading={saving} disabled={saving}>
+                  {saving ? 'Saving…' : analysis ? 'Confirm & Re-run Analysis' : 'Confirm Patterns'}
+                </Button>
               </div>
             </div>
           </Card>
@@ -392,97 +395,6 @@ export default function ContentArchitectProjectPage() {
             striped
             emptyText="No patterns found."
           />
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button onClick={confirmPatterns} loading={saving} disabled={saving}>
-              {saving ? 'Saving…' : 'Confirm Patterns'}
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {screen === 'clusters' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <Card style={{ background: 'var(--warning-soft)' }}>
-            <div style={{ fontSize: 13 }}>
-              <strong>Draft — based on URLs only.</strong> These clusters come from slug text alone, with mechanical names (no page content read yet, no AI naming). Checkpoint 3+ will crawl actual page content and improve both grouping and naming.
-            </div>
-          </Card>
-
-          <Card>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-              <div style={{ fontSize: 13 }}>
-                {clustering ? 'Clustering…' : clusterResult ? (
-                  <>
-                    <strong>{clusterResult.clusters.length}</strong> clusters ·{' '}
-                    <strong>{clusterResult.unassigned.length}</strong> unassigned
-                    {' '}({Math.round((100 * clusterResult.unassigned.length) / Math.max(1, clusterResult.clusters.reduce((s, c) => s + c.urls.length, 0) + clusterResult.unassigned.length))}%)
-                  </>
-                ) : null}
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Button variant="secondary" size="sm" onClick={() => setScreen('patterns')}>Edit Pattern Selection</Button>
-                <Button variant="secondary" size="sm" onClick={recomputeClusters} loading={clustering} disabled={clustering}>
-                  Recompute
-                </Button>
-                <Button size="sm" onClick={startAnalysis} disabled={clustering || !clusterResult}>
-                  Run Full Analysis →
-                </Button>
-              </div>
-            </div>
-          </Card>
-
-          <Card style={{ background: 'var(--info-soft)' }}>
-            <div style={{ fontSize: 12 }}>
-              "Run Full Analysis" reads every confirmed page's actual content, builds a real internal link graph, names clusters with AI, and picks a hub page for each topic. Takes a few minutes depending on site size.
-            </div>
-          </Card>
-
-          {clustering && !clusterResult && <EmptyState title="Clustering…" description="Slug-only draft clustering — no network calls, should only take a moment." />}
-
-          {clusterResult && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
-              {clusterResult.clusters.map((c, i) => (
-                <Card key={i}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
-                    <strong style={{ fontSize: 14 }}>{c.name}</strong>
-                    <Badge variant="warning">Draft</Badge>
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 8 }}>
-                    {c.urls.length} pages · mean similarity {c.meanSimilarity.toFixed(2)}
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 220, overflowY: 'auto' }}>
-                    {c.urls.map((u) => (
-                      <div key={u} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-2)' }}>
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={u}>
-                          {u.replace(project?.domain || '', '')}
-                        </span>
-                        {c.dualClusterUrls?.includes(u) && <Badge variant="info" style={{ flexShrink: 0 }}>dual</Badge>}
-                      </div>
-                    ))}
-                  </div>
-                </Card>
-              ))}
-            </div>
-          )}
-
-          {clusterResult?.unassigned?.length > 0 && (
-            <Card>
-              <button
-                onClick={() => setShowUnassigned((v) => !v)}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: 13, fontWeight: 600, color: 'var(--text)' }}
-              >
-                {showUnassigned ? '▾' : '▸'} Unassigned ({clusterResult.unassigned.length})
-              </button>
-              {showUnassigned && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 10, maxHeight: 400, overflowY: 'auto' }}>
-                  {clusterResult.unassigned.map((u) => (
-                    <span key={u} style={{ fontSize: 11, color: 'var(--text-3)' }}>{u.replace(project?.domain || '', '')}</span>
-                  ))}
-                </div>
-              )}
-            </Card>
-          )}
         </div>
       )}
 
@@ -534,7 +446,7 @@ export default function ContentArchitectProjectPage() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {!project?.platformProjectId && <Button variant="secondary" size="sm" onClick={() => setScreen('clusters')}>Back to Draft</Button>}
+                {!project?.platformProjectId && <Button variant="secondary" size="sm" onClick={() => setScreen('patterns')}>Edit Pattern Selection</Button>}
                 <Button variant="secondary" size="sm" onClick={project?.platformProjectId ? refreshProjectAnalysis : startAnalysis} loading={screen === 'analyzing'}>Re-run Analysis</Button>
                 <Button size="sm" onClick={() => downloadExport('xlsx')} loading={exportingFormat === 'xlsx'} disabled={!!exportingFormat}>
                   Download Excel

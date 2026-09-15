@@ -25,7 +25,7 @@ const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).cat
 const store = require('./store');
 const { resolveDomain, UnreachableDomainError } = require('./domainResolver');
 const { discoverUrls, crawlFallback } = require('./sitemapDiscovery');
-const { buildPatternTable, detectVertical, extractTemplates } = require('./patternClassifier');
+const { buildPatternTable, refineWithAI, detectVertical, extractTemplates } = require('./patternClassifier');
 const { UnsafeUrlError } = require('./urlSafety');
 const { buildDraftClusters } = require('./draftClustering');
 const { runFullAnalysis } = require('./fullAnalysis');
@@ -191,14 +191,18 @@ router.get('/projects/:id/discover/stream/:token', async (req, res) => {
 
     emit('step', { id: 'patterns', status: 'active', message: 'Grouping URLs into patterns…' });
     const urlStrings = urls.map((u) => u.url);
-    const patterns = buildPatternTable(urlStrings);
+    const ruleTable = buildPatternTable(urlStrings);
     const vertical = detectVertical(urlStrings);
+    emit('step', { id: 'patterns', status: 'done', message: `Found ${ruleTable.length} URL patterns` });
+
+    emit('step', { id: 'classify', status: 'active', message: 'Double-checking ambiguous page types with AI…' });
+    const patterns = await refineWithAI(ruleTable);
     await store.savePatterns(project.id, patterns);
     // Full list persisted separately from the pattern table (which only keeps
     // 3 examples per pattern) — Stage 3 draft clustering needs every
     // confirmed URL and must make no network calls of its own.
     await store.saveUrls(project.id, urls);
-    emit('step', { id: 'patterns', status: 'done', message: `Found ${patterns.length} URL patterns` });
+    emit('step', { id: 'classify', status: 'done', message: `Classified ${patterns.length} URL patterns` });
 
     await store.updateProject(project.id, {
       workflowState: 'patterns',

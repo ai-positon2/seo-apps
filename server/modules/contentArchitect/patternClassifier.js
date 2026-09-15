@@ -3,6 +3,16 @@
 // URLs), classifies each TEMPLATE (not each URL), and guesses a vertical from
 // slugs alone — this runs before any crawl, so titles aren't available yet;
 // see Stage 3's "draft" concept for the same idea applied to clustering.
+//
+// Classification is two-tier, the same split used for page classification in
+// server/modules/competitorAnalysis/contentAnalysis/pageClassifier.js: fast
+// keyword rules decide the patterns that have a clear signal, and only the
+// ones they can't (rule.confident === false) get a second look from an LLM,
+// which reads the pattern's example URLs the rules already extracted. Neither
+// stage is required to run alone — refineWithAI degrades to the rules' own
+// guess whenever there's no API key, a batch fails, or the model's answer
+// isn't one of the known categories.
+const OpenAI = require('openai');
 const SIBLING_CARDINALITY_THRESHOLD = 8;
 // A value recurring at least this many times at a position is treated as its
 // own literal branch, never swept into the generic {slug} bucket just
@@ -89,8 +99,19 @@ function extractTemplates(urls) {
 // despite containing "blog".
 const EXCLUDE_TERMS = ['tag', 'category', 'author', 'page', 'feed', 'search', 'wp-', 'amp', 'print'];
 const SERVICE_TERMS = ['service', 'services', 'treatment', 'procedure', 'solution'];
-const LOCATION_TERMS = ['location', 'locations', 'city', 'office', 'branch'];
+// Deliberately NOT 'find-a-' or 'store'/'stores' — both are too ambiguous for a
+// blanket keyword match: "find-a-pediatrician" is a provider directory, not a
+// place, and "store" also names the ecommerce vertical's product-listing pages
+// (see VERTICAL_KEYWORDS.ecommerce below). Left for refineWithAI to judge from
+// the actual example URLs rather than asserted here with false confidence.
+const LOCATION_TERMS = ['location', 'locations', 'city', 'office', 'branch', 'dealer', 'near-me'];
 const ARTICLE_TERMS = ['blog', 'articles', 'resources', 'insights', 'guides', 'learn', 'news', 'post'];
+// A team/staff bio or directory — its own category rather than folding into
+// "article", which is what a bare {slug} pattern with no other signal used to
+// default to (see the "meet-our-dentists" example below). Structural phrases
+// ('meet-our', 'our-team') catch this regardless of vertical; the role nouns
+// are a fallback for sites that skip that phrasing.
+const PEOPLE_TERMS = ['team', 'staff', 'our-team', 'meet-our', 'meet-the', 'leadership', 'provider', 'providers', 'doctor', 'dentist', 'physician', 'attorney'];
 
 // A representative bundled city list — not exhaustive, but covers the common
 // case of a location-page slug being a bare city name with no other signal.
@@ -101,9 +122,19 @@ const CITY_LIST = new Set([
   'london', 'manchester', 'birmingham', 'leeds', 'glasgow', 'liverpool', 'bristol', 'sheffield',
 ]);
 
+// Same whole-word technique detectVertical (below) already uses, applied to
+// the classification term lists too: a single-word term only counts against a
+// whole path TOKEN (split on "/", "-", "_"), matched as a prefix so plurals
+// and stems still hit ("service" -> "services"), rather than as a raw
+// substring anywhere in the joined path — the latter is how "post" matched
+// inside "job-post" and "city" matched inside "capacity". A term that is
+// itself a hyphenated PHRASE (e.g. "meet-our") names an exact structural
+// signal rather than a word, so it's still checked as a substring of the
+// full pattern.
 function hasTerm(pattern, terms) {
   const lower = pattern.toLowerCase();
-  return terms.some((t) => lower.includes(t));
+  const tokens = lower.split(/[/_-]+/).filter(Boolean);
+  return terms.some((t) => (t.includes('-') ? lower.includes(t) : tokens.some((tok) => tok.startsWith(t))));
 }
 
 // Exclude terms are CMS taxonomy/system markers (WordPress tag/category/
@@ -125,6 +156,26 @@ function matchesCityList(pattern) {
   return segs.some((s) => CITY_LIST.has(s));
 }
 
+// The site's own "about us" / company section. Checked against the FIRST path
+// segment only, not a substring anywhere in the pattern — a blog post titled
+// "all-about-teeth-whitening" must not trip this, but "/about-us/anything"
+// should, no matter what's nested under it (press releases, awards, csr,
+// history, meet-the-team). Company-info pages read as news or editorial
+// content surprisingly often (a press release IS "news"), which is exactly
+// how "/about-us/press/{slug}" kept coming out "article": ARTICLE_TERMS and
+// the hyphenated-slug fallback both judge the SLUG's wording, and press-release
+// slugs read like real news. This instead judges the SECTION the pages live
+// in, which is a stronger and cheaper signal than the AI having to infer
+// "these don't belong in a topical content architecture" from wording alone.
+// A more specific signal above (service/location/people/an explicit article
+// term) still wins — "/about-us/meet-our-dentists/{slug}" is 'people', not
+// this, because PEOPLE_TERMS is checked first.
+const COMPANY_SECTIONS = new Set(['about', 'about-us', 'company']);
+function isCompanySection(pattern) {
+  const segs = pattern.toLowerCase().split('/').filter(Boolean);
+  return segs.length > 0 && COMPANY_SECTIONS.has(segs[0]);
+}
+
 function hasQueryString(exampleUrls) {
   return exampleUrls.some((u) => u.includes('?'));
 }
@@ -140,33 +191,174 @@ function hasLongHyphenatedSlug(exampleUrls) {
   });
 }
 
-function classifyPattern(entry) {
+// Returns both the verdict and whether the rules actually recognized a signal
+// for it, so the caller knows which patterns are worth a second, AI opinion —
+// see refineWithAI below.
+function ruleVerdict(entry) {
   const { pattern, count, examples } = entry;
-  const depth = pattern.split('/').filter(Boolean).length;
 
-  if (matchesExcludeTerm(pattern) || hasQueryString(examples)) return 'exclude';
-  if (hasTerm(pattern, SERVICE_TERMS)) return 'service';
-  if (hasTerm(pattern, LOCATION_TERMS) || matchesCityList(pattern)) return 'location';
-  if (hasTerm(pattern, ARTICLE_TERMS) || pattern.includes('{date}')) return 'article';
-  if (count === 1 && depth <= 1) return 'static';
-  if (hasLongHyphenatedSlug(examples)) return 'article';
-  return 'unknown';
+  if (matchesExcludeTerm(pattern) || hasQueryString(examples)) return { classification: 'exclude', confident: true };
+  if (hasTerm(pattern, SERVICE_TERMS)) return { classification: 'service', confident: true };
+  if (hasTerm(pattern, LOCATION_TERMS) || matchesCityList(pattern)) return { classification: 'location', confident: true };
+  if (hasTerm(pattern, PEOPLE_TERMS)) return { classification: 'people', confident: true };
+  if (hasTerm(pattern, ARTICLE_TERMS) || pattern.includes('{date}')) return { classification: 'article', confident: true };
+  // Company-info section (about/about-us/company) with no more specific
+  // signal above it — see isCompanySection. Confident and static regardless
+  // of count: a whole section of the site being off-topic for the content
+  // architecture is exactly as certain as a single one-off page being.
+  if (isCompanySection(pattern)) return { classification: 'static', confident: true };
+  // count === 1 means a literal, non-templated one-off URL — extractTemplates
+  // only ever collapses a position into {slug}/{n}/{date} for a group of 2+
+  // sibling values (see FREQUENT_LITERAL_MIN_COUNT and the {date}/{n} checks
+  // above it), so a template this specific always has exactly one real URL
+  // behind it regardless of how deep it sits ("/dental-payment-plans/pay-my-bill"
+  // is exactly as one-off as "/contact"). Previously required depth <= 1,
+  // which is why a billing utility page two segments deep fell through to the
+  // hyphenated-slug guess below and came out "article".
+  if (count === 1) return { classification: 'static', confident: true };
+  // No keyword or structural signal at all — genuinely ambiguous from the URL
+  // alone (a staff bio, a case study, and a blog post can all end in a
+  // long hyphenated slug). hasLongHyphenatedSlug is kept only as the
+  // no-AI-available default, not as a confident verdict.
+  return { classification: hasLongHyphenatedSlug(examples) ? 'article' : 'unknown', confident: false };
 }
 
-const DEFAULT_INCLUDED = { article: true, exclude: false, service: false, location: false, static: false, unknown: false };
+function classifyPattern(entry) {
+  return ruleVerdict(entry).classification;
+}
+
+const DEFAULT_INCLUDED = { article: true, exclude: false, service: false, location: false, people: false, static: false, unknown: false };
 
 function buildPatternTable(urls) {
   const templates = extractTemplates(urls);
   return templates.map((t) => {
-    const classification = classifyPattern(t);
+    const { classification, confident } = ruleVerdict(t);
     return {
       pattern: t.pattern,
       count: t.count,
       classification,
       examples: t.examples,
       included: DEFAULT_INCLUDED[classification],
+      confident,
     };
   });
+}
+
+// ── AI refinement of the rule layer's unconfident guesses ────────────────────
+const CLASSIFY_CATEGORIES = ['article', 'service', 'location', 'people', 'exclude', 'static', 'unknown'];
+const CLASSIFY_MODEL = 'gpt-4o-mini';
+const CLASSIFY_BATCH_SIZE = 40;
+
+// Every pattern this prompt is ever shown already failed the keyword rules —
+// there is no rule-based "guess" worth repeating here. An earlier version of
+// this prompt passed the rules' own last-resort default along as a "guess"
+// and asked the model to "only override it when clearly wrong" — a billing
+// page ("pay-my-bill") isn't OBVIOUSLY not an article, so the model kept
+// deferring to a guess that was never actually confident. Presenting every
+// pattern as a cold, undecided classification (no anchor to defer to) is what
+// fixed it.
+const CLASSIFY_SYSTEM_PROMPT = `You are an SEO information architect. You are given URL path patterns from one
+website that a keyword-based classifier could NOT confidently categorize, each with a few real example URLs.
+No page titles or content have been read yet — judge only from the URL structure and wording, especially the
+final slug segment of the example URLs (that's usually where the real signal is, since the pattern itself may
+just be a generic {slug}).
+
+Categories:
+- article: editorial content — blog posts, guides, resources, news.
+- service: a specific service, treatment, or procedure page.
+- location: a specific office, branch, dealer, or city/region page.
+- people: a staff, team, provider, or leadership bio or directory.
+- exclude: CMS taxonomy or system pages (tag/category archives, search, pagination, cart, login, etc.) that
+  are not real content.
+- static: a one-off utility or informational page (about, contact, billing, careers, home) that isn't
+  editorial content and doesn't repeat as a topic.
+- unknown: none of the above genuinely fits — use this only when you are truly unsure.
+
+Pick the single best-fitting category for each pattern. Return valid JSON only:
+{"patterns":[{"i": <same i>, "category": "<one of the categories>"}]}. Include every pattern you were given —
+omitting one leaves it as "unknown", so only do that when "unknown" really is your answer.`;
+
+function hasOpenAiKey() {
+  const k = process.env.OPENAI_API_KEY;
+  return !!k && k !== 'your_openai_api_key_here';
+}
+
+let _client = null;
+function client() {
+  if (!_client) _client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return _client;
+}
+
+async function classifyBatchWithAI(batch) {
+  // No "guess" field — every entry here already failed the keyword rules, so
+  // there's no rule-based prior worth anchoring the model to (see the comment
+  // above CLASSIFY_SYSTEM_PROMPT).
+  const payload = batch.map((p, i) => ({ i, pattern: p.pattern, examples: p.examples }));
+  const completion = await client().chat.completions.create({
+    model: CLASSIFY_MODEL,
+    temperature: 0,
+    max_tokens: 2048,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: CLASSIFY_SYSTEM_PROMPT },
+      { role: 'user', content: JSON.stringify({ patterns: payload }) },
+    ],
+  });
+  const raw = completion.choices[0]?.message?.content || '{}';
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed.patterns)) throw new Error('response missing "patterns" array');
+  return parsed.patterns;
+}
+
+/**
+ * Asks the model to classify the patterns the rule layer wasn't confident
+ * about, mirroring the "rules decide, model resolves what's left" split in
+ * server/modules/competitorAnalysis/contentAnalysis/pageClassifier.js. Never
+ * blocks the caller: with no key, or when a batch's API call itself fails,
+ * those patterns simply keep the rules' own last-resort guess. But once a
+ * batch's call DOES succeed, its answer is authoritative — a pattern the
+ * model left out, or gave an unrecognized category for, becomes "unknown"
+ * rather than quietly keeping a rule-based guess that a real classification
+ * attempt already had the chance to correct.
+ */
+async function refineWithAI(table) {
+  const uncertain = table.filter((t) => !t.confident);
+  if (!hasOpenAiKey() || !uncertain.length) return table.map(({ confident, ...rest }) => rest);
+
+  const byPattern = new Map(table.map((t) => [t.pattern, t]));
+  for (let i = 0; i < uncertain.length; i += CLASSIFY_BATCH_SIZE) {
+    const batch = uncertain.slice(i, i + CLASSIFY_BATCH_SIZE);
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const results = await classifyBatchWithAI(batch);
+      const answered = new Set();
+      for (const r of results) {
+        const source = batch[r.i];
+        if (!source) continue; // model invented an index — ignore
+        const entry = byPattern.get(source.pattern);
+        if (entry && CLASSIFY_CATEGORIES.includes(r.category)) {
+          entry.classification = r.category;
+          entry.included = DEFAULT_INCLUDED[r.category];
+          answered.add(source.pattern);
+        }
+      }
+      // The model got a real, well-formed reply — trust it over the rules'
+      // own last-resort guess even for a pattern it left out or gave an
+      // unrecognized category for. This is the fix for the exact failure
+      // mode that motivated dropping the "guess" field above: a weak
+      // rule-based default (e.g. "pay-my-bill" -> article) must never stand
+      // labeled as-is once a real classification attempt has run over it —
+      // "unknown" is an honest answer where the old guess was not.
+      for (const p of batch) {
+        if (answered.has(p.pattern)) continue;
+        const entry = byPattern.get(p.pattern);
+        if (entry) { entry.classification = 'unknown'; entry.included = false; }
+      }
+    } catch (err) {
+      console.error('[content-architect] AI pattern classification batch failed, keeping rule-based guesses:', err.message);
+    }
+  }
+  return table.map(({ confident, ...rest }) => rest);
 }
 
 // ── Vertical detection (slug-only first pass — no titles yet at this stage) ──
@@ -198,4 +390,6 @@ function detectVertical(urls) {
   return best;
 }
 
-module.exports = { extractTemplates, buildPatternTable, classifyPattern, detectVertical, LOCATION_TERMS, CITY_LIST };
+module.exports = {
+  extractTemplates, buildPatternTable, classifyPattern, refineWithAI, detectVertical, LOCATION_TERMS, CITY_LIST,
+};

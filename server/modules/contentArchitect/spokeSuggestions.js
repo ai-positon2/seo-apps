@@ -36,12 +36,19 @@ const { getKeywordsFull } = require('../../services/semrushCA');
 const { hasSemrushKey } = require('../competitorAnalysis/provider');
 const { computeKeywordGap } = require('../competitorAnalysis/gapAnalysis');
 const { searchGoogle } = require('../../services/googleSearch');
-const { createLlmClient } = require('../../services/llmProviders');
+const { createLlmClient, DEFAULT_MODEL_ID } = require('../../services/llmProviders');
 const { getDatabase } = require('../../utils/countryToDatabase');
 const { tokenizeWords, cleanTokens, deriveBrandTokens } = require('./termProfile');
 const { titleCase } = require('./clusterEngine');
 
-const MODEL = 'claude-sonnet-5';
+// OpenAI rather than a hardcoded Claude model — DEFAULT_MODEL_ID is whatever
+// this app's other LLM call sites already default to (llmNaming.js's cluster
+// naming included), so this only ever needs the ONE key this whole app leans
+// on, not a second one (ANTHROPIC_API_KEY) that's frequently left unset. A
+// missing LLM key here doesn't error — it silently drops to the mechanical,
+// keyword-only fallback below, which reads as "irrelevant, not a real topic"
+// exactly because it has no language model behind it at all.
+const MODEL = DEFAULT_MODEL_ID;
 const MAX_SUGGESTIONS = 8;
 // Domain-wide, not per-hub — one fetch's worth of a site's whole keyword
 // footprint, then filtered per-hub by term overlap below. Modest limit keeps
@@ -60,8 +67,8 @@ const MAX_PAA_QUESTIONS = 10;
 const MIN_LONGTAIL_WORDS = 3;
 
 function hasLlmKey() {
-  const k = process.env.ANTHROPIC_API_KEY;
-  return !!k && k !== 'your_anthropic_api_key_here';
+  const k = process.env.OPENAI_API_KEY;
+  return !!k && k !== 'your_openai_api_key_here';
 }
 
 function hostOf(domain) {
@@ -208,8 +215,12 @@ async function generateLikelyQuestions(topic, vertical) {
     const client = createLlmClient(MODEL);
     const completion = await client.chat.completions.create({
       model: client.model,
-      temperature: 0.4,
-      max_tokens: 512,
+      // No custom temperature, and max_completion_tokens (not max_tokens) —
+      // this app's default OpenAI model is a reasoning model that only
+      // supports its default temperature and rejects max_tokens outright
+      // (see articleEnhancement.js's calls against the same model for the
+      // established convention this follows).
+      max_completion_tokens: 512,
       response_format: { type: 'json_object' },
       messages: [
         {
@@ -267,8 +278,9 @@ async function synthesizeWithLlm(payload) {
   const client = createLlmClient(MODEL);
   const completion = await client.chat.completions.create({
     model: client.model,
-    temperature: 0.3,
-    max_tokens: 1536,
+    // See generateLikelyQuestions above: no custom temperature, and
+    // max_completion_tokens rather than max_tokens.
+    max_completion_tokens: 1536,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
