@@ -214,6 +214,22 @@ that is the `DATABASE_URL` host with `-pooler` removed.
 
 ---
 
+## Deploying
+
+See **[docs/deployment.md](docs/deployment.md)** before deploying anywhere.
+
+Two things there are easy to miss and both have bitten this app:
+
+- **`APP_DATA_ROOT` must point at a mounted volume.** Six modules still keep
+  their state as JSON on disk. Without a volume the container ships that
+  directory empty and every deploy silently resets them — Content Architect
+  projects, saved comparisons, monitor history. Nothing errors; the screen just
+  says the data is not there.
+- **Host the app in the same region as its database.** The app makes several
+  sequential queries per request, so distance between the two is multiplied by
+  every one of them. Measured: a trivial query costs 264 ms across continents
+  and 0.22 ms alongside.
+
 ## Rate Limits
 
 - **Backend rate limit:** 5 API requests per minute per IP
