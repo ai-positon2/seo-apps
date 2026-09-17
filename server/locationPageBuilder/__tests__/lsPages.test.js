@@ -23,7 +23,7 @@ const schemaGenerator = require('../schemaGenerator');
 const internalLinks = require('../internalLinks');
 const text = require('../text');
 
-let passed = 0, failed = 0;
+let passed = 0, failed = 0, skipped = 0;
 function test(name, fn) {
   try { fn(); console.log(`  ok  ${name}`); passed++; }
   catch (e) { console.error(`  FAIL ${name}\n       ${e.message}`); failed++; }
@@ -804,40 +804,76 @@ test('a location naming no services offers all of them', () => {
 // would just be the file written twice.
 console.log('\nClear Behavioral Health data');
 
-const CBH = require('../data/clearBehavioralHealth');
-const cbhServices = lsSeed.buildServices({ clientId: CBH.CLIENT_ID, idPrefix: 'cbh_', serviceDefs: CBH.SERVICE_DEFS });
-const cbhLocations = lsSeed.buildLocations({
-  clientId: CBH.CLIENT_ID, idPrefix: 'cbh_', locationDefs: CBH.LOCATION_DEFS,
-  serviceIds: cbhServices.map(s => s.id),
-  servicesBySlug: new Map(cbhServices.map(s => [s.slug, s.id])),
-  stateNames: CBH.STATE_NAMES,
-});
+// The data file is a per-deployment artifact: one brand's real service and
+// location list, which not every checkout has. It used to be `require`d at the
+// top level here, so its absence was not a skipped section but an uncaught
+// MODULE_NOT_FOUND that killed the process — and, because `npm test` chains 59
+// suites with `&&`, took the 55 suites after this one down with it. A fresh
+// clone's entire test run reported one stack trace about a file it was never
+// given.
+//
+// Absent, these checks SKIP and say so. Present, they run exactly as before:
+// this is not a weaker assertion, it is the same assertion with a stated
+// precondition. `loadReferenceData` is the loader the seed route itself uses,
+// so the test and the app agree on what "missing" means and neither treats a
+// syntax error inside the file as a missing file.
+let CBH = null;
+try {
+  CBH = lsSeed.loadReferenceData('clearBehavioralHealth');
+} catch (e) {
+  if (e.code !== 'LPB_REFERENCE_DATA_MISSING') throw e;
+}
 
-test('the brand carries its YMYL posture and prohibited claims', () => {
+// Declared so the checks below read the same whether or not they run. `test`
+// is replaced rather than each case being wrapped in an `if`, which would put
+// the skip condition in nine places and let a tenth case be added without it.
+let cbhServices = [];
+let cbhLocations = [];
+if (CBH) {
+  cbhServices = lsSeed.buildServices({ clientId: CBH.CLIENT_ID, idPrefix: 'cbh_', serviceDefs: CBH.SERVICE_DEFS });
+  cbhLocations = lsSeed.buildLocations({
+    clientId: CBH.CLIENT_ID, idPrefix: 'cbh_', locationDefs: CBH.LOCATION_DEFS,
+    serviceIds: cbhServices.map(s => s.id),
+    servicesBySlug: new Map(cbhServices.map(s => [s.slug, s.id])),
+    stateNames: CBH.STATE_NAMES,
+  });
+} else {
+  console.log('  SKIP  server/locationPageBuilder/data/clearBehavioralHealth.js is not in this');
+  console.log('        checkout, so the eight checks over it cannot run. See the README in that');
+  console.log('        folder; clearBehavioralHealth.example.js is the shape.');
+  skipped += 8;
+}
+
+// Below this line `test` skips instead of running when there is no data. The
+// two cases that assert the LADDER rather than the client's list keep the real
+// runner — they are about lsLadder's grammar and need no reference data.
+const dataTest = CBH ? test : () => {};
+
+dataTest('the brand carries its YMYL posture and prohibited claims', () => {
   assert.strictEqual(CBH.CLIENT.brand_rules.ymyl, true);
   assert.ok(CBH.CLIENT.brand_rules.prohibited_claims.length >= 5);
 });
 
-test('service and location slugs are unique, so no two pages share a URL', () => {
+dataTest('service and location slugs are unique, so no two pages share a URL', () => {
   const serviceSlugs = cbhServices.map(s => s.slug);
   const locationSlugs = cbhLocations.map(l => l.location_slug);
   assert.strictEqual(new Set(serviceSlugs).size, serviceSlugs.length, 'duplicate service slug');
   assert.strictEqual(new Set(locationSlugs).size, locationSlugs.length, 'duplicate location slug');
 });
 
-test('one row per city — no two locations share a city', () => {
+dataTest('one row per city — no two locations share a city', () => {
   const cities = cbhLocations.map(l => l.city);
   assert.strictEqual(new Set(cities).size, cities.length,
     `a city listed once per programme is still one location: ${cities.filter((c, i) => cities.indexOf(c) !== i)}`);
 });
 
-test('every location carries a region, and regions group more than one city where they should', () => {
+dataTest('every location carries a region, and regions group more than one city where they should', () => {
   cbhLocations.forEach(l => assert.ok(l.region, `${l.location_name} has no region`));
   const southBay = cbhLocations.filter(l => l.region === 'South Bay');
   assert.ok(southBay.length > 1, 'the region is what orders sibling links, so it has to actually group');
 });
 
-test('every location offers the full catalogue', () => {
+dataTest('every location offers the full catalogue', () => {
   // The client confirmed availability is not location-scoped, so the seed says
   // so explicitly rather than leaving it to each page to imply.
   cbhLocations.forEach(l => assert.strictEqual(
@@ -846,7 +882,7 @@ test('every location offers the full catalogue', () => {
   ));
 });
 
-test('every service and location combination resolves to a distinct URL', () => {
+dataTest('every service and location combination resolves to a distinct URL', () => {
   const profile = lsProfiles.resolveProfile(CBH.CLIENT);
   const urls = new Set();
   cbhLocations.forEach((location) => {
@@ -859,7 +895,7 @@ test('every service and location combination resolves to a distinct URL', () => 
   assert.strictEqual(urls.size, cbhLocations.length * cbhServices.length);
 });
 
-test('no location ships an invented address, phone or serving area', () => {
+dataTest('no location ships an invented address, phone or serving area', () => {
   cbhLocations.forEach((l) => {
     assert.strictEqual(l.street_address, '', `${l.location_name} has a street address nobody supplied`);
     assert.strictEqual(l.phone_number, '');
@@ -870,7 +906,7 @@ test('no location ships an invented address, phone or serving area', () => {
   });
 });
 
-test('every service produces English ladder headings', () => {
+dataTest('every service produces English ladder headings', () => {
   cbhServices.forEach((service) => {
     lsLadder.ladderHeadings(service).forEach((heading) => {
       assert.ok(!/(a|an) (?:[A-Z]?[a-z]*(?:tion|ty|ness|ism|osis)|Depression|Anxiety|Stress|Grief|Anger|Burnout|Autism)/.test(heading),
@@ -894,5 +930,5 @@ test('a trailing acronym does not decide the article', () => {
   );
 });
 
-console.log(`\n${passed} passed, ${failed} failed`);
+console.log(`\n${passed} passed, ${failed} failed${skipped ? `, ${skipped} skipped` : ''}`);
 process.exit(failed ? 1 : 0);

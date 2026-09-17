@@ -10,6 +10,7 @@
 // seed's blank. That merge is the one in seed.js (mergeLocation), reused
 // rather than reimplemented: getting it wrong destroys data silently.
 
+const path = require('path');
 const store = require('./store');
 const { slugify } = require('./urlBuilder');
 const { mergeLocation, PRESERVED_LOCATION_FIELDS } = require('./seed');
@@ -148,9 +149,48 @@ async function seedLsClient(data, { idPrefix }) {
   };
 }
 
-async function seedClearBehavioralHealth() {
-  const data = require('./data/clearBehavioralHealth');
-  return seedLsClient(data, { idPrefix: 'cbh_' });
+// Where a client's reference data lives. `data/` used to be matched by a bare
+// `data/` rule in the root .gitignore — which matches at every depth — so this
+// SOURCE file was never committed even though the file-store it was meant to
+// protect lives at the repo root (see config.js `dataRoot`). The rule is
+// anchored now; this loader exists because a checkout made before that, or a
+// brand nobody has supplied a list for yet, is still a state the app has to
+// survive.
+//
+// Node's MODULE_NOT_FOUND is the wrong thing to show for it. It arrives as a
+// 500 reading `Cannot find module './data/clearBehavioralHealth'` with a
+// require stack — an internals dump that tells the SEO team pressing "Sync
+// client list" nothing about what to do. Worse, it is indistinguishable from a
+// genuine crash, so a missing data file looks like a broken app.
+const REFERENCE_DATA_DIR = path.join(__dirname, 'data');
+
+/**
+ * Load one brand's reference-data module.
+ *
+ * Rethrows anything that is NOT "the file is absent" untouched: a syntax error
+ * or a bad require INSIDE the data file is a real fault and must keep its own
+ * stack, not be reported as a missing list.
+ */
+function loadReferenceData(name) {
+  const file = path.join(REFERENCE_DATA_DIR, `${name}.js`);
+  try {
+    return require(file);
+  } catch (e) {
+    if (e.code !== 'MODULE_NOT_FOUND' || !String(e.message).includes(file)) throw e;
+    const err = new Error(
+      `No reference data for "${name}". The client's service and location list is not in this `
+      + `deployment yet — add server/locationPageBuilder/data/${name}.js (see `
+      + `${name}.example.js in the same folder for the shape) and try again. `
+      + 'Nothing was changed.',
+    );
+    err.code = 'LPB_REFERENCE_DATA_MISSING';
+    err.status = 503;
+    throw err;
+  }
 }
 
-module.exports = { seedLsClient, seedClearBehavioralHealth, buildServices, buildLocations, resolveServiceIds, NAP_FIELDS };
+async function seedClearBehavioralHealth() {
+  return seedLsClient(loadReferenceData('clearBehavioralHealth'), { idPrefix: 'cbh_' });
+}
+
+module.exports = { seedLsClient, seedClearBehavioralHealth, loadReferenceData, REFERENCE_DATA_DIR, buildServices, buildLocations, resolveServiceIds, NAP_FIELDS };

@@ -22,9 +22,17 @@ client/dist
 .pytest-review-temp
 .review-build
 audit-loop
-data
+/data
 server/secrets
 server/scripts/audit-results
-modules/robotsMonitor/data
+
+# Every module's runtime file-store. Written as `server/modules/*/data`, not
+# `modules/robotsMonitor/data`: .dockerignore matches against the path relative
+# to the BUILD CONTEXT root, with no implicit `**/` prefix, and the Dockerfile's
+# context is the repo root — so the old entry matched nothing and the Robots
+# Monitor store (client credentials and the Slack webhook URL, both plaintext —
+# see modules/robotsMonitor/monitorStore.js) was copied into the published image
+# whenever it existed on the build host.
+server/modules/*/data
 *.local
 .DS_Store

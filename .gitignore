@@ -12,8 +12,14 @@ env
 *.local
 .DS_Store
 
-# Location Page Builder runtime data (file-store)
-data/
+# Runtime file-stores. Anchored and enumerated rather than a bare `data/`,
+# which matched at EVERY depth and so also swallowed
+# server/locationPageBuilder/data/ — reference SOURCE data, not runtime state.
+# The seed route requires a file from there at runtime, so a fresh clone got a
+# MODULE_NOT_FOUND 500 from "Sync client list" and a test suite that died on
+# import. Add a path here only when it is state the app WRITES.
+/data/
+server/modules/*/data/
 
 # Robots Monitor runtime data — contains plaintext credentials, do not commit
 modules/robotsMonitor/data/

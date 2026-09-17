@@ -33,8 +33,17 @@ const { seedClearBehavioralHealth } = require('../locationPageBuilder/lsSeed');
 // failure becomes a 500 on that one request. (This is not theoretical — it is
 // exactly how a Gentle Dental export once killed the app.)
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch((e) => {
-  console.error(`[LPB/ls] ${req.method} ${req.originalUrl} failed:`, e.message);
-  if (!res.headersSent) res.status(500).json({ error: e.message });
+  // An error that names its own status is one we RAISED on purpose and whose
+  // message is written for the person on the screen — "no reference data for
+  // this client yet", not a stack. Logging it at error level and reporting it
+  // as a 500 would file a configuration gap as an outage.
+  const status = Number.isInteger(e.status) && e.status >= 400 && e.status < 600 ? e.status : 500;
+  if (status >= 500 && status !== 503) {
+    console.error(`[LPB/ls] ${req.method} ${req.originalUrl} failed:`, e.message);
+  } else {
+    console.warn(`[LPB/ls] ${req.method} ${req.originalUrl} → ${status}: ${e.message}`);
+  }
+  if (!res.headersSent) res.status(status).json({ error: e.message, code: e.code || undefined });
 });
 
 // A 400 (the caller sent something wrong) rather than a 500 (we broke) for the
