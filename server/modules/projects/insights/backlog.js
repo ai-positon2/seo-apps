@@ -252,7 +252,29 @@ function buildBacklog(index, { traffic = null, excludedKeys = null } = {}) {
     totals: {
       actions: actions.length,
       needsReview: needsReview.length,
+      // How the work splits by how bad each item is. Four numbers rather than a
+      // single "47 things to fix", because 47 notices and 47 errors are the same
+      // figure and not remotely the same situation — and a reader deciding
+      // whether to act on this needs the second fact, not the first. An unknown
+      // severity is counted under `unknown` and never folded into `notice`,
+      // which would report an absent judgement as a mild one (§16.11).
+      bySeverity: actions.reduce((acc, i) => {
+        const key = SEVERITY_RANK[String(i.severity || '').toLowerCase()] === undefined
+          ? 'unknown' : String(i.severity).toLowerCase();
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, { error: 0, warning: 0, notice: 0, info: 0, unknown: 0 }),
       templateWide: actions.filter((i) => i.scope === 'template').length,
+      // Template-wide items, split the same way. "Nine of your twelve errors are
+      // one change each" is the single most decision-changing sentence this
+      // layer can produce, and it needs both halves.
+      templateWideErrors: actions.filter((i) => i.scope === 'template' && String(i.severity).toLowerCase() === 'error').length,
+      // Pages carrying at least one ERROR — distinct, canonical, counted the
+      // same way `pagesAffected` is. Not a sum of per-item counts.
+      pagesWithErrors: new Set(
+        actions.filter((i) => String(i.severity).toLowerCase() === 'error')
+          .flatMap((i) => i.pages).map((u) => canonicalKey(u)).filter(Boolean),
+      ).size,
       unattributed: actions.filter((i) => i.pageCount === null).length,
       pagesAffected: pagesAffected.size,
       crawledPages: crawledCount,

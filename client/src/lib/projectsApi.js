@@ -250,6 +250,26 @@ export const projectsApi = {
    */
   insights: (projectId) => req(`${BASE}/${projectId}/insights`),
 
+  /**
+   * The four answers the person who signs off on the work arrives with: is the
+   * site in trouble, what is the one thing worth doing, how much does it cover,
+   * and what is this not telling me. Composed server-side from the same stored
+   * evidence the dashboard already reads — see
+   * server/modules/projects/insights/executive.js, including what it is
+   * forbidden to invent. Runs no audits and spends nothing.
+   */
+  executiveSummary: (projectId) => req(`${BASE}/${projectId}/executive-summary`),
+
+  /**
+   * Which way the site is moving since the previous audit.
+   *
+   * Its own call because it is the expensive one — it walks every module's last
+   * two runs and their per-page reports, around 2.4s on a real project. The
+   * summary above renders without it and this fills one line in when it lands,
+   * so a slow comparison never delays the page.
+   */
+  executiveTrend: (projectId) => req(`${BASE}/${projectId}/executive-summary/trend`),
+
   /** Turns one backlog item into a recommendation draft, with its evidence. */
   promoteInsight: (projectId, key) =>
     req(`${BASE}/${projectId}/insights/promote`, {

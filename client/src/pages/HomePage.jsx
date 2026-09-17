@@ -10,6 +10,7 @@ import ModuleCard from '../components/home/ModuleCard';
 import SiteFavicon from '../components/home/SiteFavicon';
 import AuditRadar from '../components/home/AuditRadar';
 import ProfileStats from '../components/home/ProfileStats';
+import ExecutiveSummary from '../components/home/ExecutiveSummary';
 import ProjectSetupCard from '../components/home/ProjectSetupCard';
 import HomeSkeleton from '../components/home/HomeSkeleton';
 import { takePrefetch } from '../lib/homePrefetch';
@@ -276,6 +277,24 @@ export default function HomePage() {
       if (!stillRunning) break;
     }
   }, [activeProject, loadOverview, stillWanted]);
+
+  /**
+   * Turn one executive priority into a recommendation draft.
+   *
+   * A draft, never a proposal: POST /insights/promote is explicit that a person
+   * decides what is worth advising on, and auto-proposing would make the
+   * approval queue meaningless. The insight layer is re-read afterwards so the
+   * "To fix" figure above and this block agree about what is still open.
+   *
+   * Errors propagate to the row that asked — it reports them in place, which is
+   * where the person clicked.
+   */
+  const promoteInsight = useCallback(async (key) => {
+    if (!activeProject) return;
+    const projectId = activeProject.id;
+    await projectsApi.promoteInsight(projectId, key);
+    if (stillWanted(projectId)) loadInsights(projectId);
+  }, [activeProject, loadInsights, stillWanted]);
 
   /**
    * "Run Full Audit": the connected modules first, then the crawl.
@@ -685,6 +704,24 @@ export default function HomePage() {
           insightsError={insights.error}
         />
       </Card>
+
+      {/* ── The answer, before the instrumentation ───────────────────────────
+          The four stats above are the audit's own numbers; the six cards below
+          are each module's. Between them they describe what the TOOL did, and a
+          reader who is not running the audit — the person who approves the work
+          and the client it is for — needs the conclusion first, in their own
+          words, with the thing to do next attached to it.
+          Everything in it is a restatement of a stored figure; the wording is
+          composed and tested server-side (insights/executive.js) so the rules
+          about what may be claimed live in one place. */}
+      <ExecutiveSummary
+        /* Keyed, so switching client REMOUNTS it rather than showing the
+           previous client's verdict while the new one loads. The same reason
+           CrawlBudget and ProjectDetail are keyed. */
+        key={activeProject.id}
+        projectId={activeProject.id}
+        onPromote={promoteInsight}
+      />
 
       {/* An audit that could not start.
           It used to be reported inside the confirmation sheet, which is fine

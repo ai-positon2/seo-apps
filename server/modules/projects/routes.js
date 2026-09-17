@@ -19,6 +19,8 @@
 //   POST   /api/projects/:projectId/pages/:pageId/include
 //   GET    /api/projects/:projectId/pages/:pageId/history
 //   GET    /api/projects/:projectId/insights
+//   GET    /api/projects/:projectId/executive-summary
+//   GET    /api/projects/:projectId/executive-summary/trend
 //   POST   /api/projects/:projectId/insights/promote
 //   POST   /api/projects/:projectId/modules/:moduleKey/run
 //   GET    /api/projects/:projectId/modules/:moduleKey/runs
@@ -958,6 +960,59 @@ router.get('/:projectId/insights', async (req, res) => {
       generatedAt: built.generatedAt,
     });
   } catch (e) { handleError(res, e, 'insights'); }
+});
+
+// GET /api/projects/:projectId/executive-summary
+//
+// The same stored evidence the dashboard already reads, composed into the four
+// answers the person who signs off on the work arrives with — is it in trouble,
+// what is the one thing worth doing, how much does it cover, and what is this
+// NOT telling me. See insights/executive.js for what it is forbidden to invent.
+//
+// Runs no audits and spends nothing, exactly like /insights. It costs one extra
+// composition over reads that were already happening, so it is safe on the
+// dashboard's path — which the trend below is NOT.
+router.get('/:projectId/executive-summary', async (req, res) => {
+  if (!requireConfigured(res)) return;
+  try {
+    const access = await projectAccess.requireProject(req, req.params.projectId, 'view');
+    // Both reads in parallel. They share no state and the overview is the slower
+    // of the two, so serialising them would add the backlog's latency to a page
+    // that is already three round trips deep.
+    const [overviewData, built] = await Promise.all([
+      overview.buildOverview({ access }),
+      insights.buildInsights({ access }),
+    ]);
+    res.json({
+      project: built.project,
+      ...insights.executive.buildExecutiveSummary({
+        overview: overviewData,
+        backlog: built.backlog,
+      }),
+    });
+  } catch (e) { handleError(res, e, 'executiveSummary'); }
+});
+
+// GET /api/projects/:projectId/executive-summary/trend
+//
+// Which way the site is moving, from insights/changes.js — the comparison layer
+// that has always been built, tested and rendered by nothing.
+//
+// Its own endpoint because it is the expensive one: it walks every module's last
+// two runs and their per-page reports, measured at 2.4s of a 3.7s response on
+// the live Palo Alto project, which is why it was taken off the dashboard's path
+// to begin with. The summary above renders without it and this fills in when it
+// lands, so a slow comparison delays one line rather than the page.
+router.get('/:projectId/executive-summary/trend', async (req, res) => {
+  if (!requireConfigured(res)) return;
+  try {
+    const access = await projectAccess.requireProject(req, req.params.projectId, 'view');
+    const changes = await insights.changes.buildChanges({ access });
+    res.json({
+      trend: insights.executive.summariseTrend(changes),
+      generatedAt: changes.generatedAt,
+    });
+  } catch (e) { handleError(res, e, 'executiveSummaryTrend'); }
 });
 
 // POST /api/projects/:projectId/insights/promote

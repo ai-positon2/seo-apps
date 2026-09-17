@@ -12,6 +12,7 @@ const projectPages = require('../pages');
 const backlogModule = require('./backlog');
 const changes = require('./changes');
 const correlations = require('./correlations');
+const executive = require('./executive');
 
 /**
  * What the product cannot currently see, and what would fix it.
@@ -158,4 +159,7 @@ module.exports = {
   // Off the dashboard's path, on the module's surface: see the note on
   // buildInsights above for why this is kept rather than deleted.
   changes,
+  // The four answers composed for whoever signs off on the work, out of the two
+  // layers above. Pure and cheap — it reads nothing of its own.
+  executive,
 };
