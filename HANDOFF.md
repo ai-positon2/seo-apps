@@ -1,5 +1,25 @@
 # Handoff — crawler work, uncommitted
 
+> **Read this first: parts of the document below are now out of date.** It is a
+> point-in-time handoff and is kept as a record of what was found and why, not as
+> current documentation. Known corrections:
+>
+> * **§1 "there is no runner in this repo" is no longer true.** Migrations are
+>   applied by `server/scripts/migrate.js`, which records what it applied and
+>   checksums each file. `--status` answers "has this database seen 0023?".
+>   `--baseline-through` brings a hand-migrated database under it.
+> * **The branch is `unified-fast`, not `unified-app`,** and the work described
+>   here is committed. `HEAD` is well past `e4b3a72`.
+> * **§7 "nothing built today has been rendered in a browser"** still applies to
+>   the five report pages it names. The dashboard's Executive Summary block,
+>   added later, was rendered and screenshotted across five states and two
+>   themes before it was committed.
+> * **§2, the 500-URL bug, is still open** as far as this document knows, and
+>   §2's own warning stands: everything in it is a hypothesis, not a finding.
+>
+> Everything else below is unverified against the current tree.
+
+
 Written at the end of a long session. Everything below is **uncommitted**; the
 user asked twice that nothing be committed. `HEAD` is still `e4b3a72` and the
 branch is `unified-app`.

@@ -1,18 +1,41 @@
-# SERP Content Researcher
+# SEO Studio
 
-A full-stack tool that searches Google for the top 10 ranking pages for any keyword, scrapes their content, and generates a structured content recommendation report using Claude AI.
+A multi-module SEO and GEO platform. One client site — a **project** — is
+crawled, audited by six modules, and reported on in one place; fifteen standalone
+tools cover research, optimisation and build work alongside it.
 
-## What It Does
+> **The name in this README used to be "SERP Content Researcher".** That was the
+> first tool in here and is now one of fifteen (`/content-research`). If you find
+> documentation elsewhere in the repo describing this as a single-purpose app,
+> it predates the platform.
 
-1. **Search** — Queries Google Custom Search API for the top 10 US results for your keyword
-2. **Scrape** — Extracts main body content from each URL using a headless browser (Puppeteer)
-3. **Analyze** — Sends all scraped content to Claude AI, which generates:
-   - H2 section structure with ready-to-publish content
-   - Recommendations on what competitors cover in each section
-   - Word count benchmark
-   - Semantic keyword list
-   - Content gap analysis
-4. **Export** — Download as a formatted Word document or copy as plain text
+## What it does
+
+**The dashboard** (`/`) is about one client at a time. It leads with an
+**executive summary** — what state the site is in, which way it has moved since
+the last audit, how much of the work is a single template change, and the three
+things to start with — then the six-module audit profile beneath it. Every figure
+on it is read from a stored run; a module that has not run says so rather than
+showing a zero. See `server/modules/projects/insights/` for the composition
+rules, which are deliberately strict about what may be claimed.
+
+**The six audit modules**, run together by *Run Full Audit* or individually from
+their cards:
+
+| Module | What it measures |
+| --- | --- |
+| Tech Audit | A full site crawl (`server/modules/crawlScope`), 96 rules, per-page findings |
+| Hub and Spoke | Content architecture over the pages the crawl already stored |
+| Competitor Research | SEMrush comparison against the project's tracked rivals |
+| SEO & GEO | 200+ on-page and generative-engine checks, per page |
+| On-Page | Per-page technical and content audit |
+| AI Visibility | Brand presence across ChatGPT, Gemini, Google AI Overviews and others |
+
+**The standalone tools** in the sidebar: Keyword Research, Content Research,
+Article Recommendation, Market Potential, Content Enhancement, Article
+Enhancement (and Lite), SEO & GEO Audit, Agent Readiness Audit, Image Alt Audit,
+Location Page Builder, Content Architect, Knowledge Base, Crawl Scope and Robots
+Monitor. Each records what it ran — see **Run Tracking** below.
 
 ---
 
@@ -20,119 +43,121 @@ A full-stack tool that searches Google for the top 10 ranking pages for any keyw
 
 ### 1. Prerequisites
 
-- Node.js 18+ installed
-- A Google API key with Custom Search API enabled
-- An Anthropic API key
+- **Node.js 22.8 or newer.** The crawler needs 22, and the test runner needs
+  22.8 for `--test-isolation`. `server/package.json` declares this in `engines`.
+- **A Postgres database.** Projects, crawls, run history, workspaces and audit
+  evidence are all database-backed. Without `DATABASE_URL` the dashboard reports
+  "The database is not configured" and every tool that does not need persistence
+  keeps working.
+- API keys for whichever providers you intend to use — see `.env.example`, which
+  documents every variable and which ones are optional.
 
-### 2. Clone and Install
+### 2. Install
 
 ```bash
-git clone <repo-url>
-cd serp-content-researcher
-npm install          # installs root (concurrently)
-npm install --prefix server
-npm install --prefix client
+npm run install:all      # root, server and client
 ```
 
-Or in one command:
+### 3. Configure
+
 ```bash
-npm run install:all
+cp .env.example .env     # then fill it in
 ```
 
-### 3. Configure Environment Variables
+`.env.example` is the reference, not this file: it explains every variable
+including which endpoint to use for migrations, which providers are optional,
+and what breaks if a value is missing. The two that are not optional for the
+platform (as opposed to the standalone tools) are `DATABASE_URL` and
+`APP_DATA_ROOT` — see **Deploying**.
 
-Edit the `.env` file in the root directory:
+### 4. Apply the migrations
 
-```env
-GOOGLE_API_KEY=your_google_api_key_here
-GOOGLE_CX=your_custom_search_engine_id_here
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-PORT=5000
+```bash
+cd server && node scripts/migrate.js --status     # what is applied, what is pending
+cd server && node scripts/migrate.js              # apply everything pending
 ```
 
-### 4. Run the App
+Apply them over the database's **direct** endpoint; on Neon that is the
+`DATABASE_URL` host with `-pooler` removed. The runner records what it applied
+and checksums each file, so "has this database seen 0023?" is a question with an
+answer. An existing database that was migrated by hand can be brought under the
+runner with `--baseline-through`.
+
+### 5. Run
 
 ```bash
 npm run dev
 ```
 
-This starts:
-- **Backend** at `http://localhost:5000`
-- **Frontend** at `http://localhost:3000`
+- Backend on `http://localhost:5000`
+- Frontend on `http://localhost:3000`, proxying `/api` to the backend
 
-Open `http://localhost:3000` in your browser.
+Two background processes are separate and are **not** started by `npm run dev`:
 
----
+```bash
+cd server && npm run worker          # the crawl worker
+cd server && npm run module-worker   # the module run queue
+```
 
-## API Keys — How to Get Them
-
-### Google API Key
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project (or select an existing one)
-3. Navigate to **APIs & Services → Library**
-4. Search for **"Custom Search API"** and enable it
-5. Go to **APIs & Services → Credentials**
-6. Click **"Create Credentials" → "API Key"**
-7. Copy the key and paste it as `GOOGLE_API_KEY` in your `.env`
-
-**Note:** The free tier of Google Custom Search API allows **100 queries per day**. After that, you'll see a quota error in the UI. To increase the limit, enable billing in Google Cloud Console (it's $5 per 1,000 additional queries).
-
-### Google Custom Search Engine ID (CX)
-
-1. Go to [Programmable Search Engine](https://programmablesearchengine.google.com/)
-2. Click **"Add"** to create a new search engine
-3. Under "Sites to search", select **"Search the entire web"**
-4. Give it a name and click **"Create"**
-5. Go to your new search engine's settings
-6. Copy the **"Search engine ID"** (looks like `a55677e01975a4d71`)
-7. Paste it as `GOOGLE_CX` in your `.env`
-
-### Anthropic API Key
-
-1. Sign up or log in at [console.anthropic.com](https://console.anthropic.com/)
-2. Navigate to **API Keys**
-3. Click **"Create Key"**
-4. Copy the key and paste it as `ANTHROPIC_API_KEY` in your `.env`
+Project crawls and AI Visibility runs execute in those, not in the web process,
+so a queued run sits at `queued` until one is running.
 
 ---
 
-## Project Structure
+## Tests
+
+```bash
+npm test                 # both suites
+npm test --prefix server # 60 suites
+npm test --prefix client # pure helpers
+```
+
+The server runner (`server/scripts/testServer.js`) runs every suite and reports
+all failures, rather than stopping at the first — a chain of `&&` meant one
+broken suite hid the fifty-five after it.
+
+A few suites need a **throwaway** database with the schema applied, set as
+`TEST_DATABASE_URL`; the guard refuses if it matches `DATABASE_URL`. Unset, those
+suites skip.
+
+---
+
+## Project structure
 
 ```
-serp-content-researcher/
-├── .env                          # API keys and config
-├── package.json                  # Root — runs both client & server
-├── README.md
+.
+├── .env.example              every variable, documented
+├── supabase/migrations/      numbered SQL, applied by server/scripts/migrate.js
+├── docs/                     deployment, unification notes, delivery backlog
+├── knowledge-base/           per-brand and per-industry KB markdown
 │
 ├── server/
-│   ├── package.json
-│   ├── server.js                 # Express app entry point
-│   ├── routes/
-│   │   ├── search.js             # POST /api/search
-│   │   ├── scrape.js             # POST /api/scrape
-│   │   ├── analyze.js            # POST /api/analyze
-│   │   └── export.js             # POST /api/export/docx
-│   └── services/
-│       ├── googleSearch.js       # Google Custom Search API wrapper
-│       ├── scraper.js            # Puppeteer-based content scraper
-│       └── claude.js             # Anthropic API wrapper
+│   ├── server.js             Express entry point
+│   ├── scripts/
+│   │   ├── migrate.js        the migration runner
+│   │   └── testServer.js     the test runner
+│   ├── routes/               one file per standalone tool's API
+│   ├── modules/
+│   │   ├── projects/         the dashboard: overview, insights, recommendations
+│   │   │   └── insights/     backlog, changes, findingIndex, executive summary
+│   │   ├── crawlScope/       the crawler, its worker, analyzer and rule catalog
+│   │   ├── aiVisibility/     capture engines, surfaces, scoring, metrics
+│   │   ├── competitorAnalysis/ onPageAudit/ contentArchitect/
+│   │   ├── marketPotential/  robotsMonitor/
+│   │   └── */data/           runtime file-stores (gitignored)
+│   ├── locationPageBuilder/  the location + service page engine
+│   │   └── data/             per-client reference data (source, committed)
+│   ├── services/             db, auth, workspaces, run tracking, queues
+│   └── config/               which endpoints count as a run, module registry
 │
-└── client/
-    ├── package.json
-    ├── vite.config.js
-    ├── tailwind.config.js
-    ├── index.html
-    └── src/
-        ├── App.jsx               # Main app component
-        ├── main.jsx
-        ├── index.css
-        └── components/
-            ├── KeywordInput.jsx  # Search input
-            ├── ProgressSteps.jsx # Step-by-step progress indicator
-            ├── SerpUrls.jsx      # SERP results list with scrape status
-            ├── ResultsTable.jsx  # Main analysis table
-            └── ExportButtons.jsx # Word doc & clipboard export
+└── client/src/
+    ├── App.jsx               routes, all lazy except the login path
+    ├── pages/                one per screen
+    ├── components/
+    │   ├── studio/           the design primitives every screen draws from
+    │   ├── home/             the dashboard, including ExecutiveSummary
+    │   ├── crawlScope/ seoGeo/ aiVisibility/ …   per-module report views
+    └── lib/                  the API clients, one per module
 ```
 
 ---
@@ -230,15 +255,36 @@ Two things there are easy to miss and both have bitten this app:
   every one of them. Measured: a trivial query costs 264 ms across continents
   and 0.22 ms alongside.
 
-## Rate Limits
+## Rate limits
 
-- **Backend rate limit:** 5 API requests per minute per IP
-- **Google quota:** 100 searches/day (free tier) — shown in the top-right of the UI
-- **Puppeteer:** Max 3 concurrent pages, 15-second timeout per page
+Three limiters, per IP per minute (`server/server.js`). They exist because the
+screens differ enormously in how chatty they are, not to ration work:
+
+| Limit | Applies to |
+| --- | --- |
+| 20/min | Everything, by default |
+| 100/min | Knowledge Base and `/api/runs`, `/api/admin` — the KB editor auto-saves |
+| 300/min | Location Page Builder, AI Visibility and `/api/projects` — dashboard, wizard, CRUD and SSE together |
+
+Rate limiting runs **before** body parsing, so an unauthenticated flood of 20 MB
+JSON bodies is throttled rather than parsed first.
+
+Provider quotas are separate and per provider. The Google Custom Search free
+tier is 100 queries/day and the remaining quota is shown in the UI; SEMrush is
+metered in units and the app states the estimated cost before spending it.
 
 ## Notes
 
-- Pages that block scrapers (e.g. Cloudflare-protected sites) will be skipped gracefully — the app continues with whatever pages were successfully scraped
-- If fewer than 5 pages are scraped, a warning is shown but analysis continues
-- The Word document export is generated server-side and downloaded directly from the browser
-- All API keys are kept server-side and never exposed to the browser
+- **Scraping fails gracefully.** Pages that block scrapers (Cloudflare and
+  similar) are skipped and the run continues with what it did get. The
+  single-page scraper caps at 3 concurrent pages with a 15-second timeout; the
+  site crawler (`server/modules/crawlScope`) is a different engine with its own
+  politeness, budget and stop controls.
+- **A stopped crawl is a partial audit, not a lost one** — it still stores its
+  findings through the normal completion path.
+- **API keys stay server-side.** Nothing database- or credential-related reaches
+  the browser; there is no REST layer and no service-role key.
+- **`data/` directories under `server/modules/` are runtime state** and are
+  gitignored. `server/locationPageBuilder/data/` is not — it is per-client
+  reference source and is meant to be committed. See the README in that folder
+  for why that distinction once broke a deploy.
