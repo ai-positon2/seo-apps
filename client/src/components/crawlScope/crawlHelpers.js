@@ -324,35 +324,85 @@ export function healthMetrics(results, findings = []) {
 // panel rather than a hover-only tooltip — a score with a hidden formula
 // isn't credible to a client. Lists every tier, even ones contributing zero,
 // so the panel reads as the whole formula, not just the parts that hurt.
+//
+// ── Why the rounding is apportioned rather than per-band ────────────────────
+//
+// The parts have to add up to the whole, and until now they did not. `health`
+// rounds ONCE, at the end (`round(100 - a - b - c)`); this rounded each band
+// separately and the panel printed their sum as "how the N points were lost".
+// Two different roundings of the same arithmetic disagree constantly — a site
+// with 2 HTML pages and one page in error scored 78 beside the words "How the
+// 23 points were lost", and 100 − 78 is 22. On the one panel in the product
+// whose entire job is to show its working, that is the worst possible defect:
+// it invites the reader to check the number and then fails the check.
+//
+// So the deductions are apportioned by LARGEST REMAINDER against the score the
+// crawler actually published. Each band gets the floor of its exact
+// contribution, and the leftover points — always fewer than three — go to the
+// bands with the largest fractional parts. The result sums to `100 - health`
+// exactly, by construction, and each band still lands within a point of its
+// true weight. The bars are still the real formula; they just reconcile.
+//
+// The published score is NOT recomputed here. It is stored on runs, drives the
+// dashboard's composite and appears in exports, so the display bends to the
+// score and never the other way round.
 export function healthScoreBreakdown(metrics) {
   if (!metrics || metrics.health === null) return [];
   const denominator = Math.max(metrics.htmlCount, 1);
-  const contribution = (pages, weight) => Math.round((pages / denominator) * weight);
-  return [
-    { label: 'Errors', pages: metrics.affectedErrorPages, weight: 45, points: contribution(metrics.affectedErrorPages, 45) },
-    { label: 'Warnings', pages: metrics.affectedWarningPages, weight: 22, points: contribution(metrics.affectedWarningPages, 22) },
-    { label: 'Notices', pages: metrics.affectedNoticePages, weight: 8, points: contribution(metrics.affectedNoticePages, 8) },
-  ];
+
+  const bands = [
+    { label: 'Errors', pages: metrics.affectedErrorPages, weight: 45 },
+    { label: 'Warnings', pages: metrics.affectedWarningPages, weight: 22 },
+    { label: 'Notices', pages: metrics.affectedNoticePages, weight: 8 },
+  ].map((b) => {
+    const exact = ((b.pages || 0) / denominator) * b.weight;
+    return { ...b, exact, points: Math.floor(exact) };
+  });
+
+  // What the score says was lost. `health` is clamped at 0, so on a site bad
+  // enough to bottom out this is 100 and the bands are scaled down to fit it —
+  // which is right: the panel must explain the score that was published, not
+  // the one the unclamped arithmetic would have given.
+  const target = 100 - metrics.health;
+  const exactTotal = bands.reduce((sum, b) => sum + b.exact, 0);
+  if (exactTotal > 0 && Math.abs(exactTotal - target) > 0.5) {
+    // Clamped, or a caller passed a score from a different computation. Rescale
+    // to the published figure before apportioning, rather than printing bands
+    // that sum to something else.
+    const scale = target / exactTotal;
+    bands.forEach((b) => { b.exact *= scale; b.points = Math.floor(b.exact); });
+  }
+
+  let remaining = target - bands.reduce((sum, b) => sum + b.points, 0);
+  // Largest fractional part first; ties broken by weight so a point lands on
+  // the more serious band, and the order is stable run to run.
+  const order = [...bands].sort(
+    (a, b) => (b.exact - Math.floor(b.exact)) - (a.exact - Math.floor(a.exact)) || b.weight - a.weight,
+  );
+  for (const band of order) {
+    if (remaining <= 0) break;
+    band.points += 1;
+    remaining -= 1;
+  }
+
+  return bands.map(({ label, pages, weight, points }) => ({ label, pages, weight, points }));
 }
 
 // Plain-language breakdown so a health score is never an unexplained number.
 // Points lost mirror the weights above exactly.
+// Built from healthScoreBreakdown rather than recomputing the weights, so the
+// sentence in a tooltip and the bars in the panel can never quote two different
+// numbers for one deduction. They did before: this rounded per band and the
+// panel summed those, while the score rounded once.
+const BAND_NOUN = { Errors: 'errors', Warnings: 'warnings', Notices: 'notices' };
+
 export function healthScoreExplanation(metrics) {
   if (!metrics || metrics.health === null) return 'Run a crawl to calculate site health.';
-  const denominator = Math.max(metrics.htmlCount, 1);
-  const lost = (pages, weight) => Math.round((pages / denominator) * weight);
-  const parts = [];
-  if (metrics.affectedErrorPages) {
-    parts.push(`−${lost(metrics.affectedErrorPages, 45)} from ${metrics.affectedErrorPages} page(s) with errors`);
-  }
-  if (metrics.affectedWarningPages) {
-    parts.push(`−${lost(metrics.affectedWarningPages, 22)} from ${metrics.affectedWarningPages} page(s) with warnings`);
-  }
-  if (metrics.affectedNoticePages) {
-    parts.push(`−${lost(metrics.affectedNoticePages, 8)} from ${metrics.affectedNoticePages} page(s) with notices`);
-  }
+  const parts = healthScoreBreakdown(metrics)
+    .filter((b) => b.pages)
+    .map((b) => `−${b.points} from ${b.pages} page(s) with ${BAND_NOUN[b.label]}`);
   if (!parts.length) return 'No issues found — a clean 100.';
-  return `Starting from 100: ${parts.join(', ')}.`;
+  return `Starting from 100: ${parts.join(', ')}. That is ${metrics.health} out of 100.`;
 }
 
 // ── Issue overview ──────────────────────────────────────────────────────────

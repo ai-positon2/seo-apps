@@ -63,6 +63,30 @@ export default function HomePage() {
   // this component body runs.
   const wantedProjectId = useRef(null);
 
+  // Set when this page unmounts, so the two long-running poll loops below can
+  // stop. They are not effects and nothing tears them down: `runModule` polls
+  // every 8 seconds for up to FORTY MINUTES and `runFullAudit` every 3 for six,
+  // so pressing Run and then walking to another tool left the app issuing
+  // requests for a screen that no longer existed — and calling setState on it —
+  // for the rest of the deadline. The same pattern, for the same reason, is in
+  // components/aiVisibility/RunMeasurementButton.jsx.
+  const unmounted = useRef(false);
+  useEffect(() => {
+    unmounted.current = false;
+    return () => { unmounted.current = true; };
+  }, []);
+
+  // A poll result is only allowed onto the screen if this page is still mounted
+  // AND still showing the client it was started for. Without the second half, a
+  // run started on one client and left to poll would overwrite the dashboard
+  // after the user switched to another — the exact failure `wantedProjectId`
+  // was introduced to prevent for the loaders, which the imperative loops never
+  // adopted.
+  const stillWanted = useCallback(
+    (projectId) => !unmounted.current && wantedProjectId.current === projectId,
+    [],
+  );
+
   // Takes the project id as an argument rather than closing over activeProject.
   // It has to: this is declared above the useMemo that computes activeProject, so
   // referencing it here is a temporal-dead-zone error that throws on every render
@@ -232,9 +256,13 @@ export default function HomePage() {
     // worker claims it; returning here would stop polling before it began.
     if (!isModuleInFlight(run?.status)) return;
     const deadlineAt = Date.now() + 40 * 60 * 1000;
-    while (Date.now() < deadlineAt) {
+    while (Date.now() < deadlineAt && stillWanted(projectId)) {
       // eslint-disable-next-line no-await-in-loop
       await new Promise((resolve) => setTimeout(resolve, 8000));
+      // Checked again after the wait: eight seconds is plenty of time to leave
+      // the page or switch client, and the request below should not be sent at
+      // all in that case.
+      if (!stillWanted(projectId)) return;
       let data;
       try {
         // eslint-disable-next-line no-await-in-loop
@@ -242,11 +270,12 @@ export default function HomePage() {
       } catch {
         continue; // a dropped poll is not a failed run — keep trying
       }
+      if (!stillWanted(projectId)) return;
       setOverview({ loading: false, error: null, data });
       const stillRunning = (data.modules || []).some((m) => m.key === moduleKey && isModuleInFlight(m.status));
       if (!stillRunning) break;
     }
-  }, [activeProject, loadOverview]);
+  }, [activeProject, loadOverview, stillWanted]);
 
   /**
    * "Run Full Audit": the connected modules first, then the crawl.
@@ -268,7 +297,6 @@ export default function HomePage() {
     // report themselves, and the banner reports the finish. Nothing needs a modal
     // parked on top of all three.
     setAuditSheet(null);
-    setAuditError(null);
     setAuditError(null);
     setAuditResults(null);
 
@@ -316,12 +344,21 @@ export default function HomePage() {
     // Watch the overview until nothing is running. Each module writes a
     // 'running' row before it begins, so progress is read from stored state
     // rather than guessed from elapsed time.
+    //
+    // Pinned to the project the audit was STARTED for, not to whatever
+    // `activeProject` points at by the time a tick fires. Reading it from the
+    // closure on every iteration meant switching client mid-audit silently
+    // repointed the poll at the new one — six minutes of polls attributing one
+    // client's audit to another's dashboard.
+    const auditedProjectId = activeProject.id;
     const deadlineAt = Date.now() + 6 * 60 * 1000;
     let last = null;
-    while (Date.now() < deadlineAt) {
+    while (Date.now() < deadlineAt && stillWanted(auditedProjectId)) {
       await new Promise((resolve) => setTimeout(resolve, 3000));
+      if (!stillWanted(auditedProjectId)) return;
       try {
-        last = await projectsApi.overview(activeProject.id);
+        last = await projectsApi.overview(auditedProjectId);
+        if (!stillWanted(auditedProjectId)) return;
         setOverview({ loading: false, error: null, data: last });
         const stillRunning = (last.modules || []).some((m) => isModuleInFlight(m.status));
         if (!stillRunning) break;
@@ -330,6 +367,10 @@ export default function HomePage() {
         // Keep polling; the deadline below is the only thing that gives up.
       }
     }
+
+    // Left the page, or switched client, while the audit ran. The audit itself
+    // is server-side and unaffected; there is just nothing here to report it to.
+    if (!stillWanted(auditedProjectId)) return;
 
     const finished = (last?.modules || []).filter((m) => started.started.includes(m.key));
     setAuditResults({
