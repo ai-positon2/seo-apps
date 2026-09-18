@@ -23,14 +23,14 @@ const auditEvents = require('./auditEvents');
 // the fallback for a server running without Supabase, and as the schema of what
 // a policy may contain — an unknown key in a submitted policy is rejected.
 const DEFAULT_LIMITS = {
-  // Raised from the PRD §3.1.2 initial cap (5000) to match the crawler's own
-  // ceiling (shared/options.js MAX_URLS_CEILING, also 10,000) — this key
-  // doesn't actually gate a CrawlScope run today (the crawler resolves its
-  // own ceiling straight from MAX_URLS_CEILING; see that file's header), but
-  // it does clamp a new project's stored options at creation time
-  // (projects/store.js) and is read elsewhere, so a mismatched default here
-  // silently reintroduces a lower cap for anything that DOES look at it.
-  maxUrlsPerCrawl:          10_000,
+  // Brought back down to 500, matching shared/options.js's MAX_URLS_CEILING
+  // default — this key doesn't actually gate a CrawlScope run today (the
+  // crawler resolves its own ceiling straight from MAX_URLS_CEILING; see that
+  // file's header), but it does clamp a new project's stored options at
+  // creation time (projects/store.js) and is read elsewhere, so a mismatched
+  // default here silently reintroduces a higher cap for anything that DOES
+  // look at it.
+  maxUrlsPerCrawl:          500,
   maxCrawlDepth:            10,
   scheduleMinIntervalHours: 24,     // weekly is the initial recurrence (§3.1.3)
   perProjectConcurrency:    1,

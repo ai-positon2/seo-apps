@@ -7,7 +7,7 @@ import { projectsApi } from '../../lib/projectsApi';
 // competitors, schedule, recipients.
 //
 // The panel states the crawl policy before anything is started — robots
-// behaviour, the 5,000-URL initial cap, and the effective administrator limits —
+// behaviour, the 500-URL initial cap, and the effective administrator limits —
 // because §20.2 asks for exactly that, and because a crawler that surprises you
 // with what it fetched is a crawler nobody trusts a second time.
 
@@ -83,7 +83,7 @@ export default function ProjectSetupCard({
   // workspace: the next submit carries confirmDuplicate (PRD §18.2).
   const [duplicate, setDuplicate] = useState(null);
 
-  const maxUrls = limits?.maxUrlsPerCrawl ?? 5000;
+  const maxUrls = limits?.maxUrlsPerCrawl ?? 500;
 
   // The toggle and the typed list are not mutually exclusive: whatever is typed
   // here is sent either way, and the server only auto-discovers more
