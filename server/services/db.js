@@ -18,6 +18,8 @@
 // matching, and a timestamp lands in JSON as a Date. The parsers restore the
 // representation the rest of the codebase was written against.
 
+const fs = require('node:fs');
+const path = require('node:path');
 const { Pool, types } = require('pg');
 
 // ── Wire-format parsers (process-wide, set once) ─────────────────────────────
@@ -60,6 +62,59 @@ function isDatabaseConfigured() {
   return Boolean(connectionString());
 }
 
+// ── TLS for Amazon RDS ───────────────────────────────────────────────────────
+// RDS presents a certificate signed by an Amazon RDS regional intermediate CA,
+// and that CA is not in Node's bundled trust store. Both obvious spellings of
+// the connection string therefore go wrong, in opposite directions:
+//
+//   ?sslmode=require    pg 8 treats 'require' as an alias for verify-full (it
+//                       warns about this at runtime), so the handshake fails
+//                       with SELF_SIGNED_CERT_IN_CHAIN. .env.example used to
+//                       recommend exactly this spelling.
+//   ?sslmode=no-verify  connects, but turns certificate verification off — the
+//                       traffic is encrypted and the server is unauthenticated,
+//                       which for a production database is the wrong trade.
+//
+// So we trust Amazon's published bundle, committed next to this file. It holds
+// only public CA certificates — nothing secret — and it has to be present in
+// the deployed image, which is why it lives in server/config/ and not in the
+// gitignored server/secrets/.
+//
+// ── Why this is applied here rather than written into DATABASE_URL ───────────
+// pg builds its config as Object.assign({}, options, parse(connectionString)),
+// so anything the URL says about SSL beats an `ssl` option passed here — and
+// pg-connection-string sets `ssl = {}` the moment it sees ANY ssl parameter.
+// A URL carrying sslmode would thus silently discard this CA and fail closed.
+// The contract is therefore: a DATABASE_URL pointing at RDS carries no ssl
+// parameters, and this function supplies them. A URL that does set one is left
+// alone, so an operator can still override deliberately.
+const RDS_CA_FILE = path.join(__dirname, '..', 'config', 'rds-ca-bundle.pem');
+const URL_SETS_SSL = /[?&](sslmode|sslrootcert|sslcert|sslkey)=/i;
+
+function sslOptions(url) {
+  if (URL_SETS_SSL.test(url)) return null;
+
+  let hostname;
+  try {
+    hostname = new URL(url).hostname;
+  } catch {
+    return null; // let pg report the malformed URL
+  }
+  if (!hostname.endsWith('.rds.amazonaws.com')) return null;
+
+  try {
+    return { ca: fs.readFileSync(RDS_CA_FILE, 'utf8') };
+  } catch (error) {
+    // Failing loudly beats falling back to an unverified connection.
+    throw new Error(
+      `DATABASE_URL points at Amazon RDS (${hostname}) but the CA bundle at ` +
+      `${RDS_CA_FILE} could not be read: ${error.message}. Re-download the ` +
+      `bundle for that instance's region from ` +
+      `https://truststore.pki.rds.amazonaws.com/<region>/<region>-bundle.pem`
+    );
+  }
+}
+
 function getPool() {
   if (pool) return pool;
 
@@ -72,8 +127,11 @@ function getPool() {
     );
   }
 
+  const ssl = sslOptions(url);
+
   pool = new Pool({
     connectionString: url,
+    ...(ssl ? { ssl } : {}),
     // Neon terminates idle connections on its own; keep the pool small and let
     // it drain so a mostly-idle web process is not holding compute open.
     max: Number(process.env.DATABASE_POOL_MAX || 10),
