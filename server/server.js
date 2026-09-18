@@ -27,6 +27,7 @@ const articleEnhancementLiteRoutes = require('./routes/articleEnhancementLite');
 const locationPageBuilderRoutes = require('./routes/locationPageBuilder');
 const robotsMonitorRoutes = require('./modules/robotsMonitor/routes');
 const aiVisibilityRoutes = require('./modules/aiVisibility/routes');
+const aiVisibilityLiteRoutes = require('./modules/aiVisibilityLite/routes');
 const onPageAuditRoutes = require('./modules/onPageAudit/routes');
 const marketPotentialRoutes = require('./modules/marketPotential/routes');
 const competitorAnalysisTrackerRoutes = require('./modules/competitorAnalysis/routes');
@@ -113,6 +114,7 @@ const OWN_LIMITER_PREFIXES = [
   '/api/content-architect',      // lpbLimiter
   '/api/crawl-scope',            // lpbLimiter
   '/api/ai-visibility',          // lpbLimiter
+  '/api/ai-visibility-lite',     // lpbLimiter
   '/api/projects',               // lpbLimiter — home loads list + per-project overview
   '/api/runs',                   // kbLimiter
   '/api/admin',                  // kbLimiter
@@ -208,6 +210,9 @@ app.use('/api/crawl-scope',             lpbLimiter, requireAuth, track('crawl-sc
 // No track() wrapper: this is a project module, so its runs are recorded in
 // project_module_runs by moduleEvidence rather than in the tool-run table.
 app.use('/api/ai-visibility',           lpbLimiter, requireAuth, aiVisibilityRoutes);
+// The API-based sibling. Mounted on its own path with its own router so the two
+// modules share nothing but the metric functions they both import.
+app.use('/api/ai-visibility-lite',      lpbLimiter, requireAuth, aiVisibilityLiteRoutes);
 app.use('/api/semrush',                 requireAuth, semrushRoutes);
 app.use('/api/profile',                 requireAuth, profileRoutes);
 app.use('/api/workspaces',              requireAuth, workspaceRoutes);

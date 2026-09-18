@@ -189,8 +189,49 @@ async function runHomepageAudit(run, { isStillOurs } = {}) {
   });
 }
 
+/**
+ * Run AI Visibility Lite for a claimed row.
+ *
+ * Same contract as runAiVisibility above, in every respect: the row is already
+ * `running` from the worker's claim so this must not open a second one, and
+ * `execute` returns a result rather than closing the row, so this closes it.
+ */
+async function runAiVisibilityLite(run, { isStillOurs } = {}) {
+  const { execute } = require('../modules/aiVisibilityLite/run');
+  const db = require('./db');
+  const projectsStore = require('../modules/projects/store');
+
+  const project = await db.maybeOne(
+    `select * from crawl_projects where id = $1`, [run.project_id]);
+  if (!project) throw new Error(`Project ${run.project_id} no longer exists.`);
+
+  const domains = await projectsStore.listDomains(run.project_id).catch(() => []);
+  // A projectView, not the raw row — run.js reads camelCase primaryDomain and
+  // competitors off it. Handing over the raw row is the bug that made
+  // brand.domain resolve to nothing on every production AI Visibility run.
+  const view = projectsStore.projectView(project, domains);
+
+  // A queued run has no actor. `userId: null` says so rather than attributing
+  // an automated measurement to whoever set the project up.
+  const access = { project, userId: null };
+
+  const result = await execute({ access, project: view, run });
+
+  if (isStillOurs && !isStillOurs()) {
+    // Reaped mid-flight. The captures are already stored, so the evidence is
+    // not lost — only the closing write is abandoned, and whoever owns the row
+    // now will close it. Writing anyway would overwrite a reported result.
+    console.warn(`[moduleExecutors] run ${run.id} was reclaimed while executing; not closing it.`);
+    return result;
+  }
+
+  await moduleEvidence.completeRun({ access, runId: run.id, ...result });
+  return result;
+}
+
 module.exports = {
   ai_visibility: runAiVisibility,
+  ai_visibility_lite: runAiVisibilityLite,
   competitor: runCompetitor,
   hub_spoke: runHubSpoke,
   seo_geo: runHomepageAudit,

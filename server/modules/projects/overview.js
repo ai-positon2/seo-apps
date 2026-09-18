@@ -68,16 +68,56 @@ const MODULES = [
     runnable: true,
   },
   {
-    key: 'ai_visibility',
+    // The API module (modules/aiVisibilityLite), which REPLACES the scraped one
+    // on this dashboard.
+    //
+    // Both measure the same thing — whether an answer engine names this client —
+    // and the honest reason only one gets a card is that a card is a claim about
+    // what is worth looking at. The scraped module takes 10-35 minutes a run
+    // because each capture drives a real browser; this one takes minutes, starts
+    // itself when a project is created, and caps its own spend. For a dashboard
+    // whose job is "what does this client's profile look like right now", the
+    // fast one is the answer.
+    //
+    // The scraped module is untouched and still fully reachable: its own route
+    // (/ai-visibility), its sidebar entry (client/src/toolsMeta.js) and every
+    // existing bookmark. Its historical runs are still in project_module_runs
+    // under `ai_visibility` and its own screen still reads them. What it no
+    // longer has is a card here.
+    key: 'ai_visibility_lite',
     label: 'AI Visibility',
+    family: 'geo',
+    toolPath: '/ai-visibility-lite',
+    evidenceSource: 'project_module_runs (module_key = ai_visibility_lite) + aiv_lite_captures',
+    // Measures the answer engines — what ChatGPT, Claude and Gemini say about
+    // this client — rather than the client's own site. The only module whose
+    // evidence is about somebody else's product.
+    live: true,
+    runnable: true,
+  },
+  {
+    // The scraped module. STAYS IN THIS LIST, and does not get a card.
+    //
+    // `card: false` rather than deletion, and the difference is not cosmetic.
+    // Several things read this registry by key and keep working only because the
+    // entry exists: moduleDetail.js resolves /modules/:key/detail against it,
+    // insights/findingIndex.js builds its module-label map from it, and — the
+    // one that actually broke when this entry was removed —
+    // components/aiVisibility/RunMeasurementButton.jsx polls the overview for
+    // `key === 'ai_visibility'` to know whether a measurement is still running.
+    // Without the entry that poll finds nothing, concludes the run has finished,
+    // and reports success seconds after the button is pressed.
+    //
+    // So the entry stays and only the CARD goes, which is what was actually
+    // wanted: one card for one question, showing the fast module.
+    key: 'ai_visibility',
+    label: 'AI Visibility (scraped)',
     family: 'geo',
     toolPath: '/ai-visibility',
     evidenceSource: 'project_module_runs (module_key = ai_visibility) + ai_visibility_captures',
-    // Measures the consumer answer surfaces — what ChatGPT and Google AI Overview
-    // say about this client — rather than the client's own site. The only module
-    // whose evidence is about somebody else's product.
     live: true,
     runnable: true,
+    card: false,
   },
   {
     key: 'agent_readiness',
@@ -1281,7 +1321,13 @@ async function buildOverview({ access }) {
     capabilities: access.capabilities,
     crawlStatus: crawlStatus(crawlRuns, followers),
     modules,
-    composite: buildComposite(modules),
+    // Built from the CARDS, not from every registered module. The scraped AI
+    // Visibility module is in `modules` so its detail route and in-flight status
+    // still resolve, but it answers the same question as the API module beside
+    // it — counting both would make the composite read "2 of 7 modules scored"
+    // under a grid showing six, and would let one question weigh twice as much
+    // as every other in the mean.
+    composite: buildComposite(modules.filter((m) => m.card !== false)),
     generatedAt: new Date().toISOString(),
     // Named so the UI can render the honest empty state rather than guessing
     // why a card is blank.
