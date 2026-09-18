@@ -2,6 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { Card, Kicker, Muted, Btn, FadingRule } from '../studio/primitives';
 import { projectsApi, relativeTime } from '../../lib/projectsApi';
 
+// "Add to plan" (PriorityRow, below) turned out to lead nowhere from the
+// reader's seat — its only destination is the Recommendations sheet of the
+// downloadable report, not a screen anyone lands on. Off until there's a
+// visible place for it to actually go.
+const ADD_TO_PLAN_ENABLED = false;
+
 // ── The answer for whoever signs off on the work ─────────────────────────────
 //
 // Everything else on this dashboard is built for the person running the audit:
@@ -301,8 +307,15 @@ function PriorityRow({ item, onPromote }) {
           recommendations" is true and useless: recommendations have no screen of
           their own, and the place they surface is the Recommendations sheet of
           the workbook behind Download report — which is the artifact this
-          reader forwards to whoever does the work. */}
-      {onPromote && (
+          reader forwards to whoever does the work.
+
+          Hidden for now (on request) — from the reader's seat this button
+          appeared to lead nowhere, since its only destination is that
+          download, not a visible screen. onPromote/promote() are left wired
+          so this is a one-line revert (drop ADD_TO_PLAN_ENABLED, restore the
+          plain `{onPromote && (` condition) once there's a screen it feeds
+          directly. */}
+      {ADD_TO_PLAN_ENABLED && onPromote && (
         state === 'done' ? (
           <Muted
             size={12}
