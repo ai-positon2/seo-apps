@@ -9,12 +9,8 @@
 // that cannot finish in a request; Competitor Research is on it because it
 // starts itself when a project's domains are set up (modules/projects/
 // competitorAutostart.js); Hub and Spoke because it starts itself when a crawl
-// finishes (modules/projects/hubSpokeAutostart.js); AI Visibility's own prompt
-// generation because IT starts itself the same way, once, right after that
-// same crawl (modules/projects/aiVisibilityAutostart.js) — and because writing
-// up to 20 pages' worth of LLM calls is exactly the kind of work "nobody is
-// waiting on" this file exists for. Work that nobody is waiting on needs
-// somewhere to run that survives the request that caused it.
+// finishes (modules/projects/hubSpokeAutostart.js). Work that nobody is waiting
+// on needs somewhere to run that survives the request that caused it.
 
 const moduleEvidence = require('../modules/projects/moduleEvidence');
 
@@ -63,101 +59,6 @@ async function runAiVisibility(run, { isStillOurs } = {}) {
   }
 
   await moduleEvidence.completeRun({ access, runId: run.id, ...result });
-  return result;
-}
-
-/**
- * Run AI Visibility PROMPT GENERATION for a claimed row.
- *
- * Only reachable today via aiVisibilityAutostart — the manual "Generate"
- * button in the UI still runs detached-in-request (aiVisibility/generate.js's
- * own startGeneration/runGeneration), because a person picking their own pages
- * gets an immediate 202 rather than waiting behind whatever else is queued.
- * This path exists for the page selection nobody made by hand: the top pages
- * from the project's own crawl, ranked by promptTopics.topicPerUrl — the exact
- * same ranking the picker itself uses, just taking the top MAX_PAGES instead
- * of waiting for a click.
- *
- * generate.runGeneration closes its OWN run (calls moduleEvidence.completeRun
- * internally) — unlike runAiVisibility above, this must NOT close it again
- * afterward. What happens after is chaining, not closing: on a trigger of
- * 'auto_setup' with at least one prompt added, every draft this run produced
- * is approved (attributed to run.created_by, the same actor
- * aiVisibilityAutostart approved the brand as) and measurement is queued
- * behind it. A chaining failure is logged and swallowed — generation already
- * succeeded and its row is already closed; a follow-on that could not be
- * queued must not retroactively make that failed.
- */
-async function runAiVisibilityPromptGeneration(run, { isStillOurs } = {}) {
-  const db = require('./db');
-  const projectsStore = require('../modules/projects/store');
-  const crawledPages = require('../modules/projects/crawledPages');
-  const promptTopics = require('../modules/aiVisibility/promptTopics');
-  const pagePrompts = require('../modules/aiVisibility/pagePrompts');
-  const generate = require('../modules/aiVisibility/generate');
-  const { brandFrom } = require('../modules/aiVisibility/run');
-
-  const project = await db.maybeOne(
-    `select * from crawl_projects where id = $1`, [run.project_id]);
-  if (!project) throw new Error(`Project ${run.project_id} no longer exists.`);
-
-  const domains = await projectsStore.listDomains(run.project_id).catch(() => []);
-  const view = projectsStore.projectView(project, domains);
-
-  // Attributed to whoever's crawl caused this — the same actor
-  // aiVisibilityAutostart approved the brand as. Not null: generate.js's own
-  // writes do not require access.userId, but the approvals this chains into
-  // do, and a run this function cannot attribute would not be able to chain.
-  const access = { project, userId: run.created_by || null };
-
-  const pages = await crawledPages.listPageContent(run.project_id, { limit: 500 }).catch(() => []);
-  const brand = brandFrom(view);
-  const ranked = promptTopics.topicPerUrl({ pages }, { brandName: brand?.name || null });
-  const urls = ranked.slice(0, pagePrompts.MAX_PAGES).map((t) => t.targetUrl).filter(Boolean);
-
-  const result = await generate.runGeneration({ access, project: view, run, urls });
-
-  if (isStillOurs && !isStillOurs()) {
-    console.warn(`[moduleExecutors] run ${run.id} was reclaimed while executing; not chaining it.`);
-    return result;
-  }
-
-  if (run.trigger === 'auto_setup' && result?.status === 'completed' && access.userId) {
-    try {
-      const store = require('../modules/aiVisibility/store');
-      const adminLimits = require('./adminLimits');
-      const aiVisibilityAutostart = require('../modules/projects/aiVisibilityAutostart');
-      const moduleQueue = require('./moduleQueue');
-
-      const drafts = await store.listPrompts(run.project_id, { status: 'draft' });
-      const ceiling = (await adminLimits
-        .limit('maxPromptsPerVisibilityRun', { workspaceId: project.workspace_id })
-        .catch(() => null)) || 20;
-
-      const { approved } = await store.approvePrompts({
-        access, promptIds: drafts.map((p) => p.id), budget: ceiling,
-      });
-
-      if (approved.length) {
-        const queued = await moduleQueue.enqueue({
-          projectId: run.project_id,
-          workspaceId: run.workspace_id || null,
-          moduleKey: aiVisibilityAutostart.MEASURE_MODULE_KEY,
-          trigger: aiVisibilityAutostart.TRIGGER,
-          scheduledFor: new Date().toISOString(),
-          createdBy: run.created_by || null,
-          targetUrl: run.target_url || project.url || null,
-        });
-        if (queued) {
-          console.log(`[moduleExecutors] AI Visibility measurement queued (${approved.length} question(s)) `
-            + `after auto-setup generation for project ${run.project_id}.`);
-        }
-      }
-    } catch (e) {
-      console.error('[moduleExecutors] auto-setup could not approve/queue after generation:', e.message);
-    }
-  }
-
   return result;
 }
 
@@ -290,7 +191,6 @@ async function runHomepageAudit(run, { isStillOurs } = {}) {
 
 module.exports = {
   ai_visibility: runAiVisibility,
-  ai_visibility_prompts: runAiVisibilityPromptGeneration,
   competitor: runCompetitor,
   hub_spoke: runHubSpoke,
   seo_geo: runHomepageAudit,
