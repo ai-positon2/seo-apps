@@ -27,7 +27,10 @@
 --     workspace-shared would be a behaviour change, not a port.
 -- ═══════════════════════════════════════════════════════════════════════════
 
-create extension if not exists pgcrypto;
+-- pgcrypto is deliberately not created here — see the block at the top of
+-- 0008_identity_workspaces.sql. Short version: gen_random_uuid() is core from
+-- PG 13 on, nothing here uses any other pgcrypto function, and CREATE EXTENSION
+-- needs a database-level privilege the RDS app role does not have.
 
 -- updated_at ────────────────────────────────────────────────────────────────
 -- Defined up front because two tables below attach a trigger to it

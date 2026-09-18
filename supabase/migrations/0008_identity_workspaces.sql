@@ -6,7 +6,27 @@
 -- joins, uniqueness on email) rather than fetched-by-id blobs.
 -- ═══════════════════════════════════════════════════════════════════════════
 
-create extension if not exists pgcrypto;
+-- ── pgcrypto is deliberately NOT created ────────────────────────────────────
+-- This used to read `create extension if not exists pgcrypto;`. It was removed
+-- because it blocked the whole migration run on Amazon RDS while providing
+-- nothing this schema uses.
+--
+--   * The only pgcrypto function this schema ever called is gen_random_uuid(),
+--     and that moved into Postgres CORE in 13. Verified on PG 17.9 with the
+--     extension absent: it resolves, and pg_proc reports it as core-provided.
+--   * No migration here calls digest/crypt/gen_salt/hmac/pgp_*, and neither
+--     does server/ — every `digest(` in the app is Node's
+--     crypto.createHash(...).digest('hex'), which never reaches the database.
+--   * Creating a TRUSTED extension still needs CREATE on the DATABASE, which is
+--     a different grant from CREATE on schema public. The RDS app role has the
+--     latter and not the former, so this single line failed migration 0008 and
+--     took the remaining 20 files with it.
+--
+-- It was a Supabase-era holdover: before PG 13 you needed pgcrypto for
+-- gen_random_uuid(), and the Supabase template included it by default.
+--
+-- Re-add it ONLY if this schema is ever applied to Postgres 12 or older, where
+-- gen_random_uuid() does not exist in core.
 
 -- One row per person who has ever completed Google sign-in.
 create table if not exists app_users (

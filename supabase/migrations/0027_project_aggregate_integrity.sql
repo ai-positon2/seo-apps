@@ -49,7 +49,10 @@
 -- Verification queries and rollback notes are at the bottom of the file.
 -- ═══════════════════════════════════════════════════════════════════════════
 
-create extension if not exists pgcrypto;
+-- pgcrypto is deliberately not created here — see the block at the top of
+-- 0008_identity_workspaces.sql. Short version: gen_random_uuid() is core from
+-- PG 13 on, nothing here uses any other pgcrypto function, and CREATE EXTENSION
+-- needs a database-level privilege the RDS app role does not have.
 
 
 -- ── 1. Personal workspaces for owners who have none ────────────────────────
