@@ -64,6 +64,10 @@ export default function ContentArchitectProjectPage() {
   const [saving, setSaving] = useState(false);
   const [analyzeSteps, setAnalyzeSteps] = useState({});
   const [analysis, setAnalysis] = useState(null);
+  // Which pages/topics in the current analysis already have a completed
+  // Enhance/Recommend run — refetched whenever the analysis changes (a new
+  // suggested topic needs checking too), never blocking the report itself.
+  const [actionStatus, setActionStatus] = useState({ enhancedUrls: {}, recommendedTopics: {} });
   const [exportingFormat, setExportingFormat] = useState(null);
   const [competitorsText, setCompetitorsText] = useState('');
   const [savingCompetitors, setSavingCompetitors] = useState(false);
@@ -71,6 +75,13 @@ export default function ContentArchitectProjectPage() {
   const startedRef = useRef(false);
 
   useEffect(() => () => esRef.current?.close(), []);
+
+  useEffect(() => {
+    if (!analysis) return;
+    let cancelled = false;
+    ca.getActionStatus(id).then((status) => { if (!cancelled) setActionStatus(status); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [analysis, id]);
 
   // Set once here, reused automatically by every "Suggest spokes" click after
   // this — not re-asked per suggestion request.
@@ -486,6 +497,7 @@ export default function ContentArchitectProjectPage() {
             navigate={navigate}
             projectId={id}
             siteName={project?.name}
+            actionStatus={actionStatus}
             onSuggestions={(clusterId, result) => setAnalysis((prev) => ({
               ...prev,
               spokeSuggestionsByCluster: { ...(prev.spokeSuggestionsByCluster || {}), [clusterId]: result },

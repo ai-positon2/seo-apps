@@ -66,22 +66,44 @@ function enhanceHref(url, contentType) {
   return `/article-enhancement?url=${encodeURIComponent(url)}&contentType=${contentType}`;
 }
 
-function EnhanceButton({ url, contentType, navigate, label = 'Enhance', outlined = false }) {
+function actionButtonStyle(outlined) {
+  return {
+    flexShrink: 0, whiteSpace: 'nowrap', cursor: 'pointer',
+    fontFamily: 'var(--font-sans)', fontSize: outlined ? 12 : 11.5, fontWeight: outlined ? 500 : 600,
+    color: outlined ? 'var(--primary-text)' : 'var(--text-2)',
+    background: outlined ? 'transparent' : 'var(--surface)',
+    border: `1px solid ${outlined ? 'var(--primary)' : 'var(--border)'}`,
+    borderRadius: outlined ? 'var(--r-pill)' : 6,
+    padding: outlined ? '5px 12px' : '4px 10px',
+  };
+}
+
+// A run already exists for this exact page/topic (runStore.findCompletedRunsByLabel,
+// read via ca.getActionStatus) — offer to view it instead of inviting a duplicate.
+// Opens /runs, which already knows how to fetch and display one run by id
+// (RunDetailDrawer) — no new viewer built for this.
+function ViewRecommendationButton({ runId, navigate, outlined = false }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); navigate(`/runs?runId=${runId}`); }}
+      title="Already created — view the run that produced it"
+      style={actionButtonStyle(outlined)}
+    >
+      View Recommendation
+    </button>
+  );
+}
+
+function EnhanceButton({ url, contentType, navigate, label = 'Enhance', outlined = false, viewRunId = null }) {
   if (!url) return null;
+  if (viewRunId) return <ViewRecommendationButton runId={viewRunId} navigate={navigate} outlined={outlined} />;
   return (
     <button
       type="button"
       onClick={(e) => { e.stopPropagation(); navigate(enhanceHref(url, contentType)); }}
       title={`Open this ${contentType === 'hub' ? 'hub' : 'page'} in Enhance Existing Article`}
-      style={{
-        flexShrink: 0, whiteSpace: 'nowrap', cursor: 'pointer',
-        fontFamily: 'var(--font-sans)', fontSize: outlined ? 12 : 11.5, fontWeight: outlined ? 500 : 600,
-        color: outlined ? 'var(--primary-text)' : 'var(--text-2)',
-        background: outlined ? 'transparent' : 'var(--surface)',
-        border: `1px solid ${outlined ? 'var(--primary)' : 'var(--border)'}`,
-        borderRadius: outlined ? 'var(--r-pill)' : 6,
-        padding: outlined ? '5px 12px' : '4px 10px',
-      }}
+      style={actionButtonStyle(outlined)}
     >
       {label}
     </button>
@@ -153,7 +175,7 @@ function SummaryTile({ label, value, color, iconBg, icon }) {
 function keyOf(kw) { return (kw.keyword || '').trim().toLowerCase(); }
 const MAX_APPROVED = 2;
 
-function InlineKeywordResearch({ topic, client, navigate }) {
+function InlineKeywordResearch({ topic, client, navigate, viewRunId = null }) {
   const [phase, setPhase] = useState('idle'); // idle | running | done | error
   const [statusMessage, setStatusMessage] = useState('');
   const [candidates, setCandidates] = useState([]); // [{keyword, volume, ...}]
@@ -163,6 +185,14 @@ function InlineKeywordResearch({ topic, client, navigate }) {
   const esRef = useRef(null);
 
   useEffect(() => () => esRef.current?.close(), []);
+
+  if (viewRunId) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <ViewRecommendationButton runId={viewRunId} navigate={navigate} />
+      </div>
+    );
+  }
 
   function run() {
     setPhase('running');
@@ -328,7 +358,7 @@ const SUGGESTION_SOURCE_LABEL = {
   reasoning: 'AI judgment',
 };
 
-function SuggestedSpokesPanel({ cluster, projectId, siteName, suggestions, onSuggestions, navigate }) {
+function SuggestedSpokesPanel({ cluster, projectId, siteName, suggestions, onSuggestions, navigate, recommendedTopics = {} }) {
   const isGap = cluster.isGap;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -381,7 +411,12 @@ function SuggestedSpokesPanel({ cluster, projectId, siteName, suggestions, onSug
               </div>
               {s.rationale && <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-3)' }}>{s.rationale}</p>}
               <div style={{ marginTop: 8 }}>
-                <InlineKeywordResearch topic={s.title} client={siteName} navigate={navigate} />
+                <InlineKeywordResearch
+                  topic={s.title}
+                  client={siteName}
+                  navigate={navigate}
+                  viewRunId={recommendedTopics[s.title]?.runId || null}
+                />
               </div>
             </div>
           ))}
@@ -411,7 +446,7 @@ function SuggestedSpokesPanel({ cluster, projectId, siteName, suggestions, onSug
 
 // ── One cluster ─────────────────────────────────────────────────────────────
 
-function SpokeTable({ spokes, navigate }) {
+function SpokeTable({ spokes, navigate, enhancedUrls = {} }) {
   const columns = 'minmax(0,1fr) 90px 100px 92px';
   return (
     <div>
@@ -465,7 +500,10 @@ function SpokeTable({ spokes, navigate }) {
                 <Badge variant={st.variant}>{st.label}</Badge>
                 {/* A spoke is long-form, so it goes over as an article — and
                     the label says so, to pair with "Enhance hub" above. */}
-                <EnhanceButton url={s.url} contentType="article" navigate={navigate} label="Enhance article" />
+                <EnhanceButton
+                  url={s.url} contentType="article" navigate={navigate} label="Enhance article"
+                  viewRunId={enhancedUrls[s.url]?.runId || null}
+                />
               </div>
             );
           })}
@@ -475,7 +513,8 @@ function SpokeTable({ spokes, navigate }) {
   );
 }
 
-function ClusterRow({ cluster, pageById, navigate, projectId, siteName, suggestions, onSuggestions }) {
+function ClusterRow({ cluster, pageById, navigate, projectId, siteName, suggestions, onSuggestions, actionStatus }) {
+  const { enhancedUrls = {}, recommendedTopics = {} } = actionStatus || {};
   const [open, setOpen] = useState(false);
   const state = hubState(cluster);
   const healthy = state.key === 'selected';
@@ -547,7 +586,10 @@ function ClusterRow({ cluster, pageById, navigate, projectId, siteName, suggesti
             do for you. */}
         <span style={{ marginLeft: 'auto' }}>
           {healthy && hub ? (
-            <EnhanceButton url={hub.url} contentType="hub" navigate={navigate} label="Enhance hub" outlined />
+            <EnhanceButton
+              url={hub.url} contentType="hub" navigate={navigate} label="Enhance hub" outlined
+              viewRunId={enhancedUrls[hub.url]?.runId || null}
+            />
           ) : (
             <span
               style={{
@@ -583,7 +625,12 @@ function ClusterRow({ cluster, pageById, navigate, projectId, siteName, suggesti
                 Would tie together {spokes.length} existing page{spokes.length === 1 ? '' : 's'} below.
               </div>
               {cluster.gapSuggestion?.title && (
-                <InlineKeywordResearch topic={cluster.gapSuggestion.title} client={siteName} navigate={navigate} />
+                <InlineKeywordResearch
+                  topic={cluster.gapSuggestion.title}
+                  client={siteName}
+                  navigate={navigate}
+                  viewRunId={recommendedTopics[cluster.gapSuggestion.title]?.runId || null}
+                />
               )}
             </div>
           ) : hub && (
@@ -603,7 +650,7 @@ function ClusterRow({ cluster, pageById, navigate, projectId, siteName, suggesti
             </div>
           )}
 
-          <SpokeTable spokes={spokes} navigate={navigate} />
+          <SpokeTable spokes={spokes} navigate={navigate} enhancedUrls={enhancedUrls} />
 
           <SuggestedSpokesPanel
             cluster={cluster}
@@ -612,6 +659,7 @@ function ClusterRow({ cluster, pageById, navigate, projectId, siteName, suggesti
             suggestions={suggestions}
             onSuggestions={onSuggestions}
             navigate={navigate}
+            recommendedTopics={recommendedTopics}
           />
         </div>
       )}
@@ -687,7 +735,7 @@ const SectionLabel = ({ children, color }) => (
 
 // ── The report ──────────────────────────────────────────────────────────────
 
-export default function HubSpokeReport({ analysis, pageById, navigate, projectId, siteName, onSuggestions }) {
+export default function HubSpokeReport({ analysis, pageById, navigate, projectId, siteName, onSuggestions, actionStatus }) {
   const clusters = analysis.clusters || [];
   const unassigned = analysis.unassignedPages || [];
   const spokeSuggestionsByCluster = analysis.spokeSuggestionsByCluster || {};
@@ -796,6 +844,7 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
                 siteName={siteName}
                 suggestions={spokeSuggestionsByCluster[c.id] || null}
                 onSuggestions={(result) => onSuggestions(c.id, result)}
+                actionStatus={actionStatus}
               />
             ))}
             {unassigned.length > 0 && <UnassignedRow pages={unassigned} />}
@@ -817,6 +866,7 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
                 siteName={siteName}
                 suggestions={spokeSuggestionsByCluster[c.id] || null}
                 onSuggestions={(result) => onSuggestions(c.id, result)}
+                actionStatus={actionStatus}
               />
             ))}
           </div>

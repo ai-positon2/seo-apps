@@ -249,6 +249,33 @@ async function getRun(runId, allowedWorkspaceIds = []) {
   }
 }
 
+// Which of these labels already have a completed run of this tool — the most
+// recent one per label, so a page enhanced twice points at the latest result.
+//
+// deriveLabel() (runTracking.js) sets `label` to the run's identifying field
+// verbatim — the URL for article-enhancement, the keyword for
+// article-recommendation — so an exact match against it is a reliable "has
+// this already been done" check, not a fuzzy search.
+async function findCompletedRunsByLabel({ workspaceId, toolId, labels = [] }) {
+  if (!db.isDatabaseConfigured() || !workspaceId || !labels.length) return {};
+  const unique = [...new Set(labels.filter(Boolean))];
+  if (!unique.length) return {};
+  try {
+    const rows = await db.rows(
+      `select distinct on (label) label, id, created_at
+         from tool_runs
+        where workspace_id = $1 and tool_id = $2 and status = 'completed'
+          and label = any($3)
+        order by label, created_at desc`,
+      [workspaceId, toolId, unique],
+    );
+    return Object.fromEntries(rows.map((r) => [r.label, { runId: r.id, createdAt: r.created_at }]));
+  } catch (e) {
+    log('findCompletedRunsByLabel', e);
+    return {};
+  }
+}
+
 // Per-tool rollup for the workspace over a trailing window. Aggregated in JS:
 // the row set is (tool_id, status, duration) only, and the window keeps it small.
 // `toolId` narrows it to one tool, which is what a module's own run panel needs.
@@ -315,4 +342,7 @@ async function runStats({ workspaceId, days = 30, toolId = null }) {
   }
 }
 
-module.exports = { startRun, finishRun, sweepStaleRuns, listRuns, getRun, runStats, sanitize, capped };
+module.exports = {
+  startRun, finishRun, sweepStaleRuns, listRuns, getRun, runStats, sanitize, capped,
+  findCompletedRunsByLabel,
+};

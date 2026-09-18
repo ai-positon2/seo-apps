@@ -96,6 +96,15 @@ async function samplePageSpeed(db, run, summary) {
 // rows this size.
 const RESULT_BATCH = Number(process.env.RUN_RESULT_BATCH) || 250;
 const PROGRESS_INTERVAL_MS = 1_000;
+// Hub and Spoke does not need a finished crawl, only stored results for this
+// run_id (crawlToArchitect.buildFromCrawl reads crawl_run_results by run_id
+// alone, no status check) — so rather than making the reader wait for
+// completion, this re-queues the analysis every HUB_SPOKE_PROGRESSIVE_CHECKPOINT
+// pages while the crawl is still running. hubSpokeAutostart.decide() already
+// refuses to queue a second run behind one still queued/running for the same
+// project, so a checkpoint crossed while the previous progressive pass is
+// still working just no-ops rather than piling up.
+const HUB_SPOKE_PROGRESSIVE_CHECKPOINT = Number(process.env.HUB_SPOKE_PROGRESSIVE_CHECKPOINT) || 50;
 const HEARTBEAT_MS = Number(process.env.RUN_HEARTBEAT_MS) || 30_000;
 // How quickly a stop asked for in another process is noticed here. Short on
 // purpose and separate from the heartbeat: the heartbeat proves liveness and
@@ -384,6 +393,32 @@ class RunManager {
     // running when execute() writes the terminal status.
     let flushChain = Promise.resolve();
     let lostRows = 0;
+    // Seeded from the checkpoint on a resumed run, so a reclaimed crawl that
+    // already had hundreds of pages stored does not wait another 50 fresh
+    // ones before the first progressive pass.
+    let resultsSeen = Number(run.checkpoint?.completedCount) || 0;
+    let lastHubSpokeCheckpoint = Math.floor(resultsSeen / HUB_SPOKE_PROGRESSIVE_CHECKPOINT);
+
+    // Fire-and-forget: a progressive analysis pass that could not be queued is
+    // not this crawl's problem, and the completion-time call already handles
+    // its own final pass. hubSpokeAutostart.scheduleHubSpoke never throws, so
+    // this catch is only for the require and anything unforeseen.
+    const triggerProgressiveHubSpoke = () => {
+      Promise.resolve().then(async () => {
+        try {
+          const hubSpokeAutostart = require("../../projects/hubSpokeAutostart");
+          const queued = await hubSpokeAutostart.scheduleHubSpoke({ run });
+          if (queued.scheduled) {
+            console.log(
+              `[crawl ${run.id}] Hub and Spoke queued progressively at ~${resultsSeen} pages `
+              + `(${queued.reason}).`,
+            );
+          }
+        } catch (e) {
+          console.error(`[crawl ${run.id}] could not queue progressive Hub and Spoke:`, e.message);
+        }
+      });
+    };
 
     const writeRows = async (rows) => {
       let lastError;
@@ -426,6 +461,13 @@ class RunManager {
         data: result,
       });
       if (buffer.length >= RESULT_BATCH) flush();
+
+      resultsSeen += 1;
+      const checkpoint = Math.floor(resultsSeen / HUB_SPOKE_PROGRESSIVE_CHECKPOINT);
+      if (checkpoint > lastHubSpokeCheckpoint) {
+        lastHubSpokeCheckpoint = checkpoint;
+        triggerProgressiveHubSpoke();
+      }
     });
 
     crawler.on("progress", (progress) => {
@@ -588,6 +630,22 @@ class RunManager {
           }
         } catch (e) {
           console.error(`[crawl ${run.id}] could not queue Hub and Spoke:`, e.message);
+        }
+
+        // AI Visibility sets itself up (a brand identity, then a question set,
+        // then a first measurement) the moment a project has pages to ground
+        // its questions on — once per project, not after every crawl; see
+        // aiVisibilityAutostart's own module comment for why. Non-fatal for the
+        // same reason as Hub and Spoke above.
+        try {
+          const aiVisibilityAutostart = require("../../projects/aiVisibilityAutostart");
+          const queued = await aiVisibilityAutostart.scheduleAiVisibilitySetup({ run });
+          if (queued.scheduled) {
+            console.log(`[crawl ${run.id}] AI Visibility auto-setup queued `
+              + `(${queued.brandsApproved} brand(s) approved).`);
+          }
+        } catch (e) {
+          console.error(`[crawl ${run.id}] could not queue AI Visibility auto-setup:`, e.message);
         }
       }
 

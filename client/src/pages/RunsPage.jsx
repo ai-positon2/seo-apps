@@ -48,7 +48,10 @@ export default function RunsPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [selected, setSelected] = useState(null);
+  // A direct link to one run (e.g. Content Architect's "View Recommendation")
+  // opens straight to its drawer — RunDetailDrawer fetches the full row itself
+  // from just an id, so nothing here needs the row to already be in `runs`.
+  const [selected, setSelected] = useState(() => (params.get('runId') ? { id: params.get('runId') } : null));
 
   const load = useCallback(async () => {
     setLoading(true);
