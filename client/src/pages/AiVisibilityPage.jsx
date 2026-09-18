@@ -216,7 +216,7 @@ export default function AiVisibilityPage() {
   const basisLine = [
     `What answer engines say about ${project?.name || 'this client'}`,
     m?.basis ? `— ${m.basis}` : null,
-    m?.period ? `· ${m.period}` : null,
+    m?.period ? `· ${m.period.from} to ${m.period.to}` : null,
     m?.coverageLabel ? `· ${m.coverageLabel}` : null,
     m?.rulesetVersion ? `· ruleset ${m.rulesetVersion}` : null,
   ].filter(Boolean).join(' ');
