@@ -218,9 +218,15 @@ const ClientSwitcher = memo(function ClientSwitcher() {
   // longer showing. Re-reading on the change signal is what keeps the two the
   // same client.
   const projectsVersion = useProjectsChanged();
+  // True while a list refetch triggered by `projectsVersion` is in flight.
+  // Starts true: the very first fetch on mount is exactly the same case — the
+  // repair effect below must not judge `activeProjectId` against an empty
+  // `projects` array before that first read ever lands.
+  const [refreshing, setRefreshing] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
+    setRefreshing(true);
     // A failure here is not worth an error state in the chrome: the dashboard
     // below reports it properly, and the switcher simply has nothing to offer.
     projectsApi.list()
@@ -234,6 +240,9 @@ const ClientSwitcher = memo(function ClientSwitcher() {
         if (cancelled) return;
         setProjects([]);
         setWorkspaces([]);
+      })
+      .finally(() => {
+        if (!cancelled) setRefreshing(false);
       });
     return () => { cancelled = true; };
   }, [projectsVersion]);
@@ -261,9 +270,20 @@ const ClientSwitcher = memo(function ClientSwitcher() {
   // header would keep resolving a dead id to projects[0] on every render while
   // localStorage still named the deleted project, so any screen that read the id
   // without resolving it got a different answer than the one on show here.
+  //
+  // Gated on `!refreshing`: a project created elsewhere (HomePage's setup card)
+  // changes `activeProjectId` the instant it is created, via the same
+  // localStorage event this component listens to — but that event fires
+  // independently of THIS component's own list refetch, which was only just
+  // triggered by the matching `projectsVersion` bump and has not landed yet.
+  // Without this guard, that brief window reads exactly like a deleted
+  // project — not found in the (still stale) `projects` array — and the
+  // header "repairs" a brand-new project id back to whatever was first in the
+  // old list, fighting the very screen that just created it.
   useEffect(() => {
+    if (refreshing) return;
     if (active && active.id !== activeProjectId) setActiveProjectId(active.id);
-  }, [active, activeProjectId, setActiveProjectId]);
+  }, [active, activeProjectId, setActiveProjectId, refreshing]);
 
   if (!projects.length) {
     return (
@@ -453,11 +473,41 @@ export default function MacWindow() {
       // it just does not survive a reload.
     }
   }, [navCollapsed]);
+
+  // Same collapse mechanism, kept as its own preference: the dashboard states
+  // its own six audit modules directly (AuditRadar, ModuleCard grid), so the
+  // tool-browsing sidebar was mostly competing with them for space and starts
+  // collapsed here by default — but it is still a real, working toggle, not a
+  // hard block, so anyone who wants the tool list open on the dashboard too
+  // can have it. Defaults to collapsed (not "false", matching navCollapsed's
+  // default) on a first visit with nothing stored yet.
+  const [homeNavCollapsed, setHomeNavCollapsed] = useState(() => {
+    try {
+      const stored = window.localStorage.getItem('seoStudio.homeNavCollapsed');
+      return stored === null ? true : stored === '1';
+    } catch {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('seoStudio.homeNavCollapsed', homeNavCollapsed ? '1' : '0');
+    } catch {
+      // See the navCollapsed effect above — same non-fatal fallback.
+    }
+  }, [homeNavCollapsed]);
+
   const { email, logout, isPlatformAdmin } = useAuth();
   const { isDark, toggle: toggleTheme } = useTheme();
 
   const isHome = pathname === '/';
   const currentTool = getToolByPath(pathname);
+
+  // Which of the two preferences applies here, and the setter that changes
+  // it — one toggle button below drives whichever is live for this route.
+  const sidebarHidden = isHome ? homeNavCollapsed : navCollapsed;
+  const setSidebarHidden = isHome ? setHomeNavCollapsed : setNavCollapsed;
 
   // Rebuilt on every render — including every crawl-status tick — and it called
   // search.toLowerCase() once per tool, so ~37 times per pass. Depends only on
@@ -501,12 +551,12 @@ export default function MacWindow() {
         }}>
           {/* Brand block — aligned to sidebar width, and collapses with it */}
           <div style={{
-            width: navCollapsed ? 60 : 248,
+            width: sidebarHidden ? 60 : 248,
             flexShrink: 0,
             height: '100%',
             display: 'flex',
             alignItems: 'center',
-            padding: navCollapsed ? '0 10px' : '0 16px',
+            padding: sidebarHidden ? '0 10px' : '0 16px',
             gap: 10,
             borderRight: '1px solid var(--border)',
             boxSizing: 'border-box',
@@ -527,7 +577,7 @@ export default function MacWindow() {
                 <path d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 15.803a7.5 7.5 0 0010.607 10.607z" />
               </svg>
             </div>
-            {!navCollapsed && (
+            {!sidebarHidden && (
               <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15, minWidth: 0 }}>
                 <span style={{
                   fontWeight: 600,
@@ -552,37 +602,6 @@ export default function MacWindow() {
               </div>
             )}
 
-            {/* Collapse the tool list. Lives in the header rather than inside the
-                pane so it stays reachable once the pane is gone. */}
-            <button
-              type="button"
-              onClick={() => setNavCollapsed((v) => !v)}
-              title={navCollapsed ? 'Show the tool list' : 'Hide the tool list'}
-              aria-label={navCollapsed ? 'Show the tool list' : 'Hide the tool list'}
-              aria-expanded={!navCollapsed}
-              style={{
-                marginLeft: navCollapsed ? 0 : 'auto',
-                width: 28,
-                height: 28,
-                flexShrink: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'none',
-                border: '1px solid var(--border)',
-                borderRadius: 7,
-                cursor: 'pointer',
-                color: 'var(--text-3)',
-                padding: 0,
-              }}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
-              >
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <path d="M9 3v18" />
-              </svg>
-            </button>
           </div>
 
           {/* Breadcrumb / page title */}
@@ -590,44 +609,87 @@ export default function MacWindow() {
             flex: 1,
             display: 'flex',
             alignItems: 'center',
-            gap: 6,
+            gap: 10,
             padding: '0 20px',
           }}>
+            {/* Collapse the tool list. Moved out of the brand block above (a
+                fixed 60px column with no room to make this bigger without
+                overlapping its neighbour) into this row, which always has
+                space. Retractable everywhere, including the dashboard — it
+                just starts collapsed there by default (homeNavCollapsed
+                above), rather than being unavailable. Sized up and tinted
+                when collapsed specifically, since that state is the only way
+                back into the pane and is worth being obvious about. */}
+            <button
+              type="button"
+              onClick={() => setSidebarHidden((v) => !v)}
+              title={sidebarHidden ? 'Show the tool list' : 'Hide the tool list'}
+              aria-label={sidebarHidden ? 'Show the tool list' : 'Hide the tool list'}
+              aria-expanded={!sidebarHidden}
+              style={{
+                width: sidebarHidden ? 38 : 30,
+                height: sidebarHidden ? 38 : 30,
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: sidebarHidden ? 'color-mix(in srgb, var(--primary) 14%, transparent)' : 'none',
+                border: `1px solid ${sidebarHidden ? 'var(--primary)' : 'var(--border)'}`,
+                borderRadius: 9,
+                cursor: 'pointer',
+                color: sidebarHidden ? 'var(--primary)' : 'var(--text-3)',
+                padding: 0,
+                transition: 'width 160ms ease, height 160ms ease, background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease)',
+              }}
+            >
+              <svg width={sidebarHidden ? 19 : 16} height={sidebarHidden ? 19 : 16} viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path d="M9 3v18" />
+              </svg>
+            </button>
+
+            {/* Return to the dashboard — present on every page except the
+                dashboard itself. Was an icon plus a plain "All Tools" label
+                that navigated to '/', which is the overview, not a tool list;
+                the mislabel made it easy to miss as a real "go home" control.
+                One button, worded for where it actually goes. */}
             {!isHome && (
               <button
                 onClick={() => navigate('/')}
-                title="All Tools"
+                title="Back to the dashboard"
                 style={{
                   background: 'none',
-                  border: 'none',
+                  border: '1px solid var(--border)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  width: 28,
+                  gap: 5,
                   height: 28,
-                  borderRadius: 6,
-                  color: 'var(--text-3)',
+                  padding: '0 10px 0 8px',
+                  borderRadius: 7,
+                  color: 'var(--text-2)',
+                  fontSize: 12.5,
+                  fontFamily: 'var(--font-sans)',
                   outline: 'none',
-                  transition: 'background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease)',
+                  transition: 'background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease)',
                   flexShrink: 0,
                 }}
                 onMouseEnter={e => {
                   e.currentTarget.style.background = 'var(--surface)';
                   e.currentTarget.style.color = 'var(--text)';
+                  e.currentTarget.style.borderColor = 'var(--primary)';
                 }}
                 onMouseLeave={e => {
                   e.currentTarget.style.background = 'none';
-                  e.currentTarget.style.color = 'var(--text-3)';
+                  e.currentTarget.style.color = 'var(--text-2)';
+                  e.currentTarget.style.borderColor = 'var(--border)';
                 }}
               >
                 <ChevronLeftIcon />
+                Dashboard
               </button>
-            )}
-            {!isHome && (
-              <span style={{ fontSize: 12, color: 'var(--text-3)', userSelect: 'none' }}>
-                All Tools
-              </span>
             )}
             {!isHome && (
               <span style={{ fontSize: 12, color: 'var(--text-3)' }}>/</span>
@@ -691,10 +753,10 @@ export default function MacWindow() {
               markup has to read on a warm-paper light background and on the
               near-black dark one, and an alpha tuned for navy does neither. */}
           <div style={{
-            width: navCollapsed ? 0 : 248,
+            width: sidebarHidden ? 0 : 248,
             flexShrink: 0,
             background: 'linear-gradient(180deg, var(--nav-bg-top) 0%, var(--nav-bg-bot) 100%)',
-            borderRight: navCollapsed ? 'none' : '1px solid var(--border)',
+            borderRight: sidebarHidden ? 'none' : '1px solid var(--border)',
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
