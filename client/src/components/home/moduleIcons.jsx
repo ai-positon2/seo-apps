@@ -38,6 +38,16 @@ const PATHS = {
       <circle cx="12" cy="12" r="2.1" fill="currentColor" stroke="none" />
     </>
   ),
+  // The API module carries the card on the dashboard, so it needs the same
+  // icon: it is the same concentric-rings mark because it answers the same
+  // question. Without an entry under its own key the card renders blank.
+  ai_visibility_lite: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="12" r="6" />
+      <circle cx="12" cy="12" r="2.1" fill="currentColor" stroke="none" />
+    </>
+  ),
   hub_spoke: (
     <>
       <path d="M6.5 6.5h11M6.5 6.5 12 17.5 17.5 6.5" />

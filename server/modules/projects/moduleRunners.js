@@ -22,7 +22,7 @@ const db = require('../../services/db');
 
 // Modules whose evidence this file can produce. 'technical' is absent because
 // CrawlScope owns its own richer tables and writes evidence there.
-const RUNNABLE = ['seo_geo', 'agent_readiness', 'competitor', 'hub_spoke', 'ai_visibility'];
+const RUNNABLE = ['seo_geo', 'agent_readiness', 'competitor', 'hub_spoke', 'ai_visibility', 'ai_visibility_lite'];
 
 // Modules that spend a third-party metered budget, with the cost per unit of
 // work. Everything else fetches pages and calls free-tier APIs; these bill.
@@ -1187,6 +1187,11 @@ function competitorTrafficScore(domains) {
 
 const SCORE_BASIS = {
   ai_visibility: 'the share of measured prompts in which an answer engine names the brand, over the prompts that were actually captured',
+  // Same methodology, different surfaces: the models' own APIs with web search
+  // on, rather than the consumer UIs driven through a browser. Worded to say so,
+  // because the two numbers are not interchangeable and a reader comparing them
+  // needs to know which one they are looking at.
+  ai_visibility_lite: 'the share of measured prompts in which ChatGPT, Claude or Gemini names the brand when asked through their APIs with web search enabled, over the prompts that were actually captured',
   seo_geo: 'the SEO & GEO audit (rule-based bucket scores, weighted composite, capped by blocking issues)',
   agent_readiness: 'the agent readiness audit (weighted HTTP plus on-page checks)',
   competitor: 'this site\'s estimated monthly organic traffic as a share of the tracked '
@@ -1213,12 +1218,38 @@ async function runAiVisibility({
   return execute({ access, project: projectView(project, domains), run });
 }
 
+/**
+ * AI Visibility Lite.
+ *
+ * The same question asked through the models' APIs instead of their consumer
+ * UIs. Minutes rather than half an hour, which is why it is the one with a card
+ * on the dashboard — but still long enough to belong on the queue rather than
+ * in a request (see QUEUED_MODULES in routes.js).
+ *
+ * Its `execute` closes its own run row, unlike the runners above, because the
+ * same function also serves the module's own route where nothing else would.
+ * executeOpenRun must therefore not close it a second time — see the note where
+ * RUNNERS is consumed.
+ */
+async function runAiVisibilityLite({
+  access, run, project, domains,
+}) {
+  const { execute } = require('../aiVisibilityLite/run');
+  const { projectView } = require('./store');
+  // Same trap as runAiVisibility: run.js reads camelCase primaryDomain and
+  // competitors off a projectView, and runModule hands runners the raw
+  // crawl_projects row, so the view is built here or brand.domain resolves to
+  // nothing on every run.
+  return execute({ access, project: projectView(project, domains), run });
+}
+
 const RUNNERS = {
   seo_geo: runSeoGeo,
   agent_readiness: runAgentReadiness,
   competitor: runCompetitor,
   hub_spoke: runHubSpoke,
   ai_visibility: runAiVisibility,
+  ai_visibility_lite: runAiVisibilityLite,
 };
 
 /**

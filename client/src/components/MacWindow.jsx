@@ -437,17 +437,32 @@ export default function MacWindow() {
   // so it is remembered locally rather than round-tripped to the server. Wrapped
   // because localStorage throws outright in a private window rather than
   // returning null.
+  //
+  // COLLAPSED BY DEFAULT. The screens this shell wraps are dashboards and
+  // reports that want the width, and the sidebar is navigation somebody uses
+  // once on arrival — the toggle beside the brand block opens it, and the
+  // choice is then remembered.
+  //
+  // The key carries a version suffix, and that is what makes the new default
+  // actually reach anyone. The effect below writes the preference on first
+  // render, so every person who has ever loaded the app already has an explicit
+  // '0' under the old key; reading that key would hand them the old default
+  // forever and the change would only be visible in a fresh browser profile.
+  // A new key resets the default once, while the toggle keeps persisting.
   const [navCollapsed, setNavCollapsed] = useState(() => {
     try {
-      return window.localStorage.getItem('seoStudio.navCollapsed') === '1';
+      const stored = window.localStorage.getItem('seoStudio.navCollapsed.v2');
+      // Absent means nobody has chosen yet — take the default. '0' is a real
+      // choice to keep it open and must survive reloads.
+      return stored === null ? true : stored === '1';
     } catch {
-      return false;
+      return true;
     }
   });
 
   useEffect(() => {
     try {
-      window.localStorage.setItem('seoStudio.navCollapsed', navCollapsed ? '1' : '0');
+      window.localStorage.setItem('seoStudio.navCollapsed.v2', navCollapsed ? '1' : '0');
     } catch {
       // A viewer who cannot store the preference still gets to use the toggle;
       // it just does not survive a reload.

@@ -33,7 +33,12 @@ const auditEvents = require('../../services/auditEvents');
 // POST /api/projects/:id/modules/:key/run route (which only requires
 // 'startRun', a capability contributors hold; generation needs
 // 'editProjectSettings').
-const MODULE_KEYS = ['seo_geo', 'agent_readiness', 'competitor', 'hub_spoke', 'ai_visibility', 'ai_visibility_prompts'];
+const MODULE_KEYS = ['seo_geo', 'agent_readiness', 'competitor', 'hub_spoke', 'ai_visibility', 'ai_visibility_prompts',
+  // The API-based sibling of ai_visibility (modules/aiVisibilityLite). Separate
+  // keys so its runs, its evidence and its 30-run budget stay independent of
+  // the scraped module's — the two measure different things and a shared key
+  // would merge them on the dashboard.
+  'ai_visibility_lite', 'ai_visibility_lite_setup'];
 const TERMINAL = ['completed', 'failed', 'cancelled', 'insufficient_data'];
 
 // A stored payload holds the module's OWN report, so its page can render exactly
@@ -495,6 +500,15 @@ const MINUTES_PER_PAGE = { seo_geo: 3, agent_readiness: 2 };
 // the client as unmeasured — the exact failure this module is built to avoid.
 const FLAT_MINUTES = {
   hub_spoke: 5, competitor: 15, ai_visibility: 45, ai_visibility_prompts: 10,
+  // The API module is the fast one, and that is its whole reason for existing.
+  // 20 prompts x 3 providers, three providers answering in parallel per prompt,
+  // a few seconds each: a full run lands around 3-5 minutes. 12 leaves room for
+  // a provider having a slow day without being so loose that a genuinely hung
+  // run sits at 'running' for half an hour.
+  ai_visibility_lite: 12,
+  // Reading the site and writing ten questions: a handful of page fetches and
+  // two model calls.
+  ai_visibility_lite_setup: 5,
 };
 
 // Queueing, cold starts, and a slow origin having a bad day.

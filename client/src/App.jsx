@@ -40,6 +40,7 @@ const AgentReadinessAuditPage = lazy(() => import('./pages/AgentReadinessAuditPa
 const AgentReadinessSummaryPage = lazy(() => import('./pages/AgentReadinessSummaryPage'));
 const SeoGeoAuditPage = lazy(() => import('./pages/SeoGeoAuditPage'));
 const AiVisibilityPage = lazy(() => import('./pages/AiVisibilityPage'));
+const AiVisibilityLitePage = lazy(() => import('./pages/AiVisibilityLitePage'));
 const ContentEnhancementPage = lazy(() => import('./pages/ContentEnhancementPage'));
 const ArticleEnhancementPage = lazy(() => import('./pages/ArticleEnhancementPage'));
 const ArticleEnhancementLitePage = lazy(() => import('./pages/ArticleEnhancementLitePage'));
@@ -118,6 +119,10 @@ export default function App() {
           <Route path="/agent-readiness-audit/summary" element={<AgentReadinessSummaryPage />} />
           <Route path="/seo-geo-audit" element={<SeoGeoAuditPage />} />
           <Route path="/ai-visibility" element={<AiVisibilityPage />} />
+          {/* The API-based sibling. The homepage card points here; the scraped
+              module above keeps its own route, its sidebar entry and every
+              bookmark that already exists. */}
+          <Route path="/ai-visibility-lite" element={<AiVisibilityLitePage />} />
           <Route path="/content-enhancement" element={<ContentEnhancementPage />} />
           <Route path="/article-enhancement" element={<ArticleEnhancementPage />} />
           <Route path="/article-enhancement-lite" element={<ArticleEnhancementLitePage />} />

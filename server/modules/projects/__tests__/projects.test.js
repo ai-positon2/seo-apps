@@ -283,7 +283,11 @@ test('the pending-card shape still names the phase it is waiting on', () => {
 });
 
 test('the composite is null with nothing scored — never zero (§16.11)', () => {
-  const composite = overview.buildComposite(overview.MODULES.map(overview.pendingCard));
+  // Over the CARDS, which is what buildOverview passes it. A module carrying
+  // `card: false` is excluded: it would otherwise make the denominator disagree
+  // with the grid the reader is looking at, and let one question count twice.
+  const cards = overview.MODULES.filter((m) => m.card !== false);
+  const composite = overview.buildComposite(cards.map(overview.pendingCard));
   assert.strictEqual(composite.value, null);
   assert.notStrictEqual(composite.value, 0);
   assert.strictEqual(composite.status, 'insufficient_data');
@@ -305,14 +309,31 @@ test('the composite averages only the modules that really scored', () => {
 test('the audit profile covers the six modules the design shows', () => {
   assert.deepStrictEqual(
     overview.MODULES.map((m) => m.key),
-    ['technical', 'hub_spoke', 'competitor', 'seo_geo', 'ai_visibility', 'agent_readiness'],
+    ['technical', 'hub_spoke', 'competitor', 'seo_geo', 'ai_visibility_lite', 'ai_visibility', 'agent_readiness'],
+  );
+  // Six CARDS, seven modules. The scraped AI Visibility module stays in the
+  // registry — moduleDetail resolves its detail route against this list, and
+  // components/aiVisibility/RunMeasurementButton.jsx polls it to know whether a
+  // measurement is still running — but it does not get a card, because it
+  // answers the same question as the API module beside it.
+  assert.deepStrictEqual(
+    overview.MODULES.filter((m) => m.card !== false).map((m) => m.key),
+    ['technical', 'hub_spoke', 'competitor', 'seo_geo', 'ai_visibility_lite', 'agent_readiness'],
   );
   // All six are wired to durable project-scoped evidence: CrawlScope via
   // crawl_runs, the other five via project_module_runs.
   //
-  // ai_visibility took the slot on_page vacated, and is the odd one out: it
-  // measures what ChatGPT and Google AI Overview say about the client rather
-  // than anything on the client's own site.
+  // ai_visibility_lite took the slot on_page vacated (via ai_visibility, which
+  // held it until the API module replaced it here), and is the odd one out: it
+  // measures what ChatGPT, Claude and Gemini say about the client rather than
+  // anything on the client's own site.
+  //
+  // The SCRAPED module — module_key 'ai_visibility', modules/aiVisibility — is
+  // still live, still runnable through its own screen at /ai-visibility, and
+  // still has its historical runs. It simply no longer has a card: both modules
+  // answer the same question, and a dashboard showing two cards for one question
+  // is showing an implementation detail. The fast one, which starts itself when
+  // a project is created, is the one that belongs on a profile at a glance.
   //
   // on_page was a sixth. It was removed with the standalone /on-page-audit page:
   // the On-Page report now lives as a tab inside the SEO & GEO Audit, which runs
@@ -320,7 +341,7 @@ test('the audit profile covers the six modules the design shows', () => {
   // server/modules/onPageAudit/ is still there and still serves that tab —
   assert.deepStrictEqual(
     overview.MODULES.filter((m) => m.live).map((m) => m.key).sort(),
-    ['agent_readiness', 'ai_visibility', 'competitor', 'hub_spoke', 'seo_geo', 'technical'],
+    ['agent_readiness', 'ai_visibility', 'ai_visibility_lite', 'competitor', 'hub_spoke', 'seo_geo', 'technical'],
   );
   assert.deepStrictEqual(overview.MODULES.filter((m) => !m.live), []);
 
@@ -329,7 +350,7 @@ test('the audit profile covers the six modules the design shows', () => {
   // routing it through the synchronous runModule path would hang the request.
   assert.deepStrictEqual(
     overview.MODULES.filter((m) => m.runnable).map((m) => m.key).sort(),
-    ['agent_readiness', 'ai_visibility', 'competitor', 'hub_spoke', 'seo_geo'],
+    ['agent_readiness', 'ai_visibility', 'ai_visibility_lite', 'competitor', 'hub_spoke', 'seo_geo'],
   );
   assert.strictEqual(
     overview.MODULES.find((m) => m.key === 'technical').runnable,
@@ -520,9 +541,40 @@ test('the run route enqueues ai_visibility instead of running it detached', () =
     'no route may start a module run detached inside the request — the reaper '
     + 'cannot tell such a row from a dead worker, and reclaims it mid-flight',
   );
+});
+
+test('the in-process fallback never applies to the scraped module', () => {
+  // The rule above is now narrowed rather than absolute, and this pins the
+  // narrowing.
+  //
+  // `MODULE_WORKER=off` is a supported configuration, and under it an enqueued
+  // row is NEVER claimed: the run sits at `queued`, the dashboard shows it as
+  // in-flight forever, and nothing errors because an unclaimed row is not a
+  // failure. A first AI Visibility Lite run did exactly that.
+  //
+  // So one module may fall back to running in this process — and only one. The
+  // reaper's hazard above is bounded by duration: it reclaims a `running` row
+  // that has never heartbeated after 10 minutes, which is shorter than a
+  // scraped AI Visibility run (10-35 min) and longer than an API one (~3). The
+  // scraped module must therefore stay queued whatever the worker setting; the
+  // API module is safe either way, and with the worker off there is no reaper
+  // running to reclaim anything in the first place.
+  const fs = require('fs');
+  const path = require('path');
+  const src = fs.readFileSync(path.join(__dirname, '../routes.js'), 'utf8');
+
+  const list = src.match(/const IN_PROCESS_FALLBACK = \[([^\]]*)\]/);
+  assert.ok(list, 'the fallback set must be named so this rule is checkable');
+
+  const modules = [...list[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+  assert.deepStrictEqual(
+    modules, ['ai_visibility_lite'],
+    'only the API module may run in-process; the scraped one is 10-35 minutes '
+    + 'and the reaper cannot tell its row from a dead worker',
+  );
   assert.ok(
-    !/runModule\(\{[^}]*detached/s.test(src),
-    'runModule must not be handed a detached flag from a route',
+    /MODULE_WORKER/.test(src),
+    'the fallback must be gated on the worker setting, not applied unconditionally',
   );
 });
 

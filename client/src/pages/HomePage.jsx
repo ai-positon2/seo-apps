@@ -854,7 +854,13 @@ export default function HomePage() {
                 read as one profile rather than as a list — the widths are in
                 index.css because the breakpoints below need media queries. */}
             <div className="home-modules">
-              {modules.map((module) => (
+              {/* `card: false` keeps a module in the overview — where its
+                  evidence, its detail route and its in-flight status are still
+                  read — while leaving it off this grid. The scraped AI
+                  Visibility module is the one that uses it: it answers the same
+                  question as the API module, and two cards for one question
+                  shows an implementation detail rather than a client's profile. */}
+              {modules.filter((m) => m.card !== false).map((module) => (
                 <ModuleCard key={module.key} module={module} onRun={runModule} />
               ))}
             </div>

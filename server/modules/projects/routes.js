@@ -51,6 +51,7 @@ const competitorAutostart = require('./competitorAutostart');
 const contentArchitect = require('./contentArchitect');
 const homepageAutostart = require('./homepageAutostart');
 const crawlAutostart = require('./crawlAutostart');
+const aiVisibilityLiteAutostart = require('./aiVisibilityLiteAutostart');
 const moduleDetail = require('./moduleDetail');
 const insights = require('./insights');
 const pages = require('./pages');
@@ -250,6 +251,27 @@ router.post('/', async (req, res) => {
     // other or the response -- the project is already created by this point.
     const domains = await store.listDomains(project.id);
 
+    // AI Visibility Lite is the one-click module: entering a domain and pressing
+    // Save is meant to be the whole interaction, so it identifies the business
+    // and writes its questions here rather than behind a button. It needs the
+    // projectView (for the primary domain) and its own access context, since
+    // writing prompts is 'editProjectSettings' rather than the capability that
+    // created the project.
+    const aiVisibilityLite = await projectAccess
+      .requireProject(req, project.id, 'editProjectSettings')
+      .then((setupAccess) => (
+        aiVisibilityLiteAutostart.scheduleForProject({
+          access: setupAccess,
+          project: store.projectView(project, domains),
+        })
+      ))
+      .catch((e) => {
+        // The project exists. Failing the response because a module could not
+        // start would report the opposite of what happened.
+        console.error('[projects.create] AI Visibility Lite autostart skipped:', e.message);
+        return { scheduled: false, reason: 'not_started', note: null };
+      });
+
     const [competitorResearch, initialCrawl] = await Promise.all([
     projectAccess
       .requireProject(req, project.id, 'startRun')
@@ -281,7 +303,7 @@ router.post('/', async (req, res) => {
       }),
     ]);
 
-    res.status(201).json({ project, competitorResearch, homepageAudits, initialCrawl });
+    res.status(201).json({ project, competitorResearch, homepageAudits, initialCrawl, aiVisibilityLite });
   } catch (e) { handleError(res, e, 'create'); }
 });
 
@@ -1139,7 +1161,28 @@ router.get('/:projectId/audit-events', async (req, res) => {
 // Enqueuing puts the one mechanism that heartbeats in charge of the one
 // module that runs long enough to need it, and makes a manual run take the
 // same path the scheduler already uses (services/moduleScheduler.js).
-const QUEUED_MODULES = ['ai_visibility'];
+// ai_visibility_lite is here for a weaker version of the same reason: a run is
+// minutes rather than half an hour, but still far longer than a request should
+// be held open, and the queue is what gives it a heartbeat and a reaper.
+const QUEUED_MODULES = ['ai_visibility', 'ai_visibility_lite'];
+
+// Modules that may run in this process when nothing is consuming the queue.
+//
+// `MODULE_WORKER=off` is a supported configuration, and under it an enqueued
+// row is never claimed: the run sits at `queued`, the dashboard reports it as
+// in-flight forever, and there is no error anywhere because an unclaimed row is
+// not a failure. That is exactly what a first AI Visibility Lite run did.
+//
+// Only the API module is on this list. The scraped `ai_visibility` must STAY
+// queued whatever the worker setting: a run is 10-35 minutes, and the comment
+// above records what happened when manual runs did not have a heartbeat —
+// reclaimed mid-measurement, billed twice, then failed with an error blaming a
+// worker that was never involved. Better a queued row somebody can see than
+// that, so it is deliberately excluded.
+const IN_PROCESS_FALLBACK = ['ai_visibility_lite'];
+
+/** Will anything claim a queued run? Same switch, same default, as server.js. */
+const queueHasConsumer = () => String(process.env.MODULE_WORKER || 'in-process').toLowerCase() !== 'off';
 
 router.post('/:projectId/modules/:moduleKey/run', async (req, res) => {
   if (!requireConfigured(res)) return;
@@ -1147,7 +1190,10 @@ router.post('/:projectId/modules/:moduleKey/run', async (req, res) => {
     const access = await projectAccess.requireProject(req, req.params.projectId, 'startRun');
     const { moduleKey } = req.params;
 
-    if (QUEUED_MODULES.includes(moduleKey)) {
+    const queueThis = QUEUED_MODULES.includes(moduleKey)
+      && (queueHasConsumer() || !IN_PROCESS_FALLBACK.includes(moduleKey));
+
+    if (queueThis) {
       // Checked here rather than left to the worker: an unrunnable key has to
       // fail the click. Queued, it would sit there until something claimed it
       // and threw, and the person who clicked would be told nothing.
@@ -1174,6 +1220,34 @@ router.post('/:projectId/modules/:moduleKey/run', async (req, res) => {
       // moment it lands, whether or not a worker has picked it up yet.
       return res.status(202).json({
         run,
+        poll: `/api/projects/${req.params.projectId}/modules/${moduleKey}/runs?limit=1`,
+      });
+    }
+
+    // The queue's job, done here because nothing is consuming it. Detached and
+    // 202, not awaited and 201: a measurement is minutes and a request held
+    // open that long dies at whatever proxy is in front of this. The client
+    // already polls a 202 from the queued branch, so the two are the same shape
+    // from the outside.
+    if (QUEUED_MODULES.includes(moduleKey)) {
+      if (!moduleRunners.RUNNABLE.includes(moduleKey)) {
+        return res.status(400).json({
+          error: `${moduleKey} cannot be run from here. `
+            + `Runnable modules: ${moduleRunners.RUNNABLE.join(', ')}.`,
+          code: 'module_not_runnable',
+        });
+      }
+      const fallbackDomains = await store.listDomains(req.params.projectId);
+      const started = moduleRunners.runModule({
+        access, moduleKey, domains: fallbackDomains, trigger: 'manual', keywords: null,
+      });
+      started.catch((e) => {
+        // runModule closes the run row as failed itself; this only stops the
+        // rejection becoming an unhandled one.
+        console.error(`[projects.runModule] ${moduleKey} failed:`, e.message);
+      });
+      return res.status(202).json({
+        run: null,
         poll: `/api/projects/${req.params.projectId}/modules/${moduleKey}/runs?limit=1`,
       });
     }

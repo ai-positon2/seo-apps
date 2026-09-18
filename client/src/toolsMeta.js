@@ -26,7 +26,11 @@ export const TOOL_GROUPS = [
     tools: [
       { id: 'article-enhancement',    path: '/article-enhancement',    label: 'Enhance Existing Article', icon: '✍️', tag: 'internal' },
       { id: 'article-enhancement-lite', path: '/article-enhancement-lite', label: 'Article Enhancer', icon: '📝', hidden: true },
-      { id: 'ai-visibility',          path: '/ai-visibility',          label: 'AI Visibility',          icon: '📡', tag: 'beta' },
+      { id: 'ai-visibility-lite',     path: '/ai-visibility-lite',     label: 'AI Visibility',          icon: '📡', tag: 'beta' },
+      // The scraped module. Kept in the sidebar under a name that says what
+      // distinguishes it — it measures the consumer ChatGPT and Gemini UIs
+      // rather than the APIs, which is a different claim and takes ~30 minutes.
+      { id: 'ai-visibility',          path: '/ai-visibility',          label: 'AI Visibility (scraped)', icon: '🛰️', tag: 'beta' },
       { id: 'seo-geo-audit',          path: '/seo-geo-audit',          label: 'SEO & GEO Audit',        icon: '🌐', tag: 'beta' },
       { id: 'agent-readiness-audit',  path: '/agent-readiness-audit',  label: 'Agent Readiness Audit',  icon: '🤖' },
       { id: 'image-alt-audit',        path: '/image-alt-audit',        label: 'Image Alt Tag Audit',    icon: '🖼️', tag: 'beta' },
