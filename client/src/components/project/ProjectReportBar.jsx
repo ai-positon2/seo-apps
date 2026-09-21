@@ -587,7 +587,7 @@ function AddPagePanel({ crawled, already, busy, error, onSubmit, onClose }) {
         style={inputStyle}
       />
 
-      <div style={{ maxHeight: 210, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <div style={{ maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
         {list === null && <Dim>reading the crawl…</Dim>}
         {list !== null && list.length === 0 && (
           <Dim>{crawled.length ? 'Nothing matches that.' : 'No crawled pages on file yet.'}</Dim>
@@ -600,16 +600,37 @@ function AddPagePanel({ crawled, already, busy, error, onSubmit, onClose }) {
               type="button"
               disabled={done || busy}
               onClick={() => onSubmit(p.url)}
-              title={done ? 'Already in this report' : p.url}
+              title={done ? `Already in this report — ${p.url}` : p.url}
               style={{
-                textAlign: 'left', padding: '6px 8px', borderRadius: 6, border: 'none',
+                display: 'block', width: '100%', boxSizing: 'border-box',
+                // flexShrink: 0 is the actual fix — this button is a child of
+                // a flex-column list, and a flex item's default min-height is
+                // its own "auto", which browsers can still resolve smaller
+                // than its content demands once the column is capped and
+                // scrolling; the practical effect was every row squeezed down
+                // to a few px tall, showing only the top sliver of each line
+                // of text (dots and ascenders) rather than full glyphs.
+                // flexShrink: 0 + an explicit minHeight/lineHeight makes each
+                // row's height non-negotiable, so the scrollbar handles
+                // overflow instead of the rows themselves.
+                flexShrink: 0, minHeight: 34, lineHeight: '20px',
+                textAlign: 'left', padding: '7px 8px', borderRadius: 6, border: 'none',
                 background: 'none', cursor: done ? 'default' : 'pointer',
-                color: done ? 'var(--text-3)' : 'var(--text-2)', fontSize: 12,
+                // Full-strength text color at a readable size — this list is
+                // read and picked from, not a caption, so it needs the same
+                // contrast as ordinary body text rather than a muted tone.
+                color: 'var(--text)', fontFamily: 'var(--font-sans)', fontSize: 13,
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 opacity: done ? 0.55 : 1,
               }}
             >
-              {p.url}{done ? '  · in report' : ''}
+              {/* Not the full URL: every page on a site shares the same
+                  protocol and domain, so on a deeply-nested site (location
+                  pages, etc.) every row was dominated by that identical
+                  prefix, with the one part that actually distinguishes rows —
+                  the tail of the path — pushed past the ellipsis cutoff. Same
+                  pathOf() the page picker just below already uses. */}
+              {pathOf(p.url) || p.url}{done ? '  · in report' : ''}
             </button>
           );
         })}

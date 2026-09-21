@@ -253,7 +253,7 @@ create trigger admin_limit_policies_append_only before update or delete on admin
 -- no platform policy exists, so an administrator's later version always wins.
 insert into admin_limit_policies (scope, scope_ref, version, limits, note)
 select 'platform', null, 1, jsonb_build_object(
-  'maxUrlsPerCrawl',          5000,
+  'maxUrlsPerCrawl',          500,
   'maxCrawlDepth',            10,
   'scheduleMinIntervalHours', 24,
   'perProjectConcurrency',    1,

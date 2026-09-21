@@ -54,7 +54,7 @@ export default function GentleDentalPagesPage() {
           <p style={{ fontSize: '0.875rem', color: 'var(--text-2)', marginTop: '0.25rem' }}>Every generated Location × Service page — one per combination, always saved.</p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button style={btnStyle} onClick={() => navigate('/')}>← All Tools</button>
+          <button style={btnStyle} onClick={() => navigate('/')}>← Dashboard</button>
           <button style={{ ...btnStyle, fontWeight: 600, color: '#fff', background: 'var(--primary)', border: 'none' }} onClick={() => navigate('/location-page-builder/wizard')}>+ New Page</button>
         </div>
       </div>

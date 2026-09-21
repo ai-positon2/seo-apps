@@ -63,7 +63,7 @@ export default function KBEditorPage() {
       const res = await fetch(`/api/kb/${id}`, { method: 'DELETE', credentials: 'include' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      navigate('/knowledge-base');
+      navigate('/kb');
     } catch (err) {
       setError(err.message);
       setDeleting(false);

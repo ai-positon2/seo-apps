@@ -15,10 +15,10 @@ function intCeiling(name, fallback) {
 
 function ceilings() {
   return {
-    // Raised from 500 to a real 10,000-page-audit ceiling. Env-overridable
-    // (MAX_URLS_CEILING) without a redeploy if that ever needs to change
-    // again.
-    maxUrls: intCeiling("MAX_URLS_CEILING", 10_000),
+    // Brought back down to 500 (from a 10,000-page-audit ceiling that was
+    // itself a raise from an original 500). Env-overridable (MAX_URLS_CEILING)
+    // without a redeploy if that ever needs to change again.
+    maxUrls: intCeiling("MAX_URLS_CEILING", 500),
     maxExternalUrls: intCeiling("MAX_EXTERNAL_CEILING", 500),
     concurrency: intCeiling("MAX_CONCURRENCY_CEILING", 8),
     timeout: intCeiling("TIMEOUT_CEILING_MS", 30_000),
@@ -155,7 +155,7 @@ function parseCrawlRequest(body = {}, overrides = {}) {
     // truncated them to the ceiling below, so the two agree.
     maxUrls: listUrls
       ? listUrls.length
-      : clampInt(1, effectiveCeiling)(raw.maxUrls ?? 10_000),
+      : clampInt(1, cap.maxUrls)(raw.maxUrls ?? 500),
     maxExternalUrls: clampInt(0, cap.maxExternalUrls)(raw.maxExternalUrls ?? 150),
     concurrency: clampInt(1, cap.concurrency)(
       Math.min(raw.concurrency ?? 4, overrides.concurrency ?? Number.POSITIVE_INFINITY),

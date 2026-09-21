@@ -1636,4 +1636,41 @@ router.get('/:projectId/report.xlsx', async (req, res) => {
   } catch (e) { handleError(res, e, 'report'); }
 });
 
+// GET /api/projects/:projectId/report.md
+//
+// The same stored-rows-only report as report.xlsx, as one markdown document
+// instead of six sheets — for pasting into a doc or a PR rather than opening
+// in Excel.
+router.get('/:projectId/report.md', async (req, res) => {
+  if (!requireConfigured(res)) return;
+  try {
+    const access = await projectAccess.requireProject(req, req.params.projectId, 'view');
+    const { buffer, filename } = await report.buildMarkdown({ access });
+
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
+  } catch (e) { handleError(res, e, 'report'); }
+});
+
+// GET /api/projects/:projectId/report.pdf
+//
+// Same report again, rasterized with the same puppeteer-core +
+// @sparticuz/chromium pattern the Agent Readiness and Competitor Analysis PDF
+// exports already use — slower than the other two formats (a real browser
+// launches to render it), so this can take a few seconds longer.
+router.get('/:projectId/report.pdf', async (req, res) => {
+  if (!requireConfigured(res)) return;
+  try {
+    const access = await projectAccess.requireProject(req, req.params.projectId, 'view');
+    const { buffer, filename } = await report.buildPdf({ access });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
+  } catch (e) { handleError(res, e, 'report'); }
+});
+
 module.exports = router;

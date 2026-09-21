@@ -45,6 +45,19 @@ export default function HomePage() {
   const [overview, setOverview] = useState({ loading: false, error: null, data: null });
   const [showSetup, setShowSetup] = useState(false);
   const [auditSheet, setAuditSheet] = useState(null);   // null | 'open' | 'running'
+  const [reportMenuOpen, setReportMenuOpen] = useState(false);
+  const reportMenuRef = useRef(null);
+  useEffect(() => {
+    if (!reportMenuOpen) return undefined;
+    const onDoc = (e) => { if (reportMenuRef.current && !reportMenuRef.current.contains(e.target)) setReportMenuOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setReportMenuOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [reportMenuOpen]);
   // Bumped when a backlog item is drafted into a recommendation, so the board
   // below re-reads rather than appearing to swallow it.
   // Set when a full audit finishes, so the result is reported where the user
@@ -480,14 +493,27 @@ export default function HomePage() {
           activeWorkspaceId={listState.data?.activeWorkspaceId || null}
           onCreated={async (project, competitorResearch) => {
             setShowSetup(false);
-            setActiveProjectId(project.id);
             // Only worth a banner when there is something to say: a project
             // created with no competitors and no auto-discovery was never going
             // to start a comparison, and saying so would be noise.
             setCompetitorBanner(
               competitorResearch?.note ? competitorResearch : null,
             );
+            // Load the fresh list BEFORE switching to the new project, not
+            // after. The "resolve against what actually came back" effect
+            // above (line ~141) treats an active id it can't find in `projects`
+            // as stale and falls back to `projects[0]` — correct for a
+            // genuinely deleted project, wrong for one that is simply newer
+            // than the last list fetch. Setting the active id first raced that
+            // effect against this await: React re-rendered on the synchronous
+            // id change while `projects` was still the pre-creation list, so
+            // the repair effect "corrected" the brand-new project back to
+            // whichever project happened to be first — silently, before this
+            // await even resolved. Awaiting first means `projects` already
+            // contains the new project by the time its id is ever set, so the
+            // repair effect never has a stale list to be fooled by.
             const data = await loadProjects();
+            setActiveProjectId(project.id);
             if (data) loadOverview(project.id);
           }}
           onCancel={projects.length ? () => setShowSetup(false) : undefined}
@@ -674,15 +700,57 @@ export default function HomePage() {
             />
             {/* The explanations moved to tooltips. They described the app's own
                 mechanics — which modules run in what order — to a reader who wants
-                to know whether their site is in trouble. */}
-            <Btn
-              variant="secondary"
-              onClick={() => { window.location.href = projectsApi.reportUrl(activeProject.id); }}
-              title="One workbook of everything stored for this project, including what it does not cover."
-              style={{ height: 42, fontSize: 13, padding: '0 16px' }}
-            >
-              Download report
-            </Btn>
+                to know whether their site is in trouble.
+
+                Same comprehensive report — every module combined, plus what it
+                does not cover — in three renderings: the workbook for a
+                spreadsheet reader, a PDF for forwarding as-is, markdown for
+                pasting into a doc. */}
+            <div ref={reportMenuRef} style={{ position: 'relative' }}>
+              <Btn
+                variant="secondary"
+                onClick={() => setReportMenuOpen((v) => !v)}
+                title="One report of everything stored for this project, including what it does not cover — choose a format."
+                style={{ height: 42, fontSize: 13, padding: '0 16px' }}
+              >
+                Download report {reportMenuOpen ? '▲' : '▾'}
+              </Btn>
+              {reportMenuOpen && (
+                <div
+                  role="menu"
+                  style={{
+                    position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 30,
+                    minWidth: 180, padding: 6, borderRadius: 'var(--r-md)',
+                    background: 'var(--card)', border: '1px solid var(--border)',
+                    boxShadow: 'var(--shadow-md)', display: 'flex', flexDirection: 'column', gap: 2,
+                  }}
+                >
+                  {[
+                    ['xlsx', 'Excel workbook', 'One sheet per module, filterable'],
+                    ['pdf', 'PDF', 'Fixed layout, ready to forward'],
+                    ['md', 'Markdown', 'For pasting into a doc or a PR'],
+                  ].map(([format, label, hint]) => (
+                    <button
+                      key={format}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        window.location.href = projectsApi.reportUrl(activeProject.id, format);
+                        setReportMenuOpen(false);
+                      }}
+                      style={{
+                        display: 'flex', flexDirection: 'column', gap: 1, textAlign: 'left',
+                        padding: '7px 10px', borderRadius: 6, border: 'none', background: 'none',
+                        cursor: 'pointer', fontFamily: 'var(--font-sans)',
+                      }}
+                    >
+                      <span style={{ fontSize: 13, color: 'var(--text)' }}>{label}</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{hint}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -704,24 +772,6 @@ export default function HomePage() {
           insightsError={insights.error}
         />
       </Card>
-
-      {/* ── The answer, before the instrumentation ───────────────────────────
-          The four stats above are the audit's own numbers; the six cards below
-          are each module's. Between them they describe what the TOOL did, and a
-          reader who is not running the audit — the person who approves the work
-          and the client it is for — needs the conclusion first, in their own
-          words, with the thing to do next attached to it.
-          Everything in it is a restatement of a stored figure; the wording is
-          composed and tested server-side (insights/executive.js) so the rules
-          about what may be claimed live in one place. */}
-      <ExecutiveSummary
-        /* Keyed, so switching client REMOUNTS it rather than showing the
-           previous client's verdict while the new one loads. The same reason
-           CrawlBudget and ProjectDetail are keyed. */
-        key={activeProject.id}
-        projectId={activeProject.id}
-        onPromote={promoteInsight}
-      />
 
       {/* An audit that could not start.
           It used to be reported inside the confirmation sheet, which is fine
@@ -868,16 +918,30 @@ export default function HomePage() {
         )}
       </section>
 
-      {/* The page ends with the profile.
-          "What the modules say together" used to follow — the cross-module
-          headline and the ranked "Do this next" backlog — and before that
-          Activity, Alerts and a Recommendations board. Removed on request. The
-          dashboard now answers the four questions in the header and shows what
-          each module found; the ranked findings are in each module's own report.
+      {/* ── The answer, after the instrumentation ────────────────────────────
+          The per-module scores just above are each agent's own instrument
+          reading; this is the conclusion drawn from them, in the reader's own
+          words, with the thing to do next attached. Moved below the module
+          profile on request — the reader wants the individual agent scores
+          in front, the narrative summarizing them after.
+          Everything in it is a restatement of a stored figure; the wording is
+          composed and tested server-side (insights/executive.js) so the rules
+          about what may be claimed live in one place.
 
-          The insight layer is still READ, because the "To fix" figure in the
-          header is its backlog total. It is just no longer rendered as a panel
-          of its own. */}
+          "What the modules say together" used to follow instead — the
+          cross-module headline and the ranked "Do this next" backlog — and
+          before that Activity, Alerts and a Recommendations board. Removed on
+          request. The insight layer is still READ, because the "To fix"
+          figure in the header is its backlog total; it is just not rendered
+          as a panel of its own. */}
+      <ExecutiveSummary
+        /* Keyed, so switching client REMOUNTS it rather than showing the
+           previous client's verdict while the new one loads. The same reason
+           CrawlBudget and ProjectDetail are keyed. */
+        key={activeProject.id}
+        projectId={activeProject.id}
+        onPromote={promoteInsight}
+      />
 
       {/* ── Run Full Audit confirmation ─────────────────────────────────── */}
       {auditSheet && (

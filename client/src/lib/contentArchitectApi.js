@@ -38,6 +38,9 @@ export const ca = {
   analyzeInit: (id) => req(`/projects/${id}/analyze`, { method: 'POST' }),
   analyzeStreamUrl: (id, token) => `${BASE}/projects/${id}/analyze/stream/${token}`,
   getFullAnalysis: (id) => req(`/projects/${id}/full-analysis`),
+  // Which pages/topics already have a completed Enhance/Recommend run, so the
+  // report can offer "View Recommendation" instead of inviting a duplicate.
+  getActionStatus: (id) => req(`/projects/${id}/action-status`),
 
   setCompetitors: (id, competitors) => req(`/projects/${id}/competitors`, { method: 'PUT', body: JSON.stringify({ competitors }) }),
 

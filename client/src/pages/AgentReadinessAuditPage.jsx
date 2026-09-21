@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import ModuleRuns from '../components/ModuleRuns';
 import ProjectReportBar from '../components/project/ProjectReportBar';
 import ReportResolving from '../components/project/ReportResolving';
+import { useActiveProjectId } from '../lib/activeProject';
 
 const SC = {
   pass: { label: 'Pass', bg: 'var(--success-soft)', color: 'var(--success)', icon: '✓' },
@@ -311,6 +312,11 @@ export default function AgentReadinessAuditPage() {
   // at 'loading' is the point — the input form used to render on mount and be
   // replaced a moment later.
   const [reportState, setReportState] = useState('loading');
+  // Opened within a project, the project's own bar above (ProjectReportBar) is
+  // how you run or re-run an audit — "Run it now", page picker, "Analyze
+  // another page". The manual URL form below is for standalone use only; inside
+  // a project it would be a second, redundant way to start the same audit.
+  const [activeProjectId] = useActiveProjectId();
   const [urlHomepage, setUrlHomepage] = useState('');
   const [urlAction, setUrlAction]     = useState('');
   const [urlForm, setUrlForm]         = useState('');
@@ -587,8 +593,8 @@ export default function AgentReadinessAuditPage() {
           </p>
         </div>}
 
-        {/* URL Inputs */}
-        <div style={{ background: 'var(--card)', borderRadius: 'var(--r-lg)', border: '1px solid var(--border)', padding: '1.5rem', marginBottom: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.07)' }}>
+        {/* URL Inputs — standalone use only; see the note by activeProjectId above. */}
+        {!activeProjectId && <div style={{ background: 'var(--card)', borderRadius: 'var(--r-lg)', border: '1px solid var(--border)', padding: '1.5rem', marginBottom: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.07)' }}>
           <h2 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', margin: '0 0 4px' }}>Audit a website's AI agent readiness</h2>
           <p style={{ fontSize: 13, color: 'var(--text-2)', margin: '0 0 20px' }}>
             Provide up to three URLs for a full audit: 13 HTTP checks run on all sites; 10 additional on-page checks require the action and form URLs.
@@ -717,12 +723,15 @@ export default function AgentReadinessAuditPage() {
           {error && (
             <div style={{ marginTop: 12, fontSize: 13, color: 'var(--danger)', background: 'var(--danger-soft)', borderRadius: 8, padding: '8px 14px' }}>{error}</div>
           )}
-        </div>
+        </div>}
 
         {/* Resolved before drawn — see ReportResolving. */}
         {reportState === 'loading' && !result && !loading && <ReportResolving maxWidth={960} />}
 
-        {!result && !loading && reportState !== 'loading' && (
+        {/* Within a project with nothing stored yet, ProjectReportBar's own bar
+            above already says so and offers "Run it now" — this empty state is
+            only for standalone use, where there is a form to point at. */}
+        {!activeProjectId && !result && !loading && reportState !== 'loading' && (
           <div style={{ textAlign: 'center', padding: '4rem 0', color: 'var(--text-3)' }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>🤖</div>
             <p style={{ fontSize: 13, margin: '0 0 4px' }}>Enter a URL above to audit its agent readiness.</p>

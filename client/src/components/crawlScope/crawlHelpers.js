@@ -1108,7 +1108,7 @@ export const WORKER_EXECUTED_TRIGGERS = ['schedule', 'initial'];
 // server clamps against operator ceilings regardless of what is sent, so these
 // are starting points for the form, not limits.
 export const DEFAULT_OPTIONS = {
-  maxUrls: 10000,
+  maxUrls: 500,
   maxExternalUrls: 150,
   concurrency: 4,
   timeout: 15000,

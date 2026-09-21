@@ -23,22 +23,14 @@ const auditEvents = require('./auditEvents');
 // the fallback for a server running without Supabase, and as the schema of what
 // a policy may contain — an unknown key in a submitted policy is rejected.
 const DEFAULT_LIMITS = {
-  // Raised from the PRD §3.1.2 initial cap (5000) to match the crawler's own
-  // ceiling (crawlScope/shared/options.js MAX_URLS_CEILING, also 10,000), so
-  // the default policy does not itself impose a lower cap than the operator
-  // configured.
-  //
-  // This key NOW gates an actual crawl. It did not until crawlScope/run/
-  // manager.js began resolving it per run and passing it to parseCrawlRequest
-  // as `overrides.maxUrls`: before that it clamped only a project's stored
-  // options at create and patch time (projects/store.js), so lowering the limit
-  // left existing projects crawling at the number they were created with, and a
-  // run that sent its own options was bounded by MAX_URLS_CEILING alone.
-  // Setting 500 here and getting 10,000 pages was the reported symptom.
-  //
-  // It is a CEILING, not a target: a request below it is untouched, and it can
-  // only ever lower a crawl, never raise it past MAX_URLS_CEILING.
-  maxUrlsPerCrawl:          10_000,
+  // Brought back down to 500, matching shared/options.js's MAX_URLS_CEILING
+  // default — this key doesn't actually gate a CrawlScope run today (the
+  // crawler resolves its own ceiling straight from MAX_URLS_CEILING; see that
+  // file's header), but it does clamp a new project's stored options at
+  // creation time (projects/store.js) and is read elsewhere, so a mismatched
+  // default here silently reintroduces a higher cap for anything that DOES
+  // look at it.
+  maxUrlsPerCrawl:          500,
   maxCrawlDepth:            10,
   scheduleMinIntervalHours: 24,     // weekly is the initial recurrence (§3.1.3)
   perProjectConcurrency:    1,

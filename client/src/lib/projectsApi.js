@@ -307,7 +307,8 @@ export const projectsApi = {
   // ── Report (phase 7) ──────────────────────────────────────────────────────
   // A plain URL rather than a fetch: the browser's own download handling gets
   // the filename from Content-Disposition, which a blob URL would lose.
-  reportUrl: (projectId) => `${BASE}/${projectId}/report.xlsx`,
+  // format: 'xlsx' (default) | 'md' | 'pdf' — same report, three renderings.
+  reportUrl: (projectId, format = 'xlsx') => `${BASE}/${projectId}/report.${format}`,
 };
 
 /** Status → how it should read on screen. */

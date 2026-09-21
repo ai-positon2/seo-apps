@@ -31,6 +31,8 @@ const { buildDraftClusters } = require('./draftClustering');
 const { runFullAnalysis } = require('./fullAnalysis');
 const { buildWorkbook, buildMarkdownNarrative } = require('./exporter');
 const { suggestSpokes } = require('./spokeSuggestions');
+const spokeSuggestionsStore = require('./spokeSuggestionsStore');
+const runStore = require('../../services/runStore');
 const { buildCorpusTermProfiles } = require('./termProfile');
 const { computeIdf } = require('./similarity');
 const { topTermsForCluster } = require('./clusterEngine');
@@ -399,7 +401,50 @@ router.get('/projects/:id/analyze/stream/:token', async (req, res) => {
 router.get('/projects/:id/full-analysis', wrap(async (req, res) => {
   const analysis = await store.getFullAnalysis(req.params.id);
   if (!analysis) return res.status(404).json({ error: 'No analysis yet.' });
-  res.json(analysis);
+  // The database copy of spokeSuggestionsByCluster wins over the file-store's
+  // own — it is the durable one, so a stale or missing file-store value must
+  // not shadow a suggestion that genuinely exists.
+  const dbSuggestions = await spokeSuggestionsStore.getSpokeSuggestions(req.params.id);
+  res.json(spokeSuggestionsStore.mergeInto(analysis, dbSuggestions));
+}));
+
+// GET /projects/:id/action-status
+//
+// Which of this project's hub/spoke pages already have a completed Enhance
+// Existing Article run (by URL), and which of its suggested new-page topics
+// already have a completed Article Recommendation run (by topic/keyword) —
+// so the report can show "View Recommendation" instead of inviting a second
+// one. Reads the SAME tool_runs rows every module already writes
+// (runTracking.js); nothing new is recorded here.
+router.get('/projects/:id/action-status', wrap(async (req, res) => {
+  const project = await store.getProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  const analysis = await store.getFullAnalysis(req.params.id);
+  if (!analysis || !project.workspaceId) {
+    return res.json({ enhancedUrls: {}, recommendedTopics: {} });
+  }
+
+  const pageById = new Map((analysis.pages || []).map((p) => [p.id, p]));
+  const urls = new Set();
+  const topics = new Set();
+  for (const cluster of analysis.clusters || []) {
+    if (cluster.hubPageId) urls.add(pageById.get(cluster.hubPageId)?.url);
+    for (const spokeId of cluster.spokeIds || []) urls.add(pageById.get(spokeId)?.url);
+    if (cluster.isGap && cluster.gapSuggestion?.title) topics.add(cluster.gapSuggestion.title);
+    for (const s of (analysis.spokeSuggestionsByCluster?.[cluster.id]?.suggestions || [])) {
+      if (s.title) topics.add(s.title);
+    }
+  }
+
+  const [enhancedUrls, recommendedTopics] = await Promise.all([
+    runStore.findCompletedRunsByLabel({
+      workspaceId: project.workspaceId, toolId: 'article-enhancement', labels: [...urls],
+    }),
+    runStore.findCompletedRunsByLabel({
+      workspaceId: project.workspaceId, toolId: 'article-recommendation', labels: [...topics],
+    }),
+  ]);
+  res.json({ enhancedUrls, recommendedTopics });
 }));
 
 // On demand, per cluster — never run automatically as part of /analyze, since
@@ -457,14 +502,19 @@ router.post('/projects/:id/clusters/:clusterId/suggest-spokes', async (req, res)
       competitorDomains: project.competitors || [],
     });
 
+    const savedSuggestion = { ...result, generatedAt: new Date().toISOString() };
     const updatedAnalysis = {
       ...analysis,
       spokeSuggestionsByCluster: {
         ...(analysis.spokeSuggestionsByCluster || {}),
-        [cluster.id]: { ...result, generatedAt: new Date().toISOString() },
+        [cluster.id]: savedSuggestion,
       },
     };
     await store.saveFullAnalysis(project.id, updatedAnalysis);
+    // Durable copy — see spokeSuggestionsStore.js. Never throws; an
+    // environment with no database configured, or that has not applied
+    // migration 0029 yet, keeps working exactly as before.
+    await spokeSuggestionsStore.saveSpokeSuggestion(project.id, cluster.id, savedSuggestion);
 
     res.json(updatedAnalysis.spokeSuggestionsByCluster[cluster.id]);
   } catch (err) {

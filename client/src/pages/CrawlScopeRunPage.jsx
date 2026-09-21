@@ -709,7 +709,14 @@ export default function CrawlScopeRunPage() {
           </span>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <OutlineButton onClick={() => navigate('/crawl-scope')}>All crawls</OutlineButton>
+          {/* '/crawl-scope' is the standalone tool's own run history — useful
+              when this run was a one-off, but a project's Tech Audit already
+              has its own way back (the project page, via the module's report
+              bar) and "All crawls" here would leave the project context for a
+              list of unrelated crawls. */}
+          {!run?.project_id && (
+            <OutlineButton onClick={() => navigate('/crawl-scope')}>All crawls</OutlineButton>
+          )}
           {running ? (
             <>
               <OutlineButton disabled={busy === 'pause'} onClick={() => control('pause')}>

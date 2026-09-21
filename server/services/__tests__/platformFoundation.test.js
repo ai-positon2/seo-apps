@@ -255,7 +255,7 @@ console.log('\nAdmin limits — most restrictive wins');
 
 test('with no policies at all, the seeded defaults apply', () => {
   const { limits, sources } = adminLimits.combine([]);
-  assert.strictEqual(limits.maxUrlsPerCrawl, 10_000);
+  assert.strictEqual(limits.maxUrlsPerCrawl, 500);
   assert.strictEqual(sources.maxUrlsPerCrawl, 'default');
 });
 
@@ -326,7 +326,7 @@ test('a non-numeric policy value is skipped rather than producing NaN', () => {
   const { limits, sources } = adminLimits.combine([
     { scope: 'platform', limits: { maxUrlsPerCrawl: 'lots' } },
   ]);
-  assert.strictEqual(limits.maxUrlsPerCrawl, 10_000);
+  assert.strictEqual(limits.maxUrlsPerCrawl, 500);
   assert.strictEqual(sources.maxUrlsPerCrawl, 'default');
 });
 
