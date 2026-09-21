@@ -94,6 +94,11 @@ const MODULES = [
     // evidence is about somebody else's product.
     live: true,
     runnable: true,
+    // Same key toolsMeta.js's sidebar entry uses, and the same TAGS dictionary
+    // (see that file's header comment: one source of truth for both surfaces).
+    // The scoring (named/rank/perception/cited) is new enough that "Beta" on
+    // the card matters more here than on modules with years of production use.
+    tag: 'beta',
   },
   {
     // The scraped module. STAYS IN THIS LIST, and does not get a card.
