@@ -20,6 +20,13 @@ const icon = (...paths) =>
 
 export const TOOL_CATALOG = [
   {
+    id: 'content-writer', path: '/content-writer', badge: 'Writing', group: 'Build',
+    label: 'Content Writer', tagline: 'From researched brief to editable article',
+    description: 'Build a SERP-based brief, shape the outline, and write a source-checked draft. Edit and save your work to a project, then export to Word or JSON.',
+    features: ['Editable H2/H3 brief', 'GPT-5.4 mini drafting', 'CSQAF and source checks', 'Project saving · DOCX / JSON'],
+    icon: icon('M12 20h9M16.5 3.5a2.12 2.12 0 013 3L9 17l-4 1 1-4L16.5 3.5z'),
+  },
+  {
     id: 'keyword-research', path: '/keyword-research', badge: 'Keywords', group: 'Research',
     label: 'Keyword Research', tagline: 'AI-powered keyword shortlisting',
     description: 'Enter a seed keyword, find the top ranking competitors, pull their real keyword rankings via SEMrush, and let AI shortlist 2 primary and 10 secondary keywords for your campaign.',

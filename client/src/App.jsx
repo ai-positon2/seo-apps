@@ -35,6 +35,7 @@ const CreateKBPage = lazy(() => import('./pages/CreateKBPage'));
 const ModuleAuditPage = lazy(() => import('./pages/ModuleAuditPage'));
 const ClientFeedbackPage = lazy(() => import('./pages/ClientFeedbackPage'));
 const ArticleRecommendationPage = lazy(() => import('./pages/ArticleRecommendationPage'));
+const ContentWriterPage = lazy(() => import('./pages/ContentWriterPage'));
 const ImageAltAuditPage = lazy(() => import('./pages/ImageAltAuditPage'));
 const AgentReadinessAuditPage = lazy(() => import('./pages/AgentReadinessAuditPage'));
 const AgentReadinessSummaryPage = lazy(() => import('./pages/AgentReadinessSummaryPage'));
@@ -114,6 +115,7 @@ export default function App() {
           <Route path="/kb/feedback/new" element={<ClientFeedbackPage />} />
           <Route path="/kb/:id" element={<KBEditorPage />} />
           <Route path="/article-recommendation" element={<ArticleRecommendationPage />} />
+          <Route path="/content-writer" element={<ContentWriterPage />} />
           <Route path="/image-alt-audit" element={<ImageAltAuditPage />} />
           <Route path="/agent-readiness-audit" element={<AgentReadinessAuditPage />} />
           <Route path="/agent-readiness-audit/summary" element={<AgentReadinessSummaryPage />} />

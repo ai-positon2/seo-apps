@@ -12,6 +12,8 @@ const { createFetch } = require("../net/egress");
 const { parseCrawlRequest } = require("../shared/options");
 const repo = require("../db/repo");
 const { getPageSpeedForAllDomains } = require("../../../services/pageSpeedCA");
+// The workspace's effective crawl policy. Read per run — see _execute.
+const adminLimits = require("../../../services/adminLimits");
 const { createGate } = require("../shared/gate");
 
 // Default is "every eligible page" — PSI runs in the background and doesn't
@@ -231,7 +233,51 @@ class RunManager {
     const requestBody = Array.isArray(run.options?.urls)
       ? { urls: run.options.urls, options: run.options }
       : { url: run.url, options: run.options };
-    const { url, options } = parseCrawlRequest(requestBody, this.optionOverrides);
+    // The workspace's admin policy, resolved per run rather than per process:
+    // limits are versioned and per-workspace, so a value read once at startup
+    // would be both stale and wrong for every other workspace.
+    //
+    // This is the ONLY gate the Admin limit has on an actual crawl. The stored
+    // project options are clamped when they are written (projects/store.js),
+    // which does nothing for a project created before the limit was lowered, or
+    // for a run that sends its own options. Everything funnels through here.
+    //
+    // Failure to resolve is deliberately NOT fatal: an unreachable limits table
+    // must not stop crawls, and the env ceiling still bounds the run.
+    let policyOverrides = {};
+    if (run.workspace_id) {
+      try {
+        const { limits } = await adminLimits.effectiveLimits({ workspaceId: run.workspace_id });
+        if (Number.isFinite(Number(limits?.maxUrlsPerCrawl))) {
+          policyOverrides = { maxUrls: Number(limits.maxUrlsPerCrawl) };
+        }
+      } catch (error) {
+        console.warn(
+          `[crawlScope] run ${run.id}: could not resolve admin limits (${error.message}); `
+          + 'falling back to the operator ceiling.',
+        );
+      }
+    }
+
+    const { url, options, budgetClamped } = parseCrawlRequest(requestBody, {
+      ...this.optionOverrides,
+      ...policyOverrides,
+      // Both are ceilings and both must hold, so the tighter one wins rather
+      // than whichever spread came last.
+      ...(this.optionOverrides.maxUrls && policyOverrides.maxUrls
+        ? { maxUrls: Math.min(this.optionOverrides.maxUrls, policyOverrides.maxUrls) }
+        : {}),
+    });
+
+    if (budgetClamped) {
+      // Said out loud, because a silently reduced budget reads as a crawler bug:
+      // the run then reports a ceiling nobody asked for and there is nothing in
+      // the log connecting it to a policy.
+      console.log(
+        `[crawlScope] run ${run.id}: page budget reduced from ${budgetClamped.requested} to `
+        + `${budgetClamped.granted} by ${budgetClamped.source === 'admin_policy' ? 'the workspace admin limit' : 'the operator ceiling'}.`,
+      );
+    }
     const fetchImpl = createFetch({
       mode: process.env.EGRESS_MODE || "direct",
       proxyUrl: process.env.PROXY_URL,

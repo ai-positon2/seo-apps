@@ -195,6 +195,11 @@ router.get('/projects/:id/discover/stream/:token', async (req, res) => {
     const vertical = detectVertical(urlStrings);
     emit('step', { id: 'patterns', status: 'done', message: `Found ${ruleTable.length} URL patterns` });
 
+    // Second tier of classification: the keyword rules above decide the
+    // patterns with a clear signal, and only the ones they flagged as
+    // unconfident get an LLM's opinion. refineWithAI never throws — with no
+    // API key, or on a failed batch, those patterns simply keep the rules'
+    // own guess — so this stage cannot fail discovery.
     emit('step', { id: 'classify', status: 'active', message: 'Double-checking ambiguous page types with AI…' });
     const patterns = await refineWithAI(ruleTable);
     await store.savePatterns(project.id, patterns);

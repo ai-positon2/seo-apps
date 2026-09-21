@@ -100,14 +100,36 @@ function parseUrlList(candidates, cap) {
 
 // Returns { url, options, listInfo?, budgetClamped } ready for `new SeoCrawler(options)` (pass
 // `options.urls` to start() when present), or throws ValidationError (status 400).
-// `overrides` lets the worker tighten politeness for unattended crawls. Overrides are
-// monotonic — they can only ever slow a crawl down, never speed it up past what the
-// request asked for — so an override can't accidentally make the worker less polite
-// than an interactive run. `body.urls` (array) selects list mode instead of the
-// single-URL `body.url` spider mode.
+// `overrides` lets the worker tighten politeness for unattended crawls, and carries
+// the workspace's admin policy as `overrides.maxUrls`. Overrides are monotonic —
+// they can only ever slow a crawl down or make it smaller, never speed it up past
+// what the request asked for — so an override can't accidentally make the worker
+// less polite than an interactive run, or hand a workspace more pages than its
+// policy allows. `body.urls` (array) selects list mode instead of the single-URL
+// `body.url` spider mode.
+//
+// ── overrides.maxUrls is what makes the Admin limit real ──────────────────
+//
+// adminLimits.maxUrlsPerCrawl used to clamp only a project's STORED options, at
+// create and patch time. Nothing consulted it when a run actually started, so
+// lowering the limit left every existing project crawling at the number it was
+// created with, and a run that sent its own options was bounded by the env
+// ceiling alone. Setting 500 in Admin and getting 10,000 pages was the symptom.
+// run/manager.js now resolves the policy per run and passes it here, which is
+// the one place every path — manual, scheduled, worker, autostart — funnels
+// through.
 function parseCrawlRequest(body = {}, overrides = {}) {
   const cap = ceilings();
   const raw = body.options && typeof body.options === "object" ? body.options : body;
+
+  // Resolved BEFORE the URL list is parsed, because a list crawl is bounded by
+  // how many URLs it keeps — truncating it to the env ceiling and only then
+  // applying the policy would let a 5,000-URL list run in full for a workspace
+  // capped at 500.
+  const policyMaxUrls = Number.isFinite(Number(overrides.maxUrls)) && Number(overrides.maxUrls) > 0
+    ? Math.floor(Number(overrides.maxUrls))
+    : null;
+  const effectiveCeiling = policyMaxUrls === null ? cap.maxUrls : Math.min(cap.maxUrls, policyMaxUrls);
 
   let url;
   let listUrls;
@@ -115,7 +137,7 @@ function parseCrawlRequest(body = {}, overrides = {}) {
   let listTotal = 0;
 
   if (Array.isArray(body.urls)) {
-    const parsed = parseUrlList(body.urls, cap);
+    const parsed = parseUrlList(body.urls, { ...cap, maxUrls: effectiveCeiling });
     listUrls = parsed.urls;
     listTotal = parsed.total;
     listInfo = { count: listUrls.length, invalid: parsed.invalid, truncated: parsed.truncated };
@@ -129,9 +151,11 @@ function parseCrawlRequest(body = {}, overrides = {}) {
   }
 
   const options = {
+    // List mode counts the URLs actually kept — parseUrlList has already
+    // truncated them to the ceiling below, so the two agree.
     maxUrls: listUrls
       ? listUrls.length
-      : clampInt(1, cap.maxUrls)(raw.maxUrls ?? 10_000),
+      : clampInt(1, effectiveCeiling)(raw.maxUrls ?? 10_000),
     maxExternalUrls: clampInt(0, cap.maxExternalUrls)(raw.maxExternalUrls ?? 150),
     concurrency: clampInt(1, cap.concurrency)(
       Math.min(raw.concurrency ?? 4, overrides.concurrency ?? Number.POSITIVE_INFINITY),
@@ -172,15 +196,25 @@ function parseCrawlRequest(body = {}, overrides = {}) {
   // Null unless the caller EXPLICITLY asked for more than it got. The default
   // being filled in and clamped to the ceiling is not a clamp anyone asked
   // about, and reporting that would cry wolf on every ordinary request.
+  // `ceiling` is the EFFECTIVE one — env and admin policy together. Reporting
+  // cap.maxUrls here would tell a workspace capped at 500 that its ceiling is
+  // 10,000, which is the same silence this field exists to break. `source` says
+  // which of the two actually bound the run, so "why did I only get 500" has an
+  // answer without reading two config surfaces.
   let budgetClamped = null;
+  const clampSource = policyMaxUrls !== null && policyMaxUrls < cap.maxUrls ? 'admin_policy' : 'operator_ceiling';
   if (listUrls) {
     if (listInfo.truncated) {
-      budgetClamped = { requested: listTotal, granted: listUrls.length, ceiling: cap.maxUrls };
+      budgetClamped = {
+        requested: listTotal, granted: listUrls.length, ceiling: effectiveCeiling, source: clampSource,
+      };
     }
   } else if (raw.maxUrls !== undefined) {
     const asked = Math.floor(Number(raw.maxUrls));
     if (Number.isFinite(asked) && asked > options.maxUrls) {
-      budgetClamped = { requested: asked, granted: options.maxUrls, ceiling: cap.maxUrls };
+      budgetClamped = {
+        requested: asked, granted: options.maxUrls, ceiling: effectiveCeiling, source: clampSource,
+      };
     }
   }
 

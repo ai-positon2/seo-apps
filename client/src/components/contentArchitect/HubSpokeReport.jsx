@@ -301,7 +301,7 @@ function InlineKeywordResearch({ topic, client, navigate }) {
               disabled={!topApproved}
               onClick={(e) => {
                 e.stopPropagation();
-                navigate(`/article-recommendation?keyword=${encodeURIComponent(topApproved.keyword)}${client ? `&client=${encodeURIComponent(client)}` : ''}`);
+                navigate(`/content-writer?keyword=${encodeURIComponent(topApproved.keyword)}${client ? `&client=${encodeURIComponent(client)}` : ''}`);
               }}
               title={topApproved ? `Write a content brief for "${topApproved.keyword}"` : 'Approve a keyword above first'}
               style={{

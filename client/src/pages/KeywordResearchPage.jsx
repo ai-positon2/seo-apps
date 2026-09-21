@@ -677,8 +677,14 @@ export default function KeywordResearchPage() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
             <button
               onClick={() => {
-                const params = new URLSearchParams({ keyword: primaryList[0]?.keyword || '', client });
-                navigate(`/article-recommendation?${params.toString()}`);
+                // Primary #1 is the article's keyword; everything else the user
+                // chose travels as secondary keywords rather than being dropped.
+                const secondary = [...primaryList.slice(1), ...secondaryList]
+                  .map(k => k.keyword).filter(Boolean).join(', ');
+                const params = new URLSearchParams({ keyword: primaryList[0]?.keyword || '' });
+                if (secondary) params.set('secondary', secondary);
+                if (client) params.set('client', client);
+                navigate(`/content-writer?${params.toString()}`);
               }}
               disabled={primaryList.length === 0}
               title={primaryList.length === 0 ? 'Choose at least one primary keyword first' : 'Recommend an article for this keyword'}

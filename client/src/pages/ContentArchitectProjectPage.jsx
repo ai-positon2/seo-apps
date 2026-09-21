@@ -35,14 +35,16 @@ const CLASSIFICATION_META = {
   article: { label: 'Article', variant: 'success' },
   service: { label: 'Service', variant: 'info' },
   location: { label: 'Location', variant: 'info' },
-  people: { label: 'People', variant: 'neutral' },
   exclude: { label: 'Exclude', variant: 'danger' },
   static: { label: 'Static', variant: 'neutral' },
-  // Catch-all for anything that doesn't fit article/service/location: staff
-  // bios, press releases, one-off offer pages, or genuinely unclassifiable
-  // patterns. These don't get their own named category — a site-specific page
-  // type would never stop growing the list — so they all land here, unchecked
-  // by default, for the user to glance at rather than being auto-included.
+  // Staff, team, provider and leadership pages. Its own category rather than
+  // folding into Article, which is what a bare {slug} pattern with no other
+  // signal used to default to — see PEOPLE_TERMS in patternClassifier.js.
+  people: { label: 'People', variant: 'neutral' },
+  // Genuinely unclassifiable: neither the keyword rules nor the AI pass could
+  // place the pattern. Site-specific page types don't get their own category —
+  // that list would never stop growing — so they land here, unchecked by
+  // default, for the user to glance at rather than being auto-included.
   unknown: { label: 'Other', variant: 'warning' },
 };
 
@@ -353,6 +355,9 @@ export default function ContentArchitectProjectPage() {
                 <span style={{ fontSize: 13, fontWeight: 600 }}>
                   Analyzing {selectedUrls.toLocaleString()} of {totalUrls.toLocaleString()} URLs
                 </span>
+                {/* Only reachable once an analysis exists — this screen is
+                    otherwise a step the pipeline passes straight through, with
+                    nothing to go back to. */}
                 {analysis && (
                   <Button variant="secondary" size="sm" onClick={() => setScreen('results')} disabled={saving}>
                     Cancel
@@ -395,6 +400,7 @@ export default function ContentArchitectProjectPage() {
             striped
             emptyText="No patterns found."
           />
+
         </div>
       )}
 

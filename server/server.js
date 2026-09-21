@@ -170,6 +170,7 @@ app.use('/api/audit',                  kbLimiter, requireAuth, auditRoutes);
 app.use('/api/kb-context',             kbLimiter, requireAuth, kbContextRoutes);
 app.use('/api/keyword-research',       requireAuth, track('keyword-research'), keywordResearchRoutes);
 app.use('/api/article-recommendation', requireAuth, track('article-recommendation'), articleRecommendationRoutes);
+app.use('/api/content-writer', requireAuth, require('./modules/contentWriter/routes'));
 app.use('/api/image-alt-audit',        requireAuth, track('image-alt-audit'), imageAltAuditRoutes);
 app.use('/api/agent-readiness-audit',  requireAuth, track('agent-readiness-audit'), agentReadinessAuditRoutes);
 app.use('/api/seo-geo-audit',          requireAuth, track('seo-geo-audit'), seoGeoAuditRoutes);

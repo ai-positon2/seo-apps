@@ -39,6 +39,7 @@ export const TOOL_GROUPS = [
   {
     label: 'Build',
     tools: [
+      { id: 'content-writer', path: '/content-writer', label: 'Content Writer', icon: '✍' },
       { id: 'location-page-builder',  path: '/location-page-builder',  label: 'Location + Service Pages', icon: '📍', tag: 'testing' },
       { id: 'content-architect',      path: '/content-architect',      label: 'Content Architect',      icon: '🗺️', tag: 'testing' },
       { id: 'knowledge-base',         path: '/kb',                     label: 'Knowledge Base',         icon: '📚', tag: 'internal' },

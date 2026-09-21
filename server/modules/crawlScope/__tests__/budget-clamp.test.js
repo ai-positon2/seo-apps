@@ -43,7 +43,7 @@ test("asking for more pages than the ceiling reports the clamp", () => {
     assert.equal(options.maxUrls, 50, "the request is still reduced, not rejected");
     assert.deepEqual(
       budgetClamped,
-      { requested: 500, granted: 50, ceiling: 50 },
+      { requested: 500, granted: 50, ceiling: 50, source: 'operator_ceiling' },
       "and the reduction is reported rather than left to be discovered",
     );
   });
@@ -79,7 +79,7 @@ test("a URL list longer than the ceiling reports the clamp and truncates", () =>
     assert.equal(options.urls.length, 50, "only the ceiling's worth is queued");
     assert.equal(options.maxUrls, 50, "and the budget matches what was queued");
     assert.equal(listInfo.truncated, true);
-    assert.deepEqual(budgetClamped, { requested: 500, granted: 50, ceiling: 50 });
+    assert.deepEqual(budgetClamped, { requested: 500, granted: 50, ceiling: 50, source: 'operator_ceiling' });
   });
 });
 
@@ -105,8 +105,101 @@ test("the clamp counts valid URLs, not raw input lines", () => {
     });
     assert.deepEqual(
       budgetClamped,
-      { requested: 20, granted: 10, ceiling: 10 },
+      { requested: 20, granted: 10, ceiling: 10, source: 'operator_ceiling' },
       "duplicates and invalid lines are not counted as pages we refused",
     );
+  });
+});
+
+// ── The Admin limit ────────────────────────────────────────────────────────
+//
+// adminLimits.maxUrlsPerCrawl used to clamp only a project's STORED options, at
+// create and patch time. Nothing consulted it when a run started, so lowering
+// the limit in Admin left every existing project crawling at the number it was
+// created with, and a run that sent its own options was bounded by the env
+// ceiling alone. "Set 500 in Admin, got 10,000 pages" was the report.
+//
+// run/manager.js now resolves the workspace policy per run and passes it as
+// `overrides.maxUrls` — the one place manual, scheduled, worker and autostart
+// runs all funnel through. These pin the properties that make that safe.
+
+test("the admin policy lowers the page budget", () => {
+  withCeiling(10_000, () => {
+    const { options, budgetClamped } = parseCrawlRequest(
+      { ...BODY, options: { maxUrls: 5_000 } },
+      { maxUrls: 500 },
+    );
+    assert.equal(options.maxUrls, 500);
+    assert.deepEqual(budgetClamped, {
+      requested: 5_000, granted: 500, ceiling: 500, source: "admin_policy",
+    }, "the reported ceiling is the effective one, and says which limit bound it");
+  });
+});
+
+test("the admin policy can never RAISE the operator ceiling", () => {
+  // A workspace policy is a tightening, not a grant. If this ever inverted, an
+  // admin setting would become a way past the operator's own env ceiling.
+  withCeiling(1_000, () => {
+    const { options, budgetClamped } = parseCrawlRequest(
+      { ...BODY, options: { maxUrls: 50_000 } },
+      { maxUrls: 50_000 },
+    );
+    assert.equal(options.maxUrls, 1_000);
+    assert.equal(budgetClamped.source, "operator_ceiling");
+  });
+});
+
+test("a request under the policy is untouched and reports no clamp", () => {
+  withCeiling(10_000, () => {
+    const { options, budgetClamped } = parseCrawlRequest(
+      { ...BODY, options: { maxUrls: 100 } },
+      { maxUrls: 500 },
+    );
+    assert.equal(options.maxUrls, 100, "the policy is a ceiling, not a target");
+    assert.equal(budgetClamped, null, "nothing was refused, so nothing is reported");
+  });
+});
+
+test("a request with no maxUrls gets the policy, not the env ceiling", () => {
+  // The default path, and the one that made the bug invisible: a project whose
+  // stored options predate the limit sends whatever it was created with.
+  withCeiling(10_000, () => {
+    const { options } = parseCrawlRequest(BODY, { maxUrls: 500 });
+    assert.equal(options.maxUrls, 500);
+  });
+});
+
+test("a URL list is truncated by the policy too", () => {
+  // List mode is bounded by how many URLs it keeps, and the list is parsed
+  // before the budget is computed — so the policy has to reach the parse, or a
+  // 1,200-URL list would run in full for a workspace capped at 300.
+  withCeiling(10_000, () => {
+    const urls = Array.from({ length: 1_200 }, (_, i) => `https://example.com/p${i}`);
+    const { options, listInfo, budgetClamped } = parseCrawlRequest({ urls }, { maxUrls: 300 });
+    assert.equal(options.maxUrls, 300);
+    assert.equal(options.urls.length, 300, "the URLs themselves must be cut, not just the counter");
+    assert.equal(listInfo.truncated, true);
+    assert.equal(budgetClamped.source, "admin_policy");
+  });
+});
+
+test("no policy leaves every existing behaviour exactly as it was", () => {
+  withCeiling(10_000, () => {
+    const withoutPolicy = parseCrawlRequest({ ...BODY, options: { maxUrls: 5_000 } });
+    const emptyOverrides = parseCrawlRequest({ ...BODY, options: { maxUrls: 5_000 } }, {});
+    assert.equal(withoutPolicy.options.maxUrls, 5_000);
+    assert.deepEqual(emptyOverrides.options, withoutPolicy.options);
+    assert.equal(withoutPolicy.budgetClamped, null);
+  });
+});
+
+test("a nonsense policy value is ignored rather than crashing the crawl", () => {
+  // effectiveLimits validates, but this is the last gate before a run and a
+  // malformed stored policy must not become maxUrls: NaN.
+  withCeiling(10_000, () => {
+    for (const bad of [0, -5, "lots", null, undefined, NaN]) {
+      const { options } = parseCrawlRequest({ ...BODY, options: { maxUrls: 400 } }, { maxUrls: bad });
+      assert.equal(options.maxUrls, 400, `policy ${JSON.stringify(bad)} should be ignored`);
+    }
   });
 });

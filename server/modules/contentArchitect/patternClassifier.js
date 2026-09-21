@@ -12,7 +12,7 @@
 // stage is required to run alone — refineWithAI degrades to the rules' own
 // guess whenever there's no API key, a batch fails, or the model's answer
 // isn't one of the known categories.
-const OpenAI = require('openai');
+const { createLlmClient } = require('../../services/llmProviders');
 const SIBLING_CARDINALITY_THRESHOLD = 8;
 // A value recurring at least this many times at a position is treated as its
 // own literal branch, never swept into the generic {slug} bucket just
@@ -246,7 +246,14 @@ function buildPatternTable(urls) {
 
 // ── AI refinement of the rule layer's unconfident guesses ────────────────────
 const CLASSIFY_CATEGORIES = ['article', 'service', 'location', 'people', 'exclude', 'static', 'unknown'];
-const CLASSIFY_MODEL = 'gpt-4o-mini';
+// Claude Sonnet through the shared factory, matching llmNaming.js and
+// contentRelevance.js — this module's other two LLM call sites. The factory
+// absorbs every transport difference this prompt would otherwise care about:
+// it drops `temperature` (which Anthropic's models reject), maps max_tokens
+// onto max_completion_tokens, reinforces "JSON only" in the system prompt
+// because the compatible endpoint ignores response_format, and strips any
+// markdown fence off the reply before it's parsed below.
+const CLASSIFY_MODEL = 'claude-sonnet-5';
 const CLASSIFY_BATCH_SIZE = 40;
 
 // Every pattern this prompt is ever shown already failed the keyword rules —
@@ -278,14 +285,17 @@ Pick the single best-fitting category for each pattern. Return valid JSON only:
 {"patterns":[{"i": <same i>, "category": "<one of the categories>"}]}. Include every pattern you were given —
 omitting one leaves it as "unknown", so only do that when "unknown" really is your answer.`;
 
-function hasOpenAiKey() {
-  const k = process.env.OPENAI_API_KEY;
-  return !!k && k !== 'your_openai_api_key_here';
+// Named for what it gates rather than for a provider, as in llmNaming.js: this
+// only decides whether the second, AI tier is attempted at all — the keyword
+// rules' own verdicts stand either way.
+function hasClassifyKey() {
+  const k = process.env.ANTHROPIC_API_KEY;
+  return !!k && k !== 'your_anthropic_api_key_here';
 }
 
 let _client = null;
 function client() {
-  if (!_client) _client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  if (!_client) _client = createLlmClient(CLASSIFY_MODEL);
   return _client;
 }
 
@@ -295,7 +305,7 @@ async function classifyBatchWithAI(batch) {
   // above CLASSIFY_SYSTEM_PROMPT).
   const payload = batch.map((p, i) => ({ i, pattern: p.pattern, examples: p.examples }));
   const completion = await client().chat.completions.create({
-    model: CLASSIFY_MODEL,
+    model: client().model,
     temperature: 0,
     max_tokens: 2048,
     response_format: { type: 'json_object' },
@@ -323,7 +333,7 @@ async function classifyBatchWithAI(batch) {
  */
 async function refineWithAI(table) {
   const uncertain = table.filter((t) => !t.confident);
-  if (!hasOpenAiKey() || !uncertain.length) return table.map(({ confident, ...rest }) => rest);
+  if (!hasClassifyKey() || !uncertain.length) return table.map(({ confident, ...rest }) => rest);
 
   const byPattern = new Map(table.map((t) => [t.pattern, t]));
   for (let i = 0; i < uncertain.length; i += CLASSIFY_BATCH_SIZE) {

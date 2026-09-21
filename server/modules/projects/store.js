@@ -548,9 +548,14 @@ async function updateProject({ access, patch }) {
   // Clamped to the effective admin limit on the way in — the same ceiling
   // createProject() applies — so this cannot exceed the operator's policy, and
   // a clamp is audited as its own field rather than silently becoming the
-  // ceiling. Note the run-time path clamps AGAIN to MAX_URLS_CEILING, which
-  // the admin policy does not influence, so the number stored here is a
-  // request and not a guarantee.
+  // ceiling.
+  //
+  // The number stored here is still a REQUEST rather than a guarantee: the
+  // run-time path clamps again, to MAX_URLS_CEILING and to the workspace's
+  // admin limit as it stands when the run starts (crawlScope/run/manager.js).
+  // That second clamp is what covers a project created before the limit was
+  // lowered — this one only ever saw the limit in force on the day it was
+  // written.
   if (patch.crawlOptions !== undefined) {
     if (!patch.crawlOptions || typeof patch.crawlOptions !== 'object') {
       throw invalid('crawlOptions must be an object.');

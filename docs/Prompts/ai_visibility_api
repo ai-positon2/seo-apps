@@ -1,0 +1,50 @@
+Build: Simplified AI Visibility module (v2), API-based, one-click
+
+Goal: Add a lighter, faster version of the existing AI Visibility module that gets LLM responses via API calls instead of the current method, with a fully automated one-click flow.
+
+Flow:
+
+User adds a domain and saves the project.
+System auto-identifies the business, its products/services (from the domain — scrape/fetch homepage + key pages, or use an LLM call on the domain content).
+System auto-generates 10 prompts based on that business/product/service identification — no manual prompt writing needed for these.
+Each of the 10 prompts is sent to the relevant AI APIs to get responses.
+From those responses, compute the same metrics the current AI Visibility app already produces (reuse existing metric logic/functions — do not reinvent).
+Output should be usable in the same UI/format patterns as the current module where possible.
+
+Prompt management:
+
+User can add up to 10 additional custom prompts on top of the 10 auto-generated ones (max 20 total per project).
+User can delete any prompt (auto-generated or custom) and add new ones, up to the 20 cap.
+Auto-generated and user-added prompts are treated identically once created — same edit/delete/run behavior.
+
+Model/API to use (query these for each prompt run):
+
+OpenAI — Responses API, model gpt-5-nano (cheapest OpenAI model that supports the web_search tool). Enable web_search.
+Anthropic — Messages API, model claude-haiku-4-5-20251001 (cheapest current Claude model with web_search tool support). Enable web_search.
+Google — Gemini API, model gemini-2.5-flash-lite (cheapest Gemini model, supports Grounding with Google Search). Enable the google_search grounding tool — without it the model answers from training data only, not real search.
+
+Verify these model names/pricing against each provider's live pricing page at build time — cheapest-tier models shift.
+
+How to call the APIs (mimic a real user search):
+
+Natural conversational phrasing for prompts, no system-prompt bias, default/moderate temperature.
+Capture both response text and any citations/sources array returned by each API — both feed into metric calculations (text mention vs. citation mention are separate signals).
+
+Run limits:
+
+Cap: 30 runs per project maximum. Each run = all prompts (up to 20) sent to all 3 LLMs. (add this as a counter for the user to see)
+Enforce the cap server-side (not just UI) — block the "run" action once hit, with a clear message.
+Track and display remaining runs per project.
+
+Constraints — must follow exactly:
+
+Do NOT touch, modify, or remove the current AI Visibility app/module. Leave it fully intact and functional.
+Build this as a new, separate module, stored safely alongside the current one so both can be developed independently going forward.
+Reuse existing metric-calculation logic from the current module rather than duplicating/rewriting it, where feasible — flag if reuse isn't clean and duplication is simpler.
+Wire this new module to the existing homepage card (the one currently pointing to AI Visibility) so it's reachable from the homepage — confirm with me how you're linking/branching this (new route vs. toggle on same card) before finalizing.
+Keep the core interaction one-click: domain → save → everything else automated (prompt editing/adding is optional, on top of that default flow).
+
+Before coding:
+
+First locate and confirm: (a) current AI Visibility module's metric calculation code, (b) the homepage card/component that links to it, (c) how "save project" currently works in the app (reuse this).
+Propose a short plan (file structure, where new module lives, how metric logic is shared/reused, API call structure, run-limit tracking) before writing code.

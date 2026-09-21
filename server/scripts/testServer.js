@@ -27,6 +27,7 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
 
 const SUITES = [
+  'modules/contentWriter/__tests__/contentWriter.test.js',
   'routes/__tests__/auth.test.js',
   'routes/__tests__/workspaces.test.js',
   'locationPageBuilder/__tests__/run.js',
