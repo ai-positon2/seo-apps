@@ -295,7 +295,12 @@ router.post('/', async (req, res) => {
     // no crawl yet is the actual reason those cards used to sit on "no data
     // yet" forever.
     crawlAutostart.scheduleInitialCrawl({
-        project, domains, ownerId: identity.userId, crawlOptions,
+        // project.options, not the raw request-body crawlOptions above: that
+        // value has already been through store.createProject's clamp to the
+        // workspace's admin-policy maxUrlsPerCrawl (and maxCrawlDepth). Passing
+        // the unclamped body here let the initial crawl bypass the policy limit
+        // entirely and fall back to parseCrawlRequest's own default.
+        project, domains, ownerId: identity.userId, crawlOptions: project.options,
       })
       .catch((e) => {
         console.error('[projects.create] initial crawl autostart skipped:', e.message);
