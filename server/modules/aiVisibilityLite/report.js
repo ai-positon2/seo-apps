@@ -8,6 +8,11 @@
 //
 // Every metric here is named for what it counts, in this module's own words:
 //
+//   score            named/rank/perception/cited combined by weight
+//                    (SCORE_WEIGHTS), reweighted across whichever of the four
+//                    are available (compositeScore) — THE headline figure
+//   avgScore         the mean of `score` across every run this project has
+//                    completed, not just the one this report currently scopes
 //   namedRate        share of MEASURED answers that name the client
 //   shareOfMentions  the client's share of all brand mentions in those answers
 //   citationRate     share of measured answers that cite the client's domain
@@ -76,6 +81,62 @@ const domainClassify = require('../aiVisibility/captureEngines/domainClassify');
 // ranked against the others. Two answers is not a standing, and a competitor
 // named once would otherwise sit at the top of the table on 100%.
 const MIN_ANSWERS_TO_RANK = 3;
+
+// ── The composite score ──────────────────────────────────────────────────────
+//
+// `score` is not just "were you named". Appearing at all, appearing FIRST,
+// being described WARMLY, and being CITED as a source are four different
+// claims, and a client can win on one and lose on another — being named last
+// in every answer is not the same result as being named first. Combined by
+// weight, appearance-led: being found matters most, and the other three
+// refine what that appearance was worth.
+const SCORE_WEIGHTS = { named: 40, rank: 25, perception: 20, cited: 15 };
+
+/**
+ * Combine whichever of the four factors are actually available, reweighted
+ * across just those — never silently as if the missing one scored zero.
+ *
+ * Perception in particular is not always there: it costs its own model call,
+ * runs once per measurement run rather than being derived from captures, and
+ * can be missing outright (no run has completed one yet, or the call failed).
+ * A client whose only gap is "no sentiment reading yet" should not see a score
+ * that looks like they were savaged in every answer — the weight redistributes
+ * across named/rank/cited instead of counting perception as a zero.
+ *
+ * Returns null only when NOTHING is available — the same three-state rule
+ * every other metric on this report follows.
+ */
+function compositeScore({ named, rank, perception, cited }) {
+  const parts = [
+    { value: named, weight: SCORE_WEIGHTS.named },
+    { value: rank, weight: SCORE_WEIGHTS.rank },
+    { value: perception, weight: SCORE_WEIGHTS.perception },
+    { value: cited, weight: SCORE_WEIGHTS.cited },
+  ].filter((p) => typeof p.value === 'number' && Number.isFinite(p.value));
+  if (!parts.length) return null;
+  const totalWeight = parts.reduce((sum, p) => sum + p.weight, 0);
+  return parts.reduce((sum, p) => sum + (p.value * p.weight) / totalWeight, 0);
+}
+
+/**
+ * Mention order, as a 0-100 "higher is better" score instead of a raw
+ * position — so it can sit in the same weighted average as the other three.
+ *
+ * Needs at least two tracked brands: with only the client tracked, rank is
+ * always #1 of 1 and turning that into a component would silently reward a
+ * project for never having added a competitor, which is not a visibility
+ * result — it is an unset-up project.
+ */
+function rankToScore(rankValue, trackedBrandCount) {
+  if (typeof rankValue !== 'number' || !Number.isFinite(rankValue)) return null;
+  if (!trackedBrandCount || trackedBrandCount < 2) return null;
+  return (100 * (trackedBrandCount - rankValue)) / (trackedBrandCount - 1);
+}
+
+/** Share of a measured/citable set that hit, as a 0-100 number, or null over an empty set. */
+function shareScore(hit, total) {
+  return total ? (hit / total) * 100 : null;
+}
 
 /** Every name a brand might be written as. */
 function namesOf(brand) {
@@ -305,9 +366,13 @@ function questionTable(groups) {
       named,
       namedRate: fmt.metric(fmt.ratio(named, measured.length), 'percent'),
       groundedRate: fmt.metric(fmt.ratio(grounded, surfaces.length), 'percent'),
-      // Which competitors the models reached for on this question instead.
+      // Which competitors the models reached for on this question instead,
+      // across every engine. Kept alongside the per-engine breakdown below,
+      // which says WHICH one reached for them — this is the quick "who else"
+      // a reader checks first.
       competitors: rivals,
-      // Per engine, so a reader can see WHICH model named them.
+      // Per engine, so a reader can see WHICH model named them, what it said,
+      // who else it named instead, and what it cited while answering.
       byEngine: surfaces.map((s) => ({
         engine: s.engine,
         surfaceLabel: s.surfaceLabel,
@@ -316,6 +381,16 @@ function questionTable(groups) {
         grounded: s.grounded,
         status: s.status,
         failureReason: s.failureReason || null,
+        // Competitors THIS engine's answer named — a subset of `competitors`
+        // above, which pools every engine on this question together.
+        competitorsMentioned: s.competitorsMentioned || [],
+        // {url, title, domain, index}[] — whatever this engine's answer cited,
+        // regardless of whether it named the client. Empty, not omitted, when
+        // an answer cited nothing, so the UI can say "no citations" rather
+        // than treat a missing key as "not measured".
+        citations: s.citations || [],
+        // The verbatim answer. Only a failed capture has none — see status.
+        answerText: s.answerText || null,
       })),
     };
   });
@@ -517,7 +592,18 @@ function urlTable(measured, client, competitors) {
  * set at one moment, and averaging two runs from the same day would blur two
  * measurements into a number neither of them reported.
  */
-function trendByRun(inScope) {
+/**
+ * @param {object} [ctx]
+ * @param {object} [ctx.brand]         needed to compute each run's OWN score,
+ *                                     not just its namedRate
+ * @param {object[]} [ctx.competitors]
+ * @param {Map<string,{score:number,at:string}>} [ctx.runSentiment]  each run's
+ *   own describe.js reading, keyed by run id — a run this project completed
+ *   before the descriptor panel existed, or one whose describe call failed,
+ *   simply has no entry, and that run's score is reweighted across the other
+ *   three factors exactly as the headline is (see compositeScore).
+ */
+function trendByRun(inScope, { brand, competitors = [], runSentiment } = {}) {
   const runs = new Map();
   for (const row of inScope) {
     if (!row.runId) continue;
@@ -527,17 +613,37 @@ function trendByRun(inScope) {
     if (row.capturedAt < entry.at) entry.at = row.capturedAt;
   }
 
+  const trackedBrandCount = 1 + competitors.length;
+
   return [...runs.values()]
     .sort((a, b) => new Date(a.at) - new Date(b.at))
     .map((r) => {
       const measured = scoring.measuredRows(r.rows);
       const named = measured.filter((x) => x.mentioned).length;
+
+      // The run's own score, not a re-derivation of the headline's — same four
+      // factors, computed over just this run's rows, so avgScore below is a
+      // mean of scores runs actually earned rather than of namedRate alone.
+      let score = null;
+      if (brand) {
+        const runClientRow = brandTable(measured, brand, competitors).find((b) => b.isClient) || null;
+        const citable = measured.filter((x) => x.cited !== null);
+        const sentiment = runSentiment?.get(r.runId) || null;
+        score = compositeScore({
+          named: shareScore(named, measured.length),
+          rank: rankToScore(runClientRow ? runClientRow.mentionRank.value : null, trackedBrandCount),
+          perception: sentiment ? sentiment.score : null,
+          cited: shareScore(citable.filter((x) => x.cited).length, citable.length),
+        });
+      }
+
       return {
         runId: r.runId,
         at: r.at,
         answers: r.rows.length,
         measured: measured.length,
         namedRate: fmt.metric(fmt.ratio(named, measured.length), 'percent'),
+        score: fmt.metric(score, 'score'),
       };
     });
 }
@@ -553,9 +659,14 @@ function trendByRun(inScope) {
  * @param {object} [input.options]   {from, to} — the period, defaulting to
  *                                   everything with the previous equal-length
  *                                   window as the comparison
+ * @param {Map<string,{score:number,at:string}>} [input.runSentiment]  each run's
+ *   own describe.js sentiment reading, keyed by run id (see routes.js). Not
+ *   scoped to `options` — perception is a per-RUN artifact, not a per-period
+ *   one, so `score` uses whichever run's reading is most recent regardless of
+ *   the selected window, same as the `described` panel already does.
  */
 function build({
-  captures = [], prompts = [], brand = {}, competitors = [], options = {},
+  captures = [], prompts = [], brand = {}, competitors = [], options = {}, runSentiment = null,
 }) {
   // Only the questions the project currently asks. A deleted question is not
   // part of what we measure, so it is not part of what we report — including
@@ -611,8 +722,112 @@ function build({
   const prevBrands = prevMeasured.length ? brandTable(prevMeasured, brand, competitors) : [];
   const prevClientRow = prevBrands.find((b) => b.isClient) || null;
 
+  const trackedBrandCount = 1 + competitors.length;
+
+  // Perception, if any run has ever produced one — the MOST RECENT reading
+  // regardless of the selected period, same convention the `described` panel
+  // already uses (see routes.js and the runSentiment doc above).
+  const latestPerception = runSentiment && runSentiment.size
+    ? [...runSentiment.values()].sort((a, b) => new Date(b.at) - new Date(a.at))[0]
+    : null;
+
+  const currentRankScore = rankToScore(clientRow ? clientRow.mentionRank.value : null, trackedBrandCount);
+  const currentCitedScore = shareScore(cited, citable.length);
+  const currentComposite = compositeScore({
+    named: summary.score,
+    rank: currentRankScore,
+    perception: latestPerception ? latestPerception.score : null,
+    cited: currentCitedScore,
+  });
+
+  // The same three per-period factors over the PREVIOUS comparable window, so
+  // the score can carry a delta like every other headline number. Perception
+  // is reused unchanged from `latestPerception` rather than looked up for the
+  // previous window — there is no "previous period's perception" (it is a
+  // per-run artifact, not a per-period one), and giving it a delta would
+  // invent a change nobody measured.
+  const prevCitable = prevMeasured.filter((r) => r.cited !== null);
+  const previousComposite = comparable
+    ? compositeScore({
+      named: previous.score,
+      rank: rankToScore(prevClientRow ? prevClientRow.mentionRank.value : null, trackedBrandCount),
+      perception: latestPerception ? latestPerception.score : null,
+      cited: shareScore(prevCitable.filter((r) => r.cited).length, prevCitable.length),
+    })
+    : null;
+
+  // What actually went into `score` — a weighted blend of four numbers cannot
+  // speak for itself the way "10 of 30" can, so the basis names each factor
+  // that counted and, if perception is stale relative to this period, says so.
+  const scoreParts = [];
+  if (summary.score !== null) scoreParts.push(`named ${summary.score}`);
+  if (currentRankScore !== null) scoreParts.push(`rank ${clientRow.mentionRank.display}`);
+  if (latestPerception) scoreParts.push(`perception ${Math.round(latestPerception.score)}`);
+  if (currentCitedScore !== null) scoreParts.push(`cited ${Math.round(currentCitedScore)}%`);
+  const scoreNote = !scoreParts.length
+    ? 'Nothing was measured in this period.'
+    : `Weighted from: ${scoreParts.join(', ')}.`
+      + (latestPerception ? ` Perception last measured ${new Date(latestPerception.at).toLocaleDateString()}.` : '');
+
+  // The same four numbers as scoreNote, structured rather than prose — so a UI
+  // can draw an actual per-factor breakdown (bars, an included/excluded state)
+  // instead of parsing a sentence back apart to get them.
+  const scoreBreakdown = [
+    {
+      key: 'named', label: 'Named in answers', weight: SCORE_WEIGHTS.named,
+      included: summary.score !== null, value: summary.score,
+      display: summary.score === null ? null : `${summary.score}`,
+    },
+    {
+      key: 'rank', label: 'Typical position when named', weight: SCORE_WEIGHTS.rank,
+      included: currentRankScore !== null, value: currentRankScore,
+      display: clientRow ? clientRow.mentionRank.display : null,
+    },
+    {
+      key: 'perception', label: 'How warmly you’re described', weight: SCORE_WEIGHTS.perception,
+      included: Boolean(latestPerception), value: latestPerception ? latestPerception.score : null,
+      display: latestPerception ? `${Math.round(latestPerception.score)}` : null,
+      at: latestPerception ? latestPerception.at : null,
+    },
+    {
+      key: 'cited', label: 'Cited as a source', weight: SCORE_WEIGHTS.cited,
+      included: currentCitedScore !== null, value: currentCitedScore,
+      display: currentCitedScore === null ? null : `${Math.round(currentCitedScore)}%`,
+    },
+  ];
+
+  // Computed here, ahead of `headline`, so avgScore can be built from it — and
+  // reused below for the `trendAllRuns` field rather than walked twice.
+  const allRunsTrend = trendByRun(inScope, { brand, competitors, runSentiment });
+  const scoredRuns = allRunsTrend.filter((r) => r.score.value !== null);
+
   const headline = {
-    // Share of measured answers that name the client. THE number.
+    // The composite: appearance, ranking, perception and citation credibility,
+    // weighted (SCORE_WEIGHTS) and reweighted across whichever are available
+    // (compositeScore) — THE number this report puts in front of everything
+    // else.
+    score: fmt.metric(currentComposite, 'score', {
+      previous: previousComposite,
+      note: scoreNote,
+    }),
+    // The mean of THIS SAME per-run score across every run this project has
+    // ever completed, not a separate metric — one bad or one lucky run reads
+    // very differently next to "usually around X" than it does alone.
+    avgScore: fmt.metric(
+      scoredRuns.length
+        ? scoredRuns.reduce((sum, r) => sum + r.score.value, 0) / scoredRuns.length
+        : null,
+      'score',
+      {
+        note: scoredRuns.length
+          ? `Averaged across ${scoredRuns.length} scored run${scoredRuns.length === 1 ? '' : 's'}.`
+          : 'No run has been scored yet.',
+      },
+    ),
+    // Not a metric envelope like the others — see the comment above
+    // scoreBreakdown's definition. Read by a UI that wants to draw the four
+    // factors apart rather than just display scoreNote as a sentence.
+    scoreBreakdown,
     namedRate: fmt.metric(
       summary.score === null ? null : summary.score / 100,
       'percent',
@@ -739,11 +954,11 @@ function build({
     // KPI row above it described different periods, and a reader comparing the
     // headline against the last point of its own trend line would find they
     // disagreed with no way to tell which was wrong.
-    trend: trendByRun(split.current),
+    trend: trendByRun(split.current, { brand, competitors, runSentiment }),
     // The full history, kept separate and labelled as such. A project with two
     // runs outside the default 30-day window would otherwise show an empty
     // trend and no hint that history exists.
-    trendAllRuns: trendByRun(inScope),
+    trendAllRuns: allRunsTrend,
     findings: summary.findings,
     spend: summary.spend,
     surfaces: summary.surfaces,
@@ -754,4 +969,5 @@ function build({
 module.exports = {
   build, brandTable, sourceTable, gapTable, urlTable, questionTable,
   mentionOrder, trendByRun, MIN_ANSWERS_TO_RANK,
+  compositeScore, rankToScore, shareScore, SCORE_WEIGHTS,
 };
