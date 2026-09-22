@@ -637,16 +637,18 @@ test("validates Product, Article, and Organization JSON-LD against required prop
   const productComplete = await crawlOne("/product-complete");
   assert.equal(productComplete.schemaErrors.length, 0);
 
+  // Google lists no required properties for Article or Organization, so these
+  // are reported as missing *recommended* properties (audit D13).
   const articleIncomplete = await crawlOne("/article-incomplete");
-  assert.ok(articleIncomplete.schemaErrors.some((e) => e.includes("missing the required image")));
-  assert.ok(articleIncomplete.schemaErrors.some((e) => e.includes("missing the required datePublished")));
+  assert.ok(articleIncomplete.schemaErrors.some((e) => e.includes("missing the recommended image")));
+  assert.ok(articleIncomplete.schemaErrors.some((e) => e.includes("missing the recommended datePublished")));
   assert.ok(
     !articleIncomplete.schemaErrors.some((e) => e.includes("headline")),
     "headline was present, should not be flagged",
   );
 
   const orgIncomplete = await crawlOne("/org-incomplete");
-  assert.ok(orgIncomplete.schemaErrors.some((e) => e.includes("Organization is missing the required name")));
+  assert.ok(orgIncomplete.schemaErrors.some((e) => e.includes("Organization is missing the recommended name")));
 });
 
 test("extracts the viewport meta tag's content", async (t) => {

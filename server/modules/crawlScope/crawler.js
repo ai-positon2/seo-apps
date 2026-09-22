@@ -1265,16 +1265,21 @@ function schemaErrorsFromPage($) {
         errors.push("Product needs at least one of offers, review, or aggregateRating");
       }
     }
+    // "required" only where Google's structured-data docs require the
+    // property: LocalBusiness (name, address) and Product (name, plus one of
+    // offers/review/aggregateRating) above. Article and Organization have "no
+    // required properties" there, so the same gaps are named as missing
+    // recommended properties. Checked against developers.google.com 2026-09-23.
     if (types.some((item) => /^(Article|BlogPosting|NewsArticle)$/i.test(item))) {
       const label = types.find((item) => /^(Article|BlogPosting|NewsArticle)$/i.test(item));
-      if (!node.headline) errors.push(`${label} is missing the required headline property`);
-      if (!node.image) errors.push(`${label} is missing the required image property`);
+      if (!node.headline) errors.push(`${label} is missing the recommended headline property`);
+      if (!node.image) errors.push(`${label} is missing the recommended image property`);
       if (!node.datePublished) {
-        errors.push(`${label} is missing the required datePublished property`);
+        errors.push(`${label} is missing the recommended datePublished property`);
       }
     }
     if (types.includes("Organization") && !node.name) {
-      errors.push("Organization is missing the required name property");
+      errors.push("Organization is missing the recommended name property");
     }
     if (node["@graph"]) inspectNode(node["@graph"], depth + 1);
   };

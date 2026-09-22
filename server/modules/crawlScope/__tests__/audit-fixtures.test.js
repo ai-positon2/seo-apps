@@ -543,3 +543,28 @@ test("D12: heading text keeps the word boundary at a line break or block child",
     `inline children stay joined, block children are separated: ${JSON.stringify(texts)}`,
   );
 });
+
+// ── D13 · www.brushandfloss.com, 2026-09-23 ───────────────────────────────────
+// schema-error said "Organization is missing the required name property".
+// Google's Organization docs say "There are no required properties", and so do
+// its Article docs, for which headline/image/datePublished were also called
+// required. LocalBusiness (name, address) and Product (name) genuinely are
+// required and keep the word. Checked against developers.google.com 2026-09-23.
+
+test("D13: schema-error calls a property required only where Google requires it", async (t) => {
+  const site = await serve((origin) => ({
+    "/": page({ title: "Fixture home", body: '<a href="/locations/harrisburg">Harrisburg</a>' }),
+    "/locations/harrisburg": httpFixture("schema-error__D13.http", { ORIGIN: origin }),
+  }));
+  t.after(site.close);
+
+  const payload = await crawl(site.origin, { maxUrls: 5, respectRobots: false, discoverSitemaps: false });
+  const errors = payload.results.find((r) => r.url.endsWith("/locations/harrisburg")).schemaErrors;
+  assert.deepEqual(errors.slice().sort(), [
+    "BlogPosting is missing the recommended datePublished property",
+    "BlogPosting is missing the recommended headline property",
+    "BlogPosting is missing the recommended image property",
+    "Dentist is missing the required address property",
+    "Organization is missing the recommended name property",
+  ]);
+});

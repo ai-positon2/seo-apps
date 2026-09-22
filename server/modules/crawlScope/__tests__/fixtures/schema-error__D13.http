@@ -1,0 +1,8 @@
+HTTP/1.1 200 OK
+Content-Type: text/html; charset=utf-8
+
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Harrisburg Location | Fixture Family Dentistry</title><meta content="width=device-width, initial-scale=1" name="viewport">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","@id":"{{ORIGIN}}/#organization","url":"{{ORIGIN}}/","sameAs":["https://www.facebook.com/example-practice"],"image":{"@type":"ImageObject","url":"{{ORIGIN}}/logo.svg"},"brand":{"@type":"Brand","name":"Fixture Family Dentistry"}}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BlogPosting","author":{"@type":"Person","name":"Dr. Jane Roe"}}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Dentist","name":"Fixture Family Dentistry of Harrisburg"}</script>
+</head><body><h1>Harrisburg</h1><p>Organization and BlogPosting have no required properties in Google's structured data docs; Dentist (LocalBusiness) requires name and address.</p></body></html>
