@@ -1060,8 +1060,15 @@ const isScriptAsset = (result) =>
 const isStyleAsset = (result) =>
   (result.contentType || "").includes("css") || /\.css(?:$|\?)/i.test(result.url);
 
-function notEvaluatedRules({ results = [], crawlTruncated = false } = {}) {
+function notEvaluatedRules({ results = [], crawlTruncated = false, siteDiagnostics = {} } = {}) {
   const notEvaluated = [];
+  const coverage = siteDiagnostics?.sitemapCoverage;
+  if (coverage?.traversalStopped) {
+    notEvaluated.push({
+      ruleId: "sitemap-missing-indexable",
+      reason: `Sitemap traversal stopped at the document limit with ${coverage.documentsNotRead} sitemap documents not read, so a page's absence from the sitemap cannot be established.`,
+    });
+  }
   if (crawlTruncated) {
     const reason =
       "Switched off on a truncated crawl: inlink counts from part of a site do not describe the site.";
@@ -1118,6 +1125,9 @@ function buildFindings({
   // was O(n²): measured 3.6s at 50k findings versus 11ms here, all of it on the
   // worker's event loop at the end of every crawl.
   const findingIds = new Set();
+  // "Absent from every sitemap" needs every sitemap document. When traversal
+  // stopped at the document cap, the unread ones may list the page (M5).
+  const sitemapsComplete = sitemapsChecked && !siteDiagnostics?.sitemapCoverage?.traversalStopped;
   const resultByUrl = new Map(results.map((result) => [result.url, result]));
   const internalResults = results.filter((result) => result.scope !== "External");
   const htmlResults = internalResults.filter((result) =>
@@ -1310,7 +1320,7 @@ function buildFindings({
         });
       }
     } else if (
-      sitemapsChecked &&
+      sitemapsComplete &&
       isHtml &&
       !bodyUnread &&
       result.status === 200 &&
@@ -2201,7 +2211,7 @@ function buildFindings({
     findings,
     results: enrichedResults,
     catalog,
-    notEvaluated: notEvaluatedRules({ results, crawlTruncated }),
+    notEvaluated: notEvaluatedRules({ results, crawlTruncated, siteDiagnostics }),
     mediaLibrary: buildMediaLibrary(results, resourceEdges),
     // Internal HTML pages only — the same universe every other page-level
     // metric in this build uses (see healthMetrics's own htmlResults filter

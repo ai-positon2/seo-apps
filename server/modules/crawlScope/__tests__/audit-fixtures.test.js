@@ -722,3 +722,38 @@ test("M4: a 200 page whose body could not be read is one crawl-failure, not a pa
   assert.deepEqual(onSlow.map((f) => f.ruleId), ["crawl-failure"]);
   assert.match(onSlow[0].detail, /could not be read/);
 });
+
+// ── M5 · five-domain run (techcrunch.com), 2026-09-23 ─────────────────────────
+// TechCrunch's sitemap index lists 2,059 documents; the crawler reads at most
+// 200, and still raised 61 sitemap-missing-indexable ERRORS ("absent from
+// every sitemap discovered"). Absence cannot be established from a sitemap
+// that was not read to the end.
+
+test("M5: a page in a sitemap the crawler did not get to read is not reported as missing", async (t) => {
+  const site = await serve((origin) => ({
+    "/robots.txt": httpFixture("sitemap-robots-config__D1.http", { ORIGIN: origin }),
+    "/sitemap.xml": {
+      status: 200,
+      headers: { "content-type": "application/xml" },
+      body: `<?xml version="1.0" encoding="UTF-8"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><sitemap><loc>${origin}/sitemap-a.xml</loc></sitemap><sitemap><loc>${origin}/sitemap-b.xml</loc></sitemap></sitemapindex>`,
+    },
+    "/sitemap-a.xml": sitemapOf([`${origin}/`, `${origin}/a`]),
+    "/sitemap-b.xml": sitemapOf([`${origin}/b`]),
+    "/": page({ title: "Home", body: '<a href="/a">A page</a> <a href="/b">B page</a>' }),
+    "/a": page({ title: "A page" }),
+    "/b": page({ title: "B page" }),
+  }));
+  t.after(site.close);
+
+  // The index plus one child fit the cap; sitemap-b.xml, which lists /b, does not.
+  const payload = await crawl(site.origin, { maxUrls: 20, maxSitemapDocuments: 2 });
+
+  assert.equal(payload.siteDiagnostics.sitemapCoverage.traversalStopped, true);
+  assert.deepEqual(
+    payload.findings.filter((f) => f.ruleId === "sitemap-missing-indexable").map((f) => new URL(f.url).pathname),
+    [],
+  );
+  const entry = payload.notEvaluated.find((e) => e.ruleId === "sitemap-missing-indexable");
+  assert.ok(entry, "reported as not evaluated instead");
+  assert.match(entry.reason, /sitemap/i);
+});
