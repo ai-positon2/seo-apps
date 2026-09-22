@@ -1389,6 +1389,16 @@ class SeoCrawler extends EventEmitter {
       robotsUrl: "",
       sitemapConfigIssue: "",
       sitemapErrors: [],
+      // How much of the sitemap this crawl covered. Kept apart from
+      // sitemapConfigIssue on purpose: that field becomes a site finding, and a
+      // crawl too small for the sitemap is a fact about the crawl, not the site.
+      sitemapCoverage: {
+        listed: 0,
+        queued: 0,
+        budgetLimited: false,
+        traversalStopped: false,
+        documentsNotRead: 0,
+      },
       httpHomepageIssue: "",
       llmsStatus: "not checked",
       llmsFormatIssue: "",
@@ -1587,17 +1597,32 @@ class SeoCrawler extends EventEmitter {
       1,
       Math.floor(this.options.maxUrls * this.options.sitemapBudgetRatio),
     );
-    let seeded = 0;
+    let stoppedEarly = false;
     for (const sitemapUrl of this.sitemapMembership.keys()) {
       if (this.seen.size >= sitemapBudget) {
         this.truncated = true;
+        stoppedEarly = true;
         break;
       }
-      if (this._enqueueInternal(sitemapUrl, 1, "", { fromSitemap: true })) seeded += 1;
+      this._enqueueInternal(sitemapUrl, 1, "", { fromSitemap: true });
     }
-    if (this.sitemapMembership.size > seeded && !this.siteDiagnostics.sitemapConfigIssue) {
-      this.siteDiagnostics.sitemapConfigIssue =
-        `Only ${seeded} of ${this.sitemapMembership.size} sitemap URLs fitted within the crawl budget.`;
+    // Coverage is counted against `seen`, not against what this loop enqueued:
+    // seeding runs after the homepage, so every sitemap URL the homepage links
+    // to is already queued and returns false here. Counting enqueues reported
+    // "Only 0 of 2 sitemap URLs fitted within the crawl budget" on a two-page
+    // site with a budget of 20.
+    const listed = this.sitemapMembership.size;
+    let queued = 0;
+    for (const sitemapUrl of this.sitemapMembership.keys()) {
+      if (this.seen.has(sitemapUrl)) queued += 1;
+    }
+    const budgetLimited = stoppedEarly && queued < listed;
+    Object.assign(this.siteDiagnostics.sitemapCoverage, { listed, queued, budgetLimited });
+    if (budgetLimited) {
+      this.emit("log", {
+        level: "warning",
+        message: `Only ${queued} of ${listed} sitemap URLs fitted within the crawl budget; the rest were not crawled.`,
+      });
     }
   }
 
@@ -1976,11 +2001,24 @@ class SeoCrawler extends EventEmitter {
     }
 
     this.siteDiagnostics.sitemapErrors = errors.slice(0, 20);
+    // The document cap is the crawler's limit, not the site's configuration, so
+    // it is recorded as coverage and never becomes a sitemapConfigIssue (which
+    // turns into a site finding). The configuration checks below still run on a
+    // capped traversal: a truncated read of an undeclared sitemap is still
+    // undeclared.
     if (truncatedTraversal) {
-      this.siteDiagnostics.sitemapConfigIssue =
-        `Sitemap traversal stopped at ${this.options.maxSitemapDocuments} documents; ` +
-        `${pending.length} more were not read.`;
-    } else if (!declaredCount) {
+      Object.assign(this.siteDiagnostics.sitemapCoverage, {
+        traversalStopped: true,
+        documentsNotRead: pending.length,
+      });
+      this.emit("log", {
+        level: "warning",
+        message:
+          `Sitemap traversal stopped at ${this.options.maxSitemapDocuments} documents; ` +
+          `${pending.length} more were not read.`,
+      });
+    }
+    if (!declaredCount) {
       this.siteDiagnostics.sitemapConfigIssue = foundAny
         ? "A sitemap was found, but robots.txt does not declare it."
         : errors.length
