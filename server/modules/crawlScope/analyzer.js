@@ -135,6 +135,12 @@ function sitemapIncorrectUrlRecommendation({
   if (terminalSuitability) {
     return `Update the sitemap entry — this redirect ends at a non-indexable or non-canonical page (${terminalSuitability.detail}). Point the sitemap at the actual indexable canonical URL instead.`;
   }
+  // Checked before the status: a disallowed URL is never fetched, so its
+  // status is 0, and "returns HTTP no response" sent readers looking for an
+  // outage on a page that serves 200 to a browser.
+  if (result.statusText === "Blocked by robots.txt") {
+    return "Remove this URL from the sitemap, or unblock it in robots.txt if it should be indexed. The sitemap asks search engines to crawl a URL that robots.txt forbids them to fetch.";
+  }
   if (result.status !== 200) {
     return `Remove this URL from the sitemap. It returns HTTP ${result.status || "no response"} instead of 200, so it should not be listed as canonical, indexable content.`;
   }
@@ -1154,6 +1160,8 @@ function buildFindings({
               ? `${terminalFailure.relationshipDetail}. Path: ${terminalFailure.pathEvidence}`
               : terminalSuitability
                 ? `${terminalSuitability.relationshipDetail}. Path: ${terminalSuitability.pathEvidence}`
+              : result.statusText === "Blocked by robots.txt"
+                ? "Disallowed by robots.txt, so it was not fetched"
               : result.status !== 200
                 ? `HTTP ${result.status || "unreachable"}`
                 : declarativeRedirect

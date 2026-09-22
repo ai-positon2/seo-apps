@@ -1,0 +1,28 @@
+{
+  "_what": "Extracted result for a sitemap URL that robots.txt disallows. On www.brushandfloss.com /search is listed in sitemap.xml and blocked by 'Disallow: /search'; it was never fetched, so status is 0, and it serves 200 to a browser (evidence/sitemap-incorrect-url__1.http). The finding said 'HTTP unreachable' / 'returns HTTP no response'.",
+  "startUrl": "https://practice.example/",
+  "sitemap": ["https://practice.example/", "https://practice.example/search", "https://practice.example/gone"],
+  "results": [
+    { "url": "https://practice.example/", "title": "Family Dentistry | Practice" },
+    {
+      "url": "https://practice.example/search",
+      "status": 0,
+      "statusText": "Blocked by robots.txt",
+      "contentType": "",
+      "indexability": "Non-indexable",
+      "indexabilityReason": "Blocked by robots.txt",
+      "title": "",
+      "canonical": ""
+    },
+    {
+      "url": "https://practice.example/gone",
+      "status": 0,
+      "statusText": "fetch failed",
+      "contentType": "",
+      "indexability": "Non-indexable",
+      "indexabilityReason": "fetch failed",
+      "title": "",
+      "canonical": ""
+    }
+  ]
+}

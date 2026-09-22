@@ -312,3 +312,27 @@ test("D2: a page carrying rel=prev is a later page of a series, whatever its URL
   });
   assert.deepEqual(findings.filter((f) => f.ruleId === "sitemap-missing-indexable"), []);
 });
+
+// ── D4 · www.brushandfloss.com, 2026-09-23 ────────────────────────────────────
+// /search is in the sitemap and disallowed by robots.txt, so it was never
+// fetched. sitemap-incorrect-url described it as "HTTP unreachable" and told
+// the reader it "returns HTTP no response" — it serves 200 to a browser. The
+// URL does not belong in the sitemap, but for a different reason, and a reader
+// following that text looks for an outage.
+
+test("D4: a sitemap URL blocked by robots.txt is described as blocked, not unreachable", () => {
+  const { findings } = findingsFor(jsonFixture("sitemap-incorrect-url__D4.json"));
+  const byUrl = new Map(
+    findings.filter((f) => f.ruleId === "sitemap-incorrect-url").map((f) => [new URL(f.url).pathname, f]),
+  );
+
+  const blocked = byUrl.get("/search");
+  assert.ok(blocked, "a robots-blocked sitemap URL is still reported");
+  assert.match(blocked.detail, /robots\.txt/);
+  assert.doesNotMatch(`${blocked.detail} ${blocked.recommendation}`, /unreachable|no response/i);
+  assert.match(blocked.recommendation, /robots\.txt/);
+
+  const failed = byUrl.get("/gone");
+  assert.ok(failed, "a sitemap URL that could not be fetched is still reported");
+  assert.equal(failed.detail, "HTTP unreachable");
+});
