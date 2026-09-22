@@ -651,3 +651,24 @@ test("M1: retries default to 2, so a throttled page is retried instead of record
   assert.equal(product.status, 200, "the 429 was retried after Retry-After and the page answered 200");
   assert.deepEqual(payload.findings.filter((f) => f.ruleId === "page-4xx").map((f) => f.url), []);
 });
+
+// ── M2 · five-domain run (www.allbirds.com), 2026-09-23 ───────────────────────
+// Even with retries (M1), a site can keep answering 429 until they run out.
+// A 429 says "slow down", not "this page is broken", yet every 400+ check
+// treated it as one: page-4xx, broken-internal-links and sitemap-incorrect-url
+// for the same throttled product pages.
+
+test("M2: a page still rate-limited after retries is one crawl-failure, not a broken page or link", () => {
+  const fixture = jsonFixture("page-4xx__M2.json");
+  const { findings } = findingsFor(fixture, { linkEdges: fixture.linkEdges, sitemapsChecked: true });
+  const on = (path) => findings.filter((f) => f.url.endsWith(path) || f.targetUrl.endsWith(path)).map((f) => f.ruleId).sort();
+
+  assert.deepEqual(on("/products/tree-runner"), ["crawl-failure"], "throttled page: reported once, as not crawled");
+  assert.match(findings.find((f) => f.ruleId === "crawl-failure").detail, /429/);
+  assert.deepEqual(
+    on("/products/retired-shoe"),
+    ["broken-internal-links", "page-4xx", "sitemap-incorrect-url"],
+    "a real 404 is still reported everywhere it was before",
+  );
+  assert.deepEqual(findings.filter((f) => f.ruleId === "broken-external-link"), [], "an external 429 is not a broken link");
+});

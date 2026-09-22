@@ -7,6 +7,13 @@ const {
 } = require("./http-redirect");
 
 const catalogById = new Map(catalog.map((definition) => [definition.id, definition]));
+
+// HTTP 429 is the site throttling the crawler ("slow down"), not a statement
+// about the page. A result still at 429 after the crawler's retries was never
+// checked, so no rule may treat it as broken: it is reported once, as a
+// crawl-failure, and left out of every "status >= 400 means broken" test.
+const isRateLimited = (result) => Boolean(result) && result.status === 429;
+
 const NON_DESCRIPTIVE_LINK_LABELS = new Set([
   "click here",
   "here",
@@ -627,7 +634,7 @@ function redirectTerminalFailure(trace, resultByUrl) {
     };
   }
 
-  if (terminal.status >= 400) {
+  if (terminal.status >= 400 && !isRateLimited(terminal)) {
     const responseLabel = `HTTP ${terminal.status}${
       terminal.statusText ? ` ${terminal.statusText}` : ""
     }`;
@@ -1204,6 +1211,13 @@ function buildFindings({
           result.statusText ? ` ${result.statusText}` : ""
         }`,
       });
+    } else if (isRateLimited(result)) {
+      // The site throttled the crawl and was still refusing after the
+      // retries: the page was not checked, which is what crawl-failure says.
+      // Reporting it as a 4xx called working pages broken (M2).
+      add("crawl-failure", result, {
+        detail: "Rate limited: the site answered HTTP 429 Too Many Requests after the crawler's retries, so this page was not checked",
+      });
     } else if (result.status >= 400 && result.status < 500) {
       add("page-4xx", result);
     }
@@ -1220,6 +1234,7 @@ function buildFindings({
     if (
       result.isAsset &&
       result.status >= 400 &&
+      !isRateLimited(result) &&
       (result.contentType?.includes("javascript") || /\.m?js(?:$|\?)/i.test(result.url))
     ) {
       add("broken-javascript", result);
@@ -1242,6 +1257,9 @@ function buildFindings({
         isRedirectStatus(result.status) && !terminalFailure && !terminalSuitability;
       if (
         !plainRedirect &&
+        // A rate-limited entry was not checked (see isRateLimited), so it is
+        // not known to be incorrect; its crawl-failure already reports it.
+        !isRateLimited(result) &&
         (result.status !== 200 ||
           result.indexability !== "Indexable" ||
           (result.canonical && result.canonical !== result.url) ||
@@ -1702,7 +1720,7 @@ function buildFindings({
             : "a meta refresh"
         } to ${targetRedirect}`,
       });
-    } else if (target.status >= 400 || !target.status) {
+    } else if ((target.status >= 400 || !target.status) && !isRateLimited(target)) {
       add("canonical-to-broken", result, {
         targetUrl: result.canonical,
         statusCode: target.status,
@@ -1733,7 +1751,7 @@ function buildFindings({
       if (!url) continue;
       const target = resultByUrl.get(url);
       if (!target) continue; // uncrawled target — can't verify, don't guess
-      if (target.status >= 400 || !target.status) {
+      if ((target.status >= 400 || !target.status) && !isRateLimited(target)) {
         add("pagination-link-broken", result, {
           targetUrl: url,
           detail: `rel="${direction}" target returns ${target.status || "no response"}`,
@@ -1832,7 +1850,13 @@ function buildFindings({
       // shared nav/footer link, inflated one blocked URL into a finding on
       // every single page that links to it.
       const targetRobotsBlocked = target?.statusText === "Blocked by robots.txt";
-      if (target && !targetRobotsBlocked && (target.status >= 400 || !target.status)) {
+      // Same for a target the site rate-limited: not checked, so not broken.
+      if (
+        target &&
+        !targetRobotsBlocked &&
+        !isRateLimited(target) &&
+        (target.status >= 400 || !target.status)
+      ) {
         add("broken-internal-links", source, {
           targetUrl: edge.targetUrl,
           statusCode: target.status,
@@ -1929,7 +1953,7 @@ function buildFindings({
             "The crawler received HTTP 403 (Forbidden); this proves request refusal, not that the destination is missing.",
           detectedValue: "HTTP 403 (Forbidden)",
         });
-      } else if (target && (target.status >= 400 || !target.status)) {
+      } else if (target && !isRateLimited(target) && (target.status >= 400 || !target.status)) {
         add("broken-external-link", source, {
           targetUrl: edge.targetUrl,
           statusCode: target.status,

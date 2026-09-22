@@ -1,0 +1,17 @@
+{
+  "_what": "www.allbirds.com: a product page that stays HTTP 429 after the crawler's retries is a page the site refused to serve the crawler, not a broken page. It is linked from a collection page, listed in the sitemap, and is a canonical target; before the fix it produced page-4xx, broken-internal-links and sitemap-incorrect-url. A real 404 on the same site must still produce all three. An external link answering 429 is not proof of a broken link either.",
+  "startUrl": "https://store.example/",
+  "sitemap": ["https://store.example/", "https://store.example/products/tree-runner", "https://store.example/products/retired-shoe"],
+  "results": [
+    { "url": "https://store.example/", "title": "Fixture store" },
+    { "url": "https://store.example/collections/mens", "title": "Men's shoes | Fixture store" },
+    { "url": "https://store.example/products/tree-runner", "status": 429, "statusText": "Too Many Requests", "indexability": "Non-indexable", "indexabilityReason": "HTTP status 429", "title": "" },
+    { "url": "https://store.example/products/retired-shoe", "status": 404, "statusText": "Not Found", "indexability": "Non-indexable", "indexabilityReason": "HTTP status 404", "title": "" },
+    { "url": "https://social.example/store", "scope": "External", "status": 429, "statusText": "Too Many Requests", "contentType": "", "indexability": "External" }
+  ],
+  "linkEdges": [
+    { "sourceUrl": "https://store.example/collections/mens", "targetUrl": "https://store.example/products/tree-runner", "internal": true, "anchorText": "Tree Runner" },
+    { "sourceUrl": "https://store.example/collections/mens", "targetUrl": "https://store.example/products/retired-shoe", "internal": true, "anchorText": "Retired shoe" },
+    { "sourceUrl": "https://store.example/collections/mens", "targetUrl": "https://social.example/store", "internal": false, "anchorText": "Follow us" }
+  ]
+}
