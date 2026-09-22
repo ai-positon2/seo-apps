@@ -1377,7 +1377,13 @@ function buildFindings({
         // to trim, so this is a starting point to hand-refine, not a
         // finished recommendation.
         const slugTitle = humanizeUrlSlug(result.url);
-        add("title-missing", result, slugTitle ? { recommendedValue: slugTitle } : {});
+        add("title-missing", result, {
+          // Empty and absent look the same in `title` but not in view-source:
+          // a CMS template with an unbound title field renders <title></title>,
+          // and without saying so the finding reads as wrong to whoever checks.
+          detectedValue: result.titleCount > 0 ? "<title> present but empty" : "No <title> element",
+          ...(slugTitle ? { recommendedValue: slugTitle } : {}),
+        });
       }
       if (result.titleCount > 1) {
         add("title-multiple", result, { detectedValue: result.titleCount });

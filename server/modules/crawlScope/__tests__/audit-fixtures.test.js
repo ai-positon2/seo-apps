@@ -453,3 +453,35 @@ test("D14: a page missing required Open Graph properties also names a missing og
     "the standalone rule still covers pages whose required properties are complete",
   );
 });
+
+// ── D9 · www.brushandfloss.com, 2026-09-23 ────────────────────────────────────
+// 21 /dental-services/* pages render <title></title>. The finding carried no
+// evidence at all, so someone checking view-source saw a <title> element and
+// had no way to tell the tool meant "empty" rather than "absent".
+
+test("D9: title-missing says whether the title element is empty or absent", async (t) => {
+  const site = await serve(() => ({
+    "/": page({
+      title: "Fixture home",
+      body: '<a href="/dental-services/invisalign-teen">Invisalign Teen</a> <a href="/no-title">No title</a>',
+    }),
+    "/dental-services/invisalign-teen": httpFixture("title-missing__D9.http"),
+    "/no-title": {
+      status: 200,
+      headers: { "content-type": "text/html" },
+      body: "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width\"></head><body><h1>No title element</h1></body></html>",
+    },
+  }));
+  t.after(site.close);
+
+  const payload = await crawl(site.origin, { maxUrls: 10, respectRobots: false, discoverSitemaps: false });
+  const byPath = Object.fromEntries(
+    payload.findings
+      .filter((f) => f.ruleId === "title-missing")
+      .map((f) => [new URL(f.url).pathname, f.detectedValue]),
+  );
+  assert.deepEqual(byPath, {
+    "/dental-services/invisalign-teen": "<title> present but empty",
+    "/no-title": "No <title> element",
+  });
+});
