@@ -485,3 +485,32 @@ test("D9: title-missing says whether the title element is empty or absent", asyn
     "/no-title": "No <title> element",
   });
 });
+
+// ── D10 · www.brushandfloss.com, 2026-09-23 ───────────────────────────────────
+// A sitemap entry that 301s got two errors — sitemap-redirect and
+// sitemap-incorrect-url — and the one saying "replace it with its final
+// destination" did not say what the destination was.
+
+test("D10: a redirecting sitemap entry is one sitemap-redirect finding that names its destination", () => {
+  const { findings } = findingsFor(jsonFixture("sitemap-redirect__D10.json"));
+  const entry = "https://practice.example/dental-services/prosthodontics";
+  const onEntry = findings.filter((f) => f.url === entry && f.ruleId.startsWith("sitemap-"));
+  assert.deepEqual(onEntry.map((f) => f.ruleId), ["sitemap-redirect"]);
+  assert.equal(onEntry[0].targetUrl, "https://practice.example/category/prosthodontics");
+  assert.equal(onEntry[0].detectedValue, "301 -> https://practice.example/category/prosthodontics");
+});
+
+test("D10: a redirecting sitemap entry whose destination is broken still gets sitemap-incorrect-url", () => {
+  const fixture = jsonFixture("sitemap-redirect__D10.json");
+  fixture.results = fixture.results.map((result) =>
+    result.url.endsWith("/category/prosthodontics")
+      ? { ...result, status: 404, statusText: "Not Found", indexability: "Non-indexable" }
+      : result,
+  );
+  const { findings } = findingsFor(fixture);
+  const incorrect = findings.find(
+    (f) => f.ruleId === "sitemap-incorrect-url" && f.url.endsWith("/dental-services/prosthodontics"),
+  );
+  assert.ok(incorrect, "the broken destination is what makes this entry incorrect");
+  assert.match(incorrect.recommendation, /broken destination/);
+});

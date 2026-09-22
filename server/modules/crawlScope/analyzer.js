@@ -1196,11 +1196,18 @@ function buildFindings({
       const terminalFailure = redirectTerminalFailures.get(result.url);
       const terminalSuitability =
         redirectTerminalSuitabilityIssues.get(result.url);
+      // A plain HTTP redirect is exactly what sitemap-redirect reports, so it
+      // is not reported a second time here. sitemap-incorrect-url keeps the
+      // redirects whose destination is broken or unsuitable: that is extra
+      // information, and "replace it with the destination" would be wrong.
+      const plainRedirect =
+        isRedirectStatus(result.status) && !terminalFailure && !terminalSuitability;
       if (
-        result.status !== 200 ||
-        result.indexability !== "Indexable" ||
-        (result.canonical && result.canonical !== result.url) ||
-        declarativeRedirect
+        !plainRedirect &&
+        (result.status !== 200 ||
+          result.indexability !== "Indexable" ||
+          (result.canonical && result.canonical !== result.url) ||
+          declarativeRedirect)
       ) {
         add("sitemap-incorrect-url", result, {
           detail:
@@ -1223,7 +1230,14 @@ function buildFindings({
           }),
         });
       }
-      if (isRedirectStatus(result.status)) add("sitemap-redirect", result);
+      if (isRedirectStatus(result.status)) {
+        add("sitemap-redirect", result, {
+          targetUrl: result.redirectUrl || "",
+          detectedValue: result.redirectUrl
+            ? `${result.status} -> ${result.redirectUrl}`
+            : `HTTP ${result.status}`,
+        });
+      }
       if (inSitemaps.length > 1) {
         add("sitemap-duplicate", result, {
           detail: `Listed in ${inSitemaps.length} sitemaps`,

@@ -1,0 +1,27 @@
+{
+  "_what": "www.brushandfloss.com: /dental-services/prosthodontics is listed in sitemap.xml and 301s to /category/prosthodontics (evidence/sitemap-redirect__1.http). sitemap-redirect said 'replace with its final destination' without naming it, and the same sitemap row also fired sitemap-incorrect-url: two errors for one entry.",
+  "startUrl": "https://practice.example/",
+  "sitemap": [
+    "https://practice.example/",
+    "https://practice.example/dental-services/prosthodontics",
+    "https://practice.example/category/prosthodontics"
+  ],
+  "results": [
+    { "url": "https://practice.example/", "title": "Family Dentistry | Practice" },
+    {
+      "url": "https://practice.example/dental-services/prosthodontics",
+      "status": 301,
+      "statusText": "Moved Permanently",
+      "indexability": "Non-indexable",
+      "indexabilityReason": "HTTP status 301",
+      "redirectUrl": "https://practice.example/category/prosthodontics",
+      "redirectChain": [
+        "https://practice.example/dental-services/prosthodontics",
+        "https://practice.example/category/prosthodontics"
+      ],
+      "canonical": "",
+      "title": ""
+    },
+    { "url": "https://practice.example/category/prosthodontics", "title": "Prosthodontics Service | Practice" }
+  ]
+}
