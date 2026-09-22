@@ -118,6 +118,23 @@ export const PAGE_TYPE_LABELS = {
   other: 'Other',
 };
 
+// Generic, plain-English "what is this number" text for the click-to-open
+// info popover on a metric tile (see ui/MetricCard.jsx). Keyed by the same
+// name the metric carries in `report.headline` / `report.meta`, so every tab
+// that shows e.g. `namedRate` explains it the same way. This is deliberately
+// NOT the same text as a metric's `note` — that's a data-specific caveat
+// ("Averaged across 3 runs"), this is the constant definition.
+export const METRIC_INFO = {
+  score: 'Named, ranked, how warmly you’re described, and cited as a source — blended into one 0–100 number.',
+  avgScore: 'The same 0–100 score, averaged across every measurement run this project has completed, not just this one.',
+  namedRate: 'How often AI mentions you at all, out of every answer we could actually check.',
+  shareOfMentions: 'Of every brand AI names in these answers — yours and your tracked competitors’ — how much of that is you.',
+  citationRate: 'How often AI links to your site as a source, rather than just saying your name.',
+  mentionRank: 'Where you typically land among the brands named in an answer. #1 means you’re usually mentioned first.',
+  groundedRate: 'How often AI actually searched the live web for this answer, instead of relying on what it already knew.',
+  coverage: 'How many of the answers we asked for actually came back usable, out of every one we attempted.',
+};
+
 export const ENGINE_LABELS = {
   openai: 'ChatGPT',
   anthropic: 'Claude',

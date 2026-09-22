@@ -556,6 +556,11 @@ export default function HomePage() {
 
   const data = overview.data;
   const modules = data?.modules || [];
+  // The scraped AI Visibility module stays in `modules` — moduleDetail routing
+  // and in-flight-run polling key off its entry existing (see overview.js) —
+  // but it answers the same question as AI Visibility Lite, so anything that
+  // displays one card/axis per module shows this list instead.
+  const visibleModules = modules.filter((m) => m.card !== false);
   const composite = data?.composite;
 
   const lastRunAt = modules.map((m) => m.updatedAt).filter(Boolean).sort().reverse()[0] || null;
@@ -871,7 +876,7 @@ export default function HomePage() {
             <Card style={{ padding: 16, gap: 12 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
                 <Kicker>Audit Profile</Kicker>
-                <Muted>{modules.length} modules</Muted>
+                <Muted>{visibleModules.length} modules</Muted>
               </div>
 
 {/* One ring per module, outermost first, coloured by how that module is
@@ -886,7 +891,7 @@ export default function HomePage() {
 
                   The rings carry their own "N of 6 scored" footer, which is what
                   the block that used to sit here said. */}
-              <AuditRadar modules={modules} />
+              <AuditRadar modules={visibleModules} />
 
               <FadingRule style={{ marginTop: 4 }} />
 
@@ -910,7 +915,7 @@ export default function HomePage() {
                   Visibility module is the one that uses it: it answers the same
                   question as the API module, and two cards for one question
                   shows an implementation detail rather than a client's profile. */}
-              {modules.filter((m) => m.card !== false).map((module) => (
+              {visibleModules.map((module) => (
                 <ModuleCard key={module.key} module={module} onRun={runModule} />
               ))}
             </div>

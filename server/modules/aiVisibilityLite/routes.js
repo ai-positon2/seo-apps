@@ -75,31 +75,44 @@ async function latestRun(projectId, moduleKey) {
 }
 
 /**
- * The most recent run that actually produced descriptors, with its timestamp.
+ * The most recent run that actually produced descriptors, PLUS every run's own
+ * sentiment score (for report.build's composite `score` — see its runSentiment
+ * doc), from one shared fetch.
  *
- * Scans back rather than taking runs[0], because a failed or in-flight run has
- * no `described` in its payload and would otherwise blank a panel that has good
- * data one run earlier. Bounded at a handful of runs: beyond that the artefact
- * is old enough that showing it unlabelled would be worse than showing nothing,
- * and the caller renders the empty state instead.
+ * `panelLook` stays small (a handful of runs): beyond that the descriptor
+ * artefact is old enough that showing it unlabelled would be worse than
+ * showing nothing, and the caller renders the empty state instead. `look`
+ * (the sentiment history) goes back further, because compositeScore reweights
+ * around a missing perception reading anyway — an old one is still better than
+ * none, as long as its own date travels with it, which sentimentByRun carries.
  */
-async function latestDescribed(projectId, { look = 5 } = {}) {
+async function describedHistory(projectId, { panelLook = 5, look = 100 } = {}) {
   const runs = await moduleEvidence
     .listRuns(projectId, runner.MODULE_KEY, { limit: look })
     .catch(() => []);
 
-  for (const run of runs) {
+  let latest = null;
+  for (const run of runs.slice(0, panelLook)) {
     const payload = run.payload?.described;
     if (!payload) continue;
-    return {
+    latest = {
       payload,
       // finished_at, not created_at: the descriptors describe the answers as
       // they were when the run closed.
       at: run.finished_at || run.created_at || null,
       runId: run.id,
     };
+    break;
   }
-  return null;
+
+  const sentimentByRun = new Map();
+  for (const run of runs) {
+    const score = run.payload?.described?.sentiment?.score;
+    if (typeof score !== 'number' || !Number.isFinite(score)) continue;
+    sentimentByRun.set(run.id, { score, at: run.finished_at || run.created_at || null });
+  }
+
+  return { latest, sentimentByRun };
 }
 
 // ── The page load ──────────────────────────────────────────────────────────
@@ -328,6 +341,29 @@ router.get('/:projectId/report', async (req, res) => {
     // identityFor already merges the project's configured domains with the
     // names the profile found on the site.
     const { brand, competitors } = runner.identityFor(project, profile);
+
+    // The descriptor and sentiment history come from runs' payloads rather
+    // than being recomputed here: they cost a model call, so they are produced
+    // once when a run happens and read back afterwards. Everything else on the
+    // report is rebuilt from stored captures on every read.
+    //
+    // For `described`: the NEWEST RUN THAT HAS THEM, not simply the newest
+    // run. Reading only the latest meant one failed or still-running
+    // measurement blanked the whole panel — no attributes, no sentiment, no
+    // quotes — even though the run before it had produced a perfectly good
+    // set. An empty panel then looked like "the models said nothing about
+    // you", which is a finding, rather than "the last run did not finish",
+    // which is not. It carries its own timestamp and answer count because it
+    // is NOT scoped by the ?from/?to period the rest of the report obeys: it
+    // is a frozen artefact of one run over at most 20 answers. Labelling it
+    // with its own basis is what stops it being read as covering the selected
+    // window.
+    //
+    // For `sentimentByRun`: report.build's composite `score` needs each run's
+    // OWN reading (see report.js's runSentiment doc), so this is fetched
+    // ahead of build() rather than after it.
+    const { latest: described, sentimentByRun } = await describedHistory(projectId);
+
     const built = report.build({
       captures,
       prompts,
@@ -337,25 +373,8 @@ router.get('/:projectId/report', async (req, res) => {
         from: req.query.from || null,
         to: req.query.to || null,
       },
+      runSentiment: sentimentByRun,
     });
-
-    // The descriptor and sentiment panels come from a run's payload rather than
-    // being recomputed here: they cost a model call, so they are produced once
-    // when the run happens and read back afterwards. Everything else on the
-    // report is rebuilt from stored captures on every read.
-    //
-    // The NEWEST RUN THAT HAS THEM, not simply the newest run. Reading only the
-    // latest meant one failed or still-running measurement blanked the whole
-    // panel — no attributes, no sentiment, no quotes — even though the run
-    // before it had produced a perfectly good set. An empty panel then looked
-    // like "the models said nothing about you", which is a finding, rather than
-    // "the last run did not finish", which is not.
-    //
-    // It carries its own timestamp and answer count because it is NOT scoped by
-    // the ?from/?to period the rest of the report obeys: it is a frozen artefact
-    // of one run over at most 20 answers. Labelling it with its own basis is
-    // what stops it being read as covering the selected window.
-    const described = await latestDescribed(projectId);
 
     res.json({
       state: 'ok',

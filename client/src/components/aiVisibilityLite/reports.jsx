@@ -19,11 +19,11 @@ import {
   Card, Kicker, Muted, Tag, Btn, FadingRule, SectionHead,
 } from '../studio/primitives';
 import {
-  Metric as MetricCell, MetricStrip, FilledLabelBar, TypeChip, ShowMore,
+  FilledLabelBar, TypeChip, ShowMore,
 } from '../aiVisibility/reportPrimitives';
 import { LineChart } from '../aiVisibility/reportCharts';
 import {
-  SOURCE_TYPE_LABELS, PAGE_TYPE_LABELS, engineLabel,
+  SOURCE_TYPE_LABELS, PAGE_TYPE_LABELS, METRIC_INFO, engineLabel,
 } from './reportRegistry';
 
 // ── Shared pieces ──────────────────────────────────────────────────────────
@@ -107,7 +107,267 @@ function OutcomeTag({ mentioned, status }) {
   return <Tag tone={mentioned ? 'accent' : 'neg'}>{mentioned ? 'named' : 'not named'}</Tag>;
 }
 
+// ── Expandable metric tiles ─────────────────────────────────────────────────
+//
+// A KPI strip where every number is a door: click one and it opens onto the
+// real evidence behind it — the per-engine split, the competitor comparison,
+// the run history — instead of a one-line definition. Only one tile is open
+// at a time per strip, directly below the row it belongs to.
+
+const DL_ROW = { display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12.5, padding: '4px 0' };
+
+function DetailRow({ left, right, muted }) {
+  return (
+    <div style={DL_ROW}>
+      <span style={muted ? { color: 'var(--text-3)' } : undefined}>{left}</span>
+      <span style={{ fontFamily: 'var(--font-mono)', color: muted ? 'var(--text-3)' : undefined }}>{right}</span>
+    </div>
+  );
+}
+
+/** A thin proportional bar — used for the score's four weighted factors. */
+function WeightBar({ pct, dim }) {
+  return (
+    <div style={{ height: 5, borderRadius: 3, background: 'var(--neutral-800)', overflow: 'hidden', marginTop: 3 }}>
+      <div style={{
+        height: '100%',
+        width: `${Math.max(0, Math.min(100, pct))}%`,
+        background: dim ? 'var(--text-3)' : 'var(--primary)',
+      }}
+      />
+    </div>
+  );
+}
+
+/**
+ * The real data behind one metric tile. Every branch reads fields already on
+ * `report` — nothing here computes a number the server didn't already hand
+ * over, this only decides how to lay it out.
+ */
+function metricDetail(key, report) {
+  switch (key) {
+    case 'score': {
+      const rows = report.headline.scoreBreakdown || [];
+      return (
+        <div>
+          {rows.map((r) => (
+            <div key={r.key} style={{ padding: '6px 0' }}>
+              <div style={DL_ROW}>
+                <span>{r.label} <span style={{ color: 'var(--text-3)' }}>({r.weight}% weight)</span></span>
+                <span style={{ fontFamily: 'var(--font-mono)' }}>{r.included ? r.display : 'not counted'}</span>
+              </div>
+              <WeightBar pct={r.included ? r.value : 0} dim={!r.included} />
+            </div>
+          ))}
+          {report.headline.score.note && (
+            <Muted size={11} style={{ display: 'block', marginTop: 8 }}>{report.headline.score.note}</Muted>
+          )}
+        </div>
+      );
+    }
+    case 'avgScore': {
+      const runs = [...(report.trendAllRuns || [])].reverse().slice(0, 8);
+      if (!runs.length) return <Muted size={12}>No completed run has a score yet.</Muted>;
+      return (
+        <div>
+          {runs.map((r) => (
+            <DetailRow key={r.runId} left={new Date(r.at).toLocaleDateString()} right={r.score.display} />
+          ))}
+        </div>
+      );
+    }
+    case 'namedRate':
+    case 'groundedRate': {
+      const rows = report.byEngine || [];
+      if (!rows.length) return <Muted size={12}>Nothing measured in this period.</Muted>;
+      return (
+        <div>
+          {rows.map((e) => (
+            <DetailRow
+              key={e.engine}
+              left={engineLabel(e.engine)}
+              right={key === 'namedRate' ? e.namedRate.display : e.groundedRate.display}
+            />
+          ))}
+        </div>
+      );
+    }
+    case 'shareOfMentions':
+    case 'mentionRank': {
+      const brands = [...(report.brands || [])]
+        .sort((a, b) => (key === 'mentionRank'
+          ? (a.mentionRank.value ?? 99) - (b.mentionRank.value ?? 99)
+          : (b.shareOfMentions.value ?? -1) - (a.shareOfMentions.value ?? -1)));
+      if (!brands.length) return <Muted size={12}>Nothing measured in this period.</Muted>;
+      return (
+        <div>
+          {brands.map((b) => (
+            <DetailRow
+              key={b.name}
+              left={b.isClient ? `${b.name} (you)` : b.name}
+              right={key === 'mentionRank' ? b.mentionRank.display : b.shareOfMentions.display}
+            />
+          ))}
+        </div>
+      );
+    }
+    case 'citationRate': {
+      const domains = (report.sources?.domains || []).slice(0, 8);
+      if (!domains.length) return <Muted size={12}>No citations recorded in this period.</Muted>;
+      return (
+        <div>
+          {domains.map((d) => (
+            <DetailRow key={d.domain} left={d.domain} right={`${d.citations} citation${d.citations === 1 ? '' : 's'}`} />
+          ))}
+        </div>
+      );
+    }
+    case 'coverage': {
+      const rows = report.byEngine || [];
+      return (
+        <div>
+          <DetailRow left="Answers attempted" right={report.meta.answers} />
+          <DetailRow left="Answers we could measure" right={report.meta.answersMeasured} />
+          {rows.length > 0 && <div style={{ height: 1, background: 'var(--neutral-800)', margin: '6px 0' }} />}
+          {rows.map((e) => (
+            <DetailRow key={e.engine} left={engineLabel(e.engine)} right={`${e.measured} of ${e.answers}`} muted />
+          ))}
+        </div>
+      );
+    }
+    default:
+      return null;
+  }
+}
+
+/** One clickable KPI tile — visually a MetricCard, but a toggle button. */
+function ExpandableTile({ tileKey, label, metric, selected, onSelect }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(tileKey)}
+      style={{
+        textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit',
+        background: 'var(--card)',
+        border: selected ? '1px solid var(--primary)' : '1px solid var(--border)',
+        borderRadius: 'var(--r-lg)', padding: 16,
+        display: 'flex', flexDirection: 'column', gap: 6,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+        <span style={{
+          fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 500,
+          textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)',
+        }}
+        >
+          {label}
+        </span>
+        <span style={{ fontSize: 10, color: selected ? 'var(--primary)' : 'var(--text-3)' }}>
+          {selected ? '▲' : '▾'}
+        </span>
+      </div>
+      <span style={{
+        fontSize: 28, fontFamily: 'var(--font-mono)', fontWeight: 700,
+        lineHeight: 1, color: 'var(--text)', letterSpacing: '-0.02em',
+      }}
+      >
+        {metric ? metric.display : '—'}
+      </span>
+      {metric?.note && (
+        <span style={{ fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.35 }}>{metric.note}</span>
+      )}
+    </button>
+  );
+}
+
+/**
+ * A KPI strip whose tiles expand into the evidence behind them. `tiles` is
+ * `[{ key, label, metric }]` — `key` selects both the METRIC_INFO one-liner
+ * and the metricDetail() branch, so adding a tile to a strip is one line as
+ * long as `report` already carries what that key's detail needs.
+ */
+function ExpandableMetricStrip({ tiles, report, min = 190 }) {
+  const [selected, setSelected] = useState(null);
+  const active = tiles.find((t) => t.key === selected);
+
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(${min}px, 1fr))`, gap: 12 }}>
+        {tiles.map((t) => (
+          <ExpandableTile
+            key={t.key}
+            tileKey={t.key}
+            label={t.label}
+            metric={t.metric}
+            selected={selected === t.key}
+            onSelect={(k) => setSelected((cur) => (cur === k ? null : k))}
+          />
+        ))}
+      </div>
+      {active && (
+        <div style={{
+          marginTop: 10, padding: 16, background: 'var(--surface)',
+          border: '1px solid var(--border)', borderRadius: 'var(--r-lg)',
+        }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 600 }}>{active.label}</div>
+          {METRIC_INFO[active.key] && (
+            <Muted size={11.5} style={{ display: 'block', marginTop: 3, marginBottom: 8 }}>
+              {METRIC_INFO[active.key]}
+            </Muted>
+          )}
+          {metricDetail(active.key, report)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── 1. Executive overview ──────────────────────────────────────────────────
+
+// Plain-English bands for the 0-100 score, so a reader who has never seen a
+// GEO/AI-visibility number before still knows whether 47 is good or bad
+// without learning the scale first. Ranges match the width used elsewhere in
+// this app's own maturity ladders (five 20-point bands).
+const SCORE_STAGES = [
+  { max: 20, label: 'Barely visible', color: 'var(--viz-neg)', blurb: 'AI almost never brings you up.' },
+  { max: 40, label: 'Starting to show up', color: 'var(--viz-neg)', blurb: 'AI mentions you sometimes, but not often.' },
+  { max: 60, label: 'Getting noticed', color: 'var(--viz-warn)', blurb: 'AI mentions you about as often as it doesn’t.' },
+  { max: 80, label: 'Well known', color: 'var(--primary)', blurb: 'AI regularly includes you in its answers.' },
+  { max: Infinity, label: 'Leading the conversation', color: 'var(--primary)', blurb: 'AI treats you as one of the top answers.' },
+];
+const stageFor = (score) => (
+  typeof score === 'number' ? SCORE_STAGES.find((s) => score <= s.max) : null
+);
+
+/** A plain checklist row: does this engine mention you at all, and how often. */
+function EngineChecklist({ byEngine }) {
+  if (!byEngine.length) return null;
+  return (
+    <div style={{ display: 'grid', gap: 8 }}>
+      {byEngine.map((e) => {
+        const present = e.namedRate.value !== null && e.namedRate.value > 0;
+        return (
+          <div key={e.engine} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{
+              width: 18, height: 18, borderRadius: '50%', display: 'inline-flex',
+              alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700,
+              color: 'var(--card)', background: present ? 'var(--primary)' : 'var(--viz-neg)',
+              flexShrink: 0,
+            }}
+            >
+              {present ? '✓' : '✗'}
+            </span>
+            <span style={{ fontSize: 13, width: 90 }}>{engineLabel(e.engine)}</span>
+            <span style={{ fontSize: 12.5, color: 'var(--text-2)', fontFamily: 'var(--font-mono)' }}>
+              {e.namedRate.display}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export function OverviewReport({ report }) {
   const brands = (report.brands || []).filter((b) => b.namedRate.value !== null);
@@ -128,6 +388,17 @@ export function OverviewReport({ report }) {
     .sort((a, b) => (a.namedRate.value ?? 1) - (b.namedRate.value ?? 1))
     .slice(0, 5);
 
+  const stage = stageFor(report.headline.score.value);
+  const brandName = clientRow?.name || 'You';
+
+  // The one plain sentence a non-technical reader needs first: does AI bring
+  // this brand up, and how does that compare to before. Everything else on
+  // this card is that same claim broken into its parts.
+  const summary = report.headline.namedRate.value === null
+    ? 'We haven’t measured any AI answers for this project yet.'
+    : `When people ask AI assistants questions like the ones this project tracks, `
+      + `${brandName} comes up in ${report.headline.namedRate.display} of the answers.`;
+
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       <Card style={{ padding: 22 }}>
@@ -140,31 +411,70 @@ export function OverviewReport({ report }) {
           </Muted>
         </div>
 
-        <div style={{ fontSize: 26, fontWeight: 500, letterSpacing: '-.02em', marginTop: 10, lineHeight: 1.2 }}>
-          {report.headline.namedRate.value === null
-            ? 'Nothing was measured in this period'
-            : `Named in ${report.headline.namedRate.display} of the answers we could measure`}
+        {/* The one number a first-time reader needs, in plain words: not "47"
+            but "Getting noticed" — the number is still there for anyone who
+            wants it, just no longer the FIRST thing that has to be decoded. */}
+        <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap', marginTop: 14 }}>
+          <div style={{
+            fontSize: 48, fontWeight: 700, lineHeight: 1,
+            fontFamily: 'var(--font-mono)', letterSpacing: '-.02em',
+            color: stage ? stage.color : 'var(--text)',
+          }}
+          >
+            {report.headline.score.display}
+            <span style={{ fontSize: 16, fontWeight: 500, color: 'var(--text-3)' }}>/100</span>
+          </div>
+          {stage && (
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 600, color: stage.color }}>{stage.label}</div>
+              <Muted size={12.5}>{stage.blurb}</Muted>
+            </div>
+          )}
+        </div>
+
+        <div style={{ fontSize: 16, fontWeight: 500, letterSpacing: '-.01em', marginTop: 16, lineHeight: 1.4 }}>
+          {summary}
         </div>
 
         <Muted size={13} style={{ display: 'block', marginTop: 6 }}>
           {comparable && runnerUp
-            ? `Ranked ${rank} of ${ranked.length} among the brands this project tracks. `
-              + `The next tracked brand, ${runnerUp.name}, was named in ${runnerUp.namedRate.display}.`
-            : 'Only one brand is tracked on this project, so there is nothing to rank against yet — '
-              + 'add competitors to see share of voice and gap analysis.'}
+            ? `Out of the ${ranked.length} brands this project tracks, ${brandName} ranks #${rank}. `
+              + `The next one, ${runnerUp.name}, comes up in ${runnerUp.namedRate.display} of answers.`
+            : 'This project isn’t tracking any competitors yet, so there’s nothing to compare against — '
+              + 'add one or two to see how you stack up.'}
         </Muted>
+
+        {report.headline.avgScore.value !== null && (
+          <Muted size={12} style={{ display: 'block', marginTop: 4 }}>
+            Usually around {report.headline.avgScore.display}/100 across every check this project has run.
+          </Muted>
+        )}
 
         <FadingRule style={{ margin: '16px 0' }} />
 
-        <MetricStrip min={190}>
-          <MetricCell label="Named in answers" metric={report.headline.namedRate} />
-          <MetricCell label="Share of mentions" metric={report.headline.shareOfMentions} />
-          <MetricCell label="Cited as a source" metric={report.headline.citationRate} />
-          <MetricCell label="Mention order" metric={report.headline.mentionRank} />
-          <MetricCell label="Answers that searched" metric={report.headline.groundedRate} />
-        </MetricStrip>
+        <Kicker>Which AI tools mention you</Kicker>
+        <div style={{ marginTop: 10 }}>
+          <EngineChecklist byEngine={report.byEngine} />
+        </div>
+
+        <FadingRule style={{ margin: '16px 0' }} />
+
+        <Kicker>The details behind the score — click a number to see the evidence</Kicker>
+        <div style={{ marginTop: 10 }}>
+          <ExpandableMetricStrip
+            report={report}
+            tiles={[
+              { key: 'namedRate', label: 'Shows up in AI answers', metric: report.headline.namedRate },
+              { key: 'shareOfMentions', label: 'Share of the spotlight', metric: report.headline.shareOfMentions },
+              { key: 'citationRate', label: 'Trusted as a source', metric: report.headline.citationRate },
+              { key: 'mentionRank', label: 'Typical spot when named', metric: report.headline.mentionRank },
+              { key: 'groundedRate', label: 'Based on a live search', metric: report.headline.groundedRate },
+            ]}
+          />
+        </div>
 
         <Basis>{report.meta.basis}</Basis>
+        {report.headline.score.note ? <Basis>{report.headline.score.note}</Basis> : null}
       </Card>
 
       {ranked.length >= 2 ? (
@@ -217,7 +527,9 @@ export function OverviewReport({ report }) {
               <div key={g.domain} style={{ padding: '9px 0', borderBottom: '1px solid var(--neutral-800)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
                   <span style={{ fontSize: 13 }}>{g.domain}</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{g.gapScore}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-3)' }}>
+                    priority {g.gapScore}
+                  </span>
                 </div>
                 <Muted size={11}>
                   {SOURCE_TYPE_LABELS[g.sourceType] || g.sourceType}
@@ -247,14 +559,19 @@ export function InsightsReport({ report }) {
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       <Card style={{ padding: 20 }}>
-        <SectionHead title="Headline" />
-        <MetricStrip min={190}>
-          <MetricCell label="Named in answers" metric={report.headline.namedRate} />
-          <MetricCell label="Share of mentions" metric={report.headline.shareOfMentions} />
-          <MetricCell label="Mention order" metric={report.headline.mentionRank} />
-          <MetricCell label="Answers that searched" metric={report.headline.groundedRate} />
-          <MetricCell label="Answers captured" metric={report.meta.coverage} />
-        </MetricStrip>
+        <SectionHead title="Headline" right={<Muted size={11}>click a number for the evidence</Muted>} />
+        <ExpandableMetricStrip
+          report={report}
+          tiles={[
+            { key: 'score', label: 'Score, this run', metric: report.headline.score },
+            { key: 'avgScore', label: 'Avg score, all runs', metric: report.headline.avgScore },
+            { key: 'namedRate', label: 'Named in answers', metric: report.headline.namedRate },
+            { key: 'shareOfMentions', label: 'Share of mentions', metric: report.headline.shareOfMentions },
+            { key: 'mentionRank', label: 'Mention order', metric: report.headline.mentionRank },
+            { key: 'groundedRate', label: 'Answers that searched', metric: report.headline.groundedRate },
+            { key: 'coverage', label: 'Answers captured', metric: report.meta.coverage },
+          ]}
+        />
         <Basis>{report.meta.basis}</Basis>
       </Card>
 
@@ -656,23 +973,83 @@ export function UrlsReport({ report }) {
 
 // ── 8. Answers ─────────────────────────────────────────────────────────────
 
+/** The verbatim answer, collapsed by default — some run past a thousand words. */
+function AnswerToggle({ text }) {
+  const [open, setOpen] = useState(false);
+  if (!text) return null;
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+          fontSize: 11.5, color: 'var(--primary)', fontFamily: 'var(--font-mono)',
+        }}
+      >
+        {open ? 'Hide answer' : 'Show answer'}
+      </button>
+      {open && (
+        <div style={{
+          marginTop: 6, padding: 10, background: 'var(--surface)', borderRadius: 'var(--r-md)',
+          fontSize: 12.5, lineHeight: 1.5, whiteSpace: 'pre-wrap',
+        }}
+        >
+          {text}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One engine's citations for one answer — a domain and, if there is one, its title, linked out. */
+function CitationList({ citations }) {
+  if (!citations.length) return null;
+  return (
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      {citations.map((c, i) => (
+        // eslint-disable-next-line react/no-array-index-key
+        <a
+          key={`${c.url || c.domain}-${i}`}
+          href={c.url || undefined}
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-2)',
+            textDecoration: 'none', border: '1px solid var(--border)', borderRadius: 'var(--r-pill)',
+            padding: '2px 8px', pointerEvents: c.url ? 'auto' : 'none',
+          }}
+          title={c.title || c.url || c.domain}
+        >
+          {c.domain || c.title || 'source'}
+        </a>
+      ))}
+    </div>
+  );
+}
+
 export function AnswersReport({ report }) {
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       <Card style={{ padding: 20 }}>
-        <MetricStrip min={180}>
-          <MetricCell label="Answers measured" metric={report.meta.coverage} sub={`${report.meta.answersMeasured} of ${report.meta.answers}`} />
-          <MetricCell label="Named in answers" metric={report.headline.namedRate} />
-          <MetricCell label="Answers that searched" metric={report.headline.groundedRate} />
-          <MetricCell label="Cited as a source" metric={report.headline.citationRate} />
-        </MetricStrip>
+        <ExpandableMetricStrip
+          report={report}
+          min={180}
+          tiles={[
+            { key: 'coverage', label: 'Answers measured', metric: report.meta.coverage },
+            { key: 'namedRate', label: 'Named in answers', metric: report.headline.namedRate },
+            { key: 'groundedRate', label: 'Answers that searched', metric: report.headline.groundedRate },
+            { key: 'citationRate', label: 'Cited as a source', metric: report.headline.citationRate },
+          ]}
+        />
       </Card>
 
       <Card style={{ padding: 18 }}>
-        <SectionHead title="Every answer" />
+        <SectionHead title="Every question, every model" />
         <Muted size={11}>
-          One card per question and model. Answers we could not read are shown too — a list that
-          quietly dropped them would make coverage invisible.
+          One block per question and model: whether it named you, who else it named instead, what it
+          cited, and the answer itself. Answers we could not read are shown too — a list that quietly
+          dropped them would make coverage invisible.
         </Muted>
         <div style={{ marginTop: 12 }}>
           <ShowMore
@@ -682,14 +1059,29 @@ export function AnswersReport({ report }) {
             render={(q) => (
               <div key={q.promptId || q.text} style={{ padding: '12px 0', borderBottom: '1px solid var(--neutral-800)' }}>
                 <div style={{ fontSize: 13.5, fontWeight: 500 }}>{q.text}</div>
-                <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+                <div style={{ display: 'grid', gap: 10, marginTop: 8 }}>
                   {q.byEngine.length ? q.byEngine.map((e) => (
-                    <div key={e.engine} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                      <span style={{ width: 90, fontSize: 12.5, color: 'var(--text-2)' }}>{engineLabel(e.engine)}</span>
-                      <OutcomeTag mentioned={e.mentioned} status={e.status} />
-                      {e.grounded === false ? <Tag tone="muted">did not search</Tag> : null}
-                      {e.cited ? <Tag tone="accent">cited your site</Tag> : null}
-                      {e.failureReason ? <Muted size={11}>{e.failureReason}</Muted> : null}
+                    <div key={e.engine} style={{ display: 'grid', gap: 6 }}>
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span style={{ width: 90, fontSize: 12.5, color: 'var(--text-2)' }}>{engineLabel(e.engine)}</span>
+                        <OutcomeTag mentioned={e.mentioned} status={e.status} />
+                        {e.grounded === false ? <Tag tone="muted">did not search</Tag> : null}
+                        {e.cited ? <Tag tone="accent">cited your site</Tag> : null}
+                        {e.failureReason ? <Muted size={11}>{e.failureReason}</Muted> : null}
+                      </div>
+                      {/* Who this engine named instead, on this question — a subset
+                          of q.competitors, which pools every engine together. */}
+                      {e.competitorsMentioned.length ? (
+                        <Muted size={11} style={{ paddingLeft: 100 }}>
+                          Also named: {e.competitorsMentioned.join(', ')}
+                        </Muted>
+                      ) : null}
+                      <div style={{ paddingLeft: 100 }}>
+                        <CitationList citations={e.citations} />
+                      </div>
+                      <div style={{ paddingLeft: 100 }}>
+                        <AnswerToggle text={e.answerText} />
+                      </div>
                     </div>
                   )) : <Muted size={11}>Not measured in this period.</Muted>}
                 </div>

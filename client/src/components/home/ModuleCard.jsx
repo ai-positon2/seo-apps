@@ -4,6 +4,9 @@ import { Muted, Tag, TAG_TONES } from '../studio/primitives';
 import ModuleIcon from './moduleIcons';
 import { MODULE_STATUS_LABEL, MODULE_STATUS_TONE, relativeTime, isModuleInFlight } from '../../lib/projectsApi';
 import { moduleReportRoute } from '../../lib/moduleReportRoute';
+// Same dictionary the sidebar reads (toolsMeta.js) — one source of truth for
+// a tag shown on both surfaces, per that file's own header comment.
+import { TAGS } from '../../toolsMeta';
 
 // ── One module of the audit profile ─────────────────────────────────────────
 //
@@ -196,6 +199,25 @@ export default function ModuleCard({ module, onRun }) {
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          {/* Same pill and colour the sidebar shows next to this module's own
+              nav entry — so "this is new/still settling" reads the same way
+              wherever a reader meets it. */}
+          {module.tag && TAGS[module.tag] && (
+            <span style={{
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: '.04em',
+              textTransform: 'uppercase',
+              padding: '2px 6px',
+              borderRadius: 4,
+              whiteSpace: 'nowrap',
+              background: TAGS[module.tag].bg,
+              color: TAGS[module.tag].fg,
+            }}
+            >
+              {TAGS[module.tag].short || TAGS[module.tag].label}
+            </span>
+          )}
           {/* An interrupted run is a real caveat, but it is one word, not a
               paragraph. */}
           {module.partial && <Tag tone="warn">Partial</Tag>}
