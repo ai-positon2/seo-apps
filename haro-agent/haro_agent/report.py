@@ -73,7 +73,8 @@ def _render_borderline_line(match: MatchResult) -> str:
     q = match.query
     return (
         f"- **#{q.query_number} {q.summary}** ({q.media_outlet or 'unknown outlet'}, "
-        f"{_format_deadline(q)}) — score {match.score.total}. {match.score.rationale}"
+        f"{_format_deadline(q)}) — score {match.score.total}. {match.score.rationale} "
+        f"— **Reply to:** {q.reply_email or 'unknown'}"
     )
 
 
