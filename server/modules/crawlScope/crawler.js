@@ -2955,7 +2955,10 @@ class SeoCrawler extends EventEmitter {
         body.length > body.replace(/\s+/g, "").length * 1.12,
     });
 
-    const trackResource = (edge) => {
+    // `isAsset` defaults to true because nearly every resource element loads a
+    // subresource of this page. The exception is a navigation hint
+    // (rel=prefetch), whose target may be a whole page; see link[href] below.
+    const trackResource = (edge, { isAsset = true } = {}) => {
       this._pushEdge(this.resourceEdges, edge);
       if (!edge.targetUrl) return;
       if (
@@ -2964,9 +2967,7 @@ class SeoCrawler extends EventEmitter {
         edge.fetchAsset !== false &&
         this._inScope(edge.targetUrl, job)
       ) {
-        this._enqueueInternal(edge.targetUrl, job.depth + 1, job.url, {
-          isAsset: true,
-        });
+        this._enqueueInternal(edge.targetUrl, job.depth + 1, job.url, { isAsset });
       }
     };
     const trackCssReferences = (
@@ -3382,7 +3383,12 @@ class SeoCrawler extends EventEmitter {
       }
     });
 
-    const trackElementResource = (selector, attribute, predicate = () => true) => {
+    const trackElementResource = (
+      selector,
+      attribute,
+      predicate = () => true,
+      isAssetFor = () => true,
+    ) => {
       $(selector).each((_, element) => {
         if (!predicate(element)) return;
         const raw = ($(element).attr(attribute) || "").trim();
@@ -3390,14 +3396,17 @@ class SeoCrawler extends EventEmitter {
         const normalized = normalizeUrl(raw, documentBase.url);
         if (!normalized) return;
         const source = { attribute, raw };
-        trackResource({
-          sourceUrl: job.url,
-          targetUrl: normalized,
-          tag: element.tagName.toLowerCase(),
-          sourceAttribute: attribute,
-          elementHint: resourceElementHint($, element, source),
-          ...documentBaseMetadata(raw, documentBase),
-        });
+        trackResource(
+          {
+            sourceUrl: job.url,
+            targetUrl: normalized,
+            tag: element.tagName.toLowerCase(),
+            sourceAttribute: attribute,
+            elementHint: resourceElementHint($, element, source),
+            ...documentBaseMetadata(raw, documentBase),
+          },
+          { isAsset: isAssetFor(element, normalized) },
+        );
       });
     };
 
@@ -3407,13 +3416,25 @@ class SeoCrawler extends EventEmitter {
     );
     trackElementResource("object[data]", "data");
     trackElementResource("video[poster]", "poster");
-    trackElementResource("link[href]", "href", (element) => {
-      const relTokens = cleanText($(element).attr("rel"))
+    const linkRelTokens = (element) =>
+      cleanText($(element).attr("rel"))
         .toLowerCase()
         .split(/\s+/)
         .filter(Boolean);
-      return relTokens.some((token) => LINK_SUBRESOURCE_RELS.has(token));
-    });
+    trackElementResource(
+      "link[href]",
+      "href",
+      (element) => linkRelTokens(element).some((token) => LINK_SUBRESOURCE_RELS.has(token)),
+      // rel=prefetch fetches what the NEXT navigation may need, which is often
+      // a whole page (Webflow prefetches its nav pages). Only a subresource rel
+      // makes the target an asset of this page; a prefetch-only hint is judged
+      // by the URL, the same way a link is. Otherwise a nav page with 932
+      // inlinks became an "asset", and the flag sticks once set.
+      (element, url) =>
+        linkRelTokens(element).some(
+          (token) => LINK_SUBRESOURCE_RELS.has(token) && token !== "prefetch",
+        ) || ASSET_EXTENSIONS.test(url),
+    );
 
     $("style").each((_, element) => {
       const type = cleanText($(element).attr("type")).toLowerCase();

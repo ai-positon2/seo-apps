@@ -1,0 +1,4 @@
+HTTP/1.1 200 OK
+Content-Type: text/html; charset=utf-8
+
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Family Dentistry | Fixture Practice</title><meta content="width=device-width, initial-scale=1" name="viewport"><link rel="prefetch" href="/experience"/><link rel="prefetch" href="/app.js"/><link rel="stylesheet" href="/site.css"/></head><body><nav><a href="/experience">New Patient Experience</a></nav><h1>Family Dentistry</h1><p>Webflow adds rel=prefetch hints for the pages it expects the visitor to open next. A prefetched page is still a page.</p></body></html>

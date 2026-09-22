@@ -587,3 +587,30 @@ test("D15: a long brand-first title is not shortened to the bare brand", () => {
     "topic-first titles are trimmed to their topic as before",
   );
 });
+
+// ── D16 · www.brushandfloss.com, 2026-09-23 ───────────────────────────────────
+// The homepage's <link rel="prefetch" href="/experience"> made /experience —
+// a nav page with 932 inlinks — an "asset": every <link rel> target was
+// enqueued as one, and the flag sticks once any discovery path sets it.
+
+test("D16: a page reached through rel=prefetch is still a page; a prefetched script is still an asset", async (t) => {
+  const site = await serve(() => ({
+    "/": httpFixture("resource-classification__D16.http"),
+    "/experience": page({ title: "New Patient Experience | Fixture Practice" }),
+    "/app.js": { status: 200, headers: { "content-type": "application/javascript" }, body: "console.log('fixture');" },
+    "/site.css": { status: 200, headers: { "content-type": "text/css" }, body: "body{margin:0}" },
+  }));
+  t.after(site.close);
+
+  const payload = await crawl(site.origin, {
+    maxUrls: 10,
+    crawlAssets: true,
+    respectRobots: false,
+    discoverSitemaps: false,
+  });
+  const isAsset = Object.fromEntries(payload.results.map((r) => [new URL(r.url).pathname, r.isAsset]));
+  assert.deepEqual(
+    { experience: isAsset["/experience"], script: isAsset["/app.js"], stylesheet: isAsset["/site.css"] },
+    { experience: false, script: true, stylesheet: true },
+  );
+});
