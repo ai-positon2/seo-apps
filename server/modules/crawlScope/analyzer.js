@@ -1460,9 +1460,21 @@ function buildFindings({
       const openGraphMissing = result.openGraphMissing || [];
       const openGraphInvalidUrls = result.openGraphInvalidUrls || [];
       if (!hasNoindex && openGraphMissing.length) {
+        // open-graph-description-missing only runs once the required
+        // properties are complete, so a page missing both had its missing
+        // og:description reported nowhere. Named here as recommended, and kept
+        // out of evidenceKey so root-cause grouping still keys on the required set.
+        const recommendedMissing = result.openGraphDescriptionMissing ? ["og:description"] : [];
         add("open-graph-incomplete", result, {
-          detail: `Missing required properties: ${openGraphMissing.join(", ")}`,
-          detectedValue: openGraphMissing.map((property) => `• ${property}`).join("\n"),
+          detail:
+            `Missing required properties: ${openGraphMissing.join(", ")}` +
+            (recommendedMissing.length
+              ? `. Also missing: ${recommendedMissing.map((property) => `${property} (recommended)`).join(", ")}`
+              : ""),
+          detectedValue: [
+            ...openGraphMissing.map((property) => `• ${property}`),
+            ...recommendedMissing.map((property) => `• ${property} (recommended)`),
+          ].join("\n"),
           // Root-cause grouping's "missing-property" family needs the raw,
           // sorted set — the bullet-joined detectedValue above is for
           // display and isn't safe to re-parse (order isn't guaranteed

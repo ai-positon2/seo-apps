@@ -1,0 +1,24 @@
+{
+  "_what": "www.brushandfloss.com /articles: og:type, og:image and og:url missing, and og:description missing too. open-graph-description-missing only runs when the required properties are all present, and open-graph-incomplete listed only the required ones, so og:description was reported nowhere (164 indexable pages on that crawl).",
+  "startUrl": "https://practice.example/",
+  "results": [
+    {
+      "url": "https://practice.example/articles",
+      "title": "Articles | Practice",
+      "openGraphMissing": ["og:type", "og:image", "og:url"],
+      "openGraphDescriptionMissing": true
+    },
+    {
+      "url": "https://practice.example/locations",
+      "title": "Local Dentist Offices | Practice",
+      "openGraphMissing": ["og:image", "og:url"],
+      "openGraphDescriptionMissing": false
+    },
+    {
+      "url": "https://practice.example/careers",
+      "title": "Careers | Practice",
+      "openGraphMissing": [],
+      "openGraphDescriptionMissing": true
+    }
+  ]
+}

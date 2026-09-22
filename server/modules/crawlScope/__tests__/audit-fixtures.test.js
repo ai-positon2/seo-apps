@@ -429,3 +429,27 @@ test("D8: the list travels from the crawl to the stored report", async (t) => {
     `title: ${title}`,
   );
 });
+
+// ── D14 · www.brushandfloss.com, 2026-09-23 ───────────────────────────────────
+// open-graph-description-missing only runs when every required Open Graph
+// property is present, and open-graph-incomplete listed only the required
+// ones — so on a page missing both, og:description was reported nowhere.
+
+test("D14: a page missing required Open Graph properties also names a missing og:description", () => {
+  const { findings } = findingsFor(jsonFixture("open-graph-description-missing__D14.json"));
+  const incomplete = new Map(
+    findings.filter((f) => f.ruleId === "open-graph-incomplete").map((f) => [new URL(f.url).pathname, f]),
+  );
+
+  const articles = incomplete.get("/articles");
+  assert.match(articles.detail, /og:description \(recommended\)/);
+  assert.match(articles.detectedValue, /og:description \(recommended\)/);
+  assert.equal(articles.evidenceKey, "og:image,og:type,og:url", "root-cause grouping still keys on required properties");
+
+  assert.doesNotMatch(incomplete.get("/locations").detail, /og:description/, "only when it is actually missing");
+  assert.deepEqual(
+    findings.filter((f) => f.ruleId === "open-graph-description-missing").map((f) => new URL(f.url).pathname),
+    ["/careers"],
+    "the standalone rule still covers pages whose required properties are complete",
+  );
+});
