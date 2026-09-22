@@ -5,7 +5,57 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { SeoCrawler } = require("../crawler");
-const { httpFixture, serve, page } = require("./fixtures");
+const { buildFindings } = require("../analyzer");
+const { httpFixture, jsonFixture, serve, page } = require("./fixtures");
+
+// An extracted result for the analyzer: a healthy, indexable, self-canonical
+// HTML page unless the fixture says otherwise.
+function resultFor(overrides) {
+  return {
+    scope: "Internal",
+    status: 200,
+    statusText: "OK",
+    contentType: "text/html",
+    depth: 1,
+    title: "A perfectly fine title for this page",
+    titleCount: 1,
+    titleLength: 37,
+    metaDescription: "A sufficiently long meta description for this fixture page, long enough to pass.",
+    metaLength: 82,
+    viewport: "width=device-width, initial-scale=1",
+    h1Count: 1,
+    h1: "A perfectly fine heading",
+    words: 400,
+    textHtmlRatio: 0.2,
+    headingHierarchyIssues: [],
+    indexability: "Indexable",
+    robots: "",
+    inlinks: 2,
+    isAsset: false,
+    openGraphMissing: [],
+    openGraphInvalidUrls: [],
+    schemaErrors: [],
+    hreflangs: [],
+    paginationNext: "",
+    paginationPrev: "",
+    ...overrides,
+    canonical: overrides.canonical ?? overrides.url,
+    titleLength: (overrides.title ?? "A perfectly fine title for this page").length,
+    hash: `hash:${overrides.url}`,
+  };
+}
+
+function findingsFor(fixture, extra = {}) {
+  const sitemapMembership = Object.fromEntries(
+    (fixture.sitemap || []).map((url) => [url, [`${fixture.startUrl}sitemap.xml`]]),
+  );
+  return buildFindings({
+    results: fixture.results.map(resultFor),
+    sitemapMembership,
+    startUrl: fixture.startUrl,
+    ...extra,
+  });
+}
 
 const sitemapOf = (urls) => ({
   status: 200,
@@ -224,4 +274,41 @@ test("D5: an http: link target is judged by the GET a navigation makes, not a HE
     [[PLAIN, "HTTP 200 without HTTPS upgrade"]],
     "only the destination that really stays on HTTP is reported",
   );
+});
+
+// ── D2 · www.brushandfloss.com, 2026-09-23 ────────────────────────────────────
+// 37 of 38 sitemap-missing-indexable ERRORS were Webflow pagination pages
+// (?<id>_page=2), with the advice to add them to the sitemap. The pages of a
+// listing past the first are reached through the listing's own pagination
+// links and are normally left out of a sitemap, so their absence is not an
+// error. Their duplicated title/description/H1 are still reported by the
+// duplicate rules.
+
+test("D2: paginated listing pages are not reported as missing from the sitemap", () => {
+  const fixture = jsonFixture("sitemap-missing-indexable__D2.json");
+  const { findings } = findingsFor(fixture);
+  assert.deepEqual(
+    findings
+      .filter((f) => f.ruleId === "sitemap-missing-indexable")
+      .map((f) => f.url)
+      .sort(),
+    fixture.expectedMissing,
+  );
+});
+
+test("D2: a page carrying rel=prev is a later page of a series, whatever its URL", () => {
+  const { findings } = findingsFor({
+    startUrl: "https://practice.example/",
+    sitemap: ["https://practice.example/", "https://practice.example/news"],
+    results: [
+      { url: "https://practice.example/", title: "Home | Practice" },
+      { url: "https://practice.example/news", title: "News | Practice" },
+      {
+        url: "https://practice.example/news/older",
+        title: "News | Practice",
+        paginationPrev: "https://practice.example/news",
+      },
+    ],
+  });
+  assert.deepEqual(findings.filter((f) => f.ruleId === "sitemap-missing-indexable"), []);
 });

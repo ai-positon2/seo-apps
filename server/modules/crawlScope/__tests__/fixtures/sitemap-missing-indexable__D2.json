@@ -1,0 +1,26 @@
+{
+  "_what": "Extracted results for sitemap-missing-indexable. www.brushandfloss.com reported 38 indexable pages missing from the sitemap; 37 were Webflow CMS pagination (?<id>_page=2, 200, self-canonical, no robots meta — evidence/sitemap-missing-indexable__1-3.http) and 1 was a real profile page (evidence/sitemap-missing-indexable__4.http). ?p=123 is a WordPress post id, not pagination, and must still be reported.",
+  "startUrl": "https://practice.example/",
+  "sitemap": [
+    "https://practice.example/",
+    "https://practice.example/reviews",
+    "https://practice.example/locations",
+    "https://practice.example/our-dentists/dr-jane-roe"
+  ],
+  "results": [
+    { "url": "https://practice.example/", "title": "Family Dentistry | Practice" },
+    { "url": "https://practice.example/reviews", "title": "Patient Reviews | Practice" },
+    { "url": "https://practice.example/reviews?cc44ba0d_page=2", "title": "Patient Reviews | Practice" },
+    { "url": "https://practice.example/locations", "title": "Local Dentist Offices | Practice" },
+    { "url": "https://practice.example/locations?96bac57b_page=2", "title": "Local Dentist Offices | Practice" },
+    { "url": "https://practice.example/blog/page/2/", "title": "Blog | Practice" },
+    { "url": "https://practice.example/shop?page=3", "title": "Shop | Practice" },
+    { "url": "https://practice.example/our-dentists/dr-jane-roe", "title": "Dr. Jane Roe | Practice" },
+    { "url": "https://practice.example/our-dentists/dr-wade-elton", "title": "Dr. Wade Elton | Practice" },
+    { "url": "https://practice.example/?p=123", "title": "A post reached by its shortlink | Practice" }
+  ],
+  "expectedMissing": [
+    "https://practice.example/?p=123",
+    "https://practice.example/our-dentists/dr-wade-elton"
+  ]
+}

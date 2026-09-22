@@ -823,6 +823,27 @@ function describeHeading(level, text) {
     : `empty H${level}`;
 }
 
+// A later page of a paginated listing: ?page=3, ?paged=2, Webflow's
+// ?<collection-id>_page=2, a /page/2/ path segment, or any page that declares
+// rel=prev. Recognised from the URL as well as the link element because
+// Webflow emits no rel=prev/next at all. `p` is deliberately not a page
+// parameter: WordPress uses ?p=123 for a post id.
+const PAGINATION_QUERY_PARAM = /^(?:page|paged|pg|pagenum|pageno|page_number|[\w]+[_-]page)$/i;
+
+function isPaginatedListingPage(result) {
+  if (result.paginationPrev) return true;
+  let parsed;
+  try {
+    parsed = new URL(result.url);
+  } catch {
+    return false;
+  }
+  for (const [name, value] of parsed.searchParams) {
+    if (PAGINATION_QUERY_PARAM.test(name) && /^\d+$/.test(value)) return true;
+  }
+  return /\/page\/\d+\/?$/i.test(parsed.pathname);
+}
+
 function isPreferredIndexablePage(result) {
   return (
     result.status === 200 &&
@@ -1158,7 +1179,13 @@ function buildFindings({
       isHtml &&
       result.status === 200 &&
       result.indexability === "Indexable" &&
-      !redirectDestination(result)
+      !redirectDestination(result) &&
+      // Later pages of a listing are reached through the listing's own
+      // pagination links and are normally left out of a sitemap, so their
+      // absence is not something to fix. On brushandfloss.com they were 37 of
+      // the 38 errors this rule raised. Their duplicated titles and
+      // descriptions are still reported by the duplicate rules.
+      !isPaginatedListingPage(result)
     ) {
       add("sitemap-missing-indexable", result, {
         detail:
