@@ -623,6 +623,9 @@ class RunManager {
         edgesTruncated: Boolean(summary.edgesTruncated),
         trapTemplates: summary.trapTemplates || [],
         lostResultRows: lostRows,
+        // Checks this crawl could not run, so a report rebuilt later from the
+        // stored run still keeps them out of "N of M checks clean".
+        notEvaluated: summary.notEvaluated || [],
       };
       await repo.updateRun(db, run.id, {
         status: summary.stopped ? "stopped" : "completed",

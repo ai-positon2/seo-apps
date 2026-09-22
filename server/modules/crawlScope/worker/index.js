@@ -252,6 +252,7 @@ async function emailReport(db, { run, summary, counts }) {
   try {
     const workbook = await report.buildReportBuffer({
       findings,
+      notEvaluated: summary.notEvaluated || [],
       siteUrl: run.url,
       crawlDate: finishedAt,
     });

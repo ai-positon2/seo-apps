@@ -1005,6 +1005,54 @@ function buildIntegrations(results) {
   };
 }
 
+// ── Checks this crawl could not run ──────────────────────────────────────
+// A rule with no findings is only "clean" if it looked at something. These
+// are the ones that could not: the inlink-graph rules are switched off on a
+// truncated crawl (buildFindings' crawlTruncated gate), and the asset rules
+// only read internal assets, of which a site serving everything from a CDN
+// has none. Reports keep them out of "N of M checks clean" rather than
+// telling a client an unrun check passed. The conditions mirror each rule's
+// own eligibility test below; change one and change the other.
+const isScriptAsset = (result) =>
+  (result.contentType || "").includes("javascript") || /\.m?js(?:$|\?)/i.test(result.url);
+const isStyleAsset = (result) =>
+  (result.contentType || "").includes("css") || /\.css(?:$|\?)/i.test(result.url);
+
+function notEvaluatedRules({ results = [], crawlTruncated = false } = {}) {
+  const notEvaluated = [];
+  if (crawlTruncated) {
+    const reason =
+      "Switched off on a truncated crawl: inlink counts from part of a site do not describe the site.";
+    notEvaluated.push({ ruleId: "orphan-page", reason }, { ruleId: "single-inlink", reason });
+  }
+  // HTML documents discovered through a resource element are not assets.
+  const assets = results.filter(
+    (result) =>
+      result.scope !== "External" &&
+      result.isAsset &&
+      !(result.contentType || "").includes("html"),
+  );
+  const fetched = assets.filter((result) => result.status === 200);
+  if (!assets.length) {
+    notEvaluated.push({
+      ruleId: "blocked-resource",
+      reason: "No internal resource files (CSS, JavaScript, images, documents) were found to check.",
+    });
+  }
+  if (!assets.some(isScriptAsset)) {
+    notEvaluated.push({ ruleId: "broken-javascript", reason: "No internal JavaScript files were fetched." });
+  }
+  if (!fetched.some((result) => isScriptAsset(result) || isStyleAsset(result))) {
+    for (const ruleId of ["asset-uncached", "asset-unminified", "asset-uncompressed"]) {
+      notEvaluated.push({ ruleId, reason: "No internal CSS or JavaScript files were fetched." });
+    }
+  }
+  if (!fetched.some((result) => (result.contentType || "").startsWith("image/"))) {
+    notEvaluated.push({ ruleId: "image-oversized", reason: "No internal images were fetched." });
+  }
+  return notEvaluated;
+}
+
 function buildFindings({
   results,
   linkEdges = [],
@@ -2045,6 +2093,7 @@ function buildFindings({
     findings,
     results: enrichedResults,
     catalog,
+    notEvaluated: notEvaluatedRules({ results, crawlTruncated }),
     mediaLibrary: buildMediaLibrary(results, resourceEdges),
     // Internal HTML pages only — the same universe every other page-level
     // metric in this build uses (see healthMetrics's own htmlResults filter
@@ -2060,6 +2109,7 @@ function buildFindings({
 
 module.exports = {
   buildFindings,
+  notEvaluatedRules,
   catalog,
   evidenceSignature,
   groupFixType,

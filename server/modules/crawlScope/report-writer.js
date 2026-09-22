@@ -709,6 +709,9 @@ function addConsolidatedActionsSheet(workbook, { findings, sheetPlan, findingSco
 async function buildAuditWorkbook({
   findings = [],
   catalog = [],
+  // [{ ruleId, reason }] from analyzer.notEvaluatedRules: checks this crawl
+  // could not run. Empty for runs stored before it existed.
+  notEvaluated = [],
   siteUrl = "",
   crawlDate = new Date().toISOString(),
 }) {
@@ -1133,19 +1136,26 @@ async function buildAuditWorkbook({
   // resolved is not a live, outstanding issue, so it doesn't disqualify the
   // check. "Connected data required" checks (e.g. Search Console-backed
   // ones CrawlScope can't run alone) are excluded from both sides of the
-  // ratio — they were never actually checked, clean or not.
+  // ratio — they were never actually checked, clean or not. So are the
+  // automatic checks this particular crawl could not run (`notEvaluated`: an
+  // inlink rule on a truncated crawl, an asset rule with no internal assets);
+  // those are listed at the end with the reason instead.
   const cleanRuleIds = new Set(catalog.map((c) => c.id));
   for (const finding of findings) {
     if (!DISMISSED_STATUSES.has(finding.reviewStatus)) cleanRuleIds.delete(finding.ruleId);
   }
-  const automaticChecks = catalog.filter((c) => c.detection === "Automatic");
+  const notEvaluatedReason = new Map(notEvaluated.map((entry) => [entry.ruleId, entry.reason]));
+  const automaticCatalog = catalog.filter((c) => c.detection === "Automatic");
+  const automaticChecks = automaticCatalog.filter((c) => !notEvaluatedReason.has(c.id));
+  const skippedChecks = automaticCatalog.filter((c) => notEvaluatedReason.has(c.id));
   const cleanChecks = automaticChecks.filter((c) => cleanRuleIds.has(c.id));
 
   const passedSheet = workbook.addWorksheet("Checks Passed");
   passedSheet.views = [{ state: "frozen", ySplit: 2, showGridLines: false }];
   passedSheet.columns = [{ width: 34 }, { width: 22 }, { width: 68 }];
   const passedTitleRow = passedSheet.addRow([
-    `${cleanChecks.length} of ${automaticChecks.length} automatic checks clean`,
+    `${cleanChecks.length} of ${automaticChecks.length} automatic checks clean` +
+      (skippedChecks.length ? ` (${skippedChecks.length} not evaluated this run)` : ""),
   ]);
   passedSheet.mergeCells(passedTitleRow.number, 1, passedTitleRow.number, 3);
   passedTitleRow.height = 24;
@@ -1175,6 +1185,22 @@ async function buildAuditWorkbook({
   });
   if (cleanChecks.length) {
     passedSheet.autoFilter = `A2:C${passedSheet.lastRow.number}`;
+  }
+  if (skippedChecks.length) {
+    passedSheet.addRow([]);
+    const skippedTitleRow = passedSheet.addRow(["Not evaluated this run"]);
+    passedSheet.mergeCells(skippedTitleRow.number, 1, skippedTitleRow.number, 3);
+    skippedTitleRow.getCell(1).font = { name: "Poppins", size: 11, bold: true, color: { argb: COLORS.navy } };
+    skippedChecks.forEach((definition) => {
+      const reason = `Not evaluated: ${notEvaluatedReason.get(definition.id)}`;
+      const row = passedSheet.addRow([definition.title, definition.category, reason]);
+      row.height = rowHeightFromLines(estimateWrappedLines(reason, 68), { lineHeight: 13, minHeight: 28 });
+      row.eachCell((cell) => {
+        cell.font = { name: "Poppins", size: 9, italic: true, color: { argb: COLORS.black } };
+        cell.alignment = { vertical: "top", horizontal: "left", wrapText: true };
+        applyGridBorder(cell);
+      });
+    });
   }
 
   return workbook.xlsx.writeBuffer();

@@ -158,6 +158,7 @@ async function sendReportEmail({
     workbook ||
     (await buildReportBuffer({
       findings,
+      notEvaluated: run.summary?.notEvaluated || [],
       siteUrl: run.url,
       crawlDate: run.finished_at,
     }));

@@ -531,6 +531,7 @@ router.get(
     const findings = await loadRunFindings(req.db, run);
     const buffer = await report.buildReportBuffer({
       findings: mergeReviews(findings, reviews),
+      notEvaluated: run.summary?.notEvaluated || [],
       siteUrl: run.url,
       crawlDate: run.finished_at || run.created_at,
     });

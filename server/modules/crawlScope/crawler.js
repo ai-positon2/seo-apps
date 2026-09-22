@@ -2248,6 +2248,8 @@ class SeoCrawler extends EventEmitter {
         trapTemplates: [...this.trapTemplates],
         results: analysis.results,
         findings: analysis.findings,
+        // Checks this crawl could not run, for the report's "checks clean" count.
+        notEvaluated: analysis.notEvaluated,
         mediaLibrary: analysis.mediaLibrary,
         integrations: analysis.integrations,
         rootCauseGroups: analysis.rootCauseGroups,

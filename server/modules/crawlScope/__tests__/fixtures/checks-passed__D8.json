@@ -1,0 +1,21 @@
+{
+  "_what": "www.brushandfloss.com: a truncated crawl (500-URL cap) of a Webflow site whose CSS, JS and images are all served from cdn.prod.website-files.com, so zero internal assets were fetched. The export's 'Checks Passed' sheet counted orphan-page and single-inlink (switched off on a truncated crawl) and six asset checks (nothing to check) as clean. One of them, image-oversized, was actually failing on CDN images of 324 KB and 253 KB.",
+  "startUrl": "https://practice.example/",
+  "crawlTruncated": true,
+  "results": [
+    { "url": "https://practice.example/", "title": "Family Dentistry | Practice" },
+    { "url": "https://practice.example/careers", "title": "Careers | Practice" },
+    { "url": "https://practice.example/experience", "title": "New Patient Experience | Practice", "isAsset": true },
+    { "url": "https://cdn.example-files.com/site/hero.jpg", "scope": "External", "contentType": "image/jpeg", "isAsset": true, "size": 331625 }
+  ],
+  "expectedNotEvaluated": [
+    "asset-uncached",
+    "asset-uncompressed",
+    "asset-unminified",
+    "blocked-resource",
+    "broken-javascript",
+    "image-oversized",
+    "orphan-page",
+    "single-inlink"
+  ]
+}

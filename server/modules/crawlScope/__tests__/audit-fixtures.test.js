@@ -336,3 +336,96 @@ test("D4: a sitemap URL blocked by robots.txt is described as blocked, not unrea
   assert.ok(failed, "a sitemap URL that could not be fetched is still reported");
   assert.equal(failed.detail, "HTTP unreachable");
 });
+
+// ── D8 · www.brushandfloss.com, 2026-09-23 ────────────────────────────────────
+// The export's "Checks Passed" sheet counts every Automatic rule without a
+// finding as clean. Eight had not run: orphan-page and single-inlink are
+// switched off on a truncated crawl, and six asset checks had no internal
+// asset to look at (Webflow serves every asset from its CDN). The client was
+// told image-oversized passed while two CDN images were over the limit.
+
+test("D8: the analyzer names the checks it could not evaluate, with the reason", () => {
+  const fixture = jsonFixture("checks-passed__D8.json");
+  const { notEvaluated } = findingsFor(fixture, { crawlTruncated: fixture.crawlTruncated });
+  assert.deepEqual(notEvaluated.map((entry) => entry.ruleId).sort(), fixture.expectedNotEvaluated);
+  assert.ok(notEvaluated.every((entry) => entry.reason), "every entry says why");
+
+  const complete = findingsFor(
+    {
+      startUrl: "https://practice.example/",
+      results: [
+        { url: "https://practice.example/" },
+        { url: "https://practice.example/app.js", contentType: "application/javascript", isAsset: true },
+        { url: "https://practice.example/site.css", contentType: "text/css", isAsset: true },
+        { url: "https://practice.example/hero.jpg", contentType: "image/jpeg", isAsset: true },
+      ],
+    },
+    { crawlTruncated: false },
+  );
+  assert.deepEqual(complete.notEvaluated, [], "a complete crawl with internal assets evaluates everything");
+});
+
+test("D8: 'Checks Passed' leaves checks that did not run out of the ratio and says so", async () => {
+  const ExcelJS = require("exceljs");
+  const { buildAuditWorkbook } = require("../report-writer");
+  const catalog = require("../issue-catalog.json");
+  const notEvaluated = [
+    { ruleId: "orphan-page", reason: "Switched off on a truncated crawl" },
+    { ruleId: "image-oversized", reason: "No internal images were fetched" },
+  ];
+
+  const buffer = await buildAuditWorkbook({
+    findings: [],
+    catalog,
+    notEvaluated,
+    siteUrl: "https://practice.example/",
+    crawlDate: "2026-09-23T00:00:00.000Z",
+  });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.getWorksheet("Checks Passed");
+
+  const automatic = catalog.filter((c) => c.detection === "Automatic").length;
+  assert.equal(
+    sheet.getCell("A1").value,
+    `${automatic - 2} of ${automatic - 2} automatic checks clean (2 not evaluated this run)`,
+  );
+  const rows = [];
+  sheet.eachRow((row) => rows.push(row.values.slice(1).map((v) => String(v ?? ""))));
+  const orphanTitle = catalog.find((c) => c.id === "orphan-page").title;
+  const orphanRows = rows.filter((cells) => cells[0] === orphanTitle);
+  assert.equal(orphanRows.length, 1, "listed once, as not evaluated, never among the clean checks");
+  assert.match(orphanRows[0].join(" | "), /Not evaluated/);
+  assert.match(orphanRows[0].join(" | "), /truncated crawl/);
+});
+
+test("D8: the list travels from the crawl to the stored report", async (t) => {
+  const site = await serve((origin) => ({
+    "/robots.txt": httpFixture("sitemap-robots-config__D1.http", { ORIGIN: origin }),
+    "/sitemap.xml": sitemapOf(Array.from({ length: 12 }, (_, i) => `${origin}/page-${i}`)),
+    "/": page({ title: "Home" }),
+  }));
+  t.after(site.close);
+  const payload = await crawl(site.origin, { maxUrls: 5 });
+  assert.equal(payload.truncated, true);
+  assert.ok(
+    payload.notEvaluated.some((entry) => entry.ruleId === "orphan-page"),
+    "the crawl payload carries the analyzer's list",
+  );
+
+  const ExcelJS = require("exceljs");
+  const report = require("../run/report");
+  const buffer = await report.buildReportBuffer({
+    findings: payload.findings,
+    notEvaluated: payload.notEvaluated,
+    siteUrl: site.origin,
+    crawlDate: "2026-09-23T00:00:00.000Z",
+  });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const title = String(workbook.getWorksheet("Checks Passed").getCell("A1").value);
+  assert.ok(
+    title.endsWith(`(${payload.notEvaluated.length} not evaluated this run)`),
+    `title: ${title}`,
+  );
+});
