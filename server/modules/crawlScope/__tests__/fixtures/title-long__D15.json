@@ -1,0 +1,11 @@
+{
+  "_what": "www.brushandfloss.com: the homepage title is brand-first ('Riccobene Associates Family Dentistry | Dentists in North Carolina', 66 chars) while every other title is 'Topic | Riccobene Associates Family Dentistry'. suggestTitle kept the first segment, so the homepage was told to use the bare brand, dropping the topic its own recommendation says to keep.",
+  "startUrl": "https://practice.example/",
+  "results": [
+    { "url": "https://practice.example/", "title": "Riccobene Associates Family Dentistry | Dentists in North Carolina" },
+    { "url": "https://practice.example/locations", "title": "Local Offices | Riccobene Associates Family Dentistry" },
+    { "url": "https://practice.example/careers", "title": "Careers | Riccobene Associates Family Dentistry" },
+    { "url": "https://practice.example/reviews", "title": "Patient Reviews | Riccobene Associates Family Dentistry" },
+    { "url": "https://practice.example/membership", "title": "Dental Membership Plans in North Carolina | Riccobene Associates Family Dentistry" }
+  ]
+}

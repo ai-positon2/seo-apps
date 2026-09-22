@@ -43,9 +43,11 @@ const HREFLANG_CODE = /^(x-default|[a-z]{2,3}(-[a-z]{2})?)$/;
 // Trimming to the primary segment first keeps the brand off the chopping
 // block, so a long title shrinks by dropping boilerplate before it starts
 // cutting the part that actually identifies the page.
+const TITLE_SEGMENT_SEPARATOR = /\s*[|–—-]\s*/;
+
 function primaryTitleSegment(title) {
   return String(title || "")
-    .split(/\s*[|–—-]\s*/)[0]
+    .split(TITLE_SEGMENT_SEPARATOR)[0]
     .trim();
 }
 
@@ -73,13 +75,46 @@ function humanizeUrlSlug(url) {
 // separator, word-truncating the current title with an ellipsis isn't a
 // rewrite at all, just the same title cut short — so this returns a plain
 // note instead of dressing up a truncation as a recommendation.
-function suggestTitle(title) {
+//
+// "The segment before the separator" assumes topic-first titles. A brand-first
+// title ("Brand | Dentists in North Carolina", typical of a homepage) would be
+// cut to the bare brand, so segments that recur across the site's titles
+// (`brandSegments`, from brandTitleSegments) are skipped when choosing one.
+function suggestTitle(title, brandSegments = new Set()) {
   const trimmed = String(title || "").trim();
   if (!trimmed) return "";
   if (trimmed.length <= 60) return trimmed;
-  const primary = primaryTitleSegment(trimmed);
+  const segments = trimmed
+    .split(TITLE_SEGMENT_SEPARATOR)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  const primary =
+    segments.find((segment) => !brandSegments.has(segment.toLowerCase())) ||
+    primaryTitleSegment(trimmed);
   if (primary.length >= 30 && primary.length <= 60) return primary;
   return `Needs a manual rewrite — current title is ${trimmed.length} characters (target 50-60). Keep the primary topic and brand; don't just shorten this one.`;
+}
+
+// Title segments shared by a large share of the site's titles: the brand
+// suffix (or prefix), not any one page's topic. At least 3 titles, so a pair
+// of pages that happen to share a segment does not become "the brand".
+function brandTitleSegments(htmlResults) {
+  const counts = new Map();
+  let titled = 0;
+  for (const result of htmlResults) {
+    const segments = new Set(
+      String(result.title || "")
+        .split(TITLE_SEGMENT_SEPARATOR)
+        .map((segment) => segment.trim().toLowerCase())
+        .filter(Boolean),
+    );
+    if (!segments.size) continue;
+    titled += 1;
+    if (segments.size < 2) continue;
+    for (const segment of segments) counts.set(segment, (counts.get(segment) || 0) + 1);
+  }
+  const threshold = Math.max(3, Math.ceil(titled * 0.3));
+  return new Set([...counts].filter(([, count]) => count >= threshold).map(([segment]) => segment));
 }
 
 // Only fall back to the title when it actually has a "Page Name | Brand"-style
@@ -1081,6 +1116,9 @@ function buildFindings({
   const htmlResults = internalResults.filter((result) =>
     result.contentType?.includes("text/html"),
   );
+  const brandSegments = brandTitleSegments(
+    htmlResults.filter((result) => result.status >= 200 && result.status < 300),
+  );
   const redirectTraces = new Map(
     internalResults
       .map((result) => [result.url, redirectTrace(result, resultByUrl)])
@@ -1406,7 +1444,7 @@ function buildFindings({
         add("title-long", result, {
           detail: `${result.titleLength} characters`,
           detectedValue: result.title,
-          recommendedValue: suggestTitle(result.title),
+          recommendedValue: suggestTitle(result.title, brandSegments),
         });
       }
       if (!result.metaDescription) {

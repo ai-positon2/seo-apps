@@ -568,3 +568,22 @@ test("D13: schema-error calls a property required only where Google requires it"
     "Organization is missing the recommended name property",
   ]);
 });
+
+// ── D15 · www.brushandfloss.com, 2026-09-23 ───────────────────────────────────
+// title-long suggested the homepage use just "Riccobene Associates Family
+// Dentistry": suggestTitle keeps the first "|" segment, which on a brand-first
+// title is the brand, not the page's topic.
+
+test("D15: a long brand-first title is not shortened to the bare brand", () => {
+  const { findings } = findingsFor(jsonFixture("title-long__D15.json"));
+  const suggestion = (path) =>
+    findings.find((f) => f.ruleId === "title-long" && new URL(f.url).pathname === path)?.recommendedValue;
+
+  assert.notEqual(suggestion("/"), "Riccobene Associates Family Dentistry");
+  assert.match(suggestion("/"), /^Needs a manual rewrite/, "the topic segment alone is too short to stand as a title");
+  assert.equal(
+    suggestion("/membership"),
+    "Dental Membership Plans in North Carolina",
+    "topic-first titles are trimmed to their topic as before",
+  );
+});
