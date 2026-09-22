@@ -687,3 +687,38 @@ test("M3: a page that canonicalises to another URL is not reported as missing fr
     fixture.expectedMissing,
   );
 });
+
+// ── M4 · five-domain run (www.aspendental.com), 2026-09-23 ────────────────────
+// Aspen Dental serves 3-5 MB pages slowly. On 8 of them the crawler got
+// "200 OK" and then timed out reading the body (bodyError "The operation was
+// aborted due to timeout", size 0). The analyzer still ran every content rule
+// on the empty body: 8 title-missing and 8 viewport-missing ERRORS for pages
+// that have both. A page whose content was never read cannot be judged on it.
+
+test("M4: a 200 page whose body could not be read is one crawl-failure, not a page with no title", async (t) => {
+  const http = require("node:http");
+  const stalled = httpFixture("title-missing__M4.http");
+  const server = http.createServer((request, response) => {
+    if (request.url === "/slow-page") {
+      response.writeHead(stalled.status, stalled.headers);
+      response.write("<!DOCTYPE html>"); // then nothing: the transfer never completes
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end('<!doctype html><html><head><title>Fixture home</title><meta name="viewport" content="width=device-width"></head><body><a href="/slow-page">Slow page</a></body></html>');
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => {
+    server.closeAllConnections?.();
+    server.close();
+  });
+  const origin = `http://127.0.0.1:${server.address().port}`;
+
+  const payload = await crawl(origin, { maxUrls: 5, timeout: 3000, respectRobots: false, discoverSitemaps: false });
+  const slow = payload.results.find((r) => r.url.endsWith("/slow-page"));
+  assert.equal(slow.status, 200, "the headers' status is kept, as before");
+  assert.ok(slow.bodyError, "the body read failed");
+  const onSlow = payload.findings.filter((f) => f.url.endsWith("/slow-page") && f.severity === "error");
+  assert.deepEqual(onSlow.map((f) => f.ruleId), ["crawl-failure"]);
+  assert.match(onSlow[0].detail, /could not be read/);
+});

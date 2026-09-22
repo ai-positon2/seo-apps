@@ -1199,6 +1199,10 @@ function buildFindings({
 
   for (const result of internalResults) {
     const isHtml = result.contentType?.includes("text/html");
+    // The headers arrived but none of the body did (a read timeout or reset):
+    // the page's content is unknown, so no rule may judge it. A partially read
+    // body is still evaluated, and its findings carry sourceTruncated.
+    const bodyUnread = Boolean(result.bodyError) && !(result.decodedSize > 0);
     const inSitemaps = sitemapMembership[result.url] || [];
     const robots = (result.robots || "").toLowerCase();
     const hasNoindex = robots.includes("noindex") || robots.includes("none");
@@ -1220,6 +1224,11 @@ function buildFindings({
       });
     } else if (result.status >= 400 && result.status < 500) {
       add("page-4xx", result);
+    }
+    if (bodyUnread && result.status >= 200 && result.status < 300) {
+      add("crawl-failure", result, {
+        detail: `The server answered HTTP ${result.status}, but the page body could not be read (${result.bodyError}), so its content was not checked`,
+      });
     }
     if (!result.status && result.statusText !== "Blocked by robots.txt") {
       add("crawl-failure", result, { detail: result.statusText });
@@ -1303,6 +1312,7 @@ function buildFindings({
     } else if (
       sitemapsChecked &&
       isHtml &&
+      !bodyUnread &&
       result.status === 200 &&
       result.indexability === "Indexable" &&
       !redirectDestination(result) &&
@@ -1408,7 +1418,7 @@ function buildFindings({
     // position2.com's sitemap has ~55 double-slash URLs that 308-redirect,
     // and every one of them was being flagged for "missing meta description"
     // and "low word count" despite having no actual page to evaluate).
-    if (isHtml && result.status >= 200 && result.status < 300) {
+    if (isHtml && result.status >= 200 && result.status < 300 && !bodyUnread) {
       const refresh = declarativeRefresh(result);
       if (refresh) {
         const raw = String(refresh.raw).replaceAll('"', "'");
