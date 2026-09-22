@@ -514,3 +514,32 @@ test("D10: a redirecting sitemap entry whose destination is broken still gets si
   assert.ok(incorrect, "the broken destination is what makes this entry incorrect");
   assert.match(incorrect.recommendation, /broken destination/);
 });
+
+// ── D12 · www.brushandfloss.com, 2026-09-23 ───────────────────────────────────
+// <h1>Patient<br/>Reviews</h1> was reported as the heading "PatientReviews"
+// (and "Find a RiccobeneLocation Near You"): text either side of a line break
+// or a block child was joined with no space, in text that reaches the client.
+
+test("D12: heading text keeps the word boundary at a line break or block child", async (t) => {
+  const site = await serve(() => ({
+    "/": page({ title: "Fixture home", body: '<a href="/reviews">Reviews</a>' }),
+    "/reviews": httpFixture("h1-duplicate__D12.http"),
+  }));
+  t.after(site.close);
+
+  const payload = await crawl(site.origin, { maxUrls: 5, respectRobots: false, discoverSitemaps: false });
+  const reviews = payload.results.find((r) => r.url.endsWith("/reviews"));
+  assert.equal(reviews.h1, "Patient Reviews");
+  assert.deepEqual(
+    reviews.headingHierarchyIssues,
+    [],
+    "fixture headings are in order; this only checks extraction does not break",
+  );
+  const texts = payload.results
+    .filter((r) => r.url.endsWith("/reviews"))
+    .flatMap((r) => [r.h1, r.h2]);
+  assert.ok(
+    texts.includes("What patients say about BrushandFloss | Find a Riccobene Location Near You"),
+    `inline children stay joined, block children are separated: ${JSON.stringify(texts)}`,
+  );
+});

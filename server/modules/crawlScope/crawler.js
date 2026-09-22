@@ -129,6 +129,20 @@ function cleanText(value = "") {
   return String(value).replace(/\s+/g, " ").trim();
 }
 
+// Elements whose edges are word boundaries in rendered text. Cheerio's
+// `.text()` concatenates text nodes with no separator, so `</h1><p>` becomes
+// `HeadingParagraph` and `Patient<br>Reviews` becomes `PatientReviews`.
+const TEXT_BOUNDARY_SELECTOR =
+  "address, article, aside, blockquote, br, dd, div, dl, dt, fieldset, figcaption, figure, footer, form, h1, h2, h3, h4, h5, h6, header, hr, li, main, nav, ol, p, pre, section, table, td, th, tr, ul";
+
+// An element's text as it reads on the page: a space at every line break and
+// block boundary inside it, none around inline elements like <strong>.
+function renderedText($, element) {
+  const clone = $(element).clone();
+  clone.find(TEXT_BOUNDARY_SELECTOR).after(" ");
+  return cleanText(clone.text());
+}
+
 // Headings are joined into one field for the report. Unbounded, a page with
 // hundreds of them stored an arbitrarily large string that was then retained for
 // the whole crawl in this.results AND written into crawl_run_results.data.
@@ -3150,28 +3164,23 @@ class SeoCrawler extends EventEmitter {
     const headingTexts = (tag) =>
       headingElements
         .filter((element) => element.tagName.toLowerCase() === tag)
-        .map((element) => cleanText($(element).text()))
+        .map((element) => renderedText($, element))
         .filter(Boolean);
     const h1Values = headingTexts("h1");
     const h2Values = headingTexts("h2");
     const bodyClone = $("body").clone();
     bodyClone.find("base, link, meta, script, style, noscript, svg, title").remove();
-    // Cheerio's `.text()` concatenates adjacent elements without a separator
-    // (`</h1><p>` becomes `HeadingParagraph`). Add boundaries after block-like
-    // elements before whitespace normalization so samples stay readable and
-    // word counts do not merge the last/first words of neighboring elements.
-    bodyClone
-      .find(
-        "address, article, aside, blockquote, br, dd, div, dl, dt, fieldset, figcaption, figure, footer, form, h1, h2, h3, h4, h5, h6, header, hr, li, main, nav, ol, p, pre, section, table, td, th, tr, ul",
-      )
-      .after(" ");
+    // Add boundaries after block-like elements before whitespace normalization
+    // so samples stay readable and word counts do not merge the last/first
+    // words of neighboring elements (see TEXT_BOUNDARY_SELECTOR).
+    bodyClone.find(TEXT_BOUNDARY_SELECTOR).after(" ");
     const visibleText = cleanText(bodyClone.text());
     const words = visibleText ? visibleText.split(/\s+/).length : 0;
     const links = new Set();
     let externalLinks = 0;
     const headings = headingElements.map((element) => ({
       level: Number(element.tagName.slice(1)),
-      text: cleanText($(element).text()),
+      text: renderedText($, element),
     }));
     const headingHierarchyIssues = headings
       .slice(1)
