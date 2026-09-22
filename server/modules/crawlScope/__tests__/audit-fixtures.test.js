@@ -163,3 +163,65 @@ test("D3: responseTime measures the server, not the crawler's per-host queue", a
   );
   assert.deepEqual(payload.findings.filter((f) => f.ruleId === "slow-page").map((f) => f.url), []);
 });
+
+// ── D5 · www.brushandfloss.com, 2026-09-23 ────────────────────────────────────
+// 88 https-to-http-link findings said Google's review links "returned 200
+// without a direct HTTPS redirect". They answer HEAD with 200 and GET with a
+// 302 to https — and the crawler only ever asked with HEAD. Whether an http:
+// link upgrades is a question about the navigation a browser makes, which is
+// a GET.
+
+const asResponse = ({ status, headers, body }, method) =>
+  new Response(method === "HEAD" || !body ? null : body, { status, headers });
+
+test("D5: an http: link target is judged by the GET a navigation makes, not a HEAD probe", async () => {
+  const REVIEW = "http://search.google.com/local/writereview?placeid=ChIJe1-xszlrAIkRxqQOpFn11fA";
+  const PLAIN = "http://plain-http.test/partner";
+  const requests = [];
+  const payload = await new SeoCrawler({
+    maxUrls: 5,
+    maxExternalUrls: 10,
+    concurrency: 2,
+    perHostDelay: 0,
+    respectRobots: false,
+    discoverSitemaps: false,
+    crawlAssets: false,
+    checkExternalLinks: true,
+    fetch: async (url, init = {}) => {
+      const method = init.method || "GET";
+      requests.push(`${method} ${url}`);
+      if (url === "https://practice.test/") {
+        return new Response(
+          `<!doctype html><html><head><title>Patient reviews</title></head><body><h1>Reviews</h1><a href="${REVIEW}">Leave a review</a> <a href="${PLAIN}">Our partner</a></body></html>`,
+          { status: 200, headers: { "content-type": "text/html" } },
+        );
+      }
+      if (url === REVIEW) {
+        return asResponse(
+          httpFixture(method === "HEAD" ? "https-to-http-link__D5.head.http" : "https-to-http-link__D5.get.http"),
+          method,
+        );
+      }
+      if (url === PLAIN) {
+        return new Response(method === "HEAD" ? null : "<html><body>Plain HTTP only</body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
+      }
+      if (url === "http://practice.test/") {
+        return new Response(null, { status: 301, headers: { location: "https://practice.test/" } });
+      }
+      return new Response(null, { status: 404 });
+    },
+  }).start("https://practice.test/");
+
+  const review = payload.results.find((r) => r.url === REVIEW);
+  assert.equal(review.status, 302, `recorded as what a navigation gets; requests: ${requests.join(", ")}`);
+  assert.deepEqual(
+    payload.findings
+      .filter((f) => f.ruleId === "https-to-http-link")
+      .map((f) => [f.targetUrl, f.detectedValue]),
+    [[PLAIN, "HTTP 200 without HTTPS upgrade"]],
+    "only the destination that really stays on HTTP is reported",
+  );
+});

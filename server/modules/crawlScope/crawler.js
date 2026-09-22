@@ -2601,6 +2601,15 @@ class SeoCrawler extends EventEmitter {
     // HEAD costs the origin nothing and keeps the connection reusable. Two
     // fallbacks cover servers that mishandle it: 405/501 below, and the timeout
     // retry in the catch.
+    //
+    // Except for an http: target of an https site. There the redirect IS the
+    // evidence — https-to-http-link asks whether the link upgrades to HTTPS —
+    // and it has to be the answer a browser navigation gets, which is a GET.
+    // Hosts are free to answer HEAD differently: Google's review links answer
+    // HEAD with 200 and GET with a 302 to https, which reported 88 links as
+    // HTTP-only. On an http site that question is never asked, so HEAD stays.
+    const redirectIsEvidence = this.scheme === "https:" && job.url.startsWith("http:");
+    const probeMethod = job.external && !redirectIsEvidence ? "HEAD" : "GET";
     const fetchInit = (method) => ({
       method,
       redirect: "manual",
@@ -2616,11 +2625,7 @@ class SeoCrawler extends EventEmitter {
     try {
       let response;
       try {
-        response = await this._politeFetch(
-          job.url,
-          fetchInit(job.external ? "HEAD" : "GET"),
-          fetchTiming,
-        );
+        response = await this._politeFetch(job.url, fetchInit(probeMethod), fetchTiming);
       } catch (error) {
         // A server that HANGS on HEAD is the same class of broken as one that
         // answers 405 — the difference is only which failure mode it picked,
@@ -2629,9 +2634,9 @@ class SeoCrawler extends EventEmitter {
         // responds to HEAD; without this retry, 966 findings on a single crawl
         // declared two live links broken.
         //
-        // External only, once, and never for a deliberate stop() abort.
+        // HEAD probes only, once, and never for a deliberate stop() abort.
         const timedOut = error.name === "TimeoutError" || error.name === "AbortError";
-        if (!job.external || !timedOut || this.stopped) throw error;
+        if (probeMethod !== "HEAD" || !timedOut || this.stopped) throw error;
         this.emit("log", {
           level: "warning",
           message: `${this._hostOf(job.url)} did not answer HEAD; retrying ${job.url} with GET`,
@@ -2642,7 +2647,7 @@ class SeoCrawler extends EventEmitter {
       // Servers that REFUSE HEAD outright. The ones that never reply at all are
       // handled by the retry in the catch above.
       const usable =
-        job.external && (response.status === 405 || response.status === 501)
+        probeMethod === "HEAD" && (response.status === 405 || response.status === 501)
           ? await this._politeFetch(job.url, fetchInit("GET"), fetchTiming)
           : response;
       if (usable !== response && response.body) {

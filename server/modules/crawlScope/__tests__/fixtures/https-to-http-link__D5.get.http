@@ -1,0 +1,11 @@
+HTTP/1.1 302 Found
+Location: https://accounts.google.com/ServiceLogin?continue=http://search.google.com/local/writereview?placeid%3DChIJe1-xszlrAIkRxqQOpFn11fA
+Cache-Control: private
+Content-Type: text/html; charset=UTF-8
+
+<HTML><HEAD><meta http-equiv="content-type" content="text/html;charset=utf-8">
+<TITLE>302 Moved</TITLE></HEAD><BODY>
+<H1>302 Moved</H1>
+The document has moved
+<A HREF="https://accounts.google.com/ServiceLogin?continue=http://search.google.com/local/writereview?placeid%3DChIJe1-xszlrAIkRxqQOpFn11fA">here</A>.
+</BODY></HTML>
