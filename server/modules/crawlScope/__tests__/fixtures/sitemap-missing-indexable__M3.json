@@ -1,0 +1,17 @@
+{
+  "_what": "sitemap-missing-indexable flagged pages whose canonical points at another URL. A sitemap should list canonical URLs only, so a page that canonicalises elsewhere belongs out of it. Real shapes from the five-domain run: nc.gov filter pages (?type=... -> /disaster/resources) and a page canonicalising to the homepage; vercel.com /home -> /; aspendental.com tracking-parameter URLs (?fc=0160&src=ops -> the clean URL). /botid (self-canonical) and /drop (no canonical) are genuinely missing and must still be reported.",
+  "startUrl": "https://site.example/",
+  "sitemap": ["https://site.example/", "https://site.example/disaster/resources", "https://site.example/schedule-an-appointment/"],
+  "results": [
+    { "url": "https://site.example/", "title": "Home | Site" },
+    { "url": "https://site.example/disaster/resources", "title": "Disaster resources | Site" },
+    { "url": "https://site.example/disaster/resources?type=disaster-resource-type%2Ffood-nutrition", "title": "Disaster resources | Site", "canonical": "https://site.example/disaster/resources" },
+    { "url": "https://site.example/disaster/case-lookup", "title": "Case lookup | Site", "canonical": "https://site.example/" },
+    { "url": "https://site.example/home", "title": "Home | Site", "canonical": "https://site.example/" },
+    { "url": "https://site.example/schedule-an-appointment/", "title": "Schedule an appointment | Site" },
+    { "url": "https://site.example/schedule-an-appointment/?fc=0160&src=ops", "title": "Schedule an appointment | Site", "canonical": "https://site.example/schedule-an-appointment/" },
+    { "url": "https://site.example/botid", "title": "BotID | Site" },
+    { "url": "https://site.example/drop", "title": "Drop | Site", "canonical": "" }
+  ],
+  "expectedMissing": ["https://site.example/botid", "https://site.example/drop"]
+}

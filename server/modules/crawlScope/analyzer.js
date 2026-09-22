@@ -1306,6 +1306,10 @@ function buildFindings({
       result.status === 200 &&
       result.indexability === "Indexable" &&
       !redirectDestination(result) &&
+      // A sitemap lists canonical URLs only. A page whose canonical names
+      // another URL (a filter or tracking-parameter variant, /home -> /)
+      // belongs out of it; `indexability` alone ignores the canonical (M3).
+      (!result.canonical || result.canonical === result.url) &&
       // Later pages of a listing are reached through the listing's own
       // pagination links and are normally left out of a sitemap, so their
       // absence is not something to fix. On brushandfloss.com they were 37 of

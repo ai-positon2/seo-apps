@@ -672,3 +672,18 @@ test("M2: a page still rate-limited after retries is one crawl-failure, not a br
   );
   assert.deepEqual(findings.filter((f) => f.ruleId === "broken-external-link"), [], "an external 429 is not a broken link");
 });
+
+// ── M3 · five-domain run (nc.gov, vercel.com, aspendental.com), 2026-09-23 ────
+// 18 sitemap-missing-indexable ERRORS were pages whose canonical names another
+// URL (filter and tracking-parameter variants, /home -> /). The rule tested
+// `indexability === "Indexable"`, which ignores the canonical.
+
+test("M3: a page that canonicalises to another URL is not reported as missing from the sitemap", () => {
+  const fixture = jsonFixture("sitemap-missing-indexable__M3.json");
+  // resultFor() defaults canonical to the page's own URL; an explicit "" means "no canonical".
+  const { findings } = findingsFor(fixture);
+  assert.deepEqual(
+    findings.filter((f) => f.ruleId === "sitemap-missing-indexable").map((f) => f.url).sort(),
+    fixture.expectedMissing,
+  );
+});
