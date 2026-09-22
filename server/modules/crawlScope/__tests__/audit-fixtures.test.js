@@ -125,3 +125,41 @@ test("D1: a sitemap robots.txt does not declare is still reported", async (t) =>
     ["A sitemap was found, but robots.txt does not declare it."],
   );
 });
+
+// ── D3 · www.brushandfloss.com, 2026-09-23 ────────────────────────────────────
+// slow-page fired on 461 of 482 pages. The pages answered in ~0.2s; the crawl
+// recorded ~1.9s because the timer started before the per-host politeness
+// queue (perHostDelay 500 on every production crawl), so it measured the
+// crawler waiting for its own turn.
+
+test("D3: responseTime measures the server, not the crawler's per-host queue", async (t) => {
+  const pagePaths = ["/p1", "/p2", "/p3", "/p4", "/p5", "/p6"];
+  const site = await serve(
+    () => ({
+      "/": page({
+        title: "Fixture home",
+        body: pagePaths.map((p) => `<a href="${p}">Fixture page ${p}</a>`).join(""),
+      }),
+      ...Object.fromEntries(pagePaths.map((p) => [p, httpFixture("slow-page__D3.http")])),
+    }),
+    { delayMs: 20 },
+  );
+  t.after(site.close);
+
+  const payload = await crawl(site.origin, {
+    maxUrls: 10,
+    concurrency: 4,
+    perHostDelay: 300,
+    respectRobots: false,
+    discoverSitemaps: false,
+  });
+
+  const pages = payload.results.filter((r) => r.status === 200);
+  assert.equal(pages.length, 7);
+  const times = pages.map((r) => [new URL(r.url).pathname, r.responseTime]);
+  assert.ok(
+    times.every(([, ms]) => ms < 250),
+    `a 20ms server must not read as slower than 250ms: ${JSON.stringify(times)}`,
+  );
+  assert.deepEqual(payload.findings.filter((f) => f.ruleId === "slow-page").map((f) => f.url), []);
+});

@@ -2484,12 +2484,16 @@ class SeoCrawler extends EventEmitter {
   // Single outbound request point: per-host throttle, injected transport, then
   // bounded retry with Retry-After / exponential backoff on 429 and 503, and on
   // transport failures.
-  async _politeFetch(url, init = {}, { timeout, signal } = {}) {
+  // `onAttempt` fires once per attempt, after the throttle slot is granted and
+  // immediately before the request goes out, so a caller timing the response
+  // times the server rather than the queue in front of it.
+  async _politeFetch(url, init = {}, { timeout, signal, onAttempt } = {}) {
     const host = this._hostOf(url);
     let attempt = 0;
     for (;;) {
       if (this.stopped) throw new DOMException("Aborted", "AbortError");
       await this._throttleHost(host, signal);
+      onAttempt?.();
       const attemptSignal = this._attemptSignal(timeout, signal);
 
       const cookie = this._cookieHeader(url);
@@ -2575,7 +2579,20 @@ class SeoCrawler extends EventEmitter {
       return;
     }
 
-    const started = performance.now();
+    // Restarted by every attempt (see onAttempt below), so responseTime is the
+    // request that produced the response: not the per-host politeness wait,
+    // which is perHostDelay x the requests queued ahead for the same host, and
+    // not an earlier attempt that was retried. Timing from here instead made a
+    // 20ms server read as 1.2s at perHostDelay 300 and fired slow-page on every
+    // page of a production crawl (perHostDelay 500).
+    let started = performance.now();
+    const fetchTiming = {
+      timeout: this.options.timeout,
+      signal: this.rootController.signal,
+      onAttempt: () => {
+        started = performance.now();
+      },
+    };
     let result;
 
     // An external URL is only ever status-checked, so a GET made the origin
@@ -2602,7 +2619,7 @@ class SeoCrawler extends EventEmitter {
         response = await this._politeFetch(
           job.url,
           fetchInit(job.external ? "HEAD" : "GET"),
-          { timeout: this.options.timeout, signal: this.rootController.signal },
+          fetchTiming,
         );
       } catch (error) {
         // A server that HANGS on HEAD is the same class of broken as one that
@@ -2619,20 +2636,14 @@ class SeoCrawler extends EventEmitter {
           level: "warning",
           message: `${this._hostOf(job.url)} did not answer HEAD; retrying ${job.url} with GET`,
         });
-        response = await this._politeFetch(job.url, fetchInit("GET"), {
-          timeout: this.options.timeout,
-          signal: this.rootController.signal,
-        });
+        response = await this._politeFetch(job.url, fetchInit("GET"), fetchTiming);
       }
 
       // Servers that REFUSE HEAD outright. The ones that never reply at all are
       // handled by the retry in the catch above.
       const usable =
         job.external && (response.status === 405 || response.status === 501)
-          ? await this._politeFetch(job.url, fetchInit("GET"), {
-              timeout: this.options.timeout,
-              signal: this.rootController.signal,
-            })
+          ? await this._politeFetch(job.url, fetchInit("GET"), fetchTiming)
           : response;
       if (usable !== response && response.body) {
         await response.body.cancel().catch(() => {});
