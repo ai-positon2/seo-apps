@@ -614,3 +614,40 @@ test("D16: a page reached through rel=prefetch is still a page; a prefetched scr
     { experience: false, script: true, stylesheet: true },
   );
 });
+
+// ── M1 · five-domain run (www.allbirds.com), 2026-09-23 ───────────────────────
+// maxRetries was `Math.max(0, Math.min(Number(options.maxRetries) ?? 2, 5))`.
+// Number(undefined) is NaN, `??` does not replace NaN, so with no maxRetries
+// passed — every production crawl — it was NaN, `attempt < NaN` was false, and
+// the crawler never retried a 429/503 or a transport error and never backed
+// off. Allbirds throttled it and 13 product pages were recorded as HTTP 429.
+
+test("M1: retries default to 2, so a throttled page is retried instead of recorded as 429", async (t) => {
+  assert.equal(new SeoCrawler({}).options.maxRetries, 2);
+
+  let first = true;
+  const site = await serve(() => ({
+    "/": page({ title: "Fixture store", body: '<a href="/products/tree-runner">Tree Runner</a>' }),
+    "/products/tree-runner": () => {
+      if (first) {
+        first = false;
+        return httpFixture("page-4xx__M1.http");
+      }
+      return page({ title: "Tree Runner | Fixture store" });
+    },
+  }));
+  t.after(site.close);
+
+  const payload = await new SeoCrawler({
+    maxUrls: 5,
+    concurrency: 1,
+    perHostDelay: 0,
+    respectRobots: false,
+    discoverSitemaps: false,
+    crawlAssets: false,
+    checkExternalLinks: false,
+  }).start(`${site.origin}/`);
+  const product = payload.results.find((r) => r.url.endsWith("/products/tree-runner"));
+  assert.equal(product.status, 200, "the 429 was retried after Retry-After and the page answered 200");
+  assert.deepEqual(payload.findings.filter((f) => f.ruleId === "page-4xx").map((f) => f.url), []);
+});

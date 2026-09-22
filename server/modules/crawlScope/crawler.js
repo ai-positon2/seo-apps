@@ -1321,7 +1321,14 @@ class SeoCrawler extends EventEmitter {
       // behavior identical (no artificial delay); the hosted worker raises
       // perHostDelay to space requests and reduce the chance of being blocked.
       perHostDelay: Math.max(0, Math.min(Number(options.perHostDelay) || 0, 60_000)),
-      maxRetries: Math.max(0, Math.min(Number(options.maxRetries) ?? 2, 5)),
+      // Number(undefined) is NaN and `??` does not replace NaN, so the old
+      // `Number(options.maxRetries) ?? 2` made the default NaN: `attempt < NaN`
+      // is false, and no crawl that left this unset ever retried a 429/503 or
+      // a transport error, or backed off from a host that asked it to.
+      maxRetries: Math.max(
+        0,
+        Math.min(Number.isFinite(Number(options.maxRetries)) ? Number(options.maxRetries) : 2, 5),
+      ),
       retryBaseDelay: Math.max(100, Math.min(Number(options.retryBaseDelay) || 1_000, 30_000)),
       maxRetryDelay: Math.max(1_000, Math.min(Number(options.maxRetryDelay) || 30_000, 120_000)),
       hostBackoffFactor: Math.max(1, Math.min(Number(options.hostBackoffFactor) || 2, 10)),

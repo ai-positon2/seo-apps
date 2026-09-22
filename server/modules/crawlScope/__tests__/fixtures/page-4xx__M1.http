@@ -1,0 +1,5 @@
+HTTP/1.1 429 Too Many Requests
+Content-Type: text/html; charset=utf-8
+Retry-After: 1
+
+<!DOCTYPE html><html><head><title>Too Many Requests</title></head><body><h1>Too Many Requests</h1><p>This is the throttling response a storefront sends a client that requests pages faster than it allows. The page itself is fine.</p></body></html>
