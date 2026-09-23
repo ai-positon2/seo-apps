@@ -118,6 +118,66 @@ const RESULT_FLUSH_ATTEMPTS = 3;
 // How long a run may sit paused before it stops being treated as alive.
 const MAX_PAUSE_MS = Number(process.env.RUN_MAX_PAUSE_MS) || 30 * 60_000;
 
+// ── Stored rows, and what a resumed run reloads from them ───────────────────
+// A result's row. `edges` is the page's own outgoing links and resource
+// references (migration 0031), kept so a resumed run can reload the page with
+// them; each edge's sourceUrl is the row's url, so it is dropped and put back
+// on load. null for a result that has none to keep (external, blocked,
+// unreachable), which is different from a page whose lists are empty.
+function resultRow(run, result, pageEdges, { withEdges = false } = {}) {
+  const row = {
+    run_id: run.id,
+    owner: run.owner,
+    url: result.url,
+    status: result.status || null,
+    content_type: result.contentType || null,
+    indexability: result.indexability || null,
+    depth: result.depth ?? null,
+    data: result,
+  };
+  if (withEdges) {
+    const compact = (edge) => {
+      if (edge.sourceUrl !== result.url) return edge;
+      const { sourceUrl, ...rest } = edge;
+      return rest;
+    };
+    row.edges = pageEdges
+      ? { links: (pageEdges.linkEdges || []).map(compact), resources: (pageEdges.resourceEdges || []).map(compact) }
+      : null;
+  }
+  return row;
+}
+
+// What the interrupted attempt of a run stored, in the shape crawler.restore()
+// takes: every stored URL, each page once, and its edges. A 2xx HTML page with
+// no stored edges was written before they were kept; it is counted so the
+// analysis can say those pages' links were not checked.
+function priorFromRows(rows) {
+  const storedUrls = new Set();
+  const results = [];
+  const linkEdges = [];
+  const resourceEdges = [];
+  let pagesWithoutEdges = 0;
+  for (const row of rows) {
+    if (!row?.url || storedUrls.has(row.url)) continue;
+    storedUrls.add(row.url);
+    if (!row.data) continue;
+    results.push(row.data);
+    if (row.edges) {
+      for (const edge of row.edges.links || []) linkEdges.push({ sourceUrl: row.url, ...edge });
+      for (const edge of row.edges.resources || []) resourceEdges.push({ sourceUrl: row.url, ...edge });
+    } else if (
+      row.data.scope !== "External" &&
+      row.data.status >= 200 &&
+      row.data.status < 300 &&
+      String(row.data.contentType || "").includes("html")
+    ) {
+      pagesWithoutEdges += 1;
+    }
+  }
+  return { storedUrls, results, linkEdges, resourceEdges, pagesWithoutEdges };
+}
+
 function aggregateFindings(findings, owner, runId) {
   const map = new Map();
   for (const f of findings) {
@@ -264,15 +324,31 @@ class RunManager {
     });
 
     const crawler = new SeoCrawler({ ...options, fetch: fetchImpl });
+    const withEdges = await repo.resultEdgesSupported(db);
 
     // A reclaimed run carries the frontier its previous attempt reached, so it
     // continues from there instead of re-crawling the site from the seed. The
     // rows that attempt already stored are kept (the reaper no longer deletes
     // them), and `seen` covers them, so nothing is fetched or written twice.
     let resumed = false;
+    let priorReloadFailed = false;
     if (run.checkpoint && !Array.isArray(run.options?.urls)) {
+      // The pages the attempt already stored, so the analysis at the end covers
+      // them as well as the pages this attempt fetches. Without them the run
+      // still resumes, and its analysis covers only what it fetches itself.
+      let prior = {};
       try {
-        resumed = crawler.restore(run.checkpoint);
+        prior = priorFromRows(await repo.listRunResultsForResume(db, run.id));
+      } catch (error) {
+        priorReloadFailed = true;
+        console.error(
+          `[crawlScope] run ${run.id}: stored pages could not be reloaded; ` +
+            "the resumed analysis covers only the pages fetched from here:",
+          error.message,
+        );
+      }
+      try {
+        resumed = crawler.restore(run.checkpoint, prior);
         if (resumed) {
           console.log(
             `[crawlScope] run ${run.id} resuming from checkpoint ` +
@@ -306,6 +382,9 @@ class RunManager {
     // process lived, and nothing would ever move it to a terminal status. Past
     // MAX_PAUSE_MS the heartbeat stops, which lets the reaper treat it like any
     // other run whose owner stopped responding.
+    // Result rows produced and not yet written (buffered, or in a write that
+    // has not finished). Each checkpoint re-queues their pages.
+    const unstored = new Set();
     let pausedSince = 0;
     const heartbeat = setInterval(() => {
       if (crawler.paused) {
@@ -325,7 +404,9 @@ class RunManager {
       // moments the run is proving it is still alive.
       const patch = { heartbeat_at: new Date().toISOString() };
       try {
-        const checkpoint = crawler.snapshot();
+        // Results not yet stored go back into the checkpoint's queue: they are
+        // in the crawler's `seen`, so a restart would otherwise skip them.
+        const checkpoint = crawler.snapshot({ unstoredResults: [...unstored].map((row) => row.data) });
         if (checkpoint) patch.checkpoint = checkpoint;
       } catch (error) {
         console.error(`[crawlScope] run ${run.id} checkpoint failed:`, error.message);
@@ -438,7 +519,7 @@ class RunManager {
       for (let attempt = 0; attempt < RESULT_FLUSH_ATTEMPTS; attempt += 1) {
         try {
           await repo.insertResults(db, rows);
-          return;
+          return true;
         } catch (error) {
           lastError = error;
           await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
@@ -452,27 +533,25 @@ class RunManager {
         `[crawlScope] run ${run.id}: ${rows.length} result rows could not be stored:`,
         lastError?.message || lastError,
       );
+      return false;
     };
 
     const flush = () => {
       if (!buffer.length) return flushChain;
       const rows = buffer;
       buffer = [];
-      flushChain = flushChain.then(() => writeRows(rows));
+      flushChain = flushChain.then(async () => {
+        // Rows that could not be written stay unstored, so a checkpoint still
+        // re-queues their pages.
+        if (await writeRows(rows)) for (const row of rows) unstored.delete(row);
+      });
       return flushChain;
     };
 
-    crawler.on("result", (result) => {
-      buffer.push({
-        run_id: run.id,
-        owner: run.owner,
-        url: result.url,
-        status: result.status || null,
-        content_type: result.contentType || null,
-        indexability: result.indexability || null,
-        depth: result.depth ?? null,
-        data: result,
-      });
+    crawler.on("result", (result, pageEdges) => {
+      const row = resultRow(run, result, pageEdges, { withEdges });
+      buffer.push(row);
+      unstored.add(row);
       if (buffer.length >= RESULT_BATCH) flush();
 
       resultsSeen += 1;
@@ -548,6 +627,15 @@ class RunManager {
         console.error(`[crawlScope] link graph not stored for run ${run.id}:`, error.message);
       }
 
+      // Each page's own edges were kept only so an interrupted attempt could be
+      // resumed with them; the analysis that needed them has run. Non-fatal
+      // like the link graph: leaving them costs storage, not correctness.
+      try {
+        await repo.clearResultEdges(db, run.id);
+      } catch (error) {
+        console.error(`[crawlScope] page edges not cleared for run ${run.id}:`, error.message);
+      }
+
       // V10.0: categorizePage() (analyzer.js) already computed pageCategory
       // into summary.results — but summary.results is never persisted (see
       // migration 0022's own header for the full trace), so the Category
@@ -617,6 +705,11 @@ class RunManager {
         edgesTruncated: Boolean(summary.edgesTruncated),
         trapTemplates: summary.trapTemplates || [],
         lostResultRows: lostRows,
+        // A run that continued an interrupted attempt, and how many of that
+        // attempt's pages it reloaded (and how many without their links).
+        resumed: summary.resumed
+          ? { ...summary.resumed, ...(priorReloadFailed ? { reloadFailed: true } : {}) }
+          : null,
         // Which checks could not run on this crawl, or ran on part of it —
         // read by the report and the workbook so "no findings" is not shown
         // as "passed".
@@ -741,6 +834,6 @@ class RunManager {
 // CONTROL_POLL_MS is exported alongside it because that — not the heartbeat —
 // is now the latency the API quotes for a remote pause or stop.
 module.exports = {
-  RunManager, aggregateFindings, severityCounts, pickPageSpeedSample,
+  RunManager, aggregateFindings, severityCounts, pickPageSpeedSample, resultRow, priorFromRows,
   HEARTBEAT_MS, CONTROL_POLL_MS,
 };

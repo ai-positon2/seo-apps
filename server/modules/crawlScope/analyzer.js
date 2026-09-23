@@ -1196,6 +1196,26 @@ const SITEMAP_RULES = [
   "orphan-page",
 ];
 const EXTERNAL_FETCH_RULES = ["broken-external-link", "external-403"];
+// Checks read from the pages' link and resource edges.
+const LINK_DATA_RULES = [
+  "broken-internal-links",
+  "link-to-redirect",
+  "internal-nofollow-link",
+  "mixed-incoming-follow",
+  "orphan-page",
+  "single-inlink",
+  "deep-page",
+  "anchor-missing",
+  "anchor-nondescriptive",
+  "broken-external-link",
+  "external-403",
+  "external-nofollow",
+  "broken-internal-image",
+  "broken-internal-resource",
+  "broken-javascript",
+  "mixed-content",
+  "image-alt-missing",
+];
 
 function crawlCoverage({
   firedRuleIds,
@@ -1206,6 +1226,7 @@ function crawlCoverage({
   clickDepthFromStart,
   siteDiagnostics = {},
   startUrl = "",
+  pagesMissingLinkData = 0,
 }) {
   const notEvaluated = new Map();
   const partial = new Map();
@@ -1278,6 +1299,14 @@ function crawlCoverage({
     }
   }
 
+  if (pagesMissingLinkData > 0) {
+    const reason =
+      `This crawl was interrupted and resumed, and ${pagesMissingLinkData.toLocaleString("en-US")} ` +
+      `page${pagesMissingLinkData === 1 ? "" : "s"} fetched before the interruption were stored without their ` +
+      "links and resources, so those pages' links, images and scripts were not checked.";
+    for (const ruleId of LINK_DATA_RULES) if (!partial.has(ruleId)) partial.set(ruleId, reason);
+  }
+
   // A check that produced a finding ran, whatever the conditions above say.
   for (const ruleId of firedRuleIds) notEvaluated.delete(ruleId);
   const inCatalogOrder = (map) =>
@@ -1310,6 +1339,9 @@ function buildFindings({
   // reporting them). Both only decide what `coverage` says was evaluated.
   externalLinksChecked = true,
   robotsRespected = true,
+  // Pages in `results` whose links and resources are not in the edge lists (a
+  // resumed run reloading rows stored before edges were kept).
+  pagesMissingLinkData = 0,
 }) {
   const findings = [];
   // Dedupe ids in a Set rather than scanning `findings` on every add(). The scan
@@ -2670,6 +2702,7 @@ function buildFindings({
       clickDepthFromStart,
       siteDiagnostics,
       startUrl,
+      pagesMissingLinkData,
     }),
     mediaLibrary: buildMediaLibrary(results, resourceEdges),
     // Internal HTML pages only — the same universe every other page-level

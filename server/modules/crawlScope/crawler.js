@@ -1321,6 +1321,13 @@ class SeoCrawler extends EventEmitter {
     // Set by restore() when this run continues an interrupted attempt.
     this._resumed = false;
     this._resumedCompleted = 0;
+    // Pages the previous attempt stored, reloaded by restore(), and how many of
+    // them came without their link data (rows stored before it was kept).
+    this._priorPages = 0;
+    this._priorPagesWithoutEdges = 0;
+    // Jobs taken off the queue and not yet answered. A checkpoint puts them
+    // back: they are in `seen`, so a resume would otherwise never fetch them.
+    this._inFlight = new Set();
     this._discoveryDone = false;
     this.siteDiagnostics = {
       robotsWarnings: [],
@@ -1385,10 +1392,34 @@ class SeoCrawler extends EventEmitter {
   // queued, and the only safe restart was from the seed.
   //
   // Deliberately NOT included: results, linkEdges and resourceEdges. Those are
-  // large, they are already persisted row by row, and copying them into a
-  // checkpoint would make each write proportional to the whole crawl.
-  snapshot() {
+  // large, they are already persisted row by row (each page's own edges with
+  // it), and copying them into a checkpoint would make each write proportional
+  // to the whole crawl. restore() reloads them from those rows instead.
+  //
+  // `seen` covers every URL taken off the queue, so two kinds of page would be
+  // lost across a restart without help: jobs in flight when the checkpoint is
+  // taken, and results produced but not yet stored (the caller buffers rows in
+  // batches). Both go back at the front of the checkpoint's queue; restore()
+  // drops any that turn out to be stored after all.
+  snapshot({ unstoredResults = [] } = {}) {
     if (this.mode === "list") return null;
+    const requeue = new Map();
+    for (const job of this._inFlight) requeue.set(job.url, { ...job, seed: false, seedHop: 0 });
+    for (const result of unstoredResults) {
+      if (!result?.url || requeue.has(result.url)) continue;
+      const discovery = this.discovery.get(result.url) || {};
+      requeue.set(result.url, {
+        url: result.url,
+        depth: result.depth ?? 0,
+        sourceUrl: discovery.sourceUrl || "",
+        isAsset: Boolean(result.isAsset || discovery.isAsset),
+        fromSitemap: Boolean(result.fromSitemap || discovery.fromSitemap),
+        external: result.scope === "External",
+        seed: false,
+        seedHop: 0,
+      });
+    }
+    const pending = this.queue.slice(this._queueHead).filter((job) => job && !requeue.has(job.url));
     return {
       version: 1,
       startUrl: this.startUrl,
@@ -1398,7 +1429,7 @@ class SeoCrawler extends EventEmitter {
       discoveryDone: Boolean(this._discoveryDone),
       seen: [...this.seen],
       externalSeen: [...this.externalSeen],
-      queue: this.queue.slice(this._queueHead),
+      queue: [...requeue.values(), ...pending],
       inlinkCounts: [...this.inlinkCounts],
       discovery: [...this.discovery],
       templateCounts: [...this._templateCounts],
@@ -1420,8 +1451,22 @@ class SeoCrawler extends EventEmitter {
 
   // Restores a frontier produced by snapshot(). Called before start(), which
   // then skips seeding and discovery and simply drains what is already queued.
-  restore(checkpoint) {
+  //
+  // `prior` is what the interrupted attempt stored: `storedUrls` (every URL with
+  // a row, so a URL the checkpoint re-queued but that was stored after all is
+  // not fetched twice) and the pages themselves with their link and resource
+  // edges, so the analysis at the end covers the whole crawl rather than the
+  // part fetched after the restart. Without them the run still resumes, and
+  // its analysis covers only what it fetches itself.
+  restore(checkpoint, prior = {}) {
     if (!checkpoint || checkpoint.version !== 1) return false;
+    const {
+      storedUrls = null,
+      results: priorResults = [],
+      linkEdges: priorLinkEdges = [],
+      resourceEdges: priorResourceEdges = [],
+      pagesWithoutEdges = 0,
+    } = prior;
     this.mode = "spider";
     this.startUrl = checkpoint.startUrl;
     this.origin = checkpoint.origin;
@@ -1430,7 +1475,7 @@ class SeoCrawler extends EventEmitter {
     this._discoveryDone = Boolean(checkpoint.discoveryDone);
     this.seen = new Set(checkpoint.seen || []);
     this.externalSeen = new Set(checkpoint.externalSeen || []);
-    this.queue = [...(checkpoint.queue || [])];
+    this.queue = (checkpoint.queue || []).filter((job) => job && !storedUrls?.has(job.url));
     this._queueHead = 0;
     this.inlinkCounts = new Map(checkpoint.inlinkCounts || []);
     this.discovery = new Map(checkpoint.discovery || []);
@@ -1447,7 +1492,17 @@ class SeoCrawler extends EventEmitter {
     this.truncated = Boolean(checkpoint.truncated);
     this.depthLimited = Boolean(checkpoint.depthLimited);
     this.budgetReached = Boolean(checkpoint.budgetReached);
-    this._resumedCompleted = checkpoint.completedCount || 0;
+    if (priorResults.length) {
+      this.results = [...priorResults];
+      this.linkEdges = [...priorLinkEdges];
+      this.resourceEdges = [...priorResourceEdges];
+      // Counted in this.results now, not on top of it.
+      this._resumedCompleted = 0;
+    } else {
+      this._resumedCompleted = checkpoint.completedCount || 0;
+    }
+    this._priorPages = priorResults.length;
+    this._priorPagesWithoutEdges = pagesWithoutEdges;
     this._resumed = true;
     this._applyCrawlDelay();
     return true;
@@ -2225,9 +2280,11 @@ class SeoCrawler extends EventEmitter {
         this._queueHead = 0;
       }
       this.active += 1;
+      this._inFlight.add(job);
       this._process(job)
         .catch((error) => this.emit("log", { level: "error", message: error.message }))
         .finally(() => {
+          this._inFlight.delete(job);
           this.active -= 1;
           this.emit("progress", this._progress());
           this._schedule();
@@ -2266,6 +2323,9 @@ class SeoCrawler extends EventEmitter {
         clickDepthFromStart: this.mode !== "list",
         externalLinksChecked: Boolean(this.options.checkExternalLinks),
         robotsRespected: Boolean(this.options.respectRobots),
+        // Pages a resumed run reloaded without their links and resources
+        // (stored before those were kept), which the link checks cannot see.
+        pagesMissingLinkData: this._priorPagesWithoutEdges,
         // A stopped crawl saw only part of the link graph, exactly like one that
         // hit a cap: "nothing links to this page" is unknowable when the pages
         // that might link to it were never fetched.
@@ -2288,6 +2348,11 @@ class SeoCrawler extends EventEmitter {
         integrations: analysis.integrations,
         rootCauseGroups: analysis.rootCauseGroups,
         coverage: analysis.coverage,
+        // A run that continued an interrupted attempt, and how much of that
+        // attempt's work it reloaded.
+        resumed: this._resumed
+          ? { priorPages: this._priorPages, withoutLinkData: this._priorPagesWithoutEdges }
+          : null,
         // The internal link graph. Already collected for the findings pass, and
         // now carried out so it can be stored: hub-and-spoke clustering is a
         // question about edges, and crawl_run_results only keeps counts. Not
@@ -2619,6 +2684,7 @@ class SeoCrawler extends EventEmitter {
 
     const started = performance.now();
     let result;
+    let pageEdges = null;
 
     // An external URL is only ever status-checked, so a GET made the origin
     // render a whole page whose body was then thrown away — and cancelling that
@@ -2742,6 +2808,10 @@ class SeoCrawler extends EventEmitter {
         await usable.body.cancel().catch(() => {});
       }
 
+      // The edges this page contributes, stored with its row (see snapshot()).
+      // _extract is synchronous, so nothing else can push between here and its
+      // return.
+      const edgeMarks = [this.linkEdges.length, this.resourceEdges.length];
       try {
         result = this._extract({
           job,
@@ -2774,6 +2844,12 @@ class SeoCrawler extends EventEmitter {
         });
         result.issues = quickIssues(result);
       }
+      // Empty lists for a page with no links are still its lists: a stored
+      // row without them reads as a page whose links were never kept.
+      pageEdges = {
+        linkEdges: this.linkEdges.slice(edgeMarks[0]),
+        resourceEdges: this.resourceEdges.slice(edgeMarks[1]),
+      };
 
       const declarativeRefresh = declarativeRefreshFromResult(result);
       if (
@@ -2849,7 +2925,7 @@ class SeoCrawler extends EventEmitter {
     }
 
     this.results.push(result);
-    this.emit("result", result);
+    this.emit("result", result, pageEdges);
   }
 
   _extract({

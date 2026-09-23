@@ -57,3 +57,10 @@ test('checks the crawl could not run are named, with the reason, grouped by reas
     { reason: '37 external URLs were not requested.', titles: ['Broken external links'] },
   ]);
 });
+
+test('a resumed crawl is partial only when its earlier pages could not be reloaded', () => {
+  assert.strictEqual(crawlCoverageNotice(run({ resumed: { priorPages: 120, withoutLinkData: 0 } }), catalogById).partial, false);
+  const failed = crawlCoverageNotice(run({ resumed: { priorPages: 0, withoutLinkData: 0, reloadFailed: true } }), catalogById);
+  assert.strictEqual(failed.partial, true);
+  assert.match(failed.reasons[0], /could not be reloaded/);
+});

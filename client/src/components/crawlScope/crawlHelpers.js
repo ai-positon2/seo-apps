@@ -639,6 +639,11 @@ export function crawlCoverageNotice(run, catalogById = new Map()) {
     : Boolean(sum.truncated && !sum.depthLimited && !sum.edgesTruncated && !sum.trapTemplates?.length);
   const reasons = [];
   if (run?.status === 'stopped') reasons.push('it was stopped before it finished');
+  // Interrupted and resumed, and the pages stored before the interruption could
+  // not be loaded back: they have rows but are not in this analysis.
+  if (sum.resumed?.reloadFailed) {
+    reasons.push('it was interrupted, and the pages it had stored before then could not be reloaded into this analysis');
+  }
   if (budgetReached) {
     reasons.push(Number.isFinite(limit) && limit > 0
       ? `it reached its budget of ${limit.toLocaleString('en-US')} pages`

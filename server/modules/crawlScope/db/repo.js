@@ -26,7 +26,7 @@ const { json } = require("../../../services/db");
 const JSONB_COLUMNS = {
   crawl_projects: new Set(["options", "settings"]),
   crawl_runs: new Set(["options", "progress", "summary", "checkpoint", "site_diagnostics"]),
-  crawl_run_results: new Set(["data"]),
+  crawl_run_results: new Set(["data", "edges"]),
   crawl_run_findings: new Set(["detail"]),
   crawl_run_finding_instances: new Set(["data"]),
 };
@@ -625,6 +625,58 @@ async function insertResults(client, rows) {
   await client.insertMany("crawl_run_results", rows);
 }
 
+// ── Each page's own edges, for resuming (migration 0031) ────────────────────
+// Whether crawl_run_results.edges exists here. Asked once per process: a
+// database the migration has not reached must keep storing results without it
+// rather than fail every insert over an unknown column.
+let resultEdgesColumn = null;
+async function resultEdgesSupported(client) {
+  if (resultEdgesColumn !== null) return resultEdgesColumn;
+  try {
+    const rows = await client.rows(
+      `select 1 from information_schema.columns
+        where table_name = 'crawl_run_results' and column_name = 'edges' limit 1`,
+    );
+    resultEdgesColumn = rows.length > 0;
+  } catch {
+    resultEdgesColumn = false;
+  }
+  return resultEdgesColumn;
+}
+
+// Every row an interrupted attempt stored, with its edges, in the order it was
+// stored — what a resumed run reloads so its analysis covers the whole crawl.
+// Keyset-paged on the (run_id, id) index.
+async function listRunResultsForResume(client, runId) {
+  const withEdges = await resultEdgesSupported(client);
+  const PAGE = 2_000;
+  const rows = [];
+  let after = 0;
+  for (;;) {
+    const page = await client.rows(
+      `select id, url, data, ${withEdges ? "edges" : "null::jsonb as edges"}
+         from crawl_run_results
+        where run_id = $1 and id > $2
+        order by id
+        limit $3`,
+      [runId, after, PAGE],
+    );
+    rows.push(...page);
+    if (page.length < PAGE) return rows;
+    after = page[page.length - 1].id;
+  }
+}
+
+// Nothing reads a finished run's edges; they are only kept for a resume.
+async function clearResultEdges(client, runId) {
+  if (!(await resultEdgesSupported(client))) return 0;
+  const result = await client.query(
+    `update crawl_run_results set edges = null where run_id = $1 and edges is not null`,
+    [runId],
+  );
+  return result?.rowCount || 0;
+}
+
 async function insertFindings(client, rows) {
   if (!rows.length) return;
   await client.insertMany("crawl_run_findings", rows);
@@ -1040,6 +1092,9 @@ async function saveFindingReviews(client, runId, owner, reviews, reviewedBy = nu
 }
 
 module.exports = {
+  resultEdgesSupported,
+  listRunResultsForResume,
+  clearResultEdges,
   FINDINGS_READ_CAP,
   canViewRow,
   viewerScope,
