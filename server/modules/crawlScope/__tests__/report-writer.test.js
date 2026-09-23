@@ -65,9 +65,12 @@ test("builds a formatted, editable multi-sheet Excel audit", async () => {
     (sheet) => sheet.getCell("A1").value === "Pages returning 4XX errors",
   );
   assert.ok(detail);
-  assert.equal(detail.getCell("F10").value, "Confirmed issue");
-  assert.equal(detail.getCell("G10").value, "Confirmed manually.");
-  assert.equal(detail.getCell("F10").dataValidation.type, "list");
+  // Generic layout: url(A) target(B) value(C) evidence(D) code(E)
+  // recommendation(F) status(G) notes(H).
+  assert.equal(detail.getCell("D10").value, "Not Found");
+  assert.equal(detail.getCell("G10").value, "Confirmed issue");
+  assert.equal(detail.getCell("H10").value, "Confirmed manually.");
+  assert.equal(detail.getCell("G10").dataValidation.type, "list");
 
   const metaDetail = workbook.worksheets.find(
     (sheet) => sheet.getCell("A1").value === "Missing meta descriptions",
@@ -263,11 +266,11 @@ test("V5.1: site-scoped and slow-page findings get Site/Config fix types, never 
     (sheet) => sheet.getCell("A1").value === "Subdomains do not support HSTS",
   );
   assert.ok(hstsDetail);
-  // Generic layout: url(1) target(2) value(3) code(4) recommendation(5)
-  // status(6) notes(7) fixType(8) effort(9) owner(10) targetDate(11) impact(12).
-  // Data rows start at 10 (tableHeaderRow is a fixed 9).
-  assert.equal(hstsDetail.getCell(10, 8).value, "Site");
-  assert.equal(hstsDetail.getCell(10, 9).value, "Easy");
+  // Generic layout: url(1) target(2) value(3) evidence(4) code(5)
+  // recommendation(6) status(7) notes(8) fixType(9) effort(10) owner(11)
+  // targetDate(12) impact(13). Data rows start at 10 (tableHeaderRow is a fixed 9).
+  assert.equal(hstsDetail.getCell(10, 9).value, "Site");
+  assert.equal(hstsDetail.getCell(10, 10).value, "Easy");
 
   const slowDetail = workbook.worksheets.find(
     (sheet) => sheet.getCell("A1").value === "Slow pages",
@@ -275,10 +278,11 @@ test("V5.1: site-scoped and slow-page findings get Site/Config fix types, never 
   assert.ok(slowDetail);
   // slow-page drops the "Target / Related URL" column, so every column from
   // "value" onward shifts one to the left of the generic layout above:
-  // url(1) value(2) code(3) recommendation(4) status(5) notes(6) fixType(7) effort(8).
+  // url(1) value(2) evidence(3) code(4) recommendation(5) status(6) notes(7)
+  // fixType(8) effort(9).
   assert.notEqual(slowDetail.getCell(9, 2).value, "Target / Related URL");
-  assert.equal(slowDetail.getCell(10, 7).value, "Config");
-  assert.equal(slowDetail.getCell(10, 8).value, "Easy");
+  assert.equal(slowDetail.getCell(10, 8).value, "Config");
+  assert.equal(slowDetail.getCell(10, 9).value, "Easy");
   // Raw ms, not seconds ("2.87s") — the number itself, display formatting is separate.
   assert.equal(slowDetail.getCell(10, 2).value, 2871);
 });
@@ -573,7 +577,58 @@ test("crawler-completeness Phase 1: a rule split across page and template scope 
   const templateDetail = workbook.worksheets.find((s) => s.getCell("A1").value === "Broken internal links (Template)");
   assert.ok(pageDetail && templateDetail && pageDetail !== templateDetail);
 
-  // Generic layout: url(1) target(2) value(3) code(4) recommendation(5)
-  // status(6) notes(7) fixType(8). Data rows start at 10.
-  assert.equal(templateDetail.getCell(10, 8).value, "Template");
+  // Generic layout: url(1) target(2) value(3) evidence(4) code(5)
+  // recommendation(6) status(7) notes(8) fixType(9). Data rows start at 10.
+  assert.equal(templateDetail.getCell(10, 9).value, "Template");
+});
+
+test("evidence has its own column, and a missing value has no length", async () => {
+  const definitions = Object.fromEntries(catalog.map((item) => [item.id, item]));
+  const findings = [
+    {
+      id: "finding-canonical",
+      ruleId: "canonical-to-broken",
+      ...definitions["canonical-to-broken"],
+      url: "https://example.com/a",
+      targetUrl: "https://example.com/old",
+      // The "Target / Related URL" cell used to be `targetUrl || detail`: with a
+      // target present, the path that proves the finding was dropped.
+      detail: "Canonical target's redirect path ends at https://example.com/gone with HTTP 404. Path: https://example.com/old -> https://example.com/gone",
+      statusCode: 404,
+      detectedValue: "",
+      reviewStatus: "Needs review",
+      reviewerNotes: "",
+    },
+    {
+      id: "finding-meta",
+      ruleId: "meta-missing",
+      ...definitions["meta-missing"],
+      url: "https://example.com/b",
+      targetUrl: "",
+      detail: 'No <meta name="description"> on this page',
+      statusCode: 200,
+      detectedValue: "(absent)",
+      reviewStatus: "Needs review",
+      reviewerNotes: "",
+    },
+  ];
+  const buffer = await buildAuditWorkbook({
+    findings,
+    catalog,
+    siteUrl: "https://example.com/",
+    crawlDate: "2026-09-23T10:00:00.000Z",
+  });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheetTitled = (title) => workbook.worksheets.find((sheet) => sheet.getCell("A1").value === title);
+
+  const canonical = sheetTitled(definitions["canonical-to-broken"].title);
+  const headers = canonical.getRow(9).values.slice(1);
+  const cell = (header) => canonical.getCell(10, headers.indexOf(header) + 1).value;
+  assert.equal(cell("Target / Related URL").text, "https://example.com/old");
+  assert.match(cell("Evidence"), /Path: https:\/\/example\.com\/old -> https:\/\/example\.com\/gone/);
+
+  const meta = sheetTitled(definitions["meta-missing"].title);
+  const metaHeaders = meta.getRow(9).values.slice(1);
+  assert.equal(meta.getCell(10, metaHeaders.indexOf("Current Length") + 1).value, 0, '"(absent)" is not 8 characters of description');
 });

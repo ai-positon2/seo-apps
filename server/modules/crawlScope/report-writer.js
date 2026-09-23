@@ -296,6 +296,10 @@ function detailColumns(ruleId) {
     { key: "url", header: "Page URL", width: 54, type: "url" },
     { key: "target", header: "Target / Related URL", width: 48, type: "url" },
     { key: "value", header: "Detected Value", width: 40, type: "text" },
+    // What was observed, in words: the redirect path, the canonical's chain,
+    // the status the target answered. It used to stand in for the target URL
+    // only when there was none, so a finding with both lost its proof.
+    { key: "evidence", header: "Evidence", width: 56, type: "text" },
     { key: "code", header: "HTTP Code", width: 13, type: "code" },
     { key: "recommendation", header: "Recommendations", width: 62, type: "text" },
     { key: "status", header: "SEO Status", width: 22, type: "status" },
@@ -308,14 +312,21 @@ function detailColumns(ruleId) {
   return ruleId === "slow-page" ? columns.filter((c) => c.key !== "target") : columns;
 }
 
+const ABSENT_VALUES = new Set(["(none)", "(absent)"]);
+
 function cellValueFor(key, finding) {
   switch (key) {
     case "url":
       return finding.url;
     case "target":
-      return finding.targetUrl || finding.detail || null;
+      return finding.targetUrl || null;
     case "value":
       return valueOrNull(finding.detectedValue);
+    case "evidence":
+      // Not repeated when it says exactly what Detected Value already does.
+      return finding.detail && finding.detail !== String(finding.detectedValue ?? "")
+        ? finding.detail
+        : null;
     case "code":
       return valueOrNull(finding.statusCode) || null;
     case "recommendation":
@@ -325,8 +336,11 @@ function cellValueFor(key, finding) {
     case "recommended":
       return valueOrNull(finding.recommendedValue);
     case "currentLength": {
+      // "(absent)" and "(none)" say there is no value; their own 8 characters
+      // are not a length the page has.
       const v = finding.detectedValue;
-      return typeof v === "string" && v !== "(none)" ? v.length : null;
+      if (typeof v !== "string") return null;
+      return ABSENT_VALUES.has(v) ? 0 : v.length;
     }
     case "recommendedLength":
       return TARGET_LENGTH_RANGES[finding.ruleId] ?? null;
