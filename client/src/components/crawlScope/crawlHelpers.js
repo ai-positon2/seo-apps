@@ -619,6 +619,25 @@ export function findingFix(finding, entry) {
   };
 }
 
+// A finding's evidence as two lines: what it means (`detail`, e.g. "2 redirect
+// hops", "HTTP 404 Not Found") and what was found (`detectedValue`: the hops,
+// the link text, the title itself). Rows used to print `detail || value`, so a
+// finding with both showed only the first. The value is left off when it says
+// the same thing, or is only a placeholder for "nothing there".
+const ABSENT_VALUES = new Set(['(absent)', '(none)']);
+const EVIDENCE_MAX = 240;
+
+export function findingEvidence(finding) {
+  const detail = String(finding?.detail ?? '').trim();
+  const raw = finding?.detectedValue;
+  const value = raw === undefined || raw === null ? '' : String(raw).trim();
+  if (!detail) return { primary: value || '—', secondary: null };
+  const secondary = value && value !== detail && !ABSENT_VALUES.has(value)
+    ? (value.length > EVIDENCE_MAX ? `${value.slice(0, EVIDENCE_MAX - 1)}…` : value)
+    : null;
+  return { primary: detail, secondary };
+}
+
 // The issue cards on one page's own view. Page- AND template-scoped findings:
 // a template finding is a page defect found on most pages, so it is on this
 // page too, and it counts toward Site Health; leaving it off the page's own
@@ -632,17 +651,15 @@ export function pageIssueCards(findings, pageUrl, catalogById, pagesByRule = new
     .map((f) => {
       const entry = catalogById.get(f.ruleId);
       const { suggestion, fix } = findingFix(f, entry);
-      const detected = f.detail
-        || (f.detectedValue !== undefined && f.detectedValue !== null && f.detectedValue !== ''
-          ? String(f.detectedValue)
-          : null);
+      const evidence = findingEvidence(f);
       return {
         // Per finding, not per rule: a page with two broken links has two.
         key: f.id || `${f.ruleId}|${f.targetUrl || ''}|${f.detail || ''}`,
         id: f.ruleId,
         title: entry?.title || f.title || f.ruleId,
         severity: f.severity,
-        detected,
+        detected: evidence.primary === '—' ? null : evidence.primary,
+        found: evidence.secondary,
         targetUrl: f.targetUrl || null,
         suggestion,
         description: entry?.description || null,

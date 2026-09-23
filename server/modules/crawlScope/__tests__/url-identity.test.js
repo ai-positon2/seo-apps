@@ -62,7 +62,9 @@ test("a redirect chain whose middle hop carries a tracking parameter is traced",
   });
   const chain = findings.find((f) => f.ruleId === "redirect-chain" && f.url === `${H}/old`);
   assert.ok(chain, "the two-hop chain from /old is reported");
-  assert.equal(chain.detectedValue, 2);
+  assert.equal(chain.detail, "2 redirect hops");
+  // Each hop as the site sends it, tracking parameter included.
+  assert.equal(chain.detectedValue, `${H}/old -> ${H}/mid?utm_source=redirect -> ${H}/final`);
   assert.equal(chain.targetUrl, `${H}/final`);
 });
 

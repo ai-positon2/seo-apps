@@ -12,7 +12,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 
-import { findingFix, pageIssueCards } from '../crawlHelpers.js';
+import { findingEvidence, findingFix, pageIssueCards } from '../crawlHelpers.js';
 
 const entry = { id: 'title-long', title: 'Titles are too long', recommendation: 'Rewrite titles to 50-60 characters.' };
 
@@ -53,4 +53,27 @@ test('a page lists its page- and template-scoped findings, not site-wide or dism
   assert.equal(cards[1].detected, 'Not Found');
   assert.equal(cards[1].pages, 7);
   assert.equal(cards[1].recommendation, 'Fix the link.');
+});
+
+test('a row shows what was found as well as what it means', () => {
+  // The row printed `detail || detectedValue`, so a finding with both lost the
+  // value: a broken link's link text, a redirect chain's hops, a long title.
+  assert.deepStrictEqual(
+    findingEvidence({ detail: '2 redirect hops', detectedValue: 'https://a/old -> https://a/mid -> https://a/new' }),
+    { primary: '2 redirect hops', secondary: 'https://a/old -> https://a/mid -> https://a/new' },
+  );
+  assert.deepStrictEqual(
+    findingEvidence({ detail: 'HTTP 404 Not Found', detectedValue: 'Link text: “Pricing”' }),
+    { primary: 'HTTP 404 Not Found', secondary: 'Link text: “Pricing”' },
+  );
+  // Not repeated, and no placeholder under a sentence that already says it.
+  assert.deepStrictEqual(findingEvidence({ detail: 'Same', detectedValue: 'Same' }), { primary: 'Same', secondary: null });
+  assert.deepStrictEqual(
+    findingEvidence({ detail: 'No <meta name="description"> on this page', detectedValue: '(absent)' }),
+    { primary: 'No <meta name="description"> on this page', secondary: null },
+  );
+  // A value alone is the primary line; nothing at all is a dash.
+  assert.deepStrictEqual(findingEvidence({ detail: '', detectedValue: 7 }), { primary: '7', secondary: null });
+  assert.deepStrictEqual(findingEvidence({}), { primary: '—', secondary: null });
+  assert.ok(findingEvidence({ detail: 'x', detectedValue: 'y'.repeat(500) }).secondary.length <= 241);
 });

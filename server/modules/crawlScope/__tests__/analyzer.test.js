@@ -842,7 +842,9 @@ test("a twenty-first consecutive HTTP redirect produces a Fetch-limit error", ()
       finding.ruleId === "redirect-chain" && finding.url === urls[1],
   );
   assert.ok(boundaryChain, "exactly 20 redirects to a final response must remain valid");
-  assert.equal(boundaryChain.detectedValue, 20);
+  // The count is in the detail; the value is every hop (was the bare count).
+  assert.equal(boundaryChain.detail, "20 redirect hops");
+  assert.equal(boundaryChain.detectedValue.split(" -> ").length, 21);
   assert.equal(boundaryChain.targetUrl, urls[21]);
 
   const canonical = findings.find(
@@ -892,7 +894,8 @@ test("a Refresh navigation resets Fetch's consecutive HTTP redirect count", () =
       finding.url === first.urls[0],
   );
   assert.ok(combinedChain);
-  assert.equal(combinedChain.detectedValue, 41);
+  assert.equal(combinedChain.detail, "41 redirect hops");
+  assert.equal(combinedChain.detectedValue.split(" -> ").length, 42);
   assert.equal(combinedChain.targetUrl, second.urls[20]);
 });
 
@@ -1857,7 +1860,8 @@ test("meta refresh participates in mixed redirect, sitemap, canonical, and link 
       finding.ruleId === "redirect-chain" && finding.url === refreshUrl,
   );
   assert.ok(chain);
-  assert.equal(chain.detectedValue, 2);
+  assert.equal(chain.detail, "2 redirect hops");
+  assert.equal(chain.detectedValue.split(" -> ").length, 3);
   assert.equal(chain.targetUrl, finalUrl);
 
   const sitemap = findings.find(
@@ -1945,7 +1949,8 @@ test("HTTP Refresh header participates in redirect relationships with source-spe
       finding.ruleId === "redirect-chain" && finding.url === refreshUrl,
   );
   assert.ok(chain);
-  assert.equal(chain.detectedValue, 2);
+  assert.equal(chain.detail, "2 redirect hops");
+  assert.equal(chain.detectedValue.split(" -> ").length, 3);
   assert.equal(chain.targetUrl, finalUrl);
 
   const sitemap = findings.find(

@@ -78,6 +78,11 @@ export default function UrlDetail({
                 <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.55, color: 'var(--text-2)' }}>
                   <strong style={{ fontWeight: 600, color: 'var(--text)' }}>On this page:</strong>
                   {' '}{i.detected}
+                  {i.found && (
+                    <span style={{ display: 'block', fontSize: 12.5, fontFamily: 'var(--font-mono)', wordBreak: 'break-word' }}>
+                      {i.found}
+                    </span>
+                  )}
                 </p>
               )}
 

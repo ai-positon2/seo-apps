@@ -599,6 +599,14 @@ function redirectEdge(result) {
     : null;
 }
 
+// Which link on the page a link finding is about, as someone looking at the page
+// or its editor would recognise it.
+function linkTextEvidence(edge) {
+  const text = String(edge?.anchorText || "").replace(/\s+/g, " ").trim();
+  if (!text) return "(no visible link text)";
+  return `Link text: “${text.length > 120 ? `${text.slice(0, 119)}…` : text}”`;
+}
+
 function redirectDestination(result) {
   return redirectEdge(result)?.url || "";
 }
@@ -1576,7 +1584,9 @@ function buildFindings({
           ? `At least ${trace.hops} redirect-like hops; trace stopped at the safety bound`
           : `${trace.hops} redirect hops`,
         targetUrl: trace.targetUrl,
-        detectedValue: trace.hops,
+        // Every hop, which is what has to be collapsed into one redirect —
+        // not just how many there are.
+        detectedValue: trace.path.join(" -> "),
       });
     }
 
@@ -2043,13 +2053,17 @@ function buildFindings({
         add("broken-internal-links", source, {
           targetUrl: edge.targetUrl,
           statusCode: target.status,
-          detail: target.statusText,
+          detail: target.status
+            ? `HTTP ${target.status}${target.statusText ? ` ${target.statusText}` : ""}`
+            : `Could not be fetched (${target.statusText || "no response"})`,
+          detectedValue: linkTextEvidence(edge),
         });
       } else if (targetTerminalFailure) {
         add("broken-internal-links", source, {
           targetUrl: edge.targetUrl,
           statusCode: targetTerminalFailure.statusCode,
           detail: `Link target's ${targetTerminalFailure.relationshipDetail}. Path: ${targetTerminalFailure.pathEvidence}`,
+          detectedValue: linkTextEvidence(edge),
         });
       }
       const targetRedirect = redirectDestination(target);

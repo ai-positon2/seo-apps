@@ -3,7 +3,7 @@ import {
   Panel, Tile, Eyebrow, Chip, Pill, BackLink, OutlineButton, RuledHead,
   TableFrame, Th, Pager, SearchField, sevOf, REVIEW_TONE,
 } from './reportPrimitives';
-import { REVIEW_STATUSES, findingFix } from '../crawlHelpers';
+import { REVIEW_STATUSES, findingEvidence, findingFix } from '../crawlHelpers';
 
 // ── One problem's own page ──────────────────────────────────────────────────
 //
@@ -255,10 +255,26 @@ export default function IssueDetail({
                       overflow: 'hidden', textOverflow: 'ellipsis',
                     }}
                   >
-                    {f.detail
-                      || (f.detectedValue !== undefined && f.detectedValue !== ''
-                        ? String(f.detectedValue)
-                        : '—')}
+                    {/* What it means, then what was found: the link text,
+                        every redirect hop, the title as written. */}
+                    {(() => {
+                      const { primary, secondary } = findingEvidence(f);
+                      return (
+                        <>
+                          {primary}
+                          {secondary && (
+                            <div
+                              style={{
+                                marginTop: 4, fontSize: 12, color: 'var(--text-3)',
+                                fontFamily: 'var(--font-mono)', wordBreak: 'break-word',
+                              }}
+                            >
+                              {secondary}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                     {/* The page-specific half of the fix: a suggested value
                         (title, meta description, H1) and, for rules that build
                         one from this page's evidence, advice naming its URLs.
