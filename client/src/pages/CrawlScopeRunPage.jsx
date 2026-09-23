@@ -85,7 +85,7 @@ export default function CrawlScopeRunPage() {
   const [run, setRun] = useState(null);
   const [results, setResults] = useState([]);
   const [findings, setFindings] = useState([]);
-  // Whether the AUDIT — the 96-rule finding set — has actually been loaded.
+  // Whether the AUDIT — the full rule catalog's finding set — has actually been loaded.
   //
   // Tracked separately from `findings` because an empty array is ambiguous and
   // the two meanings are opposites: "this crawl found nothing" and "I could not
@@ -384,7 +384,7 @@ export default function CrawlScopeRunPage() {
 
   // ── While a crawl is running, these counts are NOT the audit ─────────────
   //
-  // The 96-rule analyzer catalog runs once, when the crawl reaches a terminal
+  // The analyzer's rule catalog runs once, when the crawl reaches a terminal
   // state, and `findings` is empty until then. So withEffectiveIssues() returns
   // the pages unchanged and issueGroups() groups each page's crawl-time
   // quickIssues() instead — about a dozen cheap checks on status code,
@@ -866,7 +866,7 @@ export default function CrawlScopeRunPage() {
           </span>
           <span style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5 }}>
             The crawl itself finished and every page it fetched is listed under “All Pages”. What
-            failed is the finding set — the 96-rule audit — so no score, no issue list and no
+            failed is the finding set — the full audit — so no score, no issue list and no
             counts are shown: they would be computed from the crawler’s live status checks alone
             and would understate the site.
             {run?.summary?.counts && (

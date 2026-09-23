@@ -78,7 +78,7 @@ function IssueRow({ group, entry, onOpen }) {
             {entry?.title || group.label || group.id}
           </span>
           {/* The design carries a plain-language restatement of the title here.
-              The catalog has no such field for its 96 rules, so this is the
+              The catalog has no such field for its rules, so this is the
               category instead — the honest version of "what kind of problem is
               this" until those names are written. */}
           <span style={{ fontSize: 12, color: 'var(--text-3)' }}>

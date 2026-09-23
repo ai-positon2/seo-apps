@@ -118,9 +118,9 @@ export const TOOL_CATALOG = [
   },
   {
     id: 'crawl-scope', path: '/crawl-scope', badge: 'Technical SEO', group: 'Monitor',
-    label: 'Site Crawler', tagline: 'Full technical crawl, audited against 92 checks',
+    label: 'Site Crawler', tagline: 'Full technical crawl, audited against 100+ checks',
     description: 'Crawl a whole site (or audit a URL list), watch every response land live, then triage the findings and export a formatted Excel audit. Schedule the same crawl weekly and it re-runs itself and emails the workbook.',
-    features: ['92-check audit catalog across 8 categories (85 automatic)', 'Live crawl view with pause, resume and stop', 'Issue review with saved status and notes', 'Weekly scheduled crawls, emailed as Excel', 'robots.txt respected; identifies as CrawlScope'],
+    features: ['100+ check audit catalog across 8 categories', 'Live crawl view with pause, resume and stop', 'Issue review with saved status and notes', 'Weekly scheduled crawls, emailed as Excel', 'robots.txt respected; identifies as CrawlScope'],
     icon: icon('M12 21a9 9 0 100-18 9 9 0 000 18zm0 0V3m0 18c-2.5-2.2-4-5.4-4-9s1.5-6.8 4-9m0 18c2.5-2.2 4-5.4 4-9s-1.5-6.8-4-9M3.6 9h16.8M3.6 15h16.8'),
   },
   {

@@ -79,7 +79,7 @@ export default function OverviewPanel({
         {health === null ? (
           <span style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.5 }}>
             {provisional
-              ? 'Not scored yet. The score comes from the full 96-rule audit, which runs once '
+              ? 'Not scored yet. The score comes from the full audit, which runs once '
                 + 'the crawl reaches a terminal state — scoring the live status checks instead '
                 + 'would print a near-perfect number for a site nothing has audited.'
               : 'No HTML pages were crawled, so there is nothing to score. A score of zero '

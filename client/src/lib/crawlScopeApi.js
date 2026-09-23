@@ -22,7 +22,7 @@ async function req(path, options = {}) {
 }
 
 export const cs = {
-  // Static reference data: the 92-check catalog (id, title, category, severity,
+  // Static reference data: the rule catalog (id, title, category, severity,
   // detection, recommendation) every screen needs to name a finding.
   catalog: () => req('/catalog'),
 
