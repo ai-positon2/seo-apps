@@ -51,9 +51,11 @@ const MIN_GENERIC_EXTERNAL_NOFOLLOW_LINKS = 5;
 const MIN_GENERIC_EXTERNAL_NOFOLLOW_RATIO = 0.8;
 const MAX_FETCH_REDIRECTS = 20;
 const MAX_REDIRECT_TRACE_HOPS = 100;
-// ISO 639-1 language, optionally "-" + ISO 3166-1 region, or the special
-// "x-default" value. Values are lowercased before this check runs.
-const HREFLANG_CODE = /^(x-default|[a-z]{2,3}(-[a-z]{2})?)$/;
+// ISO 639-1 language, optionally "-" + an ISO 15924 script ("zh-hant"), then
+// optionally "-" + ISO 3166-1 region, or the special "x-default" value. Values
+// are lowercased before this check runs. Script subtags are valid hreflang
+// values and were being reported as invalid codes.
+const HREFLANG_CODE = /^(x-default|[a-z]{2,3}(-[a-z]{4})?(-[a-z]{2})?)$/;
 // Wording of a "not found" page, for soft-404 detection — phrased the way error
 // pages are, not merely containing "404" ("Area code 404", "How to fix 404
 // errors" are real pages). Only trusted on a thin page, too.
@@ -619,6 +621,23 @@ function linkTextEvidence(edge) {
   const text = String(edge?.anchorText || "").replace(/\s+/g, " ").trim();
   if (!text) return "(no visible link text)";
   return `Link text: “${text.length > 120 ? `${text.slice(0, 119)}…` : text}”`;
+}
+
+// Why a crawled hreflang target cannot stand in the set, or "" when it can.
+function hreflangTargetProblem(target, index) {
+  if (target.statusText === "Blocked by robots.txt") return "";
+  if (!target.status) return `could not be fetched (${target.statusText || "no response"})`;
+  if (target.status >= 400) return `returns HTTP ${target.status}${target.statusText ? ` ${target.statusText}` : ""}`;
+  if (isRedirectStatus(target.status)) {
+    return `redirects (HTTP ${target.status}${target.redirectUrl ? ` to ${target.redirectUrl}` : ""}) instead of being the page itself`;
+  }
+  const refresh = redirectDestination(target);
+  if (refresh) return `sends visitors on to ${refresh} with a refresh instead of being the page itself`;
+  if (isNoindex(resultRobotsDirectives(target))) return "is noindex, so it will not be shown in any language";
+  if (target.canonical && !index.same(target.canonical, target.url)) {
+    return `declares ${target.canonical} as its canonical, so it is not the version that gets indexed`;
+  }
+  return "";
 }
 
 function redirectDestination(result) {
@@ -1942,6 +1961,9 @@ function buildFindings({
           add("h1-title-duplicate", result, { detectedValue: `Title and H1 both read "${result.title.trim()}"` });
         }
       }
+      // Explicitly empty only: a result stored before the crawler read the
+      // attribute has no htmlLang at all, which is not the same thing.
+      if (result.htmlLang === "") add("html-lang-missing", result);
       for (const issue of result.headingHierarchyIssues || []) {
         add("heading-hierarchy-skipped", result, {
           detail: `${describeHeading(issue.fromLevel, issue.fromText)} is followed by ${describeHeading(issue.toLevel, issue.toText)}`,
@@ -2066,6 +2088,23 @@ function buildFindings({
     const hasSelfReference = result.hreflangs.some((entry) => index.same(entry.url, result.url));
     if (!hasSelfReference) add("hreflang-missing-self", result);
 
+    // One language code for two pages: search engines cannot tell which one
+    // it means and may ignore the set.
+    const pagesByLang = new Map();
+    for (const entry of result.hreflangs) {
+      const pages = pagesByLang.get(entry.lang) || new Map();
+      pages.set(index.identity(entry.url) || entry.url, entry.url);
+      pagesByLang.set(entry.lang, pages);
+    }
+    for (const [lang, pages] of pagesByLang) {
+      if (pages.size < 2) continue;
+      add("hreflang-conflict", result, {
+        detail: `hreflang="${lang}" points at ${pages.size} different URLs: ${[...pages.values()].join(", ")}`,
+        detectedValue: lang,
+      });
+    }
+    if (!pagesByLang.has("x-default")) add("hreflang-x-default-missing", result);
+
     for (const entry of result.hreflangs) {
       if (index.same(entry.url, result.url)) continue;
       const target = index.get(entry.url);
@@ -2073,6 +2112,19 @@ function buildFindings({
       // separate, weaker signal than a confirmed one-way link, so it's left
       // alone rather than guessed at.
       if (!target) continue;
+      // An alternate has to be a live, indexable, self-canonical page, or the
+      // annotation points search engines at something they will not index.
+      // When it is not, that is the finding — "does not link back" would blame
+      // the page for its target being broken.
+      const targetProblem = hreflangTargetProblem(target, index);
+      if (targetProblem) {
+        add("hreflang-target-invalid", result, {
+          targetUrl: entry.url,
+          detail: `The hreflang="${entry.lang}" alternate ${targetProblem}`,
+          detectedValue: entry.lang,
+        });
+        continue;
+      }
       const pointsBack = (target.hreflangs || []).some((t) => index.same(t.url, result.url));
       if (!pointsBack) {
         add("hreflang-missing-return", result, {

@@ -527,14 +527,18 @@ test("hreflang-missing-self fires when a page's hreflang set omits itself", () =
 test("hreflang-missing-return fires when the linked page does not link back", () => {
   const page = baseResult({
     url: "https://example.com/en/",
+    canonical: "https://example.com/en/",
     hreflangs: [
       { lang: "en", url: "https://example.com/en/" },
       { lang: "fr", url: "https://example.com/fr/" },
     ],
   });
-  // /fr/ was crawled but its hreflang set doesn't reference /en/ back.
+  // /fr/ was crawled but its hreflang set doesn't reference /en/ back. It is
+  // its own canonical: baseResult's default canonical (/page) would make it a
+  // non-canonical alternate, which hreflang-target-invalid reports instead.
   const other = baseResult({
     url: "https://example.com/fr/",
+    canonical: "https://example.com/fr/",
     hreflangs: [{ lang: "fr", url: "https://example.com/fr/" }],
   });
   const { findings } = buildFindings({ results: [page, other], startUrl: page.url });

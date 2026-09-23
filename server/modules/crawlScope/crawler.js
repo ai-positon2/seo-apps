@@ -3653,6 +3653,8 @@ class SeoCrawler extends EventEmitter {
         ? "Meta robots contains noindex"
         : base.indexabilityReason,
       robotsDirectives: [...robotsDirectives],
+      // The document's declared language; "" when <html> has no lang.
+      htmlLang: String($("html").first().attr("lang") || "").trim(),
       canonical,
       canonicals,
       canonicalsOutsideHead,

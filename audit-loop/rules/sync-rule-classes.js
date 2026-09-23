@@ -40,6 +40,10 @@ const NEW_RULES = {
   "sitemap-off-host": { class: "crawl", rarity: "occasional" },
   "multiple-canonical": { class: "crawl", rarity: "occasional" },
   "canonical-outside-head": { class: "crawl", rarity: "rare" },
+  "hreflang-conflict": { class: "crawl", rarity: "rare" },
+  "hreflang-target-invalid": { class: "crawl", rarity: "occasional" },
+  "hreflang-x-default-missing": { class: "crawl", rarity: "occasional" },
+  "html-lang-missing": { class: "crawl", rarity: "occasional" },
 };
 
 const GROUPS = [

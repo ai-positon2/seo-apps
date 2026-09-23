@@ -477,6 +477,36 @@
     "detection": "Automatic"
   },
   {
+    "id": "hreflang-conflict",
+    "title": "Conflicting hreflang annotations",
+    "description": "The page's hreflang annotations give one language (or language and region) code to two or more different URLs. Search engines cannot tell which page serves that audience, and may ignore the annotations.",
+    "recommendation": "Give each language and region code exactly one URL in the set, and repeat the same set on every page in it.",
+    "category": "Indexability",
+    "priority": "High Priority",
+    "severity": "error",
+    "detection": "Automatic"
+  },
+  {
+    "id": "hreflang-target-invalid",
+    "title": "hreflang pointing at a broken, redirected or non-canonical page",
+    "description": "An hreflang alternate is a page search engines will not index as that language version: it returns an error, redirects, is noindex, or names another URL as its canonical. The annotation then points at nothing usable.",
+    "recommendation": "Point every hreflang alternate at the final, indexable, self-canonical URL of that language version, and update the annotations when a page moves.",
+    "category": "Indexability",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
+    "id": "hreflang-x-default-missing",
+    "title": "hreflang set without x-default",
+    "description": "The page lists language versions but no x-default, the version for visitors whose language or region none of the others match. Search engines then choose one themselves.",
+    "recommendation": "Add an x-default alternate to the set, usually the language selector or the main-market version, on every page in the set.",
+    "category": "Indexability",
+    "priority": "Low Priority",
+    "severity": "notice",
+    "detection": "Automatic"
+  },
+  {
     "id": "canonical-to-broken",
     "requiresCompleteGraph": true,
     "title": "Canonical points to a broken page",
@@ -721,6 +751,16 @@
     "category": "Metadata",
     "priority": "Medium Priority",
     "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
+    "id": "html-lang-missing",
+    "title": "Language not declared",
+    "description": "The page's <html> element has no lang attribute. Screen readers use it to choose a voice and pronunciation, browsers to offer translation, and search engines as one signal of the page's language.",
+    "recommendation": "Declare the page's language on the root element, for example <html lang=\"en\">, with the region where it matters (en-GB).",
+    "category": "Accessibility & Social",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
