@@ -1128,6 +1128,7 @@ function buildFindings({
   // "Absent from every sitemap" needs every sitemap document. When traversal
   // stopped at the document cap, the unread ones may list the page (M5).
   const sitemapsComplete = sitemapsChecked && !siteDiagnostics?.sitemapCoverage?.traversalStopped;
+  const newsSitemaps = new Set(siteDiagnostics?.newsSitemaps || []);
   const resultByUrl = new Map(results.map((result) => [result.url, result]));
   const internalResults = results.filter((result) => result.scope !== "External");
   const htmlResults = internalResults.filter((result) =>
@@ -1313,7 +1314,12 @@ function buildFindings({
             : `HTTP ${result.status}`,
         });
       }
-      if (inSitemaps.length > 1) {
+      // A fresh article in both a Google News sitemap and a regular sitemap
+      // is the setup Google documents, so listings are compared within each
+      // kind: twice among regular sitemaps, or twice among News sitemaps (M6).
+      const newsListings = inSitemaps.filter((sitemap) => newsSitemaps.has(sitemap)).length;
+      const regularListings = inSitemaps.length - newsListings;
+      if (regularListings > 1 || newsListings > 1) {
         add("sitemap-duplicate", result, {
           detail: `Listed in ${inSitemaps.length} sitemaps`,
           detectedValue: inSitemaps.join(", "),

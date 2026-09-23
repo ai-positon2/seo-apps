@@ -1418,6 +1418,8 @@ class SeoCrawler extends EventEmitter {
       // How much of the sitemap this crawl covered. Kept apart from
       // sitemapConfigIssue on purpose: that field becomes a site finding, and a
       // crawl too small for the sitemap is a fact about the crawl, not the site.
+      // Sitemap documents that are Google News sitemaps (see _loadSitemaps).
+      newsSitemaps: [],
       sitemapCoverage: {
         listed: 0,
         queued: 0,
@@ -2003,6 +2005,13 @@ class SeoCrawler extends EventEmitter {
           continue;
         }
         foundAny = true;
+        // A Google News sitemap (news namespace + <news:news> entries) lists
+        // the last two days' articles alongside the regular sitemap, so its
+        // overlap with the regular sitemap is by design, not duplication.
+        const newsPrefix = /xmlns:([\w-]+)\s*=\s*["']https?:\/\/www\.google\.com\/schemas\/sitemap-news\/0\.9["']/i.exec(xml)?.[1];
+        if (newsPrefix && new RegExp(`<${newsPrefix}:news[\\s>]`, "i").test(xml)) {
+          this.siteDiagnostics.newsSitemaps.push(sitemapUrl);
+        }
         const locations = [...xml.matchAll(/<loc\b[^>]*>([\s\S]*?)<\/loc>/gi)]
           .map((match) => normalizeUrl(decodeXml(cleanText(match[1])), sitemapUrl))
           .filter(Boolean);

@@ -1,0 +1,17 @@
+HTTP/1.1 200 OK
+Content-Type: application/xml; charset=UTF-8
+
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">
+<url>
+	<loc>{{ORIGIN}}/2026/09/22/fresh-article/</loc>
+	<news:news>
+		<news:publication>
+			<news:name>Fixture News</news:name>
+			<news:language>en</news:language>
+		</news:publication>
+		<news:publication_date>2026-09-23T04:59:08+00:00</news:publication_date>
+		<news:title><![CDATA[A fresh article, listed here and in the regular sitemap]]></news:title>
+	</news:news>
+</url>
+</urlset>

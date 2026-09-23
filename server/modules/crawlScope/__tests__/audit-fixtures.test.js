@@ -757,3 +757,37 @@ test("M5: a page in a sitemap the crawler did not get to read is not reported as
   assert.ok(entry, "reported as not evaluated instead");
   assert.match(entry.reason, /sitemap/i);
 });
+
+// ── M6 · five-domain run (techcrunch.com), 2026-09-23 ─────────────────────────
+// 14 sitemap-duplicate ERRORS were fresh articles listed in news-sitemap.xml
+// and in a regular sitemap document. Google supports exactly that setup: a
+// separate News sitemap for articles from the last two days alongside the
+// regular sitemap. A URL listed twice among regular sitemaps is still a duplicate.
+
+test("M6: an article in both the Google News sitemap and a regular sitemap is not a duplicate", async (t) => {
+  const site = await serve((origin) => ({
+    "/robots.txt": {
+      status: 200,
+      headers: { "content-type": "text/plain" },
+      body: `User-agent: *\nSitemap: ${origin}/sitemap.xml\nSitemap: ${origin}/news-sitemap.xml\n`,
+    },
+    "/sitemap.xml": {
+      status: 200,
+      headers: { "content-type": "application/xml" },
+      body: `<?xml version="1.0" encoding="UTF-8"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><sitemap><loc>${origin}/sitemap-page-1.xml</loc></sitemap><sitemap><loc>${origin}/sitemap-page-2.xml</loc></sitemap></sitemapindex>`,
+    },
+    "/sitemap-page-1.xml": sitemapOf([`${origin}/`, `${origin}/2026/09/22/fresh-article/`, `${origin}/listed-twice/`]),
+    "/sitemap-page-2.xml": sitemapOf([`${origin}/listed-twice/`]),
+    "/news-sitemap.xml": httpFixture("sitemap-duplicate__M6.http", { ORIGIN: origin }),
+    "/": page({ title: "Fixture News", body: '<a href="/2026/09/22/fresh-article/">Fresh</a> <a href="/listed-twice/">Twice</a>' }),
+    "/2026/09/22/fresh-article/": page({ title: "Fresh article | Fixture News" }),
+    "/listed-twice/": page({ title: "Listed twice | Fixture News" }),
+  }));
+  t.after(site.close);
+
+  const payload = await crawl(site.origin, { maxUrls: 20 });
+  assert.deepEqual(
+    payload.findings.filter((f) => f.ruleId === "sitemap-duplicate").map((f) => new URL(f.url).pathname),
+    ["/listed-twice/"],
+  );
+});
