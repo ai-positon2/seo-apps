@@ -152,13 +152,17 @@ async function technicalDetail({ module, projectId }) {
   const terminal = crawlRuns.find((r) => ['completed', 'stopped'].includes(r.status)) || null;
   const inFlight = crawlRuns.find((r) => ['queued', 'running', 'paused'].includes(r.status)) || null;
 
-  const [findings, internalPages, htmlPages] = await Promise.all([
+  const [findings, internalPages, htmlPages, affectedPageCounts] = await Promise.all([
     terminal ? overview.findingsForRun(terminal.id) : Promise.resolve([]),
     terminal ? overview.internalPageCount(terminal.id) : Promise.resolve(null),
     terminal ? overview.internalHtmlPageCount(terminal.id) : Promise.resolve(null),
+    // Without these the card fell back to run.summary.findings, which no run
+    // has carried since migration 0023 — so any crawl with an error or warning
+    // came back unscored here while the dashboard card beside it had a score.
+    terminal ? overview.healthAffectedPages(terminal.id) : Promise.resolve(null),
   ]);
 
-  const card = overview.technicalCard(crawlRuns, findings, internalPages, htmlPages);
+  const card = overview.technicalCard(crawlRuns, findings, internalPages, htmlPages, [], affectedPageCounts);
   const counts = terminal?.summary?.counts || {};
   const resultCount = Number(terminal?.summary?.resultCount) || 0;
 

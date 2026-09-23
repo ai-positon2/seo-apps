@@ -90,7 +90,10 @@ const SUITES = [
   'modules/projects/__tests__/recommendations.test.js',
   'modules/projects/__tests__/report.test.js',
   'config/__tests__/registry.test.js',
-  'config/__tests__/moduleRuns.test.js',];
+  'config/__tests__/moduleRuns.test.js',
+  // Site Health's affected-page counts, in SQL. Skips without TEST_DATABASE_URL.
+  'modules/projects/__tests__/siteHealthDb.test.js',
+];
 
 // The crawlScope suite runs through its own script, which picks the right
 // --test-isolation spelling for the Node version in use. See testCrawlScope.js.

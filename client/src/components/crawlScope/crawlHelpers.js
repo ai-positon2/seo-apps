@@ -21,6 +21,9 @@ export const REVIEW_STATUSES = [
 // A finding marked either of these is out of the picture for metrics and counts:
 // it is not an outstanding problem any more.
 const DISMISSED = ['False positive', 'Resolved'];
+// Finding scopes that describe the pages themselves, and so count toward Site
+// Health. Mirrored by server/modules/projects/overview.js#siteHealth.
+const PAGE_LEVEL_SCOPES = new Set(['page', 'template']);
 
 export const SEVERITY_ORDER = ['error', 'warning', 'notice', 'info'];
 
@@ -257,14 +260,20 @@ export function filterResults(results, { tab = 'all', issueFilter = '', filter =
 export function healthMetrics(results, findings = []) {
   const internalResults = results.filter((item) => item.scope !== 'External');
   const htmlResults = internalResults.filter(isHtmlPage);
+  const htmlUrls = new Set(htmlResults.map((item) => item.url));
   // `finding.scope` ('page' | 'site' | 'resource' | 'template') is unrelated to
-  // a crawl result's own `.scope` ('Internal' | 'External') just above — only
-  // page-scoped findings belong in a page-level tally. A site-wide
-  // misconfiguration (sitemap/robots, HSTS, llms.txt) or a resource file's
-  // issue must never inflate Errors/Warnings/Notices here; siteScopedGroups()
-  // is where those are counted instead.
+  // a crawl result's own `.scope` ('Internal' | 'External') just above. A
+  // site-wide misconfiguration (sitemap/robots, HSTS, llms.txt) or a resource
+  // file's issue must never inflate Errors/Warnings/Notices here;
+  // siteScopedGroups() is where those are counted instead.
+  //
+  // 'template' is different: it is a PAGE defect that the analyzer found on at
+  // least half the pages (collapseTemplateFindings), so it is grouped as one
+  // cause for display — but every one of those pages still has it. Leaving it
+  // out made the score rise as a problem spread: 45% of pages missing a meta
+  // description scored 90, and 100% of them scored 100.
   const activeFindings = findings.filter(
-    (f) => !DISMISSED.includes(f.reviewStatus) && (f.scope || 'page') === 'page',
+    (f) => !DISMISSED.includes(f.reviewStatus) && PAGE_LEVEL_SCOPES.has(f.scope || 'page'),
   );
   const useFindings = findings.length > 0;
 
@@ -276,13 +285,17 @@ export function healthMetrics(results, findings = []) {
           0,
         );
 
+  // Counted over the same pages as the denominator. A finding on an image,
+  // script or unreachable URL is real, but that URL is not one of the HTML
+  // pages the share is taken over, so it cannot be one of the pages "with" it.
   const affectedPages = (severity) =>
     new Set(
-      useFindings
+      (useFindings
         ? activeFindings.filter((f) => f.severity === severity).map((f) => f.url)
         : internalResults
             .filter((item) => (item.issues || []).some((i) => i.severity === severity))
-            .map((item) => item.url),
+            .map((item) => item.url)
+      ).filter((url) => htmlUrls.has(url)),
     ).size;
 
   const errors = countBySeverity('error');
