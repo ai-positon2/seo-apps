@@ -24,6 +24,10 @@ const ASSET_EXTENSIONS =
   /\.(?:avif|bmp|css|eot|gif|ico|jpe?g|js|json|map|mp3|mp4|ogg|otf|pdf|png|svg|tiff?|ttf|wav|webm|webp|woff2?|xml|zip)(?:$|\?)/i;
 const TEXT_ASSET = /(?:javascript|json|css|xml|text\/)/i;
 const MAX_BODY_BYTES = 5_000_000;
+// Duration of the network request that produced each Response, recorded in
+// _politeFetch. A WeakMap so a response carries its timing without the crawler
+// mutating objects it does not own, and without retaining them.
+const RESPONSE_TIMINGS = new WeakMap();
 const REQUIRED_OPEN_GRAPH = ["og:title", "og:type", "og:image", "og:url"];
 const OPEN_GRAPH_PROPERTIES = [
   ...REQUIRED_OPEN_GRAPH,
@@ -2474,7 +2478,12 @@ class SeoCrawler extends EventEmitter {
 
       let response;
       try {
+        // Timed here, around the request alone, so the figure describes the
+        // server: the politeness slot and any retry backoff above are the
+        // crawler's own waiting, not the site's response time.
+        const requestStarted = performance.now();
         response = await this._fetch(url, { ...init, headers, signal: attemptSignal });
+        RESPONSE_TIMINGS.set(response, Math.round(performance.now() - requestStarted));
       } catch (error) {
         // maxRetries advertised a retry budget that only ever covered two status
         // codes. A transport-level throw — socket hang up, connection reset,
@@ -2615,7 +2624,11 @@ class SeoCrawler extends EventEmitter {
         await response.body.cancel().catch(() => {});
       }
 
-      const responseTime = Math.round(performance.now() - started);
+      // Time to first byte of the response actually used — excluding the
+      // per-host queue and retry waits, which on the worker's 500ms/host
+      // setting alone put nearly every page over the slow-page threshold.
+      const responseTime =
+        RESPONSE_TIMINGS.get(usable) ?? Math.round(performance.now() - started);
       const contentTypeHeader = headerValue(usable.headers, "content-type");
       let contentType = contentTypeHeader.split(";")[0].trim().toLowerCase();
       const redirectLocation = classifyRedirectLocation({
