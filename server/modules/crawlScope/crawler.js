@@ -129,6 +129,17 @@ function cleanText(value = "") {
   return String(value).replace(/\s+/g, " ").trim();
 }
 
+// An integer option with a real default. `Number(x) || fallback` turns an
+// explicit 0 into the fallback, and `Number(x) ?? fallback` never falls back at
+// all (Number() never returns null), so neither is safe for options where 0 is
+// meaningful or where the option is usually absent.
+function boundedInteger(value, fallback, min, max) {
+  if (value === undefined || value === null || value === "") return fallback;
+  const number = Math.floor(Number(value));
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(min, Math.min(number, max));
+}
+
 // Headings are joined into one field for the report. Unbounded, a page with
 // hundreds of them stored an arbitrarily large string that was then retained for
 // the whole crawl in this.results AND written into crawl_run_results.data.
@@ -1302,7 +1313,11 @@ class SeoCrawler extends EventEmitter {
       // behavior identical (no artificial delay); the hosted worker raises
       // perHostDelay to space requests and reduce the chance of being blocked.
       perHostDelay: Math.max(0, Math.min(Number(options.perHostDelay) || 0, 60_000)),
-      maxRetries: Math.max(0, Math.min(Number(options.maxRetries) ?? 2, 5)),
+      // The default has to be applied BEFORE Number(): `Number(undefined) ?? 2`
+      // is NaN (?? only replaces null/undefined), and `attempt < NaN` is always
+      // false. Hosted crawls never pass maxRetries (shared/options.js), so that
+      // NaN silently disabled every retry and all host backoff in production.
+      maxRetries: boundedInteger(options.maxRetries, 2, 0, 5),
       retryBaseDelay: Math.max(100, Math.min(Number(options.retryBaseDelay) || 1_000, 30_000)),
       maxRetryDelay: Math.max(1_000, Math.min(Number(options.maxRetryDelay) || 30_000, 120_000)),
       hostBackoffFactor: Math.max(1, Math.min(Number(options.hostBackoffFactor) || 2, 10)),
