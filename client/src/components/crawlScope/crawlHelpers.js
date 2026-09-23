@@ -680,6 +680,17 @@ export function crawlCoverageNotice(run, catalogById = new Map()) {
   };
 }
 
+// One review decision applied to many findings, split into requests the review
+// endpoint accepts (at most 5,000 reviews each; server api/routes.js).
+export const REVIEW_BATCH_SIZE = 5_000;
+export function reviewBatches(findingIds, reviewStatus, size = REVIEW_BATCH_SIZE) {
+  const batches = [];
+  for (let at = 0; at < findingIds.length; at += size) {
+    batches.push(findingIds.slice(at, at + size).map((findingId) => ({ findingId, reviewStatus, reviewerNotes: '' })));
+  }
+  return batches;
+}
+
 // ── What changed since the last crawl ──────────────────────────────────────
 // run.summary.comparison (run/comparison.js on the server): new / fixed /
 // persisting issues against the previous crawl of the same site, and how many

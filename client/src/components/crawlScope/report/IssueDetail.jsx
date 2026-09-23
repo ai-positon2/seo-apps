@@ -37,11 +37,12 @@ const PAGE_SIZE = 25;
  * @param {Function} props.onBack
  * @param {Function} props.onOpenNext
  * @param {Function} props.onReview       (findingId, reviewStatus) => void
+ * @param {Function} [props.onBulkReview] (findingIds, reviewStatus) => void, for every URL the filters show
  * @param {Function} props.onExport       exports the listed URLs as CSV
  */
 export default function IssueDetail({
   group, entry, findings, titleByUrl, metrics, breakdown = [],
-  next, backLabel, onBack, onOpenNext, onReview, onExport,
+  next, backLabel, onBack, onOpenNext, onReview, onBulkReview = null, onExport,
 }) {
   const [review, setReview] = useState('all');
   const [query, setQuery] = useState('');
@@ -194,6 +195,25 @@ export default function IssueDetail({
               {r === 'all' ? 'All statuses' : r}
             </Pill>
           ))}
+          {/* Every URL the search and status filter show, not just this page
+              of the table. A false positive marked here also carries over to
+              the same issue on the next crawl of this site. */}
+          {onBulkReview && filtered.length > 1 && (
+            <select
+              value=""
+              aria-label={`Set the review of all ${filtered.length} URLs shown`}
+              onChange={(e) => {
+                if (e.target.value) onBulkReview(filtered.map((f) => f.id), e.target.value);
+              }}
+              style={{
+                fontSize: 12.5, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)',
+                background: 'var(--card)', color: 'var(--text)', fontFamily: 'var(--font-sans)',
+              }}
+            >
+              <option value="">{`Set all ${filtered.length.toLocaleString()} shown to…`}</option>
+              {REVIEW_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+            </select>
+          )}
         </div>
 
         <TableFrame>

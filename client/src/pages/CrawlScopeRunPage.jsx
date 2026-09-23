@@ -46,7 +46,7 @@ import IssueDetail from '../components/crawlScope/report/IssueDetail';
 import UrlDetail from '../components/crawlScope/report/UrlDetail';
 import {
   healthMetrics, issueGroups, siteScopedGroups, healthScoreBreakdown, pageIssueCards, crawlCoverageNotice,
-  crawlComparison,
+  crawlComparison, reviewBatches,
   runStatusVariant, formatDuration, TERMINAL_STATUSES, withEffectiveIssues,
   buildCountHierarchy, SEVERITY_ORDER, isHtmlPage,
 } from '../components/crawlScope/crawlHelpers';
@@ -608,6 +608,30 @@ export default function CrawlScopeRunPage() {
     }
   }, [findings, id, toast]);
 
+  /**
+   * One decision for many findings — every URL a filter shows — so triaging a
+   * rule that fired 800 times is one action rather than 800. Same shape as
+   * onReview: on screen first, and put back if the write fails.
+   */
+  const onBulkReview = useCallback(async (findingIds, reviewStatus) => {
+    if (!findingIds.length) return;
+    const chosen = new Set(findingIds);
+    const previous = new Map(findings.filter((f) => chosen.has(f.id)).map((f) => [f.id, f.reviewStatus || 'Needs review']));
+    setFindings((prev) => prev.map((f) => (chosen.has(f.id) ? { ...f, reviewStatus } : f)));
+    let saved = 0;
+    try {
+      for (const batch of reviewBatches(findingIds, reviewStatus)) {
+        await cs.saveReviews(id, batch);
+        saved += batch.length;
+      }
+    } catch (e) {
+      const unsaved = new Set(findingIds.slice(saved));
+      setFindings((prev) => prev.map((f) => (
+        unsaved.has(f.id) ? { ...f, reviewStatus: previous.get(f.id) } : f)));
+      toast.error(`Saved ${saved.toLocaleString()} of ${findingIds.length.toLocaleString()} decisions: ${e.message}`);
+    }
+  }, [findings, id, toast]);
+
   /** The listed findings, as a CSV of the columns the table shows. */
   const exportFindings = useCallback((rows) => {
     if (!rows.length) return;
@@ -941,6 +965,7 @@ export default function CrawlScopeRunPage() {
             if (n) setOpenIssueId(n.id);
           }}
           onReview={onReview}
+          onBulkReview={onBulkReview}
           onExport={exportFindings}
         />
       )}

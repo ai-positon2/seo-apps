@@ -88,3 +88,13 @@ test('a finding counted on a truncated page says so on the page view', () => {
   );
   assert.strictEqual(cards[0].truncated, true);
 });
+
+test('a bulk review goes in requests the server accepts', async () => {
+  // The review endpoint takes at most 5,000 reviews per request.
+  const { reviewBatches } = await import('../crawlHelpers.js');
+  const ids = Array.from({ length: 12_001 }, (_, i) => `f${i}`);
+  const batches = reviewBatches(ids, 'False positive');
+  assert.deepStrictEqual(batches.map((b) => b.length), [5000, 5000, 2001]);
+  assert.deepStrictEqual(batches[0][0], { findingId: 'f0', reviewStatus: 'False positive', reviewerNotes: '' });
+  assert.deepStrictEqual(reviewBatches([], 'Resolved'), []);
+});
