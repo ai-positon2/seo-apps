@@ -45,6 +45,9 @@ const SEVERITY_RANK = { error: 0, warning: 1, notice: 2, info: 3 };
 const PRIORITY_RANK = {
   'high priority': 0,
   'medium priority': 1,
+  // The catalog's third tier is "Low Priority"; "good to have" is an older
+  // spelling kept so anything still carrying it ranks the same.
+  'low priority': 2,
   'good to have': 2,
 };
 

@@ -176,9 +176,9 @@ test("V9.0: Consolidated Actions is one row per root cause, links to its detail 
 test("SUMMARY ranks issues within a priority tier by affected-page count, not alphabetically", async () => {
   const definitions = Object.fromEntries(catalog.map((item) => [item.id, item]));
   // Both High Priority + category "Technical", so alphabetical order (by title)
-  // would put "Broken internal links" before "Page appears in multiple
-  // sitemaps". Give the alphabetically-later one more active findings and
-  // confirm it still comes first — ranking must be count-driven, not A-Z.
+  // would put "Broken internal links" before "URLs returning server errors".
+  // Give the alphabetically-later one more active findings and confirm it
+  // still comes first — ranking must be count-driven, not A-Z.
   const makeFinding = (n, ruleId, reviewStatus) => ({
     id: `finding-${ruleId}-${n}`,
     ruleId,
@@ -193,9 +193,9 @@ test("SUMMARY ranks issues within a priority tier by affected-page count, not al
   });
   const findings = [
     makeFinding(1, "broken-internal-links", "Confirmed issue"),
-    makeFinding(1, "sitemap-duplicate", "Confirmed issue"),
-    makeFinding(2, "sitemap-duplicate", "Needs review"),
-    makeFinding(3, "sitemap-duplicate", "Needs review"),
+    makeFinding(1, "page-5xx", "Confirmed issue"),
+    makeFinding(2, "page-5xx", "Needs review"),
+    makeFinding(3, "page-5xx", "Needs review"),
   ];
 
   const buffer = await buildAuditWorkbook({
@@ -209,12 +209,13 @@ test("SUMMARY ranks issues within a priority tier by affected-page count, not al
   const summary = workbook.getWorksheet("SUMMARY");
   const titles = summary.getColumn(2).values.map((value) => value?.text).filter(Boolean);
 
-  const sitemapRow = titles.indexOf("Page appears in multiple sitemaps");
+  assert.equal(definitions["page-5xx"].priority, definitions["broken-internal-links"].priority);
+  const serverErrorRow = titles.indexOf("URLs returning server errors");
   const brokenLinksRow = titles.indexOf("Broken internal links");
-  assert.notEqual(sitemapRow, -1);
+  assert.notEqual(serverErrorRow, -1);
   assert.notEqual(brokenLinksRow, -1);
   assert.ok(
-    sitemapRow < brokenLinksRow,
+    serverErrorRow < brokenLinksRow,
     "the 3-finding issue should rank above the 1-finding issue despite alphabetical order",
   );
 });
