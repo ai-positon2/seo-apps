@@ -2182,7 +2182,10 @@ class SeoCrawler extends EventEmitter {
         siteDiagnostics: this.siteDiagnostics,
         startUrl: this.startUrl,
         sitemapsChecked: this.mode !== "list" && this.options.discoverSitemaps,
-        crawlTruncated: this.truncated,
+        // A stopped crawl saw only part of the link graph, exactly like one that
+        // hit a cap: "nothing links to this page" is unknowable when the pages
+        // that might link to it were never fetched.
+        crawlTruncated: this.truncated || this.stopped,
       });
       const payload = {
         stopped: this.stopped,
