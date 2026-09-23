@@ -309,6 +309,21 @@ test('the switcher does not invent its own score bands', () => {
   assert.ok(!/score >= \d+/.test(source), 'and none in the bar either');
 });
 
+test('a technical finding carries its rule’s description and fix, not an em dash', () => {
+  // The per-rule rollup (crawl_run_findings.detail) only ever stored the title,
+  // so "Detail" and "What to do" read "—" on every row of every crawl. They
+  // come from the rule catalog, which also covers crawls stored before now.
+  const row = moduleDetail.technicalFindingRow({
+    rule_id: 'page-4xx', severity: 'error', category: 'Technical', count: '3', detail: { title: 'Pages returning 4XX errors' },
+  });
+  assert.strictEqual(row.count, 3);
+  assert.match(row.detail, /client-side errors/);
+  assert.match(row.recommendation, /Restore the page/);
+  const unknown = moduleDetail.technicalFindingRow({ rule_id: 'retired-rule', severity: 'notice', count: 1, detail: {} });
+  assert.strictEqual(unknown.title, 'retired-rule');
+  assert.strictEqual(unknown.detail, null);
+});
+
 console.log('\nThe shared ScoreRing cannot render a missing score as zero');
 
 test('ui/ScoreRing treats a non-finite score as unscored', () => {
