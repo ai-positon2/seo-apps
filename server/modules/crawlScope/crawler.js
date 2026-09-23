@@ -159,6 +159,25 @@ function pruneInertTemplates($) {
   return count;
 }
 
+// The text a reader sees in <body>: markup, scripts, styles and inline SVG
+// removed, with a boundary after block elements so adjacent blocks do not fuse
+// into one word. Shared by page extraction and the missing-page probe, whose
+// fingerprints are compared.
+function visibleTextOf($) {
+  const bodyClone = $("body").clone();
+  bodyClone.find("base, link, meta, script, style, noscript, svg, title").remove();
+  // Cheerio's `.text()` concatenates adjacent elements without a separator
+  // (`</h1><p>` becomes `HeadingParagraph`). Add boundaries after block-like
+  // elements before whitespace normalization so samples stay readable and
+  // word counts do not merge the last/first words of neighboring elements.
+  bodyClone
+    .find(
+      "address, article, aside, blockquote, br, dd, div, dl, dt, fieldset, figcaption, figure, footer, form, h1, h2, h3, h4, h5, h6, header, hr, li, main, nav, ol, p, pre, section, table, td, th, tr, ul",
+    )
+    .after(" ");
+  return cleanText(bodyClone.text());
+}
+
 function isInTemplateContents(element) {
   let ancestor = element?.parent;
   while (ancestor) {
@@ -1904,6 +1923,8 @@ class SeoCrawler extends EventEmitter {
         }),
     );
 
+    checks.push(this._probeMissingPage());
+
     if (this.startUrl.startsWith("https:")) {
       const httpUrl = this.startUrl.replace(/^https:/, "http:");
       checks.push(
@@ -1942,6 +1963,76 @@ class SeoCrawler extends EventEmitter {
       );
     }
     await Promise.all(checks);
+  }
+
+  // ── What does this site answer for a URL that does not exist? ─────────────
+  // A site that serves 200 (or redirects) for unknown URLs hides every deleted
+  // page and mistyped link from status-based checks: they all look live. One
+  // request to a random path that cannot exist says which kind of site this
+  // is, and a fingerprint of its not-found page lets the analyzer recognise
+  // that page wherever else the crawl met it (see soft-404 in analyzer.js).
+  //
+  // Same-host redirects are followed first: /missing -> /missing/ -> 404 is a
+  // correct setup, not a soft 404. The fingerprint is only kept when the page
+  // was served AT the missing URL — when missing URLs redirect to the homepage,
+  // the page at the end is the homepage, which must not be flagged.
+  async _probeMissingPage() {
+    const probeUrl = new URL(
+      `/crawlscope-missing-page-check-${crypto.randomBytes(6).toString("hex")}`,
+      this.origin,
+    ).href;
+    if (this.options.respectRobots && !isAllowedByRobots(probeUrl, this.robotsRules)) return;
+    const probe = { url: probeUrl, status: 0, finalUrl: probeUrl, redirected: false, title: "", hash: "", words: 0 };
+    try {
+      let url = probeUrl;
+      for (let hop = 0; hop < 5; hop += 1) {
+        const response = await this._politeFetch(
+          url,
+          {
+            redirect: "manual",
+            headers: { "User-Agent": this.options.userAgent, Accept: "text/html,*/*;q=0.8" },
+          },
+          { timeout: this.options.timeout, signal: this.rootController.signal },
+        );
+        probe.status = response.status;
+        probe.finalUrl = url;
+        const location = normalizeUrl(headerValue(response.headers, "location"), url);
+        if (isRedirectStatus(response.status) && location) {
+          if (response.body) await response.body.cancel().catch(() => {});
+          if (new URL(location).host !== new URL(url).host) {
+            probe.redirected = true;
+            probe.finalUrl = location;
+            break;
+          }
+          // A redirect that only adds/removes a trailing slash or changes case
+          // is URL normalization; anything else is a redirect to another page.
+          const sameResource =
+            location.replace(/\/$/, "").toLowerCase() === url.replace(/\/$/, "").toLowerCase();
+          if (!sameResource) probe.redirected = true;
+          url = location;
+          continue;
+        }
+        if (
+          response.status >= 200 &&
+          response.status < 300 &&
+          !probe.redirected &&
+          /html/i.test(headerValue(response.headers, "content-type"))
+        ) {
+          const $ = cheerio.load(await this._readTextBody(response));
+          pruneInertTemplates($);
+          const text = visibleTextOf($);
+          probe.title = cleanText(documentElements($, "title").first().text());
+          probe.hash = crypto.createHash("sha1").update(text).digest("hex");
+          probe.words = text ? text.split(/\s+/).length : 0;
+        } else if (response.body) {
+          await response.body.cancel().catch(() => {});
+        }
+        break;
+      }
+      this.siteDiagnostics.missingPageProbe = probe;
+    } catch {
+      // A probe that could not be completed says nothing either way.
+    }
   }
 
   _progress() {
@@ -2984,18 +3075,7 @@ class SeoCrawler extends EventEmitter {
         .filter(Boolean);
     const h1Values = headingTexts("h1");
     const h2Values = headingTexts("h2");
-    const bodyClone = $("body").clone();
-    bodyClone.find("base, link, meta, script, style, noscript, svg, title").remove();
-    // Cheerio's `.text()` concatenates adjacent elements without a separator
-    // (`</h1><p>` becomes `HeadingParagraph`). Add boundaries after block-like
-    // elements before whitespace normalization so samples stay readable and
-    // word counts do not merge the last/first words of neighboring elements.
-    bodyClone
-      .find(
-        "address, article, aside, blockquote, br, dd, div, dl, dt, fieldset, figcaption, figure, footer, form, h1, h2, h3, h4, h5, h6, header, hr, li, main, nav, ol, p, pre, section, table, td, th, tr, ul",
-      )
-      .after(" ");
-    const visibleText = cleanText(bodyClone.text());
+    const visibleText = visibleTextOf($);
     const words = visibleText ? visibleText.split(/\s+/).length : 0;
     const links = new Set();
     let externalLinks = 0;

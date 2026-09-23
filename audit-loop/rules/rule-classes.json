@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "total": 100,
-    "severity_counts": { "error": 24, "warning": 44, "notice": 32 },
+    "total": 102,
+    "severity_counts": { "error": 25, "warning": 45, "notice": 32 },
     "eval_class": {
       "crawl": "Fully derivable from a single crawl. A no-fire here must be justified by proving the site condition is absent.",
       "external_gsc": "Needs Search Console. Structurally silent without a connected data source.",
@@ -42,6 +42,7 @@
     "redirect-terminal-indexability": { "sev": "warning", "class": "crawl", "rarity": "occasional" },
     "temporary-redirect":             { "sev": "warning", "class": "crawl", "rarity": "occasional" },
     "canonical-to-http":              { "sev": "warning", "class": "crawl", "rarity": "rare" },
+    "soft-404":                       { "sev": "warning", "class": "crawl", "rarity": "occasional" },
     "deep-page":                      { "sev": "notice",  "class": "crawl", "rarity": "common" },
     "mixed-incoming-follow":          { "sev": "notice",  "class": "crawl", "rarity": "occasional" },
     "noindex":                        { "sev": "notice",  "class": "crawl", "rarity": "common" },
@@ -68,6 +69,7 @@
     "sni-unsupported":             { "sev": "error",   "class": "crawl", "rarity": "fixture_only" },
     "ssl-certificate-name":        { "sev": "error",   "class": "crawl", "rarity": "fixture_only" },
     "broken-internal-image":       { "sev": "error",   "class": "crawl", "rarity": "common" },
+    "soft-404-site":               { "sev": "error",   "class": "crawl", "rarity": "occasional" },
     "blocked-resource":            { "sev": "warning", "class": "crawl", "rarity": "common" },
     "sitemap-redirect":            { "sev": "warning", "class": "crawl", "rarity": "occasional" },
     "sitemap-robots-config":       { "sev": "warning", "class": "crawl", "rarity": "occasional" },

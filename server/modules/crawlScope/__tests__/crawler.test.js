@@ -780,6 +780,14 @@ test("detects exact duplicate visible content end to end", async (t) => {
       </head><body><h1>Fixture index</h1><a href="/alpha">Alpha</a><a href="/beta">Beta</a></body></html>`);
       return;
     }
+    // Only the two duplicated pages exist. A catch-all 200 would also answer the
+    // crawler's missing-page probe with this body, which (correctly) marks both
+    // pages as the site's not-found page instead of as duplicates.
+    if (request.url !== "/alpha" && request.url !== "/beta") {
+      response.statusCode = 404;
+      response.end("<!doctype html><html><head><title>Not found</title></head><body>Not found</body></html>");
+      return;
+    }
     const canonical = request.url === "/alpha" ? "/alpha" : "/beta";
     response.end(`<!doctype html><html><head>
       <title>Shared service title</title>

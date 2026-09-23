@@ -41,6 +41,17 @@
     "detection": "Automatic"
   },
   {
+    "id": "soft-404-site",
+    "title": "Missing pages don't return a 404 status",
+    "description": "A URL that cannot exist on this site returned a normal page, or redirected elsewhere, instead of a 404. Deleted and mistyped URLs then look live to search engines, which report them as soft 404s, and links to removed pages never show up as broken.",
+    "recommendation": "Configure the server or CMS to answer unknown URLs with HTTP 404 (410 for content removed on purpose) while still showing the friendly not-found page. Do not redirect every missing URL to the homepage; redirect only removed pages that have a genuine replacement.",
+    "category": "Technical",
+    "priority": "High Priority",
+    "severity": "error",
+    "detection": "Automatic",
+    "scope": "site"
+  },
+  {
     "id": "redirect-location-invalid",
     "title": "Redirect destination is missing or unusable",
     "description": "A Fetch redirect response has no Location header, has a Location value that cannot be resolved as a URL, or points to a non-HTTP(S) scheme. The advertised redirect therefore cannot take users or crawlers to a usable web destination.",
@@ -255,6 +266,16 @@
     "category": "Indexability",
     "priority": "Low Priority",
     "severity": "notice",
+    "detection": "Automatic"
+  },
+  {
+    "id": "soft-404",
+    "title": "Possible soft 404 pages",
+    "description": "These URLs return 200 but show a 'not found' page — the same page the site serves for a URL that does not exist, or one titled like an error page with almost no content. Search engines treat them as errors and drop them from the index.",
+    "recommendation": "If the content is gone, return 404 or 410 (or a 301 to a genuinely equivalent page) and update the links that point here. If the page should exist, restore its content.",
+    "category": "Indexability",
+    "priority": "Medium Priority",
+    "severity": "warning",
     "detection": "Automatic"
   },
   {

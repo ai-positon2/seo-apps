@@ -44,6 +44,18 @@ const MAX_REDIRECT_TRACE_HOPS = 100;
 // ISO 639-1 language, optionally "-" + ISO 3166-1 region, or the special
 // "x-default" value. Values are lowercased before this check runs.
 const HREFLANG_CODE = /^(x-default|[a-z]{2,3}(-[a-z]{2})?)$/;
+// Wording of a "not found" page, for soft-404 detection — phrased the way error
+// pages are, not merely containing "404" ("Area code 404", "How to fix 404
+// errors" are real pages). Only trusted on a thin page, too.
+const NOT_FOUND_WORDING = [
+  /^\s*(?:error\s*)?404\b/i,
+  /\b404\b.*\bnot\s+found\b|\bnot\s+found\b.*\b404\b/i,
+  /^\s*not\s+found\b/i,
+  /\bpage\s+(?:not\s+found|(?:does\s+not|doesn['’]t|could\s+not\s+be)\s+(?:exist|found))\b/i,
+  /\b(?:page|content|article|product)\s+(?:is\s+)?no\s+longer\s+(?:available|exists)\b/i,
+];
+const readsLikeNotFound = (text) => NOT_FOUND_WORDING.some((pattern) => pattern.test(String(text || "")));
+const SOFT_404_MAX_WORDS = 300;
 
 // Titles commonly carry a "Page Name | Brand" or "Page Name - Brand" suffix.
 // Trimming to the primary segment first keeps the brand off the chopping
@@ -1208,6 +1220,32 @@ function buildFindings({
       creditLink(followLinkingPages, destination.url, result.url);
     }
   }
+  // ── Soft 404s ──────────────────────────────────────────────────────────────
+  // Pages that answer 200 but are the site's "not found" page: the same body as
+  // the crawler's probe of a URL that cannot exist, or titled like an error page
+  // with almost nothing on it. Kept out of the duplicate checks below — five
+  // soft 404s share a title because they are one error page, and that is one
+  // problem, reported once per URL as soft-404.
+  const missingPageProbe = siteDiagnostics.missingPageProbe || null;
+  const softNotFound = new Map(); // url -> detail
+  for (const result of htmlResults) {
+    if (result.status !== 200 || result.url === startUrl) continue;
+    if (missingPageProbe?.hash && result.hash === missingPageProbe.hash) {
+      softNotFound.set(
+        result.url,
+        "Returns 200 with the same page the site serves for a URL that does not exist",
+      );
+      continue;
+    }
+    const wording = [result.title, result.h1].find(readsLikeNotFound);
+    if (wording && (Number(result.words) || 0) < SOFT_404_MAX_WORDS) {
+      softNotFound.set(
+        result.url,
+        `Returns 200, reads "${String(wording).slice(0, 120)}" and has only ${Number(result.words) || 0} words`,
+      );
+    }
+  }
+
   const inlinksOf = (url) => linkingPages.get(url)?.size || 0;
   const followInlinksOf = (url) => followLinkingPages.get(url)?.size || 0;
 
@@ -1766,7 +1804,12 @@ function buildFindings({
     const groups = new Map();
     for (const result of htmlResults) {
       const value = result[key]?.trim().toLowerCase();
-      if (!value || !isPreferredIndexablePage(result, index) || !isEligible(result)) {
+      if (
+        !value ||
+        !isPreferredIndexablePage(result, index) ||
+        !isEligible(result) ||
+        softNotFound.has(result.url)
+      ) {
         continue;
       }
       const group = groups.get(value) || [];
@@ -1790,6 +1833,7 @@ function buildFindings({
   for (const result of htmlResults) {
     if (
       !isPreferredIndexablePage(result, index) ||
+      softNotFound.has(result.url) ||
       !result.hash ||
       result.words < 50
     ) {
@@ -2138,6 +2182,29 @@ function buildFindings({
       detail: `URLs matching ${template} were generated past the per-pattern limit and were not crawled.`,
       detectedValue: template,
     });
+  }
+  for (const [url, detail] of softNotFound) {
+    add("soft-404", index.get(url) || { url }, { detail, detectedValue: index.get(url)?.title || "" });
+  }
+  if (missingPageProbe && missingPageProbe.status) {
+    const status = missingPageProbe.status;
+    if (missingPageProbe.redirected) {
+      add("soft-404-site", { url: startUrl }, {
+        targetUrl: missingPageProbe.url,
+        statusCode: status,
+        detail: `A URL that cannot exist (${missingPageProbe.url}) redirected to ${missingPageProbe.finalUrl} instead of returning 404.`,
+        detectedValue: `redirect -> ${missingPageProbe.finalUrl} (HTTP ${status})`,
+      });
+    } else if (status >= 200 && status < 300) {
+      add("soft-404-site", { url: startUrl }, {
+        targetUrl: missingPageProbe.url,
+        statusCode: status,
+        detail: `A URL that cannot exist (${missingPageProbe.url}) returned HTTP ${status}${
+          missingPageProbe.title ? ` with the page "${missingPageProbe.title}"` : ""
+        } instead of 404.`,
+        detectedValue: `HTTP ${status}`,
+      });
+    }
   }
   if (siteDiagnostics.httpHomepageIssue) {
     add("http-homepage", { url: startUrl }, {
