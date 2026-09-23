@@ -1190,6 +1190,8 @@ const SITEMAP_RULES = [
   "sitemap-http-url",
   "sitemap-unreadable",
   "sitemap-robots-config",
+  "sitemap-too-large",
+  "sitemap-off-host",
   // An orphan is a page the sitemap lists and no link reaches.
   "orphan-page",
 ];
@@ -1213,6 +1215,16 @@ function crawlCoverage({
 
   if (!sitemapsChecked) {
     skip(SITEMAP_RULES, "Sitemaps were not read on this crawl: sitemap discovery was off, or this was a URL list.");
+  } else {
+    const cut = (siteDiagnostics.sitemapLimits || []).filter((limit) => limit.truncated).length;
+    if (cut) {
+      for (const ruleId of SITEMAP_RULES) {
+        partial.set(
+          ruleId,
+          `${cut} sitemap ${cut === 1 ? "file was" : "files were"} larger than 50 MB and read only that far, so URLs listed past that point were not seen.`,
+        );
+      }
+    }
   }
   if (crawlTruncated) {
     skip(
@@ -2510,6 +2522,28 @@ function buildFindings({
         `${refusals.startRefused ? ", including the start page" : ""}. ` +
         "Those URLs were not audited and are left out of Site Health.",
       detectedValue: breakdown,
+    });
+  }
+  // A sitemap past the protocol's 50 MB / 50,000-URL limits is rejected by
+  // search engines; one finding per file, on the file.
+  for (const limit of siteDiagnostics.sitemapLimits || []) {
+    add("sitemap-too-large", { url: limit.url }, {
+      detail: `${limit.url} ${limit.detail}.`,
+      detectedValue: limit.detail,
+    });
+  }
+  // Entries on another host (www vs the bare domain, a staging host) are
+  // ignored by search engines and were skipped by the crawl without a word;
+  // the pages they meant to list then read as missing from every sitemap.
+  const offHost = siteDiagnostics.sitemapOffHost;
+  if (offHost?.count) {
+    const hosts = (offHost.hosts || []).map(([host, count]) => `${host} (${count.toLocaleString("en-US")})`).join(", ");
+    add("sitemap-off-host", { url: siteDiagnostics.robotsUrl || startUrl }, {
+      detail:
+        `${offHost.count.toLocaleString("en-US")} sitemap ${offHost.count === 1 ? "entry is" : "entries are"} on ` +
+        `${(offHost.hosts || []).length === 1 ? "another host" : "other hosts"}: ${hosts}. ` +
+        "Search engines ignore them, and the crawl skipped them.",
+      detectedValue: (offHost.samples || []).join(", "),
     });
   }
   // Without this the audit of a client-rendered site reads as clean: one page,

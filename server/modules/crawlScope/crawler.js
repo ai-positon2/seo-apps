@@ -31,6 +31,15 @@ const ASSET_EXTENSIONS =
   /\.(?:avif|bmp|css|eot|gif|ico|jpe?g|js|json|map|mp3|mp4|ogg|otf|pdf|png|svg|tiff?|ttf|wav|webm|webp|woff2?|xml|zip)(?:$|\?)/i;
 const TEXT_ASSET = /(?:javascript|json|css|xml|text\/)/i;
 const MAX_BODY_BYTES = 5_000_000;
+// The sitemap protocol's per-file limits: 50 MB uncompressed and 50,000 URLs.
+// Sitemaps are read up to the first (a page's 5 MB would cut a legal sitemap
+// short) and a file past either is reported, since search engines reject it.
+const MAX_SITEMAP_BYTES = 50 * 1024 * 1024;
+const MAX_SITEMAP_URLS = 50_000;
+// All sitemap files of one crawl together. Per-file limits alone would let 200
+// documents of 50 MB each be 10 GB; this keeps the old worst case (200 files at
+// the old 5 MB), while any one legal sitemap is still read whole.
+const MAX_SITEMAP_TOTAL_BYTES = 1_000_000_000;
 // Duration of the network request that produced each Response, recorded in
 // _politeFetch. A WeakMap so a response carries its timing without the crawler
 // mutating objects it does not own, and without retaining them.
@@ -1158,6 +1167,50 @@ function schemaErrorsFromPage($) {
   return { errors: [...new Set(errors)].slice(0, 20), types: [...allTypes].slice(0, 20) };
 }
 
+// Inflate a gzip body up to `limit` bytes, keeping what fits. gunzipSync with
+// maxOutputLength throws past the limit, which dropped a whole sitemap for being
+// large, and throws on a truncated download, which dropped every complete
+// entry before the cut.
+function gunzipUpTo(buffer, limit) {
+  return new Promise((resolve, reject) => {
+    const gunzip = zlib.createGunzip();
+    const chunks = [];
+    let bytes = 0;
+    let truncated = false;
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve({ buffer: Buffer.concat(chunks), truncated });
+    };
+    gunzip.on("data", (chunk) => {
+      if (settled) return;
+      if (bytes + chunk.length > limit) {
+        chunks.push(chunk.subarray(0, limit - bytes));
+        truncated = true;
+        finish();
+        gunzip.destroy();
+        return;
+      }
+      bytes += chunk.length;
+      chunks.push(chunk);
+    });
+    gunzip.on("end", finish);
+    gunzip.on("error", (error) => {
+      if (settled) return;
+      if (!chunks.length) {
+        settled = true;
+        reject(error);
+        return;
+      }
+      // Output before a corrupt or cut-off tail is still the sitemap's.
+      truncated = true;
+      finish();
+    });
+    gunzip.end(buffer);
+  });
+}
+
 class SeoCrawler extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -1807,6 +1860,13 @@ class SeoCrawler extends EventEmitter {
 
     const errors = [];
     let truncatedTraversal = false;
+    // Files past the protocol's limits, and entries on hosts the crawl does not
+    // cover: both used to vanish without a word.
+    let sitemapBytes = 0;
+    let bytesExhausted = false;
+    const oversized = new Map(); // sitemap URL -> what is over the limit
+    const noteOversized = (url, detail) => oversized.set(url, [...(oversized.get(url) || []), detail]);
+    const offHost = { count: 0, hosts: new Map(), samples: [] };
 
     while (pending.length && !this.stopped) {
       if (visited.size >= this.options.maxSitemapDocuments) {
@@ -1814,6 +1874,11 @@ class SeoCrawler extends EventEmitter {
         // index pointed at 50 child sitemaps silently lost 35 of them and every
         // URL inside. Now it is a declared truncation at a realistic ceiling.
         truncatedTraversal = true;
+        break;
+      }
+      if (sitemapBytes >= MAX_SITEMAP_TOTAL_BYTES) {
+        truncatedTraversal = true;
+        bytesExhausted = true;
         break;
       }
       const sitemapUrl = pending.shift();
@@ -1836,7 +1901,11 @@ class SeoCrawler extends EventEmitter {
           if (response.body) await response.body.cancel().catch(() => {});
           continue;
         }
-        const xml = await this._readSitemapBody(response, sitemapUrl);
+        const { xml, truncated: cutShort, bytes } = await this._readSitemapBody(response, sitemapUrl);
+        sitemapBytes += bytes || 0;
+        if (cutShort) {
+          noteOversized(sitemapUrl, "is larger than 50 MB uncompressed, and only the first 50 MB were read");
+        }
         if (!xml) {
           errors.push(`${sitemapUrl}: body could not be read`);
           continue;
@@ -1854,8 +1923,22 @@ class SeoCrawler extends EventEmitter {
             if (!visited.has(location)) pending.push(location);
           }
         } else {
+          if (locations.length > MAX_SITEMAP_URLS) {
+            noteOversized(
+              sitemapUrl,
+              `lists ${locations.length.toLocaleString("en-US")} URLs, over the limit of ${MAX_SITEMAP_URLS.toLocaleString("en-US")}`,
+            );
+          }
           for (const location of locations) {
-            if (!this._inScope(location)) continue;
+            if (!this._inScope(location)) {
+              // Search engines ignore a sitemap entry on another host, and so
+              // does the crawl; counted so the report can say so.
+              const host = new URL(location).host;
+              offHost.count += 1;
+              offHost.hosts.set(host, (offHost.hosts.get(host) || 0) + 1);
+              if (offHost.samples.length < 5) offHost.samples.push(location);
+              continue;
+            }
             const memberships = this.sitemapMembership.get(location) || new Set();
             memberships.add(sitemapUrl);
             this.sitemapMembership.set(location, memberships);
@@ -1870,10 +1953,21 @@ class SeoCrawler extends EventEmitter {
     }
 
     this.siteDiagnostics.sitemapErrors = errors.slice(0, 20);
+    this.siteDiagnostics.sitemapLimits = [...oversized]
+      .slice(0, 20)
+      .map(([url, details]) => ({ url, detail: details.join(", and "), truncated: details.some((d) => d.includes("50 MB")) }));
+    this.siteDiagnostics.sitemapOffHost = offHost.count
+      ? {
+          count: offHost.count,
+          hosts: [...offHost.hosts].sort((a, b) => b[1] - a[1]).slice(0, 10),
+          samples: offHost.samples,
+        }
+      : null;
     if (truncatedTraversal) {
-      this.siteDiagnostics.sitemapConfigIssue =
-        `Sitemap traversal stopped at ${this.options.maxSitemapDocuments} documents; ` +
-        `${pending.length} more were not read.`;
+      this.siteDiagnostics.sitemapConfigIssue = bytesExhausted
+        ? `Sitemap traversal stopped after reading 1 GB of sitemaps; ${pending.length} more were not read.`
+        : `Sitemap traversal stopped at ${this.options.maxSitemapDocuments} documents; ` +
+          `${pending.length} more were not read.`;
     } else if (!declaredCount) {
       this.siteDiagnostics.sitemapConfigIssue = foundAny
         ? "A sitemap was found, but robots.txt does not declare it."
@@ -1891,18 +1985,23 @@ class SeoCrawler extends EventEmitter {
   // so fetch does not inflate it. response.text() then returned binary, the
   // "<urlset|<sitemapindex" guard failed, and every URL in that sitemap was
   // dropped without a word.
+  //
+  // Read up to the protocol's 50 MB, not a page's 5 MB, and say when a file was
+  // cut there: `truncated` is set when the file (or what it inflates to) is
+  // larger, and what was read is still used — every complete <loc> in it counts.
   async _readSitemapBody(response, sitemapUrl) {
-    const { buffer } = await this._readBodyBuffer(response);
+    const { buffer, truncated, bytes } = await this._readBodyBuffer(response, MAX_SITEMAP_BYTES);
     const isGzip = buffer.length > 2 && buffer[0] === 0x1f && buffer[1] === 0x8b;
-    if (!isGzip) return this._decodeBuffer(buffer, response);
+    if (!isGzip) return { xml: this._decodeBuffer(buffer, response), truncated, bytes };
     try {
-      return zlib.gunzipSync(buffer, { maxOutputLength: MAX_BODY_BYTES }).toString("utf8");
+      const inflated = await gunzipUpTo(buffer, MAX_SITEMAP_BYTES);
+      return { xml: inflated.buffer.toString("utf8"), truncated: truncated || inflated.truncated, bytes };
     } catch (error) {
       this.emit("log", {
         level: "warning",
         message: `${sitemapUrl}: gzip could not be inflated (${cleanText(error.message)})`,
       });
-      return "";
+      return { xml: "", truncated, bytes };
     }
   }
 

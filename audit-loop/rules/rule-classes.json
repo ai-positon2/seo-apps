@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "total": 103,
-    "severity_counts": { "error": 26, "warning": 45, "notice": 32 },
+    "total": 105,
+    "severity_counts": { "error": 26, "warning": 47, "notice": 32 },
     "eval_class": {
       "crawl": "Fully derivable from a single crawl. A no-fire here must be justified by proving the site condition is absent.",
       "external_gsc": "Needs Search Console. Structurally silent without a connected data source.",
@@ -77,6 +77,8 @@
     "base-url-ignored":            { "sev": "warning", "class": "crawl", "rarity": "fixture_only" },
     "sitemap-http-url":            { "sev": "warning", "class": "crawl", "rarity": "occasional" },
     "broken-internal-resource":    { "sev": "warning", "class": "crawl", "rarity": "occasional" },
+    "sitemap-off-host":            { "sev": "warning", "class": "crawl", "rarity": "occasional" },
+    "sitemap-too-large":           { "sev": "warning", "class": "crawl", "rarity": "rare" },
     "hsts-missing":                { "sev": "notice",  "class": "crawl", "rarity": "common" },
     "sitemap-duplicate":           { "sev": "notice",  "class": "crawl", "rarity": "occasional" },
     "sitemap-missing-indexable":   { "sev": "notice",  "class": "crawl", "rarity": "common" }

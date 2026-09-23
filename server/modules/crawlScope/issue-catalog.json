@@ -1070,5 +1070,27 @@
     "priority": "High Priority",
     "severity": "error",
     "detection": "Automatic"
+  },
+  {
+    "id": "sitemap-too-large",
+    "scope": "site",
+    "title": "Sitemap file too large",
+    "description": "A sitemap file is over the protocol's limits of 50 MB uncompressed or 50,000 URLs. Search engines reject a file past either limit, so none of the URLs in it are submitted through it.",
+    "recommendation": "Split the sitemap into files of at most 50,000 URLs and 50 MB each, and list them in a sitemap index file that robots.txt declares instead.",
+    "category": "Technical",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
+    "id": "sitemap-off-host",
+    "scope": "site",
+    "title": "Sitemap lists URLs on another host",
+    "description": "A sitemap lists URLs on a different host from the one it is served on, such as the www or non-www version of the site, or a staging host. Search engines accept a sitemap entry only on the sitemap's own host (unless both hosts are verified together), so those entries are ignored and the pages they name get no sitemap coverage.",
+    "recommendation": "List every page under the host the site actually serves, the one its redirects and canonical tags point to. If the pages really live on the other host, give that host its own sitemap and declare it in that host's robots.txt.",
+    "category": "Technical",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
   }
 ]

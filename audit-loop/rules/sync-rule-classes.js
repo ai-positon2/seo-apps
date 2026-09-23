@@ -36,6 +36,8 @@ const NEW_RULES = {
   "soft-404-site": { class: "crawl", rarity: "occasional" },
   "soft-404": { class: "crawl", rarity: "occasional" },
   "crawl-blocked": { class: "crawl", rarity: "occasional" },
+  "sitemap-too-large": { class: "crawl", rarity: "rare" },
+  "sitemap-off-host": { class: "crawl", rarity: "occasional" },
 };
 
 const GROUPS = [
