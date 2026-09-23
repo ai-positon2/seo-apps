@@ -2,9 +2,9 @@
 //
 // healthAffectedPages() computes siteHealth's numerator in SQL: distinct
 // internal HTML pages with at least one counted finding, per severity. Which
-// findings count is the whole point, and it is decided by a join and three
-// predicates — scope, content type, review status — so it is tested where those
-// predicates actually run.
+// findings count is the whole point, and it is decided by a join and four
+// predicates — scope, content type, refusal, review status — so it is tested
+// where those predicates actually run.
 //
 // The rule it must match is the crawl report's own (client crawlHelpers.js
 // healthMetrics): page- and template-scoped findings count; site and resource
@@ -45,10 +45,10 @@ const H = 'https://health.invalid';
     `insert into crawl_runs (owner, url, status) values ($1, $2, 'completed') returning id`,
     [user.id, `${H}/`],
   );
-  const addResult = (runId, url, contentType, scope = 'Internal') => db.query(
+  const addResult = (runId, url, contentType, scope = 'Internal', extra = {}) => db.query(
     `insert into crawl_run_results (run_id, owner, url, status, content_type, data)
        values ($1, $2, $3, 200, $4, $5)`,
-    [runId, user.id, url, contentType, JSON.stringify({ url, scope, contentType })],
+    [runId, user.id, url, contentType, JSON.stringify({ url, scope, contentType, ...extra })],
   );
   let findingSeq = 0;
   const addFinding = async (runId, finding) => {
@@ -94,6 +94,20 @@ const H = 'https://health.invalid';
       const counts = await overview.healthAffectedPages(run.id);
       const score = overview.siteHealth({ summary: { counts: {} } }, 4, [], counts);
       assert.equal(score.score, Math.round(100 - (1 / 4) * 45 - (3 / 4) * 22 - (1 / 4) * 8));
+    });
+
+    await test('pages that refused the crawler leave both sides of the score', async () => {
+      // The analyzer marks a response that refused the crawler (crawlRefused);
+      // it was not audited, so it is neither a page with an error nor a clean one.
+      const blocked = await newRun();
+      await addResult(blocked.id, `${H}/`, 'text/html');
+      for (const p of ['a', 'b', 'c']) {
+        await addResult(blocked.id, `${H}/${p}`, 'text/html', 'Internal', { crawlRefused: true });
+        await addFinding(blocked.id, { severity: 'error', scope: 'page', url: `${H}/${p}`, crawlRefused: true });
+      }
+      await addFinding(blocked.id, { severity: 'warning', scope: 'page', url: `${H}/` });
+      assert.equal(await overview.internalHtmlPageCount(blocked.id), 1);
+      assert.deepEqual(await overview.healthAffectedPages(blocked.id), { error: 0, warning: 1, notice: 0 });
     });
 
     await test('a run with no stored instances returns null so the caller can fall back', async () => {

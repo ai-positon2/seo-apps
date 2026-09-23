@@ -146,7 +146,9 @@ export default function OverviewPanel({
           <Tile
             label="HTML pages"
             value={metrics.htmlCount.toLocaleString()}
-            sub="The audit universe — the rest are files and feeds"
+            sub={metrics.refusedCount
+              ? `The audit universe — ${metrics.refusedCount.toLocaleString()} URL${metrics.refusedCount === 1 ? '' : 's'} refused the crawler and ${metrics.refusedCount === 1 ? 'is' : 'are'} not counted`
+              : 'The audit universe — the rest are files and feeds'}
           />
           <Tile
             label="Findable by Google"

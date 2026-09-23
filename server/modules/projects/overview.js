@@ -232,11 +232,14 @@ async function internalHtmlPageCount(runId) {
     //
     // Not showing an error on somebody else's page and then counting that page
     // as clean are the same mistake pointing in two directions.
+    // Pages that refused the crawler (bot protection, rate limiting) were not
+    // audited, so they are not pages the score can describe either way.
     return await db.count(
       `select count(*) from crawl_run_results
         where run_id = $1
           and content_type ilike '%text/html%'
-          and data->>'scope' = 'Internal'`,
+          and data->>'scope' = 'Internal'
+          and coalesce(data->>'crawlRefused', 'false') <> 'true'`,
       [runId]
     );
   } catch (error) {
@@ -452,7 +455,8 @@ const DISMISSED_REVIEW_STATUSES = ['False positive', 'Resolved'];
  *
  * Counted exactly the way the crawl report counts them: page- and
  * template-scoped findings, on pages that are part of the denominator (internal
- * text/html results), not dismissed by a reviewer. Three rows come back instead
+ * text/html results that did not refuse the crawler), not dismissed by a
+ * reviewer. Three rows come back instead
  * of every finding instance crossing the wire to be reduced to three numbers.
  *
  * Returns null when the run stored no instances at all (a crawl from before
@@ -477,6 +481,7 @@ async function healthAffectedPages(runId) {
           and coalesce(f.data->>'scope', 'page') = any($2)
           and r.content_type ilike '%text/html%'
           and r.data->>'scope' = 'Internal'
+          and coalesce(r.data->>'crawlRefused', 'false') <> 'true'
           and coalesce(v.review_status, '') <> all($3)
         group by 1`,
       [runId, [...PAGE_LEVEL_SCOPES], DISMISSED_REVIEW_STATUSES],
@@ -772,14 +777,16 @@ function siteHealth(run, internalHtmlCount = null, instances = [], affectedPageC
 
 // Versioned, because the formula moves: v2 changed the denominator, v3 the
 // numerator (template-wide page findings now count, reviewer-dismissed ones and
-// findings on non-page URLs do not). A stored score and the sentence explaining
-// it have to stay readable together after the formula moves.
-const SITE_HEALTH_BASIS = 'the site crawl\'s own health score (v3, internal pages only): 100 '
+// findings on non-page URLs do not), v4 the denominator again (pages that
+// refused the crawler are not counted). A stored score and the sentence
+// explaining it have to stay readable together after the formula moves.
+const SITE_HEALTH_BASIS = 'the site crawl\'s own health score (v4, internal pages only): 100 '
   + 'less 45 points scaled by the share of internal pages with an error, 22 by pages with a '
   + 'warning and 8 by pages with a notice. A problem found on most pages counts on every one '
   + 'of them; findings a reviewer marked false positive or resolved do not count, and site-wide '
-  + 'configuration findings are reported separately. External pages the crawler followed are '
-  + 'excluded from both the findings and the denominator, so the score describes the site you own';
+  + 'configuration findings are reported separately. External pages the crawler followed, and '
+  + 'pages that refused the crawler (bot protection, rate limiting), are excluded from both the '
+  + 'findings and the denominator, so the score describes the pages of your site that were audited';
 
 function technicalCard(runs, findings, internalPages = null, internalHtmlPages = null, findingInstances = [], affectedPageCounts = null) {
   const module = MODULES[0];

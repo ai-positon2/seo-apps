@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "total": 102,
-    "severity_counts": { "error": 25, "warning": 45, "notice": 32 },
+    "total": 103,
+    "severity_counts": { "error": 26, "warning": 45, "notice": 32 },
     "eval_class": {
       "crawl": "Fully derivable from a single crawl. A no-fire here must be justified by proving the site condition is absent.",
       "external_gsc": "Needs Search Console. Structurally silent without a connected data source.",
@@ -70,6 +70,7 @@
     "ssl-certificate-name":        { "sev": "error",   "class": "crawl", "rarity": "fixture_only" },
     "broken-internal-image":       { "sev": "error",   "class": "crawl", "rarity": "common" },
     "soft-404-site":               { "sev": "error",   "class": "crawl", "rarity": "occasional" },
+    "crawl-blocked":               { "sev": "error",   "class": "crawl", "rarity": "occasional" },
     "blocked-resource":            { "sev": "warning", "class": "crawl", "rarity": "common" },
     "sitemap-redirect":            { "sev": "warning", "class": "crawl", "rarity": "occasional" },
     "sitemap-robots-config":       { "sev": "warning", "class": "crawl", "rarity": "occasional" },

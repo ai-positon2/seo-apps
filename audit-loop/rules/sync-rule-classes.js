@@ -35,6 +35,7 @@ const NEW_RULES = {
   "broken-internal-resource": { class: "crawl", rarity: "occasional" },
   "soft-404-site": { class: "crawl", rarity: "occasional" },
   "soft-404": { class: "crawl", rarity: "occasional" },
+  "crawl-blocked": { class: "crawl", rarity: "occasional" },
 };
 
 const GROUPS = [

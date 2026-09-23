@@ -259,7 +259,10 @@ export function filterResults(results, { tab = 'all', issueFilter = '', filter =
 // scored as pages of this site.
 export function healthMetrics(results, findings = []) {
   const internalResults = results.filter((item) => item.scope !== 'External');
-  const htmlResults = internalResults.filter(isHtmlPage);
+  // A response that refused the crawler (bot protection, rate limiting — the
+  // analyzer's crawl-blocked finding) is not one of the site's pages: nothing
+  // was learned about it, so it is neither counted clean nor counted broken.
+  const htmlResults = internalResults.filter((item) => isHtmlPage(item) && !item.crawlRefused);
   const htmlUrls = new Set(htmlResults.map((item) => item.url));
   // `finding.scope` ('page' | 'site' | 'resource' | 'template') is unrelated to
   // a crawl result's own `.scope` ('Internal' | 'External') just above. A
@@ -327,6 +330,7 @@ export function healthMetrics(results, findings = []) {
     health,
     indexable: htmlResults.filter((item) => item.indexability === 'Indexable').length,
     htmlCount: htmlResults.length,
+    refusedCount: internalResults.filter((item) => item.crawlRefused).length,
     affectedErrorPages,
     affectedWarningPages,
     affectedNoticePages,

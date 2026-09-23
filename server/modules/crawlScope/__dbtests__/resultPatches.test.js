@@ -4,7 +4,7 @@
 // used to be whatever the crawler had counted at that moment — "0 on every row"
 // per projects/crawledPages.js — and the report's Inlinks column and CSV export
 // showed it. The completion step now writes the analyzer's distinct-page counts
-// back onto the rows.
+// back onto the rows, along with which responses refused the crawler.
 //
 // Run: TEST_DATABASE_URL=postgres://... node modules/crawlScope/__dbtests__/resultPatches.test.js
 
@@ -40,7 +40,15 @@ const { parseCrawlRequest } = require("../shared/options");
       "/": page("Home", '<nav><a href="/a">A</a><a href="/b">B</a></nav><footer><a href="/a">A again</a></footer>'),
       "/a": page("Page A"),
       "/b": page("Page B", '<a href="/a">A</a>'),
+      // A second site, behind a firewall that refuses everything but its home.
+      "/walled/": page("Walled home", '<a href="/walled/x">X</a><a href="/walled/y">Y</a><a href="/walled/z">Z</a>'),
     };
+    if (request.url.startsWith("/walled/") && request.url !== "/walled/") {
+      response.statusCode = 403;
+      response.setHeader("Content-Type", "text/html");
+      response.end("<html><body>Forbidden</body></html>");
+      return;
+    }
     const body = routes[request.url];
     response.statusCode = body ? 200 : 404;
     response.setHeader("Content-Type", body ? "text/html" : "text/plain");
@@ -68,6 +76,23 @@ const { parseCrawlRequest } = require("../shared/options");
       assert.equal(at("/a").inlinks, 2, "home (twice) and /b are two linking pages");
       assert.equal(at("/b").inlinks, 1);
       assert.equal(at("/a").follow, 2);
+    });
+
+    await test("rows the site refused are marked, so Site Health can leave them out", async () => {
+      const { url, options } = parseCrawlRequest({
+        url: `${base}/walled/`,
+        options: { checkExternalLinks: false, discoverSitemaps: false, perHostDelay: 0 },
+      });
+      const run = await repo.createRun(db, { owner: user.id, url, options, trigger: "manual" });
+      await new RunManager({ serviceClient: () => db }).execute(run);
+      const rows = await db.rows(
+        `select url, data->>'crawlRefused' as refused from crawl_run_results where run_id = $1 order by url`,
+        [run.id],
+      );
+      const refused = rows.filter((r) => r.refused === "true").map((r) => r.url.slice(base.length));
+      assert.deepEqual(refused, ["/walled/x", "/walled/y", "/walled/z"]);
+      const instances = await repo.listAllRunFindingInstances(db, run.id);
+      assert.ok(instances.some((f) => f.ruleId === "crawl-blocked"));
     });
   } finally {
     await db.query("delete from app_users where id = $1", [user.id]);

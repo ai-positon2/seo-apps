@@ -1039,6 +1039,17 @@
     "detection": "Automatic"
   },
   {
+    "id": "crawl-blocked",
+    "scope": "site",
+    "title": "Crawler blocked or rate-limited",
+    "description": "The site answered the crawler with a refusal instead of its pages: HTTP 403 or 401 from a firewall, bot protection or login wall, 429 from a rate limiter, 503, or a \"checking your browser\" challenge page. A refused response says nothing about the page behind it, so those pages were not audited: they are listed under their status code but left out of the link, content and duplicate checks and out of Site Health. The audit describes only the pages the site actually served.",
+    "recommendation": "Let the crawler through, then crawl again: allow-list the CrawlScope user agent (or the crawler's IP addresses) in the firewall, CDN or bot-protection settings, lower the crawl speed if the site rate-limits, and give the crawl access to a password-protected staging site. If search engines are refused the same way, it is an indexing problem, not only an audit one: check the crawl stats in Google Search Console.",
+    "category": "Technical",
+    "priority": "High Priority",
+    "severity": "error",
+    "detection": "Automatic"
+  },
+  {
     "id": "crawl-trap",
     "scope": "template",
     "title": "Crawl trap generating unbounded URLs",

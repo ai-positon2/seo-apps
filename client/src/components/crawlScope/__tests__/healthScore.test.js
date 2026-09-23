@@ -138,3 +138,23 @@ test('only page-scoped findings count towards the per-page bands', () => {
   ];
   assert.strictEqual(healthMetrics(results, findings).affectedErrorPages, 1);
 });
+
+test('pages that refused the crawler are neither clean nor broken: they are not counted', () => {
+  // Bot protection answered 3 of 4 pages with a 403. Counted, the 403s scored
+  // the site 66 for a firewall setting; left in the denominator but not the
+  // numerator, they would have made it look healthier the more it refused.
+  const results = pages(4);
+  for (const refused of results.slice(1)) refused.crawlRefused = true;
+  const findings = [
+    ...results.slice(1).map((r) => ({ url: r.url, severity: 'error', scope: 'page', crawlRefused: true })),
+    { url: results[0].url, severity: 'warning', scope: 'page' },
+  ];
+  const metrics = healthMetrics(results, findings);
+  assert.strictEqual(metrics.htmlCount, 1);
+  assert.strictEqual(metrics.refusedCount, 3);
+  assert.strictEqual(metrics.affectedErrorPages, 0);
+  assert.strictEqual(metrics.health, 100 - 22);
+
+  for (const r of results) r.crawlRefused = true;
+  assert.strictEqual(healthMetrics(results, findings).health, null, 'a site that refused every page has no score');
+});

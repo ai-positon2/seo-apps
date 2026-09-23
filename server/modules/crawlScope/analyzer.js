@@ -66,6 +66,111 @@ const NOT_FOUND_WORDING = [
 const readsLikeNotFound = (text) => NOT_FOUND_WORDING.some((pattern) => pattern.test(String(text || "")));
 const SOFT_404_MAX_WORDS = 300;
 
+// ── Responses that refused the crawler ───────────────────────────────────────
+// Bot protection, rate limiting and login walls answer a crawler instead of the
+// page it asked for. Such a response says nothing about the page, so it is not
+// audited: it cannot be a broken-link target, a duplicate, an orphan or a slow
+// page, and it is left out of Site Health. How the site treated the crawler is
+// reported once, as crawl-blocked.
+//
+// 429 always means "slow down", on any page. 401, 403 and 503 are also what a
+// members area, a private page or a maintenance window legitimately return, so
+// they are only read as refusals when they are how the site answered the crawl
+// as a whole (REFUSED_SHARE of its pages, or its start page). A bot check served
+// as a normal page is recognised by its wording.
+const RATE_LIMIT_STATUS = 429;
+const REFUSAL_STATUS = new Set([401, 403, 429, 503]);
+const REFUSED_SHARE = 0.5;
+const CHALLENGE_WORDING = [
+  /^\s*just a moment\b/i,
+  /^\s*attention required\b/i,
+  /^\s*one more step\b/i,
+  /\bchecking (?:your browser|if the site connection is secure)\b/i,
+  /\b(?:verify(?:ing)?|confirm) (?:that )?(?:you are|you['’]re) (?:a )?human\b/i,
+  /^\s*(?:human verification|security check(?:point)?|bot (?:check|verification))\s*$/i,
+  /^\s*are you a (?:robot|human)\b/i,
+  /^\s*access (?:to this page has been )?denied\b/i,
+  /^\s*pardon our interruption\b/i,
+  /^\s*request unsuccessful\b.*\bincapsula\b/i,
+  /^\s*ddos protection by\b/i,
+];
+const CHALLENGE_MAX_WORDS = 150;
+const readsLikeChallenge = (result) =>
+  (Number(result?.words) || 0) < CHALLENGE_MAX_WORDS &&
+  [result?.title, result?.h1].some((text) =>
+    CHALLENGE_WORDING.some((pattern) => pattern.test(String(text || ""))),
+  );
+
+/**
+ * Which internal responses refused the crawler, and whether the site refused
+ * the crawl as a whole.
+ *
+ * @param {object[]} internalResults
+ * @param {string} startUrl
+ * @returns {{ refused: Map<string, string>, blocked: boolean, startRefused: boolean,
+ *   pageResponses: number, refusedPages: number, refusedFiles: number,
+ *   statusCounts: Map<string, number> }}
+ *   `refused` maps each refused URL to a label ("HTTP 403 Forbidden", "bot check").
+ */
+function crawlRefusals(internalResults, startUrl) {
+  const byUrl = new Map(internalResults.map((result) => [result.url, result]));
+  const identity = createUrlIdentity(startUrl);
+  const byIdentity = new Map();
+  for (const result of internalResults) {
+    const key = identity(result.url);
+    if (key && !byIdentity.has(key)) byIdentity.set(key, result);
+  }
+  const find = (url) => (url ? byUrl.get(url) || byIdentity.get(identity(url)) : undefined);
+  // A page, answered: not a redirect hop, a file, or a URL that was never
+  // fetched (robots.txt, network failure).
+  const pages = internalResults.filter(
+    (result) => !result.isAsset && result.status >= 200 && !isRedirectStatus(result.status),
+  );
+  const label = (result) =>
+    REFUSAL_STATUS.has(result.status)
+      ? `HTTP ${result.status}${result.statusText ? ` ${result.statusText}` : ""}`
+      : result.status < 300 && result.contentType?.includes("text/html") && readsLikeChallenge(result)
+        ? "bot check"
+        : "";
+  const candidates = pages.filter((result) => label(result));
+
+  // The start page, after any redirect the site sends it through.
+  let start = find(startUrl);
+  for (let hops = 0; start && isRedirectStatus(start.status) && start.redirectUrl && hops < MAX_FETCH_REDIRECTS; hops += 1) {
+    start = find(start.redirectUrl);
+  }
+  const startRefused = Boolean(start && !start.isAsset && label(start));
+  const blocked =
+    startRefused ||
+    (candidates.length >= 2 && candidates.length >= pages.length * REFUSED_SHARE);
+
+  const refused = new Map();
+  for (const result of internalResults) {
+    const reason = label(result);
+    if (!reason) continue;
+    // Files are only read as refused when the site refused the crawl: an
+    // image answering 403 on an otherwise open site is a broken image.
+    if (blocked || result.status === RATE_LIMIT_STATUS || reason === "bot check") {
+      refused.set(result.url, reason);
+    }
+  }
+  const statusCounts = new Map();
+  let refusedPages = 0;
+  for (const [url, reason] of refused) {
+    if (!byUrl.get(url)?.isAsset) refusedPages += 1;
+    statusCounts.set(reason, (statusCounts.get(reason) || 0) + 1);
+  }
+  return {
+    refused,
+    blocked,
+    startRefused,
+    pageResponses: pages.length,
+    refusedPages,
+    refusedFiles: refused.size - refusedPages,
+    statusCounts,
+  };
+}
+
 // Titles commonly carry a "Page Name | Brand" or "Page Name - Brand" suffix.
 // Trimming to the primary segment first keeps the brand off the chopping
 // block, so a long title shrinks by dropping boilerplate before it starts
@@ -296,6 +401,9 @@ function collapseTemplateFindings(findings, htmlPageCount) {
   const groups = new Map(); // "ruleId|signature" -> finding[]
   for (const finding of findings) {
     if (finding.scope !== "page") continue; // only page-scope findings can collapse
+    // A thousand refusals are the crawl being blocked (crawl-blocked), not a
+    // defect in a template the pages share.
+    if (finding.crawlRefused) continue;
     const signature = finding.targetUrl || finding.detectedValue || "";
     const key = `${finding.ruleId}|${signature}`;
     const list = groups.get(key) || [];
@@ -1083,8 +1191,15 @@ function buildFindings({
   // was O(n²): measured 3.6s at 50k findings versus 11ms here, all of it on the
   // worker's event loop at the end of every crawl.
   const findingIds = new Set();
-  const index = createResultIndex(results, startUrl);
-  const internalResults = results.filter((result) => result.scope !== "External");
+  const allInternalResults = results.filter((result) => result.scope !== "External");
+  // Responses that refused the crawler are not the site's pages, so every check
+  // below runs without them: looked up as a link, canonical, hreflang or
+  // redirect target, a refused URL is "not crawled" — can't verify, don't guess
+  // — exactly like a URL the crawl never reached.
+  const refusals = crawlRefusals(allInternalResults, startUrl);
+  const { refused } = refusals;
+  const index = createResultIndex(results.filter((result) => !refused.has(result.url)), startUrl);
+  const internalResults = allInternalResults.filter((result) => !refused.has(result.url));
   const htmlResults = internalResults.filter((result) =>
     result.contentType?.includes("text/html"),
   );
@@ -1129,6 +1244,9 @@ function buildFindings({
       // iana.org's /domains/idn-tables reported 3,830 nameless anchors against
       // an actual 11,113. The cap is correct; the silence about it was not.
       ...(source && source.bodyTruncated ? { sourceTruncated: true } : {}),
+      // The response refused the crawler: listed, not counted in Site Health,
+      // and never grouped as a template-wide defect.
+      ...(extra.crawlRefused ? { crawlRefused: true } : {}),
       title: definition.title,
       description: definition.description,
       recommendation: extra.recommendation || definition.recommendation,
@@ -1195,10 +1313,15 @@ function buildFindings({
     set.add(sourceUrl);
     map.set(targetUrl, set);
   };
+  const refusedIndex = refused.size
+    ? createResultIndex(allInternalResults.filter((result) => refused.has(result.url)), startUrl)
+    : null;
   for (const edge of linkEdges) {
     if (!edge.internal) continue;
     const source = index.get(edge.sourceUrl);
-    const target = index.get(edge.targetUrl);
+    // A refused page is not audited, but how many pages link to it is still
+    // true, and is what the URL table shows for it.
+    const target = index.get(edge.targetUrl) || refusedIndex?.get(edge.targetUrl);
     if (!source || !target) continue;
     const followable =
       !(edge.nofollow || linkRelTokens(edge).has("nofollow")) &&
@@ -1257,6 +1380,23 @@ function buildFindings({
 
   const inlinksOf = (url) => linkingPages.get(url)?.size || 0;
   const followInlinksOf = (url) => followLinkingPages.get(url)?.size || 0;
+
+  // A refused page keeps its status finding, so the URLs are listed, but says
+  // what happened: the server refused the crawler, and nothing was learned
+  // about the page itself.
+  for (const result of allInternalResults) {
+    if (!refused.has(result.url) || result.isAsset) continue;
+    const reason = refused.get(result.url);
+    const refusal = {
+      detail: result.status === RATE_LIMIT_STATUS
+        ? `The server rate-limited the crawler (${reason}); the page itself was not audited.`
+        : `The server refused the crawler (${reason}); the page itself was not audited.`,
+      detectedValue: reason,
+      crawlRefused: true,
+    };
+    if (result.status >= 500) add("page-5xx", result, refusal);
+    else if (result.status >= 400) add("page-4xx", result, refusal);
+  }
 
   for (const result of internalResults) {
     const isHtml = result.contentType?.includes("text/html");
@@ -2185,9 +2325,29 @@ function buildFindings({
       detectedValue: siteDiagnostics.sitemapErrors.join("; "),
     });
   }
+  if (refusals.refused.size) {
+    const breakdown = [...refusals.statusCounts]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([reason, count]) => `${reason} ×${count}`)
+      .join(", ");
+    const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
+    const what = [
+      refusals.refusedPages ? `${refusals.refusedPages} of ${plural(refusals.pageResponses, "page")}` : "",
+      refusals.refusedFiles ? plural(refusals.refusedFiles, "file") : "",
+    ].filter(Boolean).join(" and ");
+    add("crawl-blocked", { url: startUrl }, {
+      detail:
+        `The site answered the crawler with a refusal instead of the content for ${what} (${breakdown})` +
+        `${refusals.startRefused ? ", including the start page" : ""}. ` +
+        "Those URLs were not audited and are left out of Site Health.",
+      detectedValue: breakdown,
+    });
+  }
   // Without this the audit of a client-rendered site reads as clean: one page,
-  // no links, nothing broken. The absence of findings WAS the finding.
-  if (siteDiagnostics.renderingIssue) {
+  // no links, nothing broken. The absence of findings WAS the finding. A
+  // refused start page has no links either, but that is the refusal, reported
+  // above, not a client-rendered site.
+  if (siteDiagnostics.renderingIssue && !refusals.startRefused) {
     add("javascript-rendered-site", { url: startUrl }, {
       detail: siteDiagnostics.renderingIssue,
     });
@@ -2201,7 +2361,9 @@ function buildFindings({
   for (const [url, detail] of softNotFound) {
     add("soft-404", index.get(url) || { url }, { detail, detectedValue: index.get(url)?.title || "" });
   }
-  if (missingPageProbe && missingPageProbe.status) {
+  // A probe answered with a bot check says how the firewall treats the crawler,
+  // not how the site treats a missing URL.
+  if (missingPageProbe && missingPageProbe.status && !readsLikeChallenge(missingPageProbe)) {
     const status = missingPageProbe.status;
     if (missingPageProbe.redirected) {
       add("soft-404-site", { url: startUrl }, {
@@ -2275,6 +2437,8 @@ function buildFindings({
     ...(result.scope === "External"
       ? {}
       : { inlinks: inlinksOf(result.url), followInlinks: followInlinksOf(result.url) }),
+    // Not audited: Site Health leaves it out of the pages it is taken over.
+    ...(refused.has(result.url) ? { crawlRefused: true } : {}),
     pageCategory: categorizePage(result),
     issues: (findingsByUrl.get(result.url) || []).map((finding) => ({
       id: finding.ruleId,

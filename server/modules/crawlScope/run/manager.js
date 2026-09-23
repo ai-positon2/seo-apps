@@ -572,14 +572,21 @@ class RunManager {
 
       // Whole-crawl values the analyzer computed, onto the rows the report
       // reads. Each row was stored when its page was fetched, before the link
-      // graph existed, so its `inlinks` was a fetch-time partial count. Same
-      // non-fatal treatment as the categories above.
+      // graph existed, so its `inlinks` was a fetch-time partial count; and
+      // whether a response refused the crawler is only known once the whole
+      // crawl can be seen (a 403 is a members page on an open site, a block on
+      // a site that refused everything). Same non-fatal treatment as the
+      // categories above.
       try {
         const patches = (Array.isArray(summary.results) ? summary.results : [])
           .filter((r) => r.scope !== "External")
           .map((r) => ({
             url: r.url,
-            fields: { inlinks: r.inlinks ?? 0, followInlinks: r.followInlinks ?? 0 },
+            fields: {
+              inlinks: r.inlinks ?? 0,
+              followInlinks: r.followInlinks ?? 0,
+              ...(r.crawlRefused ? { crawlRefused: true } : {}),
+            },
           }));
         await repo.patchResultData(db, run.id, patches);
       } catch (error) {
