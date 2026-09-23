@@ -10,6 +10,7 @@ const {
   isRedirectStatus,
 } = require("./http-redirect");
 const { parseMetaRefresh } = require("./meta-refresh");
+const { normalizeUrl } = require("./url-identity");
 const {
   auditAgents,
   isNoindex,
@@ -50,90 +51,6 @@ const LINK_SUBRESOURCE_RELS = new Set([
   "preload",
   "stylesheet",
 ]);
-
-// ── URL canonicalization ────────────────────────────────────────────────────
-// Every one of these produces a DIFFERENT string for the SAME page, and each
-// distinct string costs one slot of maxUrls and shows up as duplicate content.
-// A page linked with six campaign tags is one page, not six.
-const TRACKING_PARAMS = new Set([
-  "gclid",
-  "gclsrc",
-  "dclid",
-  "gbraid",
-  "wbraid",
-  "fbclid",
-  "msclkid",
-  "mc_cid",
-  "mc_eid",
-  "igshid",
-  "ttclid",
-  "twclid",
-  "yclid",
-  "_ga",
-  "_gl",
-  "ref",
-  "ref_src",
-  "referrer",
-  "mkt_tok",
-  "hsa_acc",
-  "hsa_cam",
-  "hsa_grp",
-  "hsa_ad",
-  "hsa_src",
-  "hsa_tgt",
-  "hsa_kw",
-  "hsa_mt",
-  "hsa_net",
-  "hsa_ver",
-  "vero_id",
-  "vero_conv",
-  "s_kwcid",
-  "ef_id",
-  "trk",
-  "trkCampaign",
-]);
-
-// Session identifiers rotate per visitor, so leaving them in makes the SAME page
-// look like an unbounded family of new pages and never converges.
-const SESSION_PARAMS = new Set([
-  "jsessionid",
-  "phpsessid",
-  "aspsessionid",
-  "asp.net_sessionid",
-  "sessionid",
-  "session_id",
-  "sid",
-  "zenid",
-  "oscsid",
-  "cfid",
-  "cftoken",
-  "_sid",
-]);
-
-// Path-parameter form of the same thing: /page;jsessionid=ABC123
-const SESSION_PATH_PARAM = /;(?:jsessionid|phpsessid|sid|cfid|cftoken)=[^;/?#]*/gi;
-
-function isDroppableParam(name) {
-  const lower = name.toLowerCase();
-  return (
-    lower.startsWith("utm_") ||
-    lower.startsWith("pk_") ||
-    lower.startsWith("mtm_") ||
-    TRACKING_PARAMS.has(lower) ||
-    SESSION_PARAMS.has(lower)
-  );
-}
-
-function decodeParamName(pair) {
-  const raw = pair.split("=")[0].replace(/\+/g, " ");
-  try {
-    return decodeURIComponent(raw);
-  } catch {
-    // A malformed percent-escape is still a parameter name; use it verbatim
-    // rather than losing the whole URL to a decode error.
-    return raw;
-  }
-}
 
 function cleanText(value = "") {
   return String(value).replace(/\s+/g, " ").trim();
@@ -355,48 +272,6 @@ function detectIntegrations($, catalog) {
   });
 
   return [...found.values()];
-}
-
-function normalizeUrl(input, base) {
-  try {
-    const parsed = new URL(input, base);
-    if (!["http:", "https:"].includes(parsed.protocol)) return null;
-    parsed.hash = "";
-    parsed.hostname = parsed.hostname.toLowerCase();
-    if (
-      (parsed.protocol === "https:" && parsed.port === "443") ||
-      (parsed.protocol === "http:" && parsed.port === "80")
-    ) {
-      parsed.port = "";
-    }
-    if (SESSION_PATH_PARAM.test(parsed.pathname)) {
-      // Regexes with /g carry lastIndex across calls; reset before reuse.
-      SESSION_PATH_PARAM.lastIndex = 0;
-      parsed.pathname = parsed.pathname.replace(SESSION_PATH_PARAM, "");
-    }
-    SESSION_PATH_PARAM.lastIndex = 0;
-
-    // Pairs are filtered and sorted as RAW strings rather than round-tripped
-    // through URLSearchParams, because URLSearchParams re-serializes in
-    // form-encoded form (a space becomes "+", not "%20") and would change the
-    // bytes actually sent to the origin.
-    const rawQuery = parsed.search.slice(1);
-    if (rawQuery) {
-      const kept = rawQuery
-        .split("&")
-        .filter(Boolean)
-        .filter((pair) => !isDroppableParam(decodeParamName(pair)))
-        .sort();
-      parsed.search = kept.length ? `?${kept.join("&")}` : "";
-    } else {
-      // WHATWG keeps a bare "?" in href, so "/page" and "/page?" would other-
-      // wise dedupe as two separate pages.
-      parsed.search = "";
-    }
-    return parsed.href;
-  } catch {
-    return null;
-  }
 }
 
 function declarativeRefreshFromResult(result) {

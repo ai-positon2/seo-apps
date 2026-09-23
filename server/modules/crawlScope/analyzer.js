@@ -10,6 +10,7 @@ const {
   isNoindex,
   resultRobotsDirectives,
 } = require("./robots-directives");
+const { createUrlIdentity } = require("./url-identity");
 
 const catalogById = new Map(catalog.map((definition) => [definition.id, definition]));
 const NON_DESCRIPTIVE_LINK_LABELS = new Set([
@@ -133,6 +134,7 @@ function sitemapIncorrectUrlRecommendation({
   terminalFailure,
   terminalSuitability,
   declarativeRedirect,
+  canonicalMismatch,
 }) {
   if (terminalFailure) {
     return `Remove this URL from the sitemap — its redirect path ends at a broken destination (${terminalFailure.detail}). Fix or redirect the destination first, then add back a URL that returns 200.`;
@@ -146,7 +148,7 @@ function sitemapIncorrectUrlRecommendation({
   if (declarativeRedirect) {
     return `Replace this sitemap entry with its redirect destination: ${declarativeRedirect}.`;
   }
-  if (result.canonical && result.canonical !== result.url) {
+  if (canonicalMismatch) {
     return `Replace this sitemap entry with its canonical URL: ${result.canonical}. Only list the canonical version in the sitemap.`;
   }
   return `Remove this non-indexable URL from the sitemap (${result.indexabilityReason || "not the preferred canonical version"}), or resolve the underlying indexability issue first.`;
@@ -445,7 +447,7 @@ function redirectDestination(result) {
   return redirectEdge(result)?.url || "";
 }
 
-function redirectTrace(result, resultByUrl) {
+function redirectTrace(result, index) {
   let edge = redirectEdge(result);
   if (!result || !edge) return null;
 
@@ -482,7 +484,7 @@ function redirectTrace(result, resultByUrl) {
 
     const next = edge.url;
     path.push(next);
-    const target = resultAtUrl(resultByUrl, next);
+    const target = index.get(next);
     const targetIdentity = target?.url || next;
     const loopStartIndex = firstVisit.get(targetIdentity);
     if (loopStartIndex !== undefined) {
@@ -559,7 +561,7 @@ function redirectLimitEvidence(trace) {
   return `${followedPath} -[next redirect blocked]-> ${trace.blockedTargetUrl}`;
 }
 
-function redirectTerminalFailure(trace, resultByUrl) {
+function redirectTerminalFailure(trace, index) {
   if (
     !trace ||
     trace.loop ||
@@ -569,7 +571,7 @@ function redirectTerminalFailure(trace, resultByUrl) {
     return null;
   }
 
-  const terminal = resultAtUrl(resultByUrl, trace.targetUrl);
+  const terminal = index.get(trace.targetUrl);
   if (
     !terminal ||
     terminal.scope === "External" ||
@@ -622,7 +624,7 @@ function redirectTerminalFailure(trace, resultByUrl) {
   return null;
 }
 
-function redirectTerminalSuitability(trace, resultByUrl) {
+function redirectTerminalSuitability(trace, index) {
   if (
     !trace ||
     trace.loop ||
@@ -632,7 +634,7 @@ function redirectTerminalSuitability(trace, resultByUrl) {
     return null;
   }
 
-  const terminal = resultAtUrl(resultByUrl, trace.targetUrl);
+  const terminal = index.get(trace.targetUrl);
   const terminalContentType = String(
     terminal?.contentType || "",
   ).toLowerCase();
@@ -652,7 +654,7 @@ function redirectTerminalSuitability(trace, resultByUrl) {
     terminal.indexability === "Non-indexable" ||
     isNoindex(resultRobotsDirectives(terminal));
   const canonicalMismatch =
-    Boolean(terminal.canonical) && terminal.canonical !== terminal.url;
+    Boolean(terminal.canonical) && !index.same(terminal.canonical, terminal.url);
   if (!isNonIndexable && !canonicalMismatch) return null;
 
   const reasons = [];
@@ -713,15 +715,32 @@ function declarativeRefreshLabel(refresh) {
   return refresh?.source === "header" ? "HTTP Refresh header" : "Meta refresh";
 }
 
-function resultAtUrl(resultByUrl, url) {
-  if (resultByUrl.has(url)) return resultByUrl.get(url);
-  try {
-    const parsed = new URL(url);
-    parsed.hash = "";
-    return resultByUrl.get(parsed.href);
-  } catch {
-    return undefined;
+// Crawl results, addressable by any spelling of their URL the crawler would
+// have fetched them under (url-identity.js). Evidence keeps URLs as written —
+// an http:// href, a Location with a tracking parameter, a sitemap <loc> — and
+// looking those up by exact string missed the page the crawler actually
+// fetched for them.
+function createResultIndex(results, startUrl) {
+  const identity = createUrlIdentity(startUrl);
+  const exact = new Map(results.map((result) => [result.url, result]));
+  const byIdentity = new Map();
+  for (const result of results) {
+    const key = identity(result.url);
+    if (key && !byIdentity.has(key)) byIdentity.set(key, result);
   }
+  return {
+    identity,
+    // The result stored under exactly this URL, and nothing else — for
+    // evidence about the URL as written (did the http:// URL itself redirect?).
+    exact: (url) => exact.get(url),
+    get: (url) => (url ? exact.get(url) || byIdentity.get(identity(url)) : undefined),
+    same: (a, b) => {
+      if (!a || !b) return false;
+      if (a === b) return true;
+      const key = identity(a);
+      return Boolean(key) && key === identity(b);
+    },
+  };
 }
 
 function refreshDelayLabel(refresh) {
@@ -738,7 +757,19 @@ function redirectLocationDetectedValue(result) {
     : `HTTP ${result.status}; Location: ${result.locationHeaderRaw || ""}`;
 }
 
-function httpLinkEvidence(edge, target) {
+function httpLinkEvidence(edge, target, fetchedAs = null) {
+  // The crawler never requests an http:// URL on the crawled host: it fetches
+  // the https equivalent instead (crawler.js#_canonicalScheme). So "not
+  // fetched" was never true for those — what is true is that the link is
+  // written as HTTP and the page lives at the HTTPS address.
+  if (!target && fetchedAs) {
+    const status = Number(fetchedAs.status) || 0;
+    return {
+      statusCode: status,
+      detail: `The link is written as HTTP; the crawl fetched the HTTPS version instead (${fetchedAs.url} returned ${status ? `HTTP ${status}` : "no response"}). Link to the HTTPS URL directly.`,
+      detectedValue: `${edge.download ? "download; " : ""}written as HTTP; HTTPS version returned ${status || "no response"}`,
+    };
+  }
   const status = Number(target?.status) || 0;
   const redirectUrl = String(target?.redirectUrl || "");
   const isRedirect = isRedirectStatus(status);
@@ -826,19 +857,19 @@ function describeHeading(level, text) {
     : `empty H${level}`;
 }
 
-function isPreferredIndexablePage(result) {
+function isPreferredIndexablePage(result, index) {
   return (
     result.status === 200 &&
     result.indexability === "Indexable" &&
-    (!result.canonical || result.canonical === result.url)
+    (!result.canonical || index.same(result.canonical, result.url))
   );
 }
 
-function isReciprocalHreflangGroup(group) {
-  const groupUrls = new Set(group.map((result) => result.url));
+function isReciprocalHreflangGroup(group, index) {
+  const groupUrls = new Set(group.map((result) => index.identity(result.url)));
   return group.every((result) => {
     const alternateUrls = new Set(
-      (result.hreflangs || []).map((entry) => entry.url),
+      (result.hreflangs || []).map((entry) => index.identity(entry.url)),
     );
     return [...groupUrls].every((url) => alternateUrls.has(url));
   });
@@ -1004,21 +1035,21 @@ function buildFindings({
   // was O(n²): measured 3.6s at 50k findings versus 11ms here, all of it on the
   // worker's event loop at the end of every crawl.
   const findingIds = new Set();
-  const resultByUrl = new Map(results.map((result) => [result.url, result]));
+  const index = createResultIndex(results, startUrl);
   const internalResults = results.filter((result) => result.scope !== "External");
   const htmlResults = internalResults.filter((result) =>
     result.contentType?.includes("text/html"),
   );
   const redirectTraces = new Map(
     internalResults
-      .map((result) => [result.url, redirectTrace(result, resultByUrl)])
+      .map((result) => [result.url, redirectTrace(result, index)])
       .filter(([, trace]) => trace),
   );
   const redirectTerminalFailures = new Map(
     [...redirectTraces]
       .map(([url, trace]) => [
         url,
-        redirectTerminalFailure(trace, resultByUrl),
+        redirectTerminalFailure(trace, index),
       ])
       .filter(([, failure]) => failure),
   );
@@ -1027,7 +1058,7 @@ function buildFindings({
       .filter(([url]) => !redirectTerminalFailures.has(url))
       .map(([url, trace]) => [
         url,
-        redirectTerminalSuitability(trace, resultByUrl),
+        redirectTerminalSuitability(trace, index),
       ])
       .filter(([, issue]) => issue),
   );
@@ -1080,9 +1111,29 @@ function buildFindings({
     });
   };
 
+  // Sitemap entries keyed by the URL the crawler fetched them under, so an
+  // http:// <loc> on an https site is matched to the page it names — the
+  // crawler crawled it from that entry — instead of reading "missing from every
+  // sitemap". Entries written with the wrong scheme are kept for their own
+  // finding.
+  const sitemapsByPage = new Map();
+  const httpSitemapEntries = new Map();
+  for (const [loc, sitemaps] of Object.entries(sitemapMembership)) {
+    const key = index.identity(loc);
+    if (!key) continue;
+    const merged = sitemapsByPage.get(key) || new Set();
+    for (const sitemap of sitemaps || []) merged.add(sitemap);
+    sitemapsByPage.set(key, merged);
+    if (loc.startsWith("http:") && key.startsWith("https:")) {
+      const entries = httpSitemapEntries.get(key) || [];
+      entries.push({ loc, sitemaps: [...(sitemaps || [])] });
+      httpSitemapEntries.set(key, entries);
+    }
+  }
+
   for (const result of internalResults) {
     const isHtml = result.contentType?.includes("text/html");
-    const inSitemaps = sitemapMembership[result.url] || [];
+    const inSitemaps = [...(sitemapsByPage.get(index.identity(result.url)) || [])];
     // Whole directive tokens that apply to CrawlScope or Googlebot — never a
     // substring test, which read max-image-preview:none as noindex + nofollow.
     const directives = resultRobotsDirectives(result);
@@ -1126,10 +1177,14 @@ function buildFindings({
       const terminalFailure = redirectTerminalFailures.get(result.url);
       const terminalSuitability =
         redirectTerminalSuitabilityIssues.get(result.url);
+      // Canonical to another page — not merely to this page's own http://
+      // spelling, which canonical-to-http reports; sending the sitemap to the
+      // http:// URL would be the wrong fix.
+      const canonicalMismatch = Boolean(result.canonical) && !index.same(result.canonical, result.url);
       if (
         result.status !== 200 ||
         result.indexability !== "Indexable" ||
-        (result.canonical && result.canonical !== result.url) ||
+        canonicalMismatch ||
         declarativeRedirect
       ) {
         add("sitemap-incorrect-url", result, {
@@ -1148,10 +1203,18 @@ function buildFindings({
             terminalFailure,
             terminalSuitability,
             declarativeRedirect,
+            canonicalMismatch,
           }),
         });
       }
       if (isRedirectStatus(result.status)) add("sitemap-redirect", result);
+      for (const entry of httpSitemapEntries.get(index.identity(result.url)) || []) {
+        add("sitemap-http-url", result, {
+          targetUrl: entry.loc,
+          detail: `Listed as ${entry.loc} in ${entry.sitemaps.join(", ")}; the site is served over HTTPS`,
+          detectedValue: entry.loc,
+        });
+      }
       if (inSitemaps.length > 1) {
         add("sitemap-duplicate", result, {
           detail: `Listed in ${inSitemaps.length} sitemaps`,
@@ -1272,7 +1335,7 @@ function buildFindings({
             detectedValue: `${evidence}; reload after ${delay}`,
           });
         } else {
-          const target = resultAtUrl(resultByUrl, refresh.url);
+          const target = index.get(refresh.url);
           const targetStatus = target
             ? ` The crawled destination returned HTTP ${target.status || "no response"}.`
             : "";
@@ -1475,17 +1538,17 @@ function buildFindings({
       }
     }
 
-    const hasSelfReference = result.hreflangs.some((entry) => entry.url === result.url);
+    const hasSelfReference = result.hreflangs.some((entry) => index.same(entry.url, result.url));
     if (!hasSelfReference) add("hreflang-missing-self", result);
 
     for (const entry of result.hreflangs) {
-      if (entry.url === result.url) continue;
-      const target = resultByUrl.get(entry.url);
+      if (index.same(entry.url, result.url)) continue;
+      const target = index.get(entry.url);
       // Can't verify a return tag on a page we never crawled — that's a
       // separate, weaker signal than a confirmed one-way link, so it's left
       // alone rather than guessed at.
       if (!target) continue;
-      const pointsBack = (target.hreflangs || []).some((t) => t.url === result.url);
+      const pointsBack = (target.hreflangs || []).some((t) => index.same(t.url, result.url));
       if (!pointsBack) {
         add("hreflang-missing-return", result, {
           targetUrl: entry.url,
@@ -1499,7 +1562,21 @@ function buildFindings({
     if (result.status !== 200 || !result.canonical || result.canonical === result.url) {
       continue;
     }
-    const target = resultByUrl.get(result.canonical);
+    // An https page declaring an http:// canonical asks search engines to
+    // prefer the insecure URL. Reported on its own — the crawler fetches
+    // http:// URLs on this host as https, so the lookup below would otherwise
+    // land on the page itself and call it a chain.
+    if (result.url.startsWith("https:") && result.canonical.startsWith("http:")) {
+      add("canonical-to-http", result, {
+        targetUrl: result.canonical,
+        detail: index.same(result.canonical, result.url)
+          ? "The canonical is this page's own URL on http://"
+          : `The canonical points at an http:// URL: ${result.canonical}`,
+        detectedValue: result.canonical,
+      });
+    }
+    if (index.same(result.canonical, result.url)) continue;
+    const target = index.get(result.canonical);
     // Can't verify a canonical pointing at a URL the crawl never reached —
     // same principle as the hreflang return-tag check above.
     if (!target) continue;
@@ -1560,7 +1637,7 @@ function buildFindings({
         statusCode: target.status,
         detail: target.statusText,
       });
-    } else if (target.canonical && target.canonical !== target.url) {
+    } else if (target.canonical && !index.same(target.canonical, target.url)) {
       add("canonical-chain", result, {
         targetUrl: result.canonical,
         detail: `${result.canonical} canonicalizes to a different URL (${target.canonical}) instead of itself`,
@@ -1582,7 +1659,7 @@ function buildFindings({
       ["prev", result.paginationPrev],
     ]) {
       if (!url) continue;
-      const target = resultByUrl.get(url);
+      const target = index.get(url);
       if (!target) continue; // uncrawled target — can't verify, don't guess
       if (target.status >= 400 || !target.status) {
         add("pagination-link-broken", result, {
@@ -1592,7 +1669,7 @@ function buildFindings({
       }
     }
 
-    if (result.canonical && result.canonical !== result.url) {
+    if (result.canonical && !index.same(result.canonical, result.url)) {
       add("pagination-canonical-conflict", result, { targetUrl: result.canonical });
     }
   }
@@ -1609,7 +1686,7 @@ function buildFindings({
     const groups = new Map();
     for (const result of htmlResults) {
       const value = result[key]?.trim().toLowerCase();
-      if (!value || !isPreferredIndexablePage(result) || !isEligible(result)) {
+      if (!value || !isPreferredIndexablePage(result, index) || !isEligible(result)) {
         continue;
       }
       const group = groups.get(value) || [];
@@ -1619,7 +1696,7 @@ function buildFindings({
     for (const unsortedGroup of groups.values()) {
       if (unsortedGroup.length < 2) continue;
       const group = [...unsortedGroup].sort((a, b) => a.url.localeCompare(b.url));
-      if (isReciprocalHreflangGroup(group)) continue;
+      if (isReciprocalHreflangGroup(group, index)) continue;
       for (const result of group) {
         add(ruleId, result, {
           detail: `Shared by ${group.length} independently indexable pages`,
@@ -1632,7 +1709,7 @@ function buildFindings({
   const contentGroups = new Map();
   for (const result of htmlResults) {
     if (
-      !isPreferredIndexablePage(result) ||
+      !isPreferredIndexablePage(result, index) ||
       !result.hash ||
       result.words < 50
     ) {
@@ -1647,7 +1724,7 @@ function buildFindings({
     const group = [...unsortedGroup].sort((a, b) => a.url.localeCompare(b.url));
     // Complete reciprocal hreflang sets commonly represent intentional
     // regional variants whose body copy is allowed to be identical.
-    if (isReciprocalHreflangGroup(group)) continue;
+    if (isReciprocalHreflangGroup(group, index)) continue;
 
     for (const result of group) {
       const comparison = group.find((candidate) => candidate.url !== result.url);
@@ -1662,8 +1739,10 @@ function buildFindings({
   const incomingFollow = new Map();
   const externalNofollowBySource = new Map();
   for (const edge of linkEdges) {
-    const source = resultByUrl.get(edge.sourceUrl);
-    const target = resultByUrl.get(edge.targetUrl);
+    const source = index.get(edge.sourceUrl);
+    // The page the crawler fetched for this link — for an http:// href on an
+    // https site, its https equivalent (the edge keeps the href as written).
+    const target = index.get(edge.targetUrl);
     if (!source) continue;
     const relTokens = linkRelTokens(edge);
     const isNofollow = edge.nofollow || relTokens.has("nofollow");
@@ -1754,9 +1833,12 @@ function buildFindings({
           detectedValue: edge.anchorText || `(no visible link text) rel="${[...relTokens].join(" ") || "nofollow"}"`,
         });
       }
-      const statuses = incomingFollow.get(edge.targetUrl) || { nofollowFrom: new Set(), dofollowFrom: new Set() };
+      // Keyed by the page, not the href: http:// and https:// links to one
+      // page are links to the same page.
+      const targetKey = target?.url || index.identity(edge.targetUrl) || edge.targetUrl;
+      const statuses = incomingFollow.get(targetKey) || { nofollowFrom: new Set(), dofollowFrom: new Set() };
       (isNofollow ? statuses.nofollowFrom : statuses.dofollowFrom).add(edge.sourceUrl);
-      incomingFollow.set(edge.targetUrl, statuses);
+      incomingFollow.set(targetKey, statuses);
     } else {
       const policy = externalNofollowBySource.get(edge.sourceUrl) || {
         total: 0,
@@ -1815,7 +1897,14 @@ function buildFindings({
       }
     }
     if (source.url.startsWith("https:") && edge.targetUrl.startsWith("http:")) {
-      const evidence = httpLinkEvidence(edge, target);
+      // Evidence about the http:// URL itself, when it was fetched as written
+      // (another host); otherwise what the crawl fetched in its place.
+      const exactTarget = index.exact(edge.targetUrl);
+      const evidence = httpLinkEvidence(
+        edge,
+        exactTarget,
+        !exactTarget && target && target.url !== edge.targetUrl ? target : null,
+      );
       if (evidence) {
         add("https-to-http-link", source, {
           targetUrl: edge.targetUrl,
@@ -1848,7 +1937,7 @@ function buildFindings({
     const examples = [
       ...new Set(policy.genericNofollow.map((edge) => edge.targetUrl)),
     ].slice(0, 3);
-    add("external-nofollow", resultByUrl.get(sourceUrl) || { url: sourceUrl }, {
+    add("external-nofollow", index.get(sourceUrl) || { url: sourceUrl }, {
       detail: `${genericCount} of ${policy.total} external links (${percentage}%) use generic rel="nofollow" without sponsored or ugc qualification.`,
       detectedValue: `${genericCount}/${policy.total} external links (${percentage}%); examples: ${examples.join(" | ")}`,
     });
@@ -1858,14 +1947,14 @@ function buildFindings({
     if (statuses.nofollowFrom.size && statuses.dofollowFrom.size) {
       const nofollowExample = [...statuses.nofollowFrom][0];
       const dofollowExample = [...statuses.dofollowFrom][0];
-      add("mixed-incoming-follow", resultByUrl.get(url) || { url }, {
+      add("mixed-incoming-follow", index.get(url) || { url }, {
         detectedValue: `${statuses.nofollowFrom.size} nofollow link(s) (e.g. from ${nofollowExample}), ${statuses.dofollowFrom.size} dofollow link(s) (e.g. from ${dofollowExample})`,
       });
     }
   }
 
   for (const edge of resourceEdges) {
-    const source = resultByUrl.get(edge.sourceUrl) || { url: edge.sourceUrl };
+    const source = index.get(edge.sourceUrl) || { url: edge.sourceUrl };
     if (
       source.url?.startsWith("https:") &&
       edge.targetUrl?.startsWith("http:")

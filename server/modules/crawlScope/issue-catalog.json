@@ -154,6 +154,16 @@
     "detection": "Automatic"
   },
   {
+    "id": "sitemap-http-url",
+    "title": "HTTP URLs in sitemap for an HTTPS site",
+    "description": "The sitemap lists http:// addresses for pages the site serves over HTTPS. Every one is a redirect for search engines to follow, and the listed address is not the page's canonical URL.",
+    "recommendation": "Regenerate the sitemap with the https:// URLs. Sitemap generators usually take the scheme from the site's configured address, so correcting that setting fixes every entry at once.",
+    "category": "Technical",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
     "id": "sitemap-missing-indexable",
     "title": "Indexable pages missing from sitemap",
     "description": "Many indexable pages are not included in the XML sitemap, which may reduce efficient discovery.",
@@ -464,6 +474,16 @@
     "category": "Indexability",
     "priority": "High Priority",
     "severity": "error",
+    "detection": "Automatic"
+  },
+  {
+    "id": "canonical-to-http",
+    "title": "Canonical points to an HTTP URL",
+    "description": "These HTTPS pages declare an http:// URL as their canonical, which asks search engines to prefer the insecure address over the one the page is served on.",
+    "recommendation": "Change the canonical to the page's HTTPS URL. When a template builds canonicals from the request scheme or a hard-coded http:// base URL, fix it there once rather than page by page.",
+    "category": "Indexability",
+    "priority": "High Priority",
+    "severity": "warning",
     "detection": "Automatic"
   },
   {

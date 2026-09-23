@@ -86,11 +86,12 @@ test("crawls internal HTML, follows redirects, respects robots, and finds duplic
   assert.equal(summary.stopped, false);
   assert.equal(summary.results.length, 6);
   assert.equal(summary.robotsStatus, "Respected");
-  // 96 = the 92 original checks, javascript-rendered-site, crawl-trap and
-  // sitemap-unreadable (three ways a crawl can come back thin), plus
-  // title-missing (a page with no <title> tag at all — previously only
-  // caught live by crawler.js's quickIssues(), never re-checked post-crawl).
-  assert.equal(summary.catalog.length, 96);
+  // The run carries the whole rule catalog (the 92 original checks, the three
+  // ways a crawl can come back thin, title-missing, and every rule added since),
+  // not a subset. Compared with the file so adding a rule does not also mean
+  // editing a hard-coded count here.
+  assert.equal(summary.catalog.length, require("../issue-catalog.json").length);
+  assert.ok(summary.catalog.length >= 96);
   assert.ok(
     summary.findings.some((finding) => finding.ruleId === "broken-internal-links"),
   );

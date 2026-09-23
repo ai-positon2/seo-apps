@@ -121,11 +121,11 @@ async function crawlScopeContext(req, res, next) {
   }
 }
 
-// The issue catalog is static reference data (96 checks: names, categories,
+// The issue catalog is static reference data (every check: names, categories,
 // severities) the UI needs to render any result, so it is readable by any
-// signed-in user without a DB round trip. The count is asserted against the
-// file rather than trusted: issue-catalog.json holds 96 entries (27 error,
-// 54 warning, 15 notice), matching audit-loop/rules/rule-classes.json's _meta.
+// signed-in user without a DB round trip. audit-loop/rules/rule-classes.json
+// mirrors its ids and severities; rule-classes-sync.test.js keeps the two in
+// step (regenerate with node audit-loop/rules/sync-rule-classes.js).
 router.get("/catalog", (_req, res) => res.json(catalog));
 
 router.use(crawlScopeContext);
