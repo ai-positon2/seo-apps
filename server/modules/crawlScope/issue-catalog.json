@@ -531,6 +531,26 @@
     "detection": "Automatic"
   },
   {
+    "id": "multiple-canonical",
+    "title": "Pages with more than one canonical URL",
+    "description": "The page declares two or more different canonical URLs, in its <head> or its Link header. Search engines ignore conflicting canonicals and pick the preferred URL themselves, so none of them takes effect.",
+    "recommendation": "Keep exactly one canonical per page. When a CMS, a theme and an SEO plugin each add one, remove all but the one that names the preferred URL, and make the Link header agree with it or drop it.",
+    "category": "Indexability",
+    "priority": "High Priority",
+    "severity": "error",
+    "detection": "Automatic"
+  },
+  {
+    "id": "canonical-outside-head",
+    "title": "Canonical tag outside <head>",
+    "description": "A rel=canonical link sits in the page's <body>, where search engines ignore it. This also happens when something that does not belong in <head>, such as an image or a script that writes content, comes before the tag: the browser's parser moves everything after it into <body>.",
+    "recommendation": "Put the canonical link in <head>, above any element that could end it early, and check it in the served HTML rather than in the browser inspector.",
+    "category": "Indexability",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
     "id": "pagination-link-broken",
     "title": "Broken pagination link",
     "description": "A rel=\"next\" or rel=\"prev\" pagination link points to a page that returns an error or cannot be reached, breaking the crawlable path through a paginated series.",

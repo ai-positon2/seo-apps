@@ -2084,6 +2084,28 @@ function buildFindings({
   }
 
   for (const result of internalResults) {
+    if (result.status !== 200) continue;
+    // Two canonicals that disagree are no canonical: search engines drop both
+    // and choose for themselves. <head> tags and the Link header count alike.
+    if (result.canonicals?.length > 1) {
+      add("multiple-canonical", result, {
+        detail: `${result.canonicals.length} different canonical URLs: ${result.canonicals.join(", ")}`,
+        detectedValue: result.canonicals.join(", "),
+      });
+    }
+    // A canonical in <body> is ignored, so it does nothing — and when it is the
+    // page's only one, whoever put it there believes the page has a canonical.
+    if (result.canonicalsOutsideHead?.length) {
+      add("canonical-outside-head", result, {
+        detail: result.canonicals?.length
+          ? `A canonical tag in <body> is ignored; the one in <head> applies (${result.canonicalsOutsideHead.join(", ")})`
+          : `The page's only canonical tag is in <body>, where search engines ignore it (${result.canonicalsOutsideHead.join(", ")})`,
+        detectedValue: result.canonicalsOutsideHead.join(", "),
+      });
+    }
+  }
+
+  for (const result of internalResults) {
     if (result.status !== 200 || !result.canonical || result.canonical === result.url) {
       continue;
     }

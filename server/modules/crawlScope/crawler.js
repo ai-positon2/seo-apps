@@ -3245,10 +3245,35 @@ class SeoCrawler extends EventEmitter {
 
     // Canonical keeps its long-standing "absent means self-referencing"
     // reading, which the analyzer's canonical rules are all written against.
-    const canonicalDeclared = declaredHref('link[rel~="canonical" i]');
-    const canonical = canonicalDeclared
-      ? normalizeUrl(canonicalDeclared, documentBase.url) || ""
-      : headerUrl("canonical") || documentBase.url;
+    //
+    // Only <head> counts: search engines ignore a rel=canonical in <body>
+    // (including one the HTML parser moved there because something that does
+    // not belong in <head> came before it), so the first tag anywhere was not
+    // the page's canonical. Every distinct canonical the page declares — in
+    // <head> and in the Link header — is kept, since two that disagree are a
+    // conflict search engines resolve by ignoring both.
+    const canonicalHrefs = (selector) =>
+      documentElements($, selector)
+        .map((_, element) => String($(element).attr("href") ?? "").trim())
+        .get()
+        .filter(Boolean);
+    const headerCanonical = headerUrl("canonical");
+    const canonicals = [
+      ...new Set([
+        ...canonicalHrefs('head link[rel~="canonical" i]')
+          .map((href) => normalizeUrl(href, documentBase.url))
+          .filter(Boolean),
+        ...(headerCanonical ? [headerCanonical] : []),
+      ]),
+    ];
+    const canonicalsOutsideHead = [
+      ...new Set(
+        canonicalHrefs('body link[rel~="canonical" i]')
+          .map((href) => normalizeUrl(href, documentBase.url))
+          .filter(Boolean),
+      ),
+    ];
+    const canonical = canonicals[0] || documentBase.url;
 
     const hreflangEntries = documentElements(
       $,
@@ -3629,6 +3654,8 @@ class SeoCrawler extends EventEmitter {
         : base.indexabilityReason,
       robotsDirectives: [...robotsDirectives],
       canonical,
+      canonicals,
+      canonicalsOutsideHead,
       hreflangs,
       paginationNext,
       paginationPrev,

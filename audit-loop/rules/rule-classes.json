@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "total": 105,
-    "severity_counts": { "error": 26, "warning": 47, "notice": 32 },
+    "total": 107,
+    "severity_counts": { "error": 27, "warning": 48, "notice": 32 },
     "eval_class": {
       "crawl": "Fully derivable from a single crawl. A no-fire here must be justified by proving the site condition is absent.",
       "external_gsc": "Needs Search Console. Structurally silent without a connected data source.",
@@ -27,6 +27,7 @@
     "redirect-loop":                  { "sev": "error",   "class": "crawl", "rarity": "rare" },
     "redirect-terminal-failure":      { "sev": "error",   "class": "crawl", "rarity": "occasional" },
     "http-homepage":                  { "sev": "error",   "class": "crawl", "rarity": "rare" },
+    "multiple-canonical":             { "sev": "error",   "class": "crawl", "rarity": "occasional" },
     "canonical-chain":                { "sev": "warning", "class": "crawl", "rarity": "occasional" },
     "canonical-to-redirect":          { "sev": "warning", "class": "crawl", "rarity": "common" },
     "hreflang-invalid-code":          { "sev": "warning", "class": "crawl", "rarity": "rare" },
@@ -43,6 +44,7 @@
     "temporary-redirect":             { "sev": "warning", "class": "crawl", "rarity": "occasional" },
     "canonical-to-http":              { "sev": "warning", "class": "crawl", "rarity": "rare" },
     "soft-404":                       { "sev": "warning", "class": "crawl", "rarity": "occasional" },
+    "canonical-outside-head":         { "sev": "warning", "class": "crawl", "rarity": "rare" },
     "deep-page":                      { "sev": "notice",  "class": "crawl", "rarity": "common" },
     "mixed-incoming-follow":          { "sev": "notice",  "class": "crawl", "rarity": "occasional" },
     "noindex":                        { "sev": "notice",  "class": "crawl", "rarity": "common" },

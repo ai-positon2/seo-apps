@@ -38,6 +38,8 @@ const NEW_RULES = {
   "crawl-blocked": { class: "crawl", rarity: "occasional" },
   "sitemap-too-large": { class: "crawl", rarity: "rare" },
   "sitemap-off-host": { class: "crawl", rarity: "occasional" },
+  "multiple-canonical": { class: "crawl", rarity: "occasional" },
+  "canonical-outside-head": { class: "crawl", rarity: "rare" },
 };
 
 const GROUPS = [
