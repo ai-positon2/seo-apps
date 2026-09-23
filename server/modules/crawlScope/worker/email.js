@@ -27,6 +27,14 @@ function delta(current, previous) {
   return diff > 0 ? ` (▲ +${diff})` : ` (▼ ${diff})`;
 }
 
+// The run's report page in the web app (client/src/App.jsx). The emails used to
+// link to "/?run=<id>", a query parameter from an earlier, router-less client
+// that nothing reads any more, so the link opened the home page.
+function runReportLink(baseUrl, runId) {
+  if (!baseUrl) return "";
+  return `${String(baseUrl).replace(/\/+$/, "")}/crawl-scope/runs/${encodeURIComponent(runId)}`;
+}
+
 function topIssues(findings, limit = 8) {
   const map = new Map();
   for (const f of findings) {
@@ -64,10 +72,7 @@ function buildHtml({ run, counts, previousCounts, findings, baseUrl, downloadUrl
     )
     .join("");
 
-  // The app has no client-side router — there is no "#/runs/:id" route for
-  // this to resolve to. "?run=<id>" is a real query param the renderer reads
-  // on load (see app.js) to jump straight to this run.
-  const link = baseUrl ? `${baseUrl.replace(/\/$/, "")}/?run=${encodeURIComponent(run.id)}` : "";
+  const link = runReportLink(baseUrl, run.id);
 
   return `<div style="font-family:Segoe UI,Arial,sans-serif;color:#1f2733;max-width:640px;">
     <h2 style="margin:0 0 4px;">CrawlScope audit — ${esc(run.url)}</h2>
@@ -93,7 +98,7 @@ function buildHtml({ run, counts, previousCounts, findings, baseUrl, downloadUrl
 }
 
 function buildFailureHtml({ run, projectName, message, baseUrl }) {
-  const link = baseUrl ? `${baseUrl.replace(/\/$/, "")}/?run=${encodeURIComponent(run.id)}` : "";
+  const link = runReportLink(baseUrl, run.id);
   return `<div style="font-family:Segoe UI,Arial,sans-serif;color:#1f2733;max-width:640px;">
     <h2 style="margin:0 0 4px;">CrawlScope crawl failed — ${esc(projectName || run.url)}</h2>
     <p style="color:#5a6a7a;margin:0 0 16px;">The scheduled audit for ${esc(run.url)} could not be completed.</p>
