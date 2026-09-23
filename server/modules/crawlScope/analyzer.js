@@ -1471,69 +1471,73 @@ function buildFindings({
           detectedValue: `<base href="${raw}">; ${result.documentBaseFallbackReason}`,
         });
       }
-      // Previously only caught by crawler.js's live quickIssues() pass, which
-      // never gets re-run once findings replace it after the crawl completes
-      // — a page missing its <title> silently lost this finding entirely at
-      // that point, rather than just losing its category/description.
-      if (!result.title) {
-        // Same URL-slug fallback suggestH1 uses — there's no existing title
-        // to trim, so this is a starting point to hand-refine, not a
-        // finished recommendation.
-        const slugTitle = humanizeUrlSlug(result.url);
-        add("title-missing", result, slugTitle ? { recommendedValue: slugTitle } : {});
-      }
-      if (result.titleCount > 1) {
-        add("title-multiple", result, { detectedValue: result.titleCount });
-      }
-      if (result.titleLength > 60) {
-        add("title-long", result, {
-          detail: `${result.titleLength} characters`,
-          detectedValue: result.title,
-          recommendedValue: suggestTitle(result.title),
-        });
-      }
-      if (!result.metaDescription) {
-        // Both of these carried an empty detail and detectedValue, so 484
-        // identical rows on one crawl told a developer nothing about which page
-        // to open or what was actually observed there.
-        add("meta-missing", result, {
-          detail: "No <meta name=\"description\"> on this page",
-          detectedValue: "(absent)",
-          recommendedValue: suggestMetaDescription(result),
-        });
-      } else if (result.metaLength > 160) {
-        add("meta-long", result, {
-          detail: `${result.metaLength} characters`,
-          detectedValue: result.metaDescription,
-          recommendedValue: `Needs a manual rewrite — current description is ${result.metaLength} characters (target 150-160). Trim to the most important sentence rather than cutting mid-sentence.`,
-        });
-      } else if (result.metaLength < 70) {
-        add("meta-short", result, {
-          detail: `${result.metaLength} characters`,
-          detectedValue: result.metaDescription,
-          recommendedValue: suggestMetaDescription(result),
-        });
-      }
-      // A deliberately noindexed page won't appear in search results, so its
-      // content quality — H1, word count, text-to-HTML ratio, Open Graph tags
-      // — has no SEO consequence. Flagging it here is just noise on top of
-      // the noindex finding itself, which is the one thing worth reviewing.
-      if (!hasNoindex && !result.h1Count) {
-        add("h1-missing", result, { recommendedValue: suggestH1(result) });
-      } else if (result.h1Count > 1) {
-        add("h1-multiple", result, { detectedValue: result.h1Count });
-      }
-      if (!result.viewport) {
-        add("viewport-missing", result);
-      } else if (!/width\s*=\s*device-width/i.test(result.viewport)) {
-        add("viewport-not-responsive", result, { detectedValue: result.viewport });
-      }
-      if (
-        result.h1 &&
-        result.title &&
-        result.h1.split("|")[0].trim().toLowerCase() === result.title.trim().toLowerCase()
-      ) {
-        add("h1-title-duplicate", result, { detectedValue: `Title and H1 both read "${result.title.trim()}"` });
+      // A deliberately noindexed page won't appear in search results, so how
+      // its title, description, headings, viewport, Open Graph tags or word
+      // count would look there has no SEO consequence. Flagging them is noise
+      // on top of the noindex finding itself — the one thing worth reviewing on
+      // the /cart, /login and tag pages sites noindex on purpose. Speed,
+      // security, redirects and links are still checked below.
+      if (!hasNoindex) {
+        // Previously only caught by crawler.js's live quickIssues() pass, which
+        // never gets re-run once findings replace it after the crawl completes
+        // — a page missing its <title> silently lost this finding entirely at
+        // that point, rather than just losing its category/description.
+        if (!result.title) {
+          // Same URL-slug fallback suggestH1 uses — there's no existing title
+          // to trim, so this is a starting point to hand-refine, not a
+          // finished recommendation.
+          const slugTitle = humanizeUrlSlug(result.url);
+          add("title-missing", result, slugTitle ? { recommendedValue: slugTitle } : {});
+        }
+        if (result.titleCount > 1) {
+          add("title-multiple", result, { detectedValue: result.titleCount });
+        }
+        if (result.titleLength > 60) {
+          add("title-long", result, {
+            detail: `${result.titleLength} characters`,
+            detectedValue: result.title,
+            recommendedValue: suggestTitle(result.title),
+          });
+        }
+        if (!result.metaDescription) {
+          // Both of these carried an empty detail and detectedValue, so 484
+          // identical rows on one crawl told a developer nothing about which page
+          // to open or what was actually observed there.
+          add("meta-missing", result, {
+            detail: "No <meta name=\"description\"> on this page",
+            detectedValue: "(absent)",
+            recommendedValue: suggestMetaDescription(result),
+          });
+        } else if (result.metaLength > 160) {
+          add("meta-long", result, {
+            detail: `${result.metaLength} characters`,
+            detectedValue: result.metaDescription,
+            recommendedValue: `Needs a manual rewrite — current description is ${result.metaLength} characters (target 150-160). Trim to the most important sentence rather than cutting mid-sentence.`,
+          });
+        } else if (result.metaLength < 70) {
+          add("meta-short", result, {
+            detail: `${result.metaLength} characters`,
+            detectedValue: result.metaDescription,
+            recommendedValue: suggestMetaDescription(result),
+          });
+        }
+        if (!result.h1Count) {
+          add("h1-missing", result, { recommendedValue: suggestH1(result) });
+        } else if (result.h1Count > 1) {
+          add("h1-multiple", result, { detectedValue: result.h1Count });
+        }
+        if (!result.viewport) {
+          add("viewport-missing", result);
+        } else if (!/width\s*=\s*device-width/i.test(result.viewport)) {
+          add("viewport-not-responsive", result, { detectedValue: result.viewport });
+        }
+        if (
+          result.h1 &&
+          result.title &&
+          result.h1.split("|")[0].trim().toLowerCase() === result.title.trim().toLowerCase()
+        ) {
+          add("h1-title-duplicate", result, { detectedValue: `Title and H1 both read "${result.title.trim()}"` });
+        }
       }
       for (const issue of result.headingHierarchyIssues || []) {
         add("heading-hierarchy-skipped", result, {
@@ -1607,7 +1611,7 @@ function buildFindings({
           detectedValue: rawOgUrl,
         });
       }
-      for (const schemaError of result.schemaErrors || []) {
+      for (const schemaError of hasNoindex ? [] : result.schemaErrors || []) {
         add("schema-error", result, {
           detail: schemaError,
           detectedValue: schemaError,
