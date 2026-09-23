@@ -85,6 +85,14 @@ export default function CrawlScopeRunPage() {
   const [run, setRun] = useState(null);
   const [results, setResults] = useState([]);
   const [findings, setFindings] = useState([]);
+  // { shown, total } when the run holds more findings than one read returns
+  // (the server's 50,000 cap), else null.
+  const [findingsCap, setFindingsCap] = useState(null);
+  const takeFindings = (response) => {
+    const list = response?.findings || [];
+    setFindings(list);
+    setFindingsCap(response?.capped ? { shown: list.length, total: Number(response.total) || list.length } : null);
+  };
   // Whether the AUDIT — the full rule catalog's finding set — has actually been loaded.
   //
   // Tracked separately from `findings` because an empty array is ambiguous and
@@ -150,7 +158,7 @@ export default function CrawlScopeRunPage() {
           try {
             const f = await cs.findings(id);
             if (!cancelled) {
-              setFindings(f.findings || []);
+              takeFindings(f);
               setFindingsState('ready');
             }
           } catch (e) {
@@ -225,7 +233,7 @@ export default function CrawlScopeRunPage() {
       // then silently fell back to the crawler's live checks.
       setFindingsState('loading');
       cs.findings(id)
-        .then((f) => { setFindings(f.findings || []); setFindingsState('ready'); })
+        .then((f) => { takeFindings(f); setFindingsState('ready'); })
         .catch((e) => { setFindingsState('error'); setFindingsError(e.message); });
       source.close();
     });
@@ -500,11 +508,14 @@ export default function CrawlScopeRunPage() {
       rows, analyser, shown, dismissed: 0,
       stored: findings.length, storedCount: findings.length, byScope,
       agrees: analyser === shown,
+      // Short by design, not by loss: the run holds more findings than one
+      // read returns.
+      capped: findingsCap,
       // The audit ran and its output was not kept — the failure mode migration
       // 0023 exists to end. Kept as a check rather than assumed fixed.
       notStored: Boolean(analyser) && findings.length === 0,
     };
-  }, [run?.summary?.counts, findings, running, findingsState]);
+  }, [run?.summary?.counts, findings, findingsCap, running, findingsState]);
 
   // ── Actions ───────────────────────────────────────────────────────────────
   /**
@@ -871,7 +882,7 @@ export default function CrawlScopeRunPage() {
                 setFindingsState('loading');
                 setFindingsError(null);
                 cs.findings(id)
-                  .then((f) => { setFindings(f.findings || []); setFindingsState('ready'); })
+                  .then((f) => { takeFindings(f); setFindingsState('ready'); })
                   .catch((e) => { setFindingsState('error'); setFindingsError(e.message); });
               }}
               style={{ height: 34, fontSize: 12.5, padding: '0 14px' }}

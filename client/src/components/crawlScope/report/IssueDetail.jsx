@@ -272,6 +272,12 @@ export default function IssueDetail({
                               {secondary}
                             </div>
                           )}
+                          {f.sourceTruncated && (
+                            <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-3)' }}>
+                              Counted on the first 5 MB of the page, which is larger: the true
+                              figure may be higher.
+                            </div>
+                          )}
                         </>
                       );
                     })()}

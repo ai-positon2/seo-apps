@@ -664,3 +664,32 @@ test("a check the crawl could not run is listed as not evaluated, not as passed"
   assert.ok(at(titleOf("broken-external-link")) < heading);
   assert.match(rows[at(titleOf("broken-external-link"))][2], /Partly checked: 37 external URLs/);
 });
+
+test("a count taken on a truncated page says so in the workbook", async () => {
+  const definitions = Object.fromEntries(catalog.map((item) => [item.id, item]));
+  const buffer = await buildAuditWorkbook({
+    findings: [{
+      id: "finding-big",
+      ruleId: "broken-internal-links",
+      ...definitions["broken-internal-links"],
+      url: "https://example.com/big",
+      targetUrl: "https://example.com/gone",
+      detail: "HTTP 404 Not Found",
+      statusCode: 404,
+      detectedValue: "Link text: “Old page”",
+      sourceTruncated: true,
+      reviewStatus: "Needs review",
+      reviewerNotes: "",
+    }],
+    catalog,
+    siteUrl: "https://example.com/",
+    crawlDate: "2026-09-23T10:00:00.000Z",
+  });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.worksheets.find((s) => s.getCell("A1").value === definitions["broken-internal-links"].title);
+  const headers = sheet.getRow(9).values.slice(1);
+  const evidence = sheet.getCell(10, headers.indexOf("Evidence") + 1).value;
+  assert.match(evidence, /^HTTP 404 Not Found/);
+  assert.match(evidence, /first 5 MB of the page/);
+});

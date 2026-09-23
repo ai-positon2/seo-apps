@@ -77,3 +77,14 @@ test('a row shows what was found as well as what it means', () => {
   assert.deepStrictEqual(findingEvidence({}), { primary: '—', secondary: null });
   assert.ok(findingEvidence({ detail: 'x', detectedValue: 'y'.repeat(500) }).secondary.length <= 241);
 });
+
+test('a finding counted on a truncated page says so on the page view', () => {
+  // The analyzer marks findings measured on the first 5 MB of a larger page
+  // (sourceTruncated); nothing showed it, so a partial count read as the count.
+  const cards = pageIssueCards(
+    [{ id: 'a', ruleId: 'anchor-missing', url: 'https://example.com/big', scope: 'page', detail: '3,830 links', sourceTruncated: true }],
+    'https://example.com/big',
+    new Map(),
+  );
+  assert.strictEqual(cards[0].truncated, true);
+});

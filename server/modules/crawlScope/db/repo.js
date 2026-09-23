@@ -707,7 +707,12 @@ async function listRunFindingInstancesPage(client, runId, { offset = 0, limit = 
 // shape analyzer.js produced (just `row.data`) — a drop-in replacement for
 // the old `run.summary.findings` array. `cap` is a safety ceiling, not an
 // expected limit.
-async function listAllRunFindingInstances(client, runId, { cap = 50_000 } = {}) {
+// The most finding instances any one read returns. A run can hold more; the
+// report says so (see `meta` below) instead of presenting the first 50,000 as
+// all of them.
+const FINDINGS_READ_CAP = 50_000;
+
+async function listAllRunFindingInstances(client, runId, { cap = FINDINGS_READ_CAP, meta = null } = {}) {
   // Paged rather than one unbounded select, so a 20,000-row run cannot arrive as
   // one enormous result set.
   //
@@ -753,6 +758,9 @@ async function listAllRunFindingInstances(client, runId, { cap = 50_000 } = {}) 
     ),
   ]);
 
+  // `meta.total` is how many the run holds, which a caller compares with what
+  // came back to know whether the cap cut the list short.
+  if (meta) meta.total = Number(countRow[0]?.n) || 0;
   const total = Math.min(Number(countRow[0]?.n) || 0, cap);
   if (!total) return [];
 
@@ -1032,6 +1040,7 @@ async function saveFindingReviews(client, runId, owner, reviews, reviewedBy = nu
 }
 
 module.exports = {
+  FINDINGS_READ_CAP,
   canViewRow,
   viewerScope,
   getRunForViewer,

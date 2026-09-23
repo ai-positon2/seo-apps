@@ -322,11 +322,18 @@ function cellValueFor(key, finding) {
       return finding.targetUrl || null;
     case "value":
       return valueOrNull(finding.detectedValue);
-    case "evidence":
+    case "evidence": {
       // Not repeated when it says exactly what Detected Value already does.
-      return finding.detail && finding.detail !== String(finding.detectedValue ?? "")
+      const detail = finding.detail && finding.detail !== String(finding.detectedValue ?? "")
         ? finding.detail
-        : null;
+        : "";
+      // The crawler reads the first 5 MB of a page; a count taken on a larger
+      // one is a floor, and says so.
+      const note = finding.sourceTruncated
+        ? "(Counted on the first 5 MB of the page, which is larger; the true figure may be higher.)"
+        : "";
+      return [detail, note].filter(Boolean).join(" ") || null;
+    }
     case "code":
       return valueOrNull(finding.statusCode) || null;
     case "recommendation":

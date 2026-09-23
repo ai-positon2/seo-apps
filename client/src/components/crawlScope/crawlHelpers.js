@@ -716,6 +716,8 @@ export function pageIssueCards(findings, pageUrl, catalogById, pagesByRule = new
         severity: f.severity,
         detected: evidence.primary === '—' ? null : evidence.primary,
         found: evidence.secondary,
+        // Counted on the first 5 MB of a larger page: a floor, not the count.
+        truncated: Boolean(f.sourceTruncated),
         targetUrl: f.targetUrl || null,
         suggestion,
         description: entry?.description || null,

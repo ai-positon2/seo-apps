@@ -85,6 +85,11 @@ export default function UrlDetail({
                   )}
                 </p>
               )}
+              {i.truncated && (
+                <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--text-3)' }}>
+                  Counted on the first 5 MB of this page, which is larger: the true figure may be higher.
+                </p>
+              )}
 
               {/* What the finding points at — the broken link's target, the
                   canonical, the redirect destination — is the thing to go and

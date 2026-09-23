@@ -300,8 +300,8 @@ const REVIEW_STATUSES = new Set([
 // location, run.summary.findings. Falling back there (rather than showing
 // zero findings for every run that predates the migration) costs nothing:
 // `run` is already fetched, so this reads a field already in memory.
-async function loadRunFindings(db, run) {
-  const stored = await repo.listAllRunFindingInstances(db, run.id);
+async function loadRunFindings(db, run, meta = null) {
+  const stored = await repo.listAllRunFindingInstances(db, run.id, { meta });
   if (stored.length) return stored;
   return Array.isArray(run.summary?.findings) ? run.summary.findings : [];
 }
@@ -373,9 +373,18 @@ router.get(
       });
     }
 
-    const findings = await loadRunFindings(req.db, run);
+    const meta = {};
+    const findings = await loadRunFindings(req.db, run, meta);
     const reviews = await repo.listFindingReviews(req.db, run.id);
-    res.json({ grain: "instance", findings: mergeReviews(findings, reviews) });
+    const total = Math.max(Number(meta.total) || 0, findings.length);
+    res.json({
+      grain: "instance",
+      findings: mergeReviews(findings, reviews),
+      // A run can hold more findings than one read returns; the report says
+      // "the first N of M" instead of calling N the whole audit.
+      total,
+      capped: total > findings.length,
+    });
   }),
 );
 

@@ -283,9 +283,15 @@ export default function OverviewPanel({
                     + `${reconciliation.analyser.toLocaleString()} findings and the run holds none. `
                     + 'Nothing here can be fixed by reloading — the crawl needs re-running, and '
                     + 'this is worth reporting.'
-                  : `Incomplete: the analyser recorded ${reconciliation.analyser.toLocaleString()} `
-                    + `findings and this page received ${reconciliation.shown.toLocaleString()}. `
-                    + 'Every figure above understates the site — please report this.'}
+                  : reconciliation.capped
+                    // The report reads at most this many findings at once; the
+                    // run itself holds them all.
+                    ? `Partial: this crawl produced ${reconciliation.capped.total.toLocaleString()} findings `
+                      + `and the report reads the first ${reconciliation.capped.shown.toLocaleString()}, its limit, `
+                      + 'so every figure above covers those. The Excel export has the same limit.'
+                    : `Incomplete: the analyser recorded ${reconciliation.analyser.toLocaleString()} `
+                      + `findings and this page received ${reconciliation.shown.toLocaleString()}. `
+                      + 'Every figure above understates the site — please report this.'}
             </span>
             <span style={{ fontSize: 11.5, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
               {reconciliation.rows

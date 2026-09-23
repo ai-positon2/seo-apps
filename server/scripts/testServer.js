@@ -98,6 +98,7 @@ const SUITES = [
   'modules/crawlScope/__dbtests__/runClaim.test.js',
   // A finished crawl writes whole-crawl link counts onto its stored rows.
   'modules/crawlScope/__dbtests__/resultPatches.test.js',
+  'modules/crawlScope/__dbtests__/findingsCap.test.js',
 ];
 
 // The crawlScope suite runs through its own script, which picks the right
