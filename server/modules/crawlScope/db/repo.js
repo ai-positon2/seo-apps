@@ -935,6 +935,28 @@ async function patchResultCategories(client, runId, patches) {
   );
 }
 
+// Merges analyzer-computed fields into stored result rows. crawl_run_results
+// rows are written as each page is fetched, before anything that needs the
+// whole crawl exists — so a row's `inlinks` was the count at fetch time (0 for
+// most pages; projects/crawledPages.js documents it as "0 on every row") and
+// the report's Inlinks column showed that. `patches` is [{ url, fields }];
+// `fields` is merged into `data`, never replacing it. Chunked so a 10,000-page
+// crawl is several statements, not one enormous parameter.
+const RESULT_PATCH_CHUNK = 1_000;
+
+async function patchResultData(client, runId, patches) {
+  for (let i = 0; i < patches.length; i += RESULT_PATCH_CHUNK) {
+    const chunk = patches.slice(i, i + RESULT_PATCH_CHUNK);
+    await client.query(
+      `update crawl_run_results r
+          set data = r.data || p.fields
+         from jsonb_to_recordset($2::jsonb) as p(url text, fields jsonb)
+        where r.run_id = $1 and r.url = p.url`,
+      [runId, json(chunk)],
+    );
+  }
+}
+
 // Upserts a project's classification, skipping any URL a human has already
 // manually corrected (manual_override = true) — enforced by the function's own
 // WHERE clause, not here, so it holds regardless of caller. `entries` is
@@ -1051,6 +1073,7 @@ module.exports = {
   listResults,
   updateResultPagespeed,
   patchResultCategories,
+  patchResultData,
   upsertPageCategories,
   listPageCategories,
   listFindingReviews,

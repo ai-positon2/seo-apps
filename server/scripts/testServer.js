@@ -96,6 +96,8 @@ const SUITES = [
   // One queued crawl runs once, however many executors reach for it. Skips
   // without TEST_DATABASE_URL.
   'modules/crawlScope/__dbtests__/runClaim.test.js',
+  // A finished crawl writes whole-crawl link counts onto its stored rows.
+  'modules/crawlScope/__dbtests__/resultPatches.test.js',
 ];
 
 // The crawlScope suite runs through its own script, which picks the right

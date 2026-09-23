@@ -108,7 +108,10 @@ test("crawls internal HTML, follows redirects, respects robots, and finds duplic
   assert.equal(home.externalLinks, 1);
   assert.ok(home.words > 200);
   assert.equal(about.indexability, "Non-indexable");
-  assert.equal(about.inlinks, 2);
+  // Distinct linking pages: the home page links to /about directly and via
+  // /redirect (302 -> /about), which is still one page linking to it. The old
+  // count of 2 was one per link element plus one for the redirect hop.
+  assert.equal(about.inlinks, 1);
   assert.ok(!about.issues.some((issue) => issue.id === "title-duplicate"));
   assert.ok(home.issues.some((issue) => issue.id === "title-duplicate"));
   assert.ok(duplicate.issues.some((issue) => issue.id === "title-duplicate"));

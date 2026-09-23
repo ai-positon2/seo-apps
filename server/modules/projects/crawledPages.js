@@ -97,10 +97,12 @@ function canonicalKey(url) {
 /**
  * How many DISTINCT pages of the site link to each page.
  *
- * The crawl's own `data.inlinks` field is 0 on every row — it is not populated —
- * so the crawler's stored link graph is the only real measure of which pages the
- * site itself treats as important. Distinct sources rather than edges: one page
- * linking to another five times in a mega-menu is one page's worth of intent.
+ * The crawl's own `data.inlinks` field was a fetch-time partial count (0 on most
+ * rows) until crawls started writing the final distinct-page count back at
+ * completion; older runs still carry the partial one. So the crawler's stored
+ * link graph is what this counts from — it is correct for every run that has
+ * one. Distinct sources rather than edges: one page linking to another five
+ * times in a mega-menu is one page's worth of intent.
  *
  * Returns an empty Map when there is no graph, which the caller reads as
  * "no signal" rather than "every page has zero inbound links".

@@ -465,10 +465,16 @@ test("single-inlink and orphan-page are suppressed when the crawl was truncated 
 });
 
 test("single-inlink and orphan-page still fire on a complete (non-truncated) crawl", () => {
-  const single = baseResult({ url: "https://example.com/single", inlinks: 1 });
-  const orphan = baseResult({ url: "https://example.com/orphan", inlinks: 0, fromSitemap: true });
+  // Incoming links are counted from the link graph (distinct linking pages),
+  // so the fixture supplies the one page that links to /single.
+  const home = baseResult({ url: "https://example.com/" });
+  const single = baseResult({ url: "https://example.com/single" });
+  const orphan = baseResult({ url: "https://example.com/orphan", fromSitemap: true });
   const { findings } = buildFindings({
-    results: [single, orphan],
+    results: [home, single, orphan],
+    linkEdges: [
+      { sourceUrl: home.url, targetUrl: single.url, internal: true, anchorText: "Single" },
+    ],
     startUrl: "https://example.com/",
     crawlTruncated: false,
   });

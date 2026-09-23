@@ -2063,7 +2063,9 @@ class SeoCrawler extends EventEmitter {
         // A stopped crawl saw only part of the link graph, exactly like one that
         // hit a cap: "nothing links to this page" is unknowable when the pages
         // that might link to it were never fetched.
-        crawlTruncated: this.truncated || this.stopped,
+        // …and so did one whose link graph hit maxEdges: incoming-link counts
+        // from a capped edge list cannot prove a page is an orphan.
+        crawlTruncated: this.truncated || this.stopped || this.edgesTruncated,
       });
       const payload = {
         stopped: this.stopped,

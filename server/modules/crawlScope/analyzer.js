@@ -1158,6 +1158,59 @@ function buildFindings({
     }
   }
 
+  // ── Incoming internal links, per page ─────────────────────────────────────
+  // DISTINCT linking pages, not <a> elements. The crawler's own count
+  // (inlinkCounts) added one per element: a nav link and its footer twin were
+  // two inlinks, a nofollow link counted, and a redirect hop counted as a link
+  // from the redirecting URL — so "only one incoming internal link" missed the
+  // pages it exists to find. A link to a redirect credits the redirect's
+  // destination too, the page it actually delivers the visitor to.
+  // `followInlinks` counts only links a search engine follows: not rel=nofollow
+  // and not on a page whose robots directives say nofollow.
+  const linkingPages = new Map();
+  const followLinkingPages = new Map();
+  const creditLink = (map, targetUrl, sourceUrl) => {
+    const set = map.get(targetUrl) || new Set();
+    set.add(sourceUrl);
+    map.set(targetUrl, set);
+  };
+  for (const edge of linkEdges) {
+    if (!edge.internal) continue;
+    const source = index.get(edge.sourceUrl);
+    const target = index.get(edge.targetUrl);
+    if (!source || !target) continue;
+    const followable =
+      !(edge.nofollow || linkRelTokens(edge).has("nofollow")) &&
+      !isNofollow(resultRobotsDirectives(source));
+    const destinations = [target.url];
+    const trace = redirectTraces.get(target.url);
+    if (trace && !trace.loop && !trace.limitReached) {
+      const destination = index.get(trace.targetUrl);
+      if (destination) destinations.push(destination.url);
+    }
+    for (const url of destinations) {
+      if (url === source.url) continue;
+      creditLink(linkingPages, url, source.url);
+      if (followable) creditLink(followLinkingPages, url, source.url);
+    }
+  }
+  // A page that sends the visitor on with a meta refresh or Refresh header
+  // links to its destination as surely as an <a> does (Google treats an
+  // instant refresh like a redirect), so that destination is not an orphan.
+  for (const result of internalResults) {
+    if (result.status < 200 || result.status >= 300) continue;
+    const refresh = declarativeRefresh(result);
+    if (!refresh || refresh.isReload) continue;
+    const destination = index.get(refresh.url);
+    if (!destination || destination.url === result.url) continue;
+    creditLink(linkingPages, destination.url, result.url);
+    if (!isNofollow(resultRobotsDirectives(result))) {
+      creditLink(followLinkingPages, destination.url, result.url);
+    }
+  }
+  const inlinksOf = (url) => linkingPages.get(url)?.size || 0;
+  const followInlinksOf = (url) => followLinkingPages.get(url)?.size || 0;
+
   for (const result of internalResults) {
     const isHtml = result.contentType?.includes("text/html");
     const inSitemaps = [...(sitemapsByPage.get(index.identity(result.url)) || [])];
@@ -1271,7 +1324,7 @@ function buildFindings({
       result.status === 200 &&
       result.url !== startUrl &&
       result.fromSitemap &&
-      result.inlinks === 0
+      inlinksOf(result.url) === 0
     ) {
       add("orphan-page", result);
     }
@@ -1280,9 +1333,11 @@ function buildFindings({
       isHtml &&
       result.status === 200 &&
       result.url !== startUrl &&
-      result.inlinks === 1
+      followInlinksOf(result.url) === 1
     ) {
-      add("single-inlink", result);
+      add("single-inlink", result, {
+        detectedValue: [...(followLinkingPages.get(result.url) || [])][0] || "",
+      });
     }
     if (isHtml && result.depth > 3) {
       add("deep-page", result, { detectedValue: result.depth });
@@ -2135,6 +2190,9 @@ function buildFindings({
   }
   const enrichedResults = results.map((result) => ({
     ...result,
+    ...(result.scope === "External"
+      ? {}
+      : { inlinks: inlinksOf(result.url), followInlinks: followInlinksOf(result.url) }),
     pageCategory: categorizePage(result),
     issues: (findingsByUrl.get(result.url) || []).map((finding) => ({
       id: finding.ruleId,

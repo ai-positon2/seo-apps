@@ -570,6 +570,22 @@ class RunManager {
         console.error(`[crawlScope] page categories not stored for run ${run.id}:`, error.message);
       }
 
+      // Whole-crawl values the analyzer computed, onto the rows the report
+      // reads. Each row was stored when its page was fetched, before the link
+      // graph existed, so its `inlinks` was a fetch-time partial count. Same
+      // non-fatal treatment as the categories above.
+      try {
+        const patches = (Array.isArray(summary.results) ? summary.results : [])
+          .filter((r) => r.scope !== "External")
+          .map((r) => ({
+            url: r.url,
+            fields: { inlinks: r.inlinks ?? 0, followInlinks: r.followInlinks ?? 0 },
+          }));
+        await repo.patchResultData(db, run.id, patches);
+      } catch (error) {
+        console.error(`[crawlScope] link counts not stored for run ${run.id}:`, error.message);
+      }
+
       const counts = severityCounts(findings);
       const rolled = {
         // NOT the full findings array — that's what was timing out (see
