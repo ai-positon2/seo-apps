@@ -543,6 +543,7 @@ router.get(
       siteUrl: run.url,
       crawlDate: run.finished_at || run.created_at,
       coverage: run.summary?.coverage || null,
+      ruleOrder: run.summary?.ruleOrder || null,
     });
     res.setHeader("Content-Type", report.XLSX_MIME);
     res.setHeader(

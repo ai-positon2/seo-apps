@@ -255,6 +255,7 @@ async function emailReport(db, { run, summary, counts }) {
       siteUrl: run.url,
       crawlDate: finishedAt,
       coverage: summary.coverage || null,
+      ruleOrder: summary.ruleOrder || null,
     });
     const path = await report.storeReport(db, run, workbook);
     if (path) await repo.updateRun(db, run.id, { report_path: path });
@@ -266,6 +267,7 @@ async function emailReport(db, { run, summary, counts }) {
       previousCounts,
       // Computed by the run manager against the same previous crawl.
       comparison: summary.comparison || null,
+      ruleOrder: summary.ruleOrder || null,
       findings,
       recipients,
       workbook,

@@ -4,6 +4,7 @@
 
 const { Resend } = require("resend");
 const { buildReportBuffer, reportFilename } = require("../run/report");
+const { rankLookup } = require("../rule-order");
 
 // Providers cap total message size (Resend's documented limit is 40 MB), and base64
 // inflates the payload by a third. Rather than letting an oversize attachment fail the
@@ -35,19 +36,25 @@ function runReportLink(baseUrl, runId) {
   return `${String(baseUrl).replace(/\/+$/, "")}/crawl-scope/runs/${encodeURIComponent(runId)}`;
 }
 
-function topIssues(findings, limit = 8) {
+// In the run's own order when it has one (rule-order.js: severity, site-wide,
+// how much the affected pages matter), the same order the report and the
+// workbook use, with the reason for each; otherwise severity then count.
+function topIssues(findings, limit = 8, ruleOrder = null) {
   const map = new Map();
   for (const f of findings) {
     const cur =
       map.get(f.ruleId) ||
-      { title: f.title, severity: f.severity, recommendation: f.recommendation, count: 0 };
+      { ruleId: f.ruleId, title: f.title, severity: f.severity, recommendation: f.recommendation, count: 0 };
     cur.count += 1;
     map.set(f.ruleId, cur);
   }
+  const rankOf = rankLookup(ruleOrder);
+  const reasonOf = new Map((ruleOrder || []).map((row) => [row.ruleId, row.reason]));
   const rank = { error: 0, warning: 1, notice: 2, info: 3 };
   return [...map.values()]
-    .sort((a, b) => (rank[a.severity] - rank[b.severity]) || b.count - a.count)
-    .slice(0, limit);
+    .sort((a, b) => rankOf(a.ruleId) - rankOf(b.ruleId) || (rank[a.severity] - rank[b.severity]) || b.count - a.count)
+    .slice(0, limit)
+    .map((issue) => ({ ...issue, reason: reasonOf.get(issue.ruleId) || null }));
 }
 
 // New / fixed / persisting against the previous crawl (run/comparison.js). The
@@ -61,7 +68,9 @@ function comparisonLine(comparison) {
     `${n(totals.fixed)} fixed, ${n(totals.persisting)} still open.</p>`;
 }
 
-function buildHtml({ run, counts, previousCounts, findings, baseUrl, downloadUrl, attached = true, comparison = null }) {
+function buildHtml({
+  run, counts, previousCounts, findings, baseUrl, downloadUrl, attached = true, comparison = null, ruleOrder = null,
+}) {
   const rows = SEVERITY_ORDER.map((sev) => {
     const c = counts[sev] || 0;
     return `<tr><td style="padding:4px 12px;">${SEVERITY_LABEL[sev]}</td>
@@ -70,10 +79,10 @@ function buildHtml({ run, counts, previousCounts, findings, baseUrl, downloadUrl
       )}</td></tr>`;
   }).join("");
 
-  const issues = topIssues(findings)
+  const issues = topIssues(findings, 8, ruleOrder)
     .map(
       (i) => `<li style="margin-bottom:10px;">
-          <strong>${esc(i.title)}</strong> — ${esc(i.severity)} · ${i.count} page(s)
+          <strong>${esc(i.title)}</strong> — ${esc(i.severity)} · ${i.reason ? esc(i.reason) : `${i.count} page(s)`}
           ${
             i.recommendation
               ? `<br><span style="color:#5a6a7a;font-size:13px;">${esc(i.recommendation)}</span>`
@@ -158,6 +167,7 @@ async function sendReportEmail({
   counts,
   previousCounts,
   comparison = null,
+  ruleOrder = null,
   findings,
   recipients,
   workbook = null,
@@ -179,6 +189,7 @@ async function sendReportEmail({
       siteUrl: run.url,
       crawlDate: run.finished_at,
       coverage: run.summary?.coverage || null,
+      ruleOrder: run.summary?.ruleOrder || null,
     }));
 
   const host = String(run.url).replace(/^https?:\/\//i, "").split("/")[0];
@@ -197,6 +208,7 @@ async function sendReportEmail({
       counts,
       previousCounts,
       comparison,
+      ruleOrder,
       findings,
       baseUrl,
       downloadUrl,

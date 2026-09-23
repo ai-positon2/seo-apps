@@ -77,7 +77,7 @@ function resolveStoredPath(stored) {
   return full;
 }
 
-async function buildReportBuffer({ findings, siteUrl, crawlDate, coverage = null }) {
+async function buildReportBuffer({ findings, siteUrl, crawlDate, coverage = null, ruleOrder = null }) {
   return withBuildGate(async () => {
     const buffer = await buildAuditWorkbook({
       findings,
@@ -85,6 +85,7 @@ async function buildReportBuffer({ findings, siteUrl, crawlDate, coverage = null
       siteUrl,
       crawlDate: crawlDate || new Date().toISOString(),
       coverage,
+      ruleOrder,
     });
     return Buffer.from(buffer);
   });

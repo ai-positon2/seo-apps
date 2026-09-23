@@ -41,3 +41,22 @@ test('one rule\'s movement, or nothing when it did not move', () => {
   assert.strictEqual(ruleTrend(comparison, 'h1-missing'), null);
   assert.strictEqual(ruleTrend(null, 'title-long'), null);
 });
+
+test('issue groups follow the run\'s importance order and carry its reason', async () => {
+  const { orderIssueGroups } = await import('../crawlHelpers.js');
+  const groups = [
+    { id: 'h1-missing', severity: 'warning', pages: 40 },
+    { id: 'title-long', severity: 'warning', pages: 1 },
+    { id: 'page-4xx', severity: 'error', pages: 2 },
+  ];
+  // Without an order: severity, then pages.
+  assert.deepStrictEqual(orderIssueGroups(groups, null).map((g) => g.id), ['page-4xx', 'h1-missing', 'title-long']);
+  const ruleOrder = [
+    { ruleId: 'page-4xx', rank: 1, reason: 'On 2 pages.' },
+    { ruleId: 'title-long', rank: 2, reason: 'On 1 page, the homepage.' },
+    { ruleId: 'h1-missing', rank: 3, reason: 'On 40 pages.' },
+  ];
+  const ordered = orderIssueGroups(groups, ruleOrder);
+  assert.deepStrictEqual(ordered.map((g) => g.id), ['page-4xx', 'title-long', 'h1-missing']);
+  assert.strictEqual(ordered[1].reason, 'On 1 page, the homepage.');
+});

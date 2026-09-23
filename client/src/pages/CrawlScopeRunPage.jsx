@@ -46,9 +46,9 @@ import IssueDetail from '../components/crawlScope/report/IssueDetail';
 import UrlDetail from '../components/crawlScope/report/UrlDetail';
 import {
   healthMetrics, issueGroups, siteScopedGroups, healthScoreBreakdown, pageIssueCards, crawlCoverageNotice,
-  crawlComparison, reviewBatches,
+  crawlComparison, reviewBatches, orderIssueGroups,
   runStatusVariant, formatDuration, TERMINAL_STATUSES, withEffectiveIssues,
-  buildCountHierarchy, SEVERITY_ORDER, isHtmlPage,
+  buildCountHierarchy, isHtmlPage,
 } from '../components/crawlScope/crawlHelpers';
 import { cs, saveBlob } from '../lib/crawlScopeApi';
 
@@ -313,17 +313,16 @@ export default function CrawlScopeRunPage() {
   // `count` and `pages` are attached because the views display both and they
   // are different quantities: one page can trip the same check twice, so
   // occurrences and affected pages diverge.
+  // In the run's own order (orderIssueGroups): the one the workbook and the
+  // email use, with a reason per rule.
   const groups = useMemo(() => {
     const merged = [...pageGroups, ...siteGroups].map((g) => ({
       ...g,
       count: g.urls.length,
       pages: new Set(g.urls).size,
     }));
-    return merged.sort((a, b) => {
-      const bySeverity = SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity);
-      return bySeverity !== 0 ? bySeverity : b.pages - a.pages;
-    });
-  }, [pageGroups, siteGroups]);
+    return orderIssueGroups(merged, run?.summary?.ruleOrder);
+  }, [pageGroups, siteGroups, run?.summary?.ruleOrder]);
 
   const findingsByRule = useMemo(() => {
     const map = new Map();

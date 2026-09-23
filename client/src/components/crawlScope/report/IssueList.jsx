@@ -88,6 +88,10 @@ function IssueRow({ group, entry, trend = null, onOpen }) {
             {/* How this rule moved against the previous crawl of the site. */}
             {trend && <span style={{ color: 'var(--text-2)' }}>{` · ${trend}`}</span>}
           </span>
+          {/* Why it is where it is in the list (the run's ordering). */}
+          {group.reason && (
+            <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{group.reason}</span>
+          )}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
           <span className="num" style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>

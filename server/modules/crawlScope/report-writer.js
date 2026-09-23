@@ -1,5 +1,6 @@
 const ExcelJS = require("exceljs");
 const { buildRootCauseGroups } = require("./analyzer");
+const { rankLookup } = require("./rule-order");
 
 const COLORS = {
   navy: "1F4E78",
@@ -588,7 +589,7 @@ function addDetailSheet(workbook, definition, findings, sheetName, displayTitle 
 // external links to 43 different domains correctly stay 43 rows. This is
 // the sheet a reviewer should start on; the per-rule detail sheets that
 // follow are the occurrence-level backing data for whichever row they open.
-function addConsolidatedActionsSheet(workbook, { findings, sheetPlan, findingScope }) {
+function addConsolidatedActionsSheet(workbook, { findings, sheetPlan, findingScope, rankOf = () => 0 }) {
   const rootCauseGroups = buildRootCauseGroups(findings);
   const findingsByGroupId = new Map();
   for (const finding of findings) {
@@ -622,6 +623,7 @@ function addConsolidatedActionsSheet(workbook, { findings, sheetPlan, findingSco
   rows.sort(
     (a, b) =>
       (priorityRank[a.group.priority] ?? 3) - (priorityRank[b.group.priority] ?? 3) ||
+      rankOf(a.group.ruleId) - rankOf(b.group.ruleId) ||
       b.group.memberCount - a.group.memberCount,
   );
 
@@ -735,6 +737,9 @@ async function buildAuditWorkbook({
   // analyzer.js buildFindings().coverage: checks this crawl could not run, or
   // ran on part of the site. Absent for runs analysed before it existed.
   coverage = null,
+  // rule-order.js: the run's one ordering of its problems, with a reason per
+  // rule. Absent for older runs, which keep the count-based order.
+  ruleOrder = null,
 }) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "CrawlScope";
@@ -747,6 +752,8 @@ async function buildAuditWorkbook({
   workbook.description =
     "Editable technical SEO findings generated locally by CrawlScope.";
 
+  const rankOf = rankLookup(ruleOrder);
+  const reasonOf = new Map((ruleOrder || []).map((row) => [row.ruleId, row.reason]));
   const summary = workbook.addWorksheet("SUMMARY", {
     properties: { tabColor: { argb: COLORS.navy } },
   });
@@ -827,7 +834,7 @@ async function buildAuditWorkbook({
   // whatever findings actually went into this workbook — the same class of
   // "computed it, forgot to pass it through" bug that dropped
   // summary.integrations earlier this build doesn't have anywhere to hide.
-  addConsolidatedActionsSheet(workbook, { findings, sheetPlan, findingScope });
+  addConsolidatedActionsSheet(workbook, { findings, sheetPlan, findingScope, rankOf });
 
   for (const [key, group] of grouped) {
     const { definition, sheetName, sheetTitle } = sheetPlan.get(key);
@@ -866,6 +873,9 @@ async function buildAuditWorkbook({
       }))
       .sort(
         (a, b) =>
+          // The run's own order first (severity, site-wide, how much the
+          // affected pages matter), the same one the report and the email use.
+          rankOf(a.definition.id) - rankOf(b.definition.id) ||
           b.activeCount - a.activeCount ||
           a.definition.category.localeCompare(b.definition.category) ||
           a.definition.title.localeCompare(b.definition.title),
@@ -928,6 +938,8 @@ async function buildAuditWorkbook({
         definition.recommendation,
         priority,
       ]);
+      // Why it is where it is, on the issue's own cell.
+      if (reasonOf.get(definition.id)) row.getCell(2).note = `Ranked here: ${reasonOf.get(definition.id)}`;
       countRows.push(row.number);
       sequence += 1;
       const isZebra = indexInTier % 2 === 1;

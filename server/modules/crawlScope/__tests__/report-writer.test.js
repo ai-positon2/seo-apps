@@ -693,3 +693,34 @@ test("a count taken on a truncated page says so in the workbook", async () => {
   assert.match(evidence, /^HTTP 404 Not Found/);
   assert.match(evidence, /first 5 MB of the page/);
 });
+
+test("SUMMARY follows the run's importance order within a tier, and says why", async () => {
+  const definitions = Object.fromEntries(catalog.map((item) => [item.id, item]));
+  const make = (n, ruleId, url) => ({
+    id: `f-${ruleId}-${n}`, ruleId, ...definitions[ruleId], url, targetUrl: "", detail: "",
+    statusCode: 200, detectedValue: "", reviewStatus: "Needs review", reviewerNotes: "",
+  });
+  assert.equal(definitions["title-long"].priority, definitions["h1-missing"].priority, "fixture: same tier");
+  const findings = [
+    make(1, "title-long", "https://example.com/"),
+    make(1, "h1-missing", "https://example.com/tag/a"),
+    make(2, "h1-missing", "https://example.com/tag/b"),
+    make(3, "h1-missing", "https://example.com/tag/c"),
+  ];
+  const ruleOrder = [
+    { ruleId: "title-long", rank: 1, reason: "On 1 page, the homepage." },
+    { ruleId: "h1-missing", rank: 2, reason: "On 3 pages." },
+  ];
+  const buffer = await buildAuditWorkbook({ findings, catalog, siteUrl: "https://example.com/", crawlDate: "2026-09-23T10:00:00.000Z", ruleOrder });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const summary = workbook.getWorksheet("SUMMARY");
+  const titles = [];
+  summary.eachRow((row) => {
+    const cell = row.getCell(2);
+    if (cell.value?.hyperlink) titles.push({ text: cell.value.text, note: cell.note });
+  });
+  assert.deepEqual(titles.map((t) => t.text), [definitions["title-long"].title, definitions["h1-missing"].title]);
+  const noteText = (note) => (typeof note === "string" ? note : (note?.texts || []).map((t) => t.text).join(""));
+  assert.match(noteText(titles[0].note), /the homepage/);
+});

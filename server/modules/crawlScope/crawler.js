@@ -2348,6 +2348,7 @@ class SeoCrawler extends EventEmitter {
         integrations: analysis.integrations,
         rootCauseGroups: analysis.rootCauseGroups,
         coverage: analysis.coverage,
+        ruleOrder: analysis.ruleOrder,
         // A run that continued an interrupted attempt, and how much of that
         // attempt's work it reloaded.
         resumed: this._resumed

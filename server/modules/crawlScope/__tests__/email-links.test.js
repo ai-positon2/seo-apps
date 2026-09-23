@@ -34,3 +34,23 @@ test("the report email says what is new and what was fixed since the last crawl"
   const none = buildHtml({ run, counts: {}, previousCounts: null, findings: [], baseUrl: "" });
   assert.doesNotMatch(none, /Since the last crawl/);
 });
+
+// "Top issues" was severity then count, blind to which pages.
+test("the email's top issues follow the run's importance order, with its reason", () => {
+  const { topIssues } = require("../worker/email");
+  const findings = [
+    { ruleId: "h1-missing", title: "Missing H1", severity: "warning" },
+    { ruleId: "h1-missing", title: "Missing H1", severity: "warning" },
+    { ruleId: "title-long", title: "Long title", severity: "warning" },
+  ];
+  assert.deepEqual(topIssues(findings).map((i) => i.title), ["Missing H1", "Long title"], "no order: severity then count");
+  const ruleOrder = [
+    { ruleId: "title-long", rank: 1, reason: "On 1 page, the homepage." },
+    { ruleId: "h1-missing", rank: 2, reason: "On 2 pages." },
+  ];
+  const ordered = topIssues(findings, 8, ruleOrder);
+  assert.deepEqual(ordered.map((i) => i.title), ["Long title", "Missing H1"]);
+  assert.equal(ordered[0].reason, "On 1 page, the homepage.");
+  const html = buildHtml({ run, counts: {}, previousCounts: null, findings, baseUrl: "", ruleOrder });
+  assert.match(html, /On 1 page, the homepage\./);
+});

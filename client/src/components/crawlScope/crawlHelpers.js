@@ -691,6 +691,22 @@ export function reviewBatches(findingIds, reviewStatus, size = REVIEW_BATCH_SIZE
   return batches;
 }
 
+// ── Which problem first ─────────────────────────────────────────────────────
+// The run's own order (server rule-order.js: severity, site-wide first, then how
+// much the affected pages matter), the one the workbook and the email use too,
+// with its reason per rule. A run analysed before it existed keeps severity
+// then affected pages.
+export function orderIssueGroups(groups, ruleOrder = null) {
+  const ranked = new Map((ruleOrder || []).map((row) => [row.ruleId, row]));
+  const rankOf = (id) => ranked.get(id)?.rank ?? Number.MAX_SAFE_INTEGER;
+  return [...groups]
+    .map((group) => ({ ...group, reason: ranked.get(group.id)?.reason || null }))
+    .sort((a, b) =>
+      rankOf(a.id) - rankOf(b.id)
+      || SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity)
+      || (b.pages || 0) - (a.pages || 0));
+}
+
 // ── What changed since the last crawl ──────────────────────────────────────
 // run.summary.comparison (run/comparison.js on the server): new / fixed /
 // persisting issues against the previous crawl of the same site, and how many

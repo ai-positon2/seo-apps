@@ -11,6 +11,7 @@ const {
   resultRobotsDirectives,
 } = require("./robots-directives");
 const { createUrlIdentity } = require("./url-identity");
+const { ruleOrder } = require("./rule-order");
 
 const catalogById = new Map(catalog.map((definition) => [definition.id, definition]));
 const NON_DESCRIPTIVE_LINK_LABELS = new Set([
@@ -2705,6 +2706,9 @@ function buildFindings({
     findings,
     results: enrichedResults,
     catalog,
+    // Which problem to fix first: one ordering, with a reason per rule, that
+    // the report, the workbook and the email all use (rule-order.js).
+    ruleOrder: ruleOrder(findings, enrichedResults, { startUrl }),
     // Which checks this crawl could not run, or ran on part of the site, so
     // "no findings" is not read as "passed".
     coverage: crawlCoverage({

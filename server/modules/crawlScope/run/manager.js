@@ -745,6 +745,8 @@ class RunManager {
           : null,
         // New / fixed / persisting against the previous crawl of the site.
         comparison,
+        // The order problems are listed in, everywhere (rule-order.js).
+        ruleOrder: summary.ruleOrder || null,
         // Which checks could not run on this crawl, or ran on part of it —
         // read by the report and the workbook so "no findings" is not shown
         // as "passed".
