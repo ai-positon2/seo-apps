@@ -1241,8 +1241,21 @@ function crawlCoverage({
   siteDiagnostics = {},
   startUrl = "",
   pagesMissingLinkData = 0,
+  googlebotRobotsChecked = false,
+  closedToCrawlScopeOnly = 0,
 }) {
   const notEvaluated = new Map();
+  // Pages the crawl reached but did not audit, and why (not per rule).
+  const pagesNotAudited = [];
+  if (closedToCrawlScopeOnly > 0) {
+    pagesNotAudited.push({
+      count: closedToCrawlScopeOnly,
+      reason:
+        `robots.txt closes ${closedToCrawlScopeOnly.toLocaleString("en-US")} URL${closedToCrawlScopeOnly === 1 ? "" : "s"} ` +
+        "to CrawlScope but not to Googlebot, so Google can crawl them and this audit did not. " +
+        "Allow CrawlScope in robots.txt to audit them.",
+    });
+  }
   const partial = new Map();
   const skip = (ruleIds, reason) => {
     for (const ruleId of ruleIds) if (!notEvaluated.has(ruleId)) notEvaluated.set(ruleId, reason);
@@ -1279,7 +1292,7 @@ function crawlCoverage({
       );
     }
   }
-  if (!robotsRespected) {
+  if (!robotsRespected && !googlebotRobotsChecked) {
     skip(
       ["robots-blocked", "blocked-resource"],
       "The crawl ignored robots.txt, so it fetched the URLs robots.txt disallows instead of reporting them.",
@@ -1325,7 +1338,7 @@ function crawlCoverage({
   for (const ruleId of firedRuleIds) notEvaluated.delete(ruleId);
   const inCatalogOrder = (map) =>
     catalog.filter((rule) => map.has(rule.id)).map((rule) => ({ ruleId: rule.id, reason: map.get(rule.id) }));
-  return { notEvaluated: inCatalogOrder(notEvaluated), partial: inCatalogOrder(partial) };
+  return { notEvaluated: inCatalogOrder(notEvaluated), partial: inCatalogOrder(partial), pagesNotAudited };
 }
 
 function buildFindings({
@@ -1356,6 +1369,9 @@ function buildFindings({
   // Pages in `results` whose links and resources are not in the edge lists (a
   // resumed run reloading rows stored before edges were kept).
   pagesMissingLinkData = 0,
+  // robots.txt was read as Googlebot too, so "blocked" can be reported for
+  // Google even on a crawl that ignored robots.txt itself.
+  googlebotRobotsChecked = false,
 }) {
   const findings = [];
   // Dedupe ids in a Set rather than scanning `findings` on every add(). The scan
@@ -1649,8 +1665,22 @@ function buildFindings({
       }
     }
 
+    // Blocked means blocked for Googlebot: that is what keeps a page out of
+    // Google. robots.txt is read for both. A URL closed to CrawlScope alone was
+    // not fetched (the crawl obeys its own group) but is open to Google, so it
+    // is not reported, only counted as not audited (coverage); one closed to
+    // Googlebot alone was fetched and audited, and is reported.
     if (result.statusText === "Blocked by robots.txt") {
-      add(result.isAsset ? "blocked-resource" : "robots-blocked", result);
+      if (result.googlebotAllowed !== true) {
+        add(result.isAsset ? "blocked-resource" : "robots-blocked", result,
+          result.googlebotAllowed === false
+            ? { detail: "robots.txt disallows this URL for Googlebot, and for CrawlScope." }
+            : {});
+      }
+    } else if (result.googlebotDisallowed) {
+      add(result.isAsset ? "blocked-resource" : "robots-blocked", result, {
+        detail: "robots.txt disallows this URL for Googlebot. It is open to CrawlScope, so it was still audited.",
+      });
     }
 
     if (inSitemaps.length) {
@@ -2721,6 +2751,10 @@ function buildFindings({
       siteDiagnostics,
       startUrl,
       pagesMissingLinkData,
+      googlebotRobotsChecked,
+      closedToCrawlScopeOnly: allInternalResults.filter(
+        (result) => result.statusText === "Blocked by robots.txt" && result.googlebotAllowed === true,
+      ).length,
     }),
     mediaLibrary: buildMediaLibrary(results, resourceEdges),
     // Internal HTML pages only — the same universe every other page-level

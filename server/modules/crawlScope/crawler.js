@@ -26,6 +26,19 @@ const integrationCatalog = require("./integration-catalog.json");
 const USER_AGENT_INFO_URL =
   process.env.CRAWL_INFO_URL || "https://github.com/position2/crawlscope-bot";
 const USER_AGENT = `CrawlScope/1.1 (+${USER_AGENT_INFO_URL})`;
+// What robots.txt groups are matched against, whatever User-Agent string a
+// crawl sends: a smartphone profile's string starts "Mozilla/5.0", and its
+// first word must not decide which rules CrawlScope obeys.
+const ROBOTS_TOKEN = "crawlscope";
+// The User-Agent a crawl sends. "mobile" is a current Chrome-on-Android string
+// with CrawlScope's own token in it, for sites that serve phones different
+// markup — which is what Google's smartphone crawler indexes.
+const USER_AGENT_PROFILES = {
+  desktop: USER_AGENT,
+  mobile:
+    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) " +
+    `Chrome/129.0.0.0 Mobile Safari/537.36 (compatible; CrawlScope/1.1; +${USER_AGENT_INFO_URL})`,
+};
 const SKIP_SCHEMES = /^(mailto:|tel:|javascript:|data:|blob:)/i;
 const ASSET_EXTENSIONS =
   /\.(?:avif|bmp|css|eot|gif|ico|jpe?g|js|json|map|mp3|mp4|ogg|otf|pdf|png|svg|tiff?|ttf|wav|webm|webp|woff2?|xml|zip)(?:$|\?)/i;
@@ -776,7 +789,11 @@ function parseLinkHeader(value) {
 // group whose name was a substring of the agent and concatenated all of their
 // rules, so a robots.txt with separate CrawlScope and Crawl groups had both
 // enforced at once.
-function parseRobots(content, userAgent = "crawlscope") {
+//
+// `exact`: only a group naming exactly this token (or "*") applies, the way
+// Google matches Googlebot. Substring matching would read a Googlebot-News or
+// Googlebot-Image group as addressed to Googlebot itself.
+function parseRobots(content, userAgent = "crawlscope", { exact = false } = {}) {
   const groups = [];
   let agents = [];
   let rules = [];
@@ -818,7 +835,7 @@ function parseRobots(content, userAgent = "crawlscope") {
       // Either side may be the more specific spelling: robots.txt may name
       // "crawlscope" while the header is "CrawlScope/1.1", or name a longer
       // vendor string that contains our token.
-      if (!token.includes(agent) && !agent.includes(token)) continue;
+      if (exact ? agent !== token : !token.includes(agent) && !agent.includes(token)) continue;
       if (agent.length > bestLength) {
         bestLength = agent.length;
         best = group;
@@ -1226,7 +1243,8 @@ class SeoCrawler extends EventEmitter {
       crawlAssets: options.crawlAssets !== false,
       checkExternalLinks: options.checkExternalLinks !== false,
       discoverSitemaps: options.discoverSitemaps !== false,
-      userAgent: options.userAgent || USER_AGENT,
+      userAgentProfile: options.userAgentProfile === "mobile" ? "mobile" : "desktop",
+      userAgent: options.userAgent || USER_AGENT_PROFILES[options.userAgentProfile] || USER_AGENT,
       // Politeness / outbound-reputation controls. Defaults keep local + desktop
       // behavior identical (no artificial delay); the hosted worker raises
       // perHostDelay to space requests and reduce the chance of being blocked.
@@ -1307,7 +1325,15 @@ class SeoCrawler extends EventEmitter {
     // limit and by crawl traps, so it cannot say "raise the budget" alone.
     this.budgetReached = false;
     this.startedAt = 0;
+    // The token robots.txt groups are matched against: CrawlScope's own, even
+    // when the crawl sends a smartphone User-Agent (ROBOTS_TOKEN). A custom
+    // userAgent keeps its own first word, as before.
+    this.robotsToken = options.userAgent ? robotsProductToken(options.userAgent) || ROBOTS_TOKEN : ROBOTS_TOKEN;
     this.robotsRules = [];
+    // robots.txt as Googlebot reads it: what an SEO audit reports as blocked.
+    // null until robots.txt is read, and when it could not be (unknown, not
+    // "allowed").
+    this.googlebotRobotsRules = null;
     this.robotsCrawlDelay = null;
     this.robotsStatus = "Not checked";
     // Set from the seed once it is known, so an http:// link on an https:// site
@@ -1437,6 +1463,7 @@ class SeoCrawler extends EventEmitter {
       sitemapMembership: [...this.sitemapMembership].map(([url, set]) => [url, [...set]]),
       sitemapUrls: this.sitemapUrls,
       robotsRules: this.robotsRules,
+      googlebotRobotsRules: this.googlebotRobotsRules,
       robotsCrawlDelay: this.robotsCrawlDelay,
       robotsStatus: this.robotsStatus,
       siteDiagnostics: this.siteDiagnostics,
@@ -1486,6 +1513,7 @@ class SeoCrawler extends EventEmitter {
     );
     this.sitemapUrls = checkpoint.sitemapUrls || [];
     this.robotsRules = checkpoint.robotsRules || [];
+    this.googlebotRobotsRules = checkpoint.googlebotRobotsRules ?? null;
     this.robotsCrawlDelay = checkpoint.robotsCrawlDelay ?? null;
     this.robotsStatus = checkpoint.robotsStatus || "Not checked";
     this.siteDiagnostics = { ...this.siteDiagnostics, ...(checkpoint.siteDiagnostics || {}) };
@@ -1843,8 +1871,9 @@ class SeoCrawler extends EventEmitter {
       );
       if (response.ok) {
         const content = await this._readTextBody(response);
-        const parsed = parseRobots(content, this.options.userAgent);
+        const parsed = parseRobots(content, this.robotsToken);
         this.robotsRules = parsed.rules;
+        this.googlebotRobotsRules = parseRobots(content, "googlebot", { exact: true }).rules;
         this.robotsCrawlDelay = parsed.crawlDelay;
         const inspection = inspectRobots(content);
         this.siteDiagnostics.robotsWarnings = inspection.warnings;
@@ -1861,6 +1890,7 @@ class SeoCrawler extends EventEmitter {
       } else {
         // 4xx genuinely means "no robots.txt", which does mean crawl freely.
         this.robotsStatus = `Not found (${response.status})`;
+        this.googlebotRobotsRules = [];
       }
     } catch (error) {
       this._denyAll("robots.txt could not be fetched");
@@ -2326,6 +2356,7 @@ class SeoCrawler extends EventEmitter {
         // Pages a resumed run reloaded without their links and resources
         // (stored before those were kept), which the link checks cannot see.
         pagesMissingLinkData: this._priorPagesWithoutEdges,
+        googlebotRobotsChecked: Array.isArray(this.googlebotRobotsRules),
         // A stopped crawl saw only part of the link graph, exactly like one that
         // hit a cap: "nothing links to this page" is unknowable when the pages
         // that might link to it were never fetched.
@@ -2665,6 +2696,11 @@ class SeoCrawler extends EventEmitter {
         statusText: "Blocked by robots.txt",
         indexability: "Non-indexable",
         indexabilityReason: "Blocked by robots.txt",
+        // Whether Googlebot may crawl it all the same: a URL closed to
+        // CrawlScope alone is not blocked from Google, only from this audit.
+        ...(this.googlebotRobotsRules
+          ? { googlebotAllowed: isAllowedByRobots(job.url, this.googlebotRobotsRules) }
+          : {}),
         issues: [
           {
             id: job.isAsset ? "blocked-resource" : "robots-blocked",
@@ -2925,6 +2961,15 @@ class SeoCrawler extends EventEmitter {
       }
     }
 
+    // Fetched because CrawlScope may, but closed to Googlebot: blocked from
+    // Google, which is what the audit reports.
+    if (
+      !job.external &&
+      this.googlebotRobotsRules &&
+      !isAllowedByRobots(job.url, this.googlebotRobotsRules)
+    ) {
+      result.googlebotDisallowed = true;
+    }
     this.results.push(result);
     this.emit("result", result, pageEdges);
   }
@@ -2983,7 +3028,7 @@ class SeoCrawler extends EventEmitter {
     const xRobotsTag = headerValue(response.headers, "x-robots-tag");
     // Evaluated for CrawlScope AND Googlebot: the audit reports how Google will
     // treat the page, and "googlebot: noindex" is a noindex for that purpose.
-    const robotsAgents = auditAgents(this.options.userAgent);
+    const robotsAgents = auditAgents(this.robotsToken);
     const headerDirectives = robotsDirectivesFor(xRobotsTag, robotsAgents);
     const headerNonIndexable = isNoindex(headerDirectives);
 

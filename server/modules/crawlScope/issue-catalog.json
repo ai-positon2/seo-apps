@@ -159,7 +159,7 @@
   {
     "id": "blocked-resource",
     "title": "Blocked internal resources",
-    "description": "Internal resources are blocked by robots.txt, potentially preventing search engines from fully rendering pages that depend on them.",
+    "description": "Internal resources robots.txt disallows for Googlebot, which can keep Google from rendering the pages that depend on them the way visitors see them.",
     "recommendation": "Review blocked CSS, JavaScript, image, API, and asset folders. Allow crawling for resources required to render page content and layout.",
     "category": "Technical",
     "priority": "Medium Priority",
@@ -261,7 +261,7 @@
   {
     "id": "robots-blocked",
     "title": "Pages blocked from crawling",
-    "description": "Several pages are blocked by robots.txt or another crawl restriction.",
+    "description": "Pages robots.txt disallows for Googlebot, so Google cannot crawl them. The rules are read the way Googlebot reads them: a URL closed only to other crawlers is not listed here.",
     "recommendation": "Unblock indexable pages. Keep blocked only pages that should not be crawled, such as internal search results or staging URLs.",
     "category": "Indexability",
     "priority": "Low Priority",

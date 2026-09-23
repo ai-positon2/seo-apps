@@ -677,6 +677,9 @@ export function crawlCoverageNotice(run, catalogById = new Map()) {
     budgetReached,
     notEvaluated: byReason(sum.coverage?.notEvaluated),
     partlyChecked: byReason(sum.coverage?.partial),
+    // Pages reached but not audited (robots.txt closing them to CrawlScope
+    // while leaving them open to Google), each as one sentence.
+    pagesNotAudited: (sum.coverage?.pagesNotAudited || []).map((entry) => entry.reason).filter(Boolean),
   };
 }
 
@@ -1338,4 +1341,5 @@ export const DEFAULT_OPTIONS = {
   crawlAssets: true,
   checkExternalLinks: true,
   discoverSitemaps: true,
+  userAgentProfile: 'desktop',
 };

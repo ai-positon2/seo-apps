@@ -64,3 +64,10 @@ test('a resumed crawl is partial only when its earlier pages could not be reload
   assert.strictEqual(failed.partial, true);
   assert.match(failed.reasons[0], /could not be reloaded/);
 });
+
+test('pages robots.txt closes to CrawlScope alone are named as not audited', () => {
+  const reason = 'robots.txt closes 2 URLs to CrawlScope but not to Googlebot, so Google can crawl them and this audit did not.';
+  const notice = crawlCoverageNotice(run({ coverage: { notEvaluated: [], partial: [], pagesNotAudited: [{ count: 2, reason }] } }), catalogById);
+  assert.deepStrictEqual(notice.pagesNotAudited, [reason]);
+  assert.deepStrictEqual(crawlCoverageNotice(run({}), catalogById).pagesNotAudited, []);
+});

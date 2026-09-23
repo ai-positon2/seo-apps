@@ -19,7 +19,7 @@ const NUMBERS = [
 
 const TOGGLES = [
   { key: 'respectRobots', label: 'Respect robots.txt',
-    helper: 'Uses CrawlScope as the user-agent token.' },
+    helper: 'Obeys the rules for CrawlScope. Blocked pages are reported as Googlebot reads robots.txt.' },
   { key: 'discoverSitemaps', label: 'Discover sitemaps',
     helper: 'Seed the crawl from sitemap.xml as well as links.' },
   { key: 'includeSubdomains', label: 'Include subdomains',
@@ -66,6 +66,21 @@ export default function CrawlOptionsForm({
           />
         ))}
       </div>
+
+      {/* The User-Agent the crawl sends. Both say CrawlScope, so robots.txt
+          and the site's logs see the same crawler; "Smartphone" is for sites
+          that serve phones different pages, which is what Google indexes. */}
+      <Field
+        label="Crawl as"
+        helper="Smartphone sends a mobile browser's user-agent, for sites that serve phones different pages."
+        disabled={disabled}
+        value={options.userAgentProfile || 'desktop'}
+        onChange={(e) => set('userAgentProfile', e.target.value)}
+        as="select"
+      >
+        <option value="desktop">CrawlScope (desktop)</option>
+        <option value="mobile">CrawlScope (smartphone)</option>
+      </Field>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 10 }}>
         {TOGGLES.map((t) => (

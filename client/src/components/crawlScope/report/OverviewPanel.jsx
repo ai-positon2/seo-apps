@@ -228,7 +228,8 @@ export default function OverviewPanel({
             pass. The analyzer says which checks the crawl's settings or shape
             kept from running (coverage.notEvaluated) and which ran on part of
             the site (coverage.partial); this names them. */}
-        {(coverage?.notEvaluated?.length > 0 || coverage?.partlyChecked?.length > 0) && (
+        {(coverage?.notEvaluated?.length > 0 || coverage?.partlyChecked?.length > 0
+          || coverage?.pagesNotAudited?.length > 0) && (
           <div
             style={{
               display: 'flex', flexDirection: 'column', gap: 6, padding: '12px 16px',
@@ -249,6 +250,12 @@ export default function OverviewPanel({
               <span key={`p-${reason}`} style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>
                 <strong style={{ fontWeight: 600, color: 'var(--text)' }}>Partly checked:</strong>
                 {' '}{titles.join(', ')}. {reason}
+              </span>
+            ))}
+            {(coverage.pagesNotAudited || []).map((reason) => (
+              <span key={`a-${reason}`} style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>
+                <strong style={{ fontWeight: 600, color: 'var(--text)' }}>Not audited:</strong>
+                {' '}{reason}
               </span>
             ))}
           </div>

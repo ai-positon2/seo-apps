@@ -160,6 +160,10 @@ function parseCrawlRequest(body = {}, overrides = {}) {
     ),
     maxEdges: clampInt(1_000, cap.maxEdges)(raw.maxEdges ?? cap.maxEdges),
     respectCrawlDelay: raw.respectCrawlDelay !== false,
+    // Which User-Agent the crawl sends (crawler.js USER_AGENT_PROFILES). A
+    // name from a fixed list, never a free string: robots.txt matching and the
+    // site's logs both depend on it saying CrawlScope.
+    userAgentProfile: raw.userAgentProfile === "mobile" ? "mobile" : "desktop",
   };
   if (listUrls) options.urls = listUrls;
 
