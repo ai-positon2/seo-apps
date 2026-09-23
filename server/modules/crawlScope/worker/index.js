@@ -332,7 +332,8 @@ async function runOne(manager, db, state, run, slot) {
   try {
     // execute() rethrows after marking the run failed, and the web service relies on
     // that, so the catch belongs here rather than inside the manager.
-    result = await manager.execute(run);
+    // Already claimed atomically by claimNextQueuedRun.
+    result = await manager.execute(run, { claimed: true });
   } catch (error) {
     failure = error;
   }

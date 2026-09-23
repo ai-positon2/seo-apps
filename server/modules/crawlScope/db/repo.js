@@ -420,6 +420,27 @@ async function claimNextQueuedRun(client, { triggers, trigger, workerId } = {}) 
   );
 }
 
+// Take ownership of ONE specific queued run — the guarantee claimNextQueuedRun
+// gives the worker, for a caller that already knows which run it wants: the web
+// process executing a run it has just created (POST /runs, the project's first
+// crawl). Without it, that caller's plain UPDATE to 'running' raced the
+// worker's claim, and a worker poll landing between the two executed the same
+// crawl twice into one run id. Returns the claimed row, or null when the run
+// is no longer queued (someone else owns it).
+async function claimRun(client, id, { workerId = null } = {}) {
+  const nowIso = new Date().toISOString();
+  return client.maybeOne(
+    `update crawl_runs
+        set status = 'running',
+            started_at = coalesce(started_at, $2),
+            heartbeat_at = $2,
+            worker_id = coalesce($3, worker_id)
+      where id = $1 and status = 'queued'
+      returning *`,
+    [id, nowIso, workerId],
+  );
+}
+
 // ── The control channel (migration 0025) ───────────────────────────────────
 //
 // Pause/resume/stop reach the RunManager in the process that receives the
@@ -1007,6 +1028,7 @@ module.exports = {
   getRun,
   listRuns,
   claimNextQueuedRun,
+  claimRun,
   updateRun,
   requeueRun,
   getRunCheckpoint,

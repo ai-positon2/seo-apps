@@ -222,8 +222,11 @@ class RunManager {
   //
   // The tracking wrapper is separate from the body so shutdown() has a handle on
   // every execution in flight, whatever it is doing when the signal arrives.
-  execute(run) {
-    const execution = this._execute(run);
+  // `claimed`: the caller already owns the run (the worker's claimNextQueuedRun
+  // moved it to 'running'). Everyone else is handed a run still 'queued' and has
+  // to win it first, so two executors can never both crawl one run.
+  execute(run, { claimed = false } = {}) {
+    const execution = this._execute(run, { claimed });
     this.executions.add(execution);
     // Attached with catch so registering never turns a rejection the caller does
     // handle into an unhandled one; the caller still receives `execution`.
@@ -233,8 +236,18 @@ class RunManager {
     return execution;
   }
 
-  async _execute(run) {
+  async _execute(run, { claimed = false } = {}) {
     const db = this.serviceClientFactory();
+    if (!claimed) {
+      const owned = await repo.claimRun(db, run.id);
+      if (!owned) {
+        // Not an error: whoever owns it is executing it. Crawling it here too
+        // would store every page and every finding a second time.
+        console.warn(`[crawlScope] run ${run.id} is no longer queued; another executor owns it`);
+        return { run, skipped: true };
+      }
+      run = { ...run, ...owned };
+    }
     // List-mode runs store the real URLs in options.urls and a display label
     // ("List crawl (N URLs)") in run.url — re-derive the request body accordingly.
     const requestBody = Array.isArray(run.options?.urls)
