@@ -10,6 +10,12 @@ const {
   isRedirectStatus,
 } = require("./http-redirect");
 const { parseMetaRefresh } = require("./meta-refresh");
+const {
+  auditAgents,
+  isNoindex,
+  robotsDirectivesFor,
+  robotsProductToken,
+} = require("./robots-directives");
 const integrationCatalog = require("./integration-catalog.json");
 
 // The "+" in a bot User-Agent is the de-facto marker for an info URL an operator
@@ -856,50 +862,9 @@ function parseLinkHeader(value) {
   return entries;
 }
 
-// Robots directives, parsed rather than substring-matched.
-//
-// Both X-Robots-Tag and <meta name="robots"> allow a UA prefix
-// ("googlebot: noindex"), and a value may carry several comma-separated
-// directives. Testing the raw string for "noindex" applied another crawler's
-// rule to this one, and made "unavailable_after" invisible. undici joins
-// repeated headers with ", ", which this handles because each group is split on
-// commas anyway.
-function robotsDirectivesFor(value, userAgent = "") {
-  const directives = new Set();
-  const token = robotsProductToken(userAgent);
-  for (const part of String(value || "").split(",")) {
-    const entry = part.trim();
-    if (!entry) continue;
-    const colon = entry.indexOf(":");
-    // "unavailable_after: <date>" is a directive with a value, not a UA prefix.
-    const prefix = colon > 0 ? entry.slice(0, colon).trim().toLowerCase() : "";
-    const isUaScoped =
-      colon > 0 && prefix !== "unavailable_after" && !/\s/.test(prefix);
-    if (isUaScoped) {
-      // Addressed to a named crawler: honour it only when that name is ours.
-      if (prefix !== token && !token.includes(prefix) && !prefix.includes(token)) {
-        continue;
-      }
-      directives.add(entry.slice(colon + 1).trim().toLowerCase());
-      continue;
-    }
-    directives.add(entry.toLowerCase());
-  }
-  // unavailable_after in the past is a noindex as of that moment.
-  for (const directive of directives) {
-    if (!directive.startsWith("unavailable_after")) continue;
-    const when = Date.parse(directive.slice(directive.indexOf(" ") + 1));
-    if (Number.isFinite(when) && when <= Date.now()) directives.add("noindex");
-  }
-  return directives;
-}
-
-// The product token is the first "/"-delimited word of the User-Agent, which is
-// what a robots.txt group name is matched against — not the whole header.
-function robotsProductToken(userAgent = "") {
-  const token = String(userAgent).trim().split(/[\s/]+/)[0] || "";
-  return token.toLowerCase();
-}
+// Robots directives (meta robots / X-Robots-Tag) are parsed in
+// robots-directives.js, shared with the analyzer so the two can never disagree
+// about whether a page is noindex.
 
 // Returns { rules, crawlDelay } for the group that applies to `userAgent`.
 //
@@ -2844,9 +2809,11 @@ class SeoCrawler extends EventEmitter {
     // inside the HTML-only branch, so a PDF or an image served with
     // X-Robots-Tag: noindex was always reported Indexable.
     const xRobotsTag = headerValue(response.headers, "x-robots-tag");
-    const headerDirectives = robotsDirectivesFor(xRobotsTag, this.options.userAgent);
-    const headerNonIndexable =
-      headerDirectives.has("noindex") || headerDirectives.has("none");
+    // Evaluated for CrawlScope AND Googlebot: the audit reports how Google will
+    // treat the page, and "googlebot: noindex" is a noindex for that purpose.
+    const robotsAgents = auditAgents(this.options.userAgent);
+    const headerDirectives = robotsDirectivesFor(xRobotsTag, robotsAgents);
+    const headerNonIndexable = isNoindex(headerDirectives);
 
     const base = emptyResult(job, {
       status: response.status,
@@ -2865,6 +2832,7 @@ class SeoCrawler extends EventEmitter {
       responseTime,
       isAsset,
       xRobotsTag,
+      robotsDirectives: [...headerDirectives],
       indexability: job.external
         ? "External"
         : headerNonIndexable
@@ -3017,16 +2985,23 @@ class SeoCrawler extends EventEmitter {
     // Every robots directive that applies to this page, from BOTH sources. The
     // header is no longer a fallback for a missing meta tag: a page can carry
     // both, and when it does they combine rather than one hiding the other.
-    const metaRobotsRaw = cleanText(
-      documentElements($, 'meta[name="robots" i]').first().attr("content") || "",
-    );
-    // Google honours a <meta name="googlebot"> alongside the generic one.
-    const metaAgentRobotsRaw = cleanText(
-      documentElements($, 'meta[name="googlebot" i]').first().attr("content") || "",
-    );
-    const robots = [metaRobotsRaw, metaAgentRobotsRaw, xRobotsTag]
-      .filter(Boolean)
-      .join(", ");
+    //
+    // EVERY robots and googlebot meta tag, not the first of each: Google
+    // combines all of them and the most restrictive wins, so a theme's
+    // "index, follow" followed by a plugin's "noindex" is a noindexed page.
+    // Reading .first() reported it indexable.
+    const metaRobotsValues = documentElements(
+      $,
+      'meta[name="robots" i], meta[name="googlebot" i]',
+    )
+      .map((_, element) => cleanText($(element).attr("content") || ""))
+      .get()
+      .filter(Boolean);
+    const metaDirectives = robotsDirectivesFor(metaRobotsValues.join(", "), robotsAgents);
+    const robotsDirectives = new Set([...metaDirectives, ...headerDirectives]);
+    // The raw values, kept for display and evidence only — every decision
+    // below reads the parsed directive set.
+    const robots = [...metaRobotsValues, xRobotsTag].filter(Boolean).join(", ");
 
     // Canonical and hreflang can also arrive in the HTTP Link header, which was
     // never read — a header-declared canonical was reported as missing.
@@ -3392,9 +3367,7 @@ class SeoCrawler extends EventEmitter {
       });
     });
 
-    const lowerRobots = robots.toLowerCase();
-    const nonIndexableDirective =
-      lowerRobots.includes("noindex") || lowerRobots.includes("none");
+    const nonIndexableDirective = isNoindex(robotsDirectives);
     const schemaInfo = schemaErrorsFromPage($);
     const integrations = detectIntegrations($, integrationCatalog);
     const openGraph = Object.fromEntries(
@@ -3439,9 +3412,12 @@ class SeoCrawler extends EventEmitter {
       headingHierarchyIssue,
       headingHierarchyIssues,
       indexability: nonIndexableDirective ? "Non-indexable" : base.indexability,
-      indexabilityReason: nonIndexableDirective
+      // Credited to the source that actually carried it: a header-only noindex
+      // keeps the "X-Robots-Tag contains noindex" reason set above.
+      indexabilityReason: isNoindex(metaDirectives)
         ? "Meta robots contains noindex"
         : base.indexabilityReason,
+      robotsDirectives: [...robotsDirectives],
       canonical,
       hreflangs,
       paginationNext,

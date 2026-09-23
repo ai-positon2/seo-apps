@@ -5,6 +5,11 @@ const {
   isRedirectStatus,
   redirectLocationIssueDetail,
 } = require("./http-redirect");
+const {
+  isNofollow,
+  isNoindex,
+  resultRobotsDirectives,
+} = require("./robots-directives");
 
 const catalogById = new Map(catalog.map((definition) => [definition.id, definition]));
 const NON_DESCRIPTIVE_LINK_LABELS = new Set([
@@ -643,11 +648,9 @@ function redirectTerminalSuitability(trace, resultByUrl) {
     return null;
   }
 
-  const robots = String(terminal.robots || "").toLowerCase();
   const isNonIndexable =
     terminal.indexability === "Non-indexable" ||
-    robots.includes("noindex") ||
-    robots.includes("none");
+    isNoindex(resultRobotsDirectives(terminal));
   const canonicalMismatch =
     Boolean(terminal.canonical) && terminal.canonical !== terminal.url;
   if (!isNonIndexable && !canonicalMismatch) return null;
@@ -1080,9 +1083,11 @@ function buildFindings({
   for (const result of internalResults) {
     const isHtml = result.contentType?.includes("text/html");
     const inSitemaps = sitemapMembership[result.url] || [];
-    const robots = (result.robots || "").toLowerCase();
-    const hasNoindex = robots.includes("noindex") || robots.includes("none");
-    const hasNofollow = robots.includes("nofollow") || robots.includes("none");
+    // Whole directive tokens that apply to CrawlScope or Googlebot — never a
+    // substring test, which read max-image-preview:none as noindex + nofollow.
+    const directives = resultRobotsDirectives(result);
+    const hasNoindex = isNoindex(directives);
+    const hasNofollow = isNofollow(directives);
 
     if (result.status >= 500 && result.status < 600) {
       add("page-5xx", result, {
@@ -1561,8 +1566,7 @@ function buildFindings({
         detail: `${result.canonical} canonicalizes to a different URL (${target.canonical}) instead of itself`,
       });
     } else {
-      const targetRobots = (target.robots || "").toLowerCase();
-      if (targetRobots.includes("noindex") || targetRobots.includes("none")) {
+      if (isNoindex(resultRobotsDirectives(target))) {
         add("canonical-to-noindex", result, { targetUrl: result.canonical });
       }
     }
