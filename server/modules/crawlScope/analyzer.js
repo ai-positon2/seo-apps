@@ -1193,6 +1193,9 @@ function buildFindings({
   // so inlink-count-based checks (single-inlink, orphan-page) would otherwise
   // report false confidence on a crawl that never saw the whole site.
   crawlTruncated = false,
+  // False for a URL-list crawl: there is no start page whose links the list's
+  // pages are "clicks" from, so no click depth and no deep-page.
+  clickDepthFromStart = true,
 }) {
   const findings = [];
   // Dedupe ids in a Set rather than scanning `findings` on every add(). The scan
@@ -1316,6 +1319,8 @@ function buildFindings({
   // and not on a page whose robots directives say nofollow.
   const linkingPages = new Map();
   const followLinkingPages = new Map();
+  // The same followable links, from each page: the graph click depth walks.
+  const followLinksFrom = new Map();
   const creditLink = (map, targetUrl, sourceUrl) => {
     const set = map.get(targetUrl) || new Set();
     set.add(sourceUrl);
@@ -1343,7 +1348,10 @@ function buildFindings({
     for (const url of destinations) {
       if (url === source.url) continue;
       creditLink(linkingPages, url, source.url);
-      if (followable) creditLink(followLinkingPages, url, source.url);
+      if (followable) {
+        creditLink(followLinkingPages, url, source.url);
+        creditLink(followLinksFrom, source.url, url);
+      }
     }
   }
   // A page that sends the visitor on with a meta refresh or Refresh header
@@ -1358,8 +1366,48 @@ function buildFindings({
     creditLink(linkingPages, destination.url, result.url);
     if (!isNofollow(resultRobotsDirectives(result))) {
       creditLink(followLinkingPages, destination.url, result.url);
+      creditLink(followLinksFrom, result.url, destination.url);
     }
   }
+
+  // ── Click depth ────────────────────────────────────────────────────────────
+  // The fewest followable links from the start page, found by a breadth-first
+  // walk of the link graph. The crawler's own `depth` is the order it found a
+  // page in, and it queued every sitemap URL at depth 1, so on a site with a
+  // sitemap nearly every page read as one click from home. A redirect is not a
+  // click: its destination is as deep as the link to it. A page no followable
+  // link reaches has no click depth (null), rather than a guessed one.
+  const clickDepths = new Map();
+  const clickParents = new Map();
+  if (clickDepthFromStart) {
+    const queue = [];
+    const visit = (url, depth, parent) => {
+      if (clickDepths.has(url)) return;
+      clickDepths.set(url, depth);
+      if (parent) clickParents.set(url, parent);
+      queue.push(url);
+      const trace = redirectTraces.get(url);
+      if (trace && !trace.loop && !trace.limitReached) {
+        const destination = index.get(trace.targetUrl);
+        if (destination) visit(destination.url, depth, url);
+      }
+    };
+    const root = index.get(startUrl);
+    if (root) visit(root.url, 0, null);
+    for (let at = 0; at < queue.length; at += 1) {
+      const url = queue[at];
+      for (const next of followLinksFrom.get(url) || []) visit(next, clickDepths.get(url) + 1, url);
+    }
+  }
+  const clickDepthOf = (url) => (clickDepths.has(url) ? clickDepths.get(url) : null);
+  const clickPath = (url) => {
+    const path = [url];
+    for (let at = url; clickParents.has(at); ) {
+      at = clickParents.get(at);
+      path.unshift(at);
+    }
+    return path;
+  };
   // ── Soft 404s ──────────────────────────────────────────────────────────────
   // Pages that answer 200 but are the site's "not found" page: the same body as
   // the crawler's probe of a URL that cannot exist, or titled like an error page
@@ -1534,8 +1582,13 @@ function buildFindings({
         detectedValue: [...(followLinkingPages.get(result.url) || [])][0] || "",
       });
     }
-    if (isHtml && result.depth > 3) {
-      add("deep-page", result, { detectedValue: result.depth });
+    const clickDepth = clickDepthOf(result.url);
+    if (isHtml && result.status >= 200 && result.status < 300 && clickDepth > 3) {
+      add("deep-page", result, {
+        detail: `${clickDepth} clicks from the start page`,
+        // The shortest route in, which is where a shortcut link would go.
+        detectedValue: clickPath(result.url).join(" -> "),
+      });
     }
 
     const redirectDetectedValue = result.redirectUrl ? `${result.status} -> ${result.redirectUrl}` : `HTTP ${result.status}`;
@@ -2450,7 +2503,11 @@ function buildFindings({
     ...result,
     ...(result.scope === "External"
       ? {}
-      : { inlinks: inlinksOf(result.url), followInlinks: followInlinksOf(result.url) }),
+      : {
+          inlinks: inlinksOf(result.url),
+          followInlinks: followInlinksOf(result.url),
+          clickDepth: clickDepthOf(result.url),
+        }),
     // Not audited: Site Health leaves it out of the pages it is taken over.
     ...(refused.has(result.url) ? { crawlRefused: true } : {}),
     pageCategory: categorizePage(result),

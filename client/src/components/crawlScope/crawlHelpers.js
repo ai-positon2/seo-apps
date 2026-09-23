@@ -1057,7 +1057,7 @@ const CSV_COLUMNS = [
   ['words', 'Word count'],
   ['size', 'Size (bytes)'],
   ['responseTime', 'Response time (ms)'],
-  ['depth', 'Crawl depth'],
+  ['clickDepth', 'Click depth'],
   ['inlinks', 'Inlinks'],
   ['outlinks', 'Outlinks'],
   ['externalLinks', 'External links'],
@@ -1076,10 +1076,18 @@ function csvCell(value) {
   return text;
 }
 
+// The fewest links from the start page, once the crawl has been analysed (null:
+// no followable link reaches the page). A crawl analysed before click depth
+// existed only has the order the crawler found the page in.
+function clickDepthCell(result) {
+  if (result.clickDepth === undefined) return result.depth;
+  return result.clickDepth === null ? 'not linked' : result.clickDepth;
+}
+
 export function toCsv(results) {
   const header = CSV_COLUMNS.map(([, label]) => csvCell(label)).join(',');
   const rows = results.map((result) => {
-    const cells = CSV_COLUMNS.map(([key]) => csvCell(result[key]));
+    const cells = CSV_COLUMNS.map(([key]) => csvCell(key === 'clickDepth' ? clickDepthCell(result) : result[key]));
     const issues = (result.issues || []).map((i) => i.label).join('; ');
     return [...cells, csvCell(issues)].join(',');
   });

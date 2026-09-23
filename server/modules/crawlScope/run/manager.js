@@ -572,7 +572,8 @@ class RunManager {
 
       // Whole-crawl values the analyzer computed, onto the rows the report
       // reads. Each row was stored when its page was fetched, before the link
-      // graph existed, so its `inlinks` was a fetch-time partial count; and
+      // graph existed, so its `inlinks` was a fetch-time partial count and its
+      // `depth` the order it was discovered in, not its click depth; and
       // whether a response refused the crawler is only known once the whole
       // crawl can be seen (a 403 is a members page on an open site, a block on
       // a site that refused everything). Same non-fatal treatment as the
@@ -585,6 +586,8 @@ class RunManager {
             fields: {
               inlinks: r.inlinks ?? 0,
               followInlinks: r.followInlinks ?? 0,
+              // null when no followable link reaches the page.
+              clickDepth: r.clickDepth ?? null,
               ...(r.crawlRefused ? { crawlRefused: true } : {}),
             },
           }));

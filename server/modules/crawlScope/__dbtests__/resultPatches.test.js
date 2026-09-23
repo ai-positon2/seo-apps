@@ -4,7 +4,8 @@
 // used to be whatever the crawler had counted at that moment — "0 on every row"
 // per projects/crawledPages.js — and the report's Inlinks column and CSV export
 // showed it. The completion step now writes the analyzer's distinct-page counts
-// back onto the rows, along with which responses refused the crawler.
+// back onto the rows, with each page's click depth and which responses
+// refused the crawler.
 //
 // Run: TEST_DATABASE_URL=postgres://... node modules/crawlScope/__dbtests__/resultPatches.test.js
 
@@ -68,7 +69,8 @@ const { parseCrawlRequest } = require("../shared/options");
       const run = await repo.createRun(db, { owner: user.id, url, options, trigger: "manual" });
       await new RunManager({ serviceClient: () => db }).execute(run);
       const rows = await db.rows(
-        `select url, (data->>'inlinks')::int as inlinks, (data->>'followInlinks')::int as follow
+        `select url, (data->>'inlinks')::int as inlinks, (data->>'followInlinks')::int as follow,
+                data->'clickDepth' as click_depth
            from crawl_run_results where run_id = $1 order by url`,
         [run.id],
       );
@@ -76,6 +78,10 @@ const { parseCrawlRequest } = require("../shared/options");
       assert.equal(at("/a").inlinks, 2, "home (twice) and /b are two linking pages");
       assert.equal(at("/b").inlinks, 1);
       assert.equal(at("/a").follow, 2);
+      // The fewest links from the start page, not the order pages were found in.
+      assert.equal(at("/").click_depth, 0);
+      assert.equal(at("/a").click_depth, 1);
+      assert.equal(at("/b").click_depth, 1);
     });
 
     await test("rows the site refused are marked, so Site Health can leave them out", async () => {
