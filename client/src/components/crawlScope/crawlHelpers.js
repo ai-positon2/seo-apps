@@ -619,6 +619,62 @@ export function findingFix(finding, entry) {
   };
 }
 
+// ── Did the crawl reach the whole site, and run every check? ────────────────
+// Why a crawl was partial, and which checks it could not run, in words.
+//
+// `truncated` is set by the page budget, the depth limit and crawl traps alike,
+// so "it reached its budget" (and "raise the budget") is said only when the
+// crawler recorded budgetReached; a run stored before that flag existed is read
+// as budget-limited when nothing else explains its truncation.
+//
+// `notEvaluated` / `partlyChecked` come from the analyzer's coverage block
+// (run.summary.coverage), grouped by reason so a capped crawl reads as one
+// sentence naming its two link checks, not two sentences.
+export function crawlCoverageNotice(run, catalogById = new Map()) {
+  const sum = run?.summary || {};
+  const limit = Number(run?.options?.maxUrls);
+  const depthCap = Number(run?.options?.maxDepth);
+  const budgetReached = sum.budgetReached !== undefined
+    ? Boolean(sum.budgetReached)
+    : Boolean(sum.truncated && !sum.depthLimited && !sum.edgesTruncated && !sum.trapTemplates?.length);
+  const reasons = [];
+  if (run?.status === 'stopped') reasons.push('it was stopped before it finished');
+  if (budgetReached) {
+    reasons.push(Number.isFinite(limit) && limit > 0
+      ? `it reached its budget of ${limit.toLocaleString('en-US')} pages`
+      : 'it reached its page budget');
+  }
+  if (sum.depthLimited) {
+    reasons.push(Number.isFinite(depthCap) && depthCap > 0
+      ? `pages deeper than ${depthCap} clicks from the homepage were not followed`
+      : 'pages past the depth limit were not followed');
+  }
+  if (sum.edgesTruncated) reasons.push('the internal link graph hit its size limit');
+  if (sum.trapTemplates?.length) {
+    reasons.push(`${sum.trapTemplates.length} URL pattern`
+      + `${sum.trapTemplates.length === 1 ? ' was' : 's were'} capped as a crawler trap`);
+  }
+
+  const byReason = (entries = []) => {
+    const groups = new Map();
+    for (const { ruleId, reason } of entries) {
+      const titles = groups.get(reason) || [];
+      titles.push(catalogById.get(ruleId)?.title || ruleId);
+      groups.set(reason, titles);
+    }
+    return [...groups].map(([reason, titles]) => ({ reason, titles }));
+  };
+
+  return {
+    limit: Number.isFinite(limit) && limit > 0 ? limit : null,
+    partial: reasons.length > 0,
+    reasons,
+    budgetReached,
+    notEvaluated: byReason(sum.coverage?.notEvaluated),
+    partlyChecked: byReason(sum.coverage?.partial),
+  };
+}
+
 // A finding's evidence as two lines: what it means (`detail`, e.g. "2 redirect
 // hops", "HTTP 404 Not Found") and what was found (`detectedValue`: the hops,
 // the link text, the title itself). Rows used to print `detail || value`, so a

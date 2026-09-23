@@ -77,13 +77,14 @@ function resolveStoredPath(stored) {
   return full;
 }
 
-async function buildReportBuffer({ findings, siteUrl, crawlDate }) {
+async function buildReportBuffer({ findings, siteUrl, crawlDate, coverage = null }) {
   return withBuildGate(async () => {
     const buffer = await buildAuditWorkbook({
       findings,
       catalog,
       siteUrl,
       crawlDate: crawlDate || new Date().toISOString(),
+      coverage,
     });
     return Buffer.from(buffer);
   });

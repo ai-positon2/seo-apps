@@ -632,3 +632,35 @@ test("evidence has its own column, and a missing value has no length", async () 
   const metaHeaders = meta.getRow(9).values.slice(1);
   assert.equal(meta.getCell(10, metaHeaders.indexOf("Current Length") + 1).value, 0, '"(absent)" is not 8 characters of description');
 });
+
+test("a check the crawl could not run is listed as not evaluated, not as passed", async () => {
+  const buffer = await buildAuditWorkbook({
+    findings: [],
+    catalog,
+    siteUrl: "https://example.com/",
+    crawlDate: "2026-09-23T10:00:00.000Z",
+    coverage: {
+      notEvaluated: [
+        { ruleId: "orphan-page", reason: "The crawl did not see the whole site." },
+        { ruleId: "single-inlink", reason: "The crawl did not see the whole site." },
+      ],
+      partial: [{ ruleId: "broken-external-link", reason: "37 external URLs past the limit were not requested." }],
+    },
+  });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.getWorksheet("Checks Passed");
+  const automatic = catalog.filter((c) => c.detection === "Automatic").length;
+  assert.equal(sheet.getCell("A1").value, `${automatic - 2} of ${automatic - 2} automatic checks clean; 2 not evaluated`);
+  const rows = [];
+  sheet.eachRow((row) => rows.push(row.values.slice(1)));
+  const titleOf = (id) => catalog.find((c) => c.id === id).title;
+  const at = (title) => rows.findIndex((r) => r[0] === title);
+  const heading = rows.findIndex((r) => r[0] === "Not evaluated on this crawl");
+  assert.ok(heading > 0, "a not-evaluated block follows the clean checks");
+  assert.ok(at(titleOf("orphan-page")) > heading);
+  assert.equal(rows[at(titleOf("orphan-page"))][2], "The crawl did not see the whole site.");
+  // Partly checked still counts as clean, with the limit stated beside it.
+  assert.ok(at(titleOf("broken-external-link")) < heading);
+  assert.match(rows[at(titleOf("broken-external-link"))][2], /Partly checked: 37 external URLs/);
+});

@@ -82,6 +82,12 @@ const { parseCrawlRequest } = require("../shared/options");
       assert.equal(at("/").click_depth, 0);
       assert.equal(at("/a").click_depth, 1);
       assert.equal(at("/b").click_depth, 1);
+      // Sitemaps and external links were off, so their checks are recorded as
+      // not evaluated rather than left to read as passed.
+      const stored = await db.one("select summary from crawl_runs where id = $1", [run.id]);
+      const skipped = stored.summary.coverage.notEvaluated.map((entry) => entry.ruleId);
+      assert.ok(skipped.includes("sitemap-missing-indexable"));
+      assert.ok(skipped.includes("broken-external-link"));
     });
 
     await test("rows the site refused are marked, so Site Health can leave them out", async () => {

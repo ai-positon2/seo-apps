@@ -1176,6 +1176,103 @@ function buildIntegrations(results) {
   };
 }
 
+// ── Coverage ─────────────────────────────────────────────────────────────────
+// A check that did not run produces no findings, and no findings read as
+// "passed": a crawl stopped at its page limit showed orphan pages as clean, and
+// one with sitemaps turned off showed every sitemap check clean. These are the
+// checks a crawl's own settings or shape keep from running, each with the
+// reason in words.
+const SITEMAP_RULES = [
+  "sitemap-missing-indexable",
+  "sitemap-incorrect-url",
+  "sitemap-redirect",
+  "sitemap-duplicate",
+  "sitemap-http-url",
+  "sitemap-unreadable",
+  "sitemap-robots-config",
+  // An orphan is a page the sitemap lists and no link reaches.
+  "orphan-page",
+];
+const EXTERNAL_FETCH_RULES = ["broken-external-link", "external-403"];
+
+function crawlCoverage({
+  firedRuleIds,
+  crawlTruncated,
+  sitemapsChecked,
+  externalLinksChecked,
+  robotsRespected,
+  clickDepthFromStart,
+  siteDiagnostics = {},
+  startUrl = "",
+}) {
+  const notEvaluated = new Map();
+  const partial = new Map();
+  const skip = (ruleIds, reason) => {
+    for (const ruleId of ruleIds) if (!notEvaluated.has(ruleId)) notEvaluated.set(ruleId, reason);
+  };
+
+  if (!sitemapsChecked) {
+    skip(SITEMAP_RULES, "Sitemaps were not read on this crawl: sitemap discovery was off, or this was a URL list.");
+  }
+  if (crawlTruncated) {
+    skip(
+      ["orphan-page", "single-inlink"],
+      "The crawl did not see the whole site (it was stopped, reached its page limit, or its link list was capped), " +
+        "so the links pointing at a page could not all be counted.",
+    );
+  }
+  if (!externalLinksChecked) {
+    skip(EXTERNAL_FETCH_RULES, "External links were not checked on this crawl.");
+  } else if (Number(siteDiagnostics.externalLinksUnchecked) > 0) {
+    const unchecked = Number(siteDiagnostics.externalLinksUnchecked);
+    for (const ruleId of EXTERNAL_FETCH_RULES) {
+      partial.set(
+        ruleId,
+        `${unchecked.toLocaleString("en-US")} external URLs past the crawl's external-link limit were not requested, so links to them were not checked.`,
+      );
+    }
+  }
+  if (!robotsRespected) {
+    skip(
+      ["robots-blocked", "blocked-resource"],
+      "The crawl ignored robots.txt, so it fetched the URLs robots.txt disallows instead of reporting them.",
+    );
+  }
+  if (!siteDiagnostics.robotsUrl) {
+    skip(["robots-issue", "sitemap-robots-config"], "robots.txt was not read on this crawl.");
+  }
+  if (!clickDepthFromStart) {
+    skip(
+      ["deep-page", "javascript-rendered-site", "crawl-trap"],
+      "A URL list has no start page to follow links from.",
+    );
+  }
+  // llms.txt, the missing-page probe and the HTTP homepage are checked once,
+  // after the start page answers, and never for a URL list.
+  if (!siteDiagnostics.llmsStatus) {
+    skip(
+      ["llms-missing", "llms-format", "soft-404-site", "http-homepage"],
+      "Site-wide files were not checked on this crawl (a URL list, or the start page never answered).",
+    );
+  } else {
+    if (siteDiagnostics.llmsStatus === "unavailable") {
+      skip(["llms-missing", "llms-format"], "llms.txt could not be fetched, so whether it exists is unknown.");
+    }
+    if (!siteDiagnostics.missingPageProbe?.status) {
+      skip(["soft-404-site"], "The request for a URL that cannot exist got no answer.");
+    }
+    if (!String(startUrl).startsWith("https:")) {
+      skip(["http-homepage"], "The crawl started on http://, so the HTTP homepage was not tested for a redirect to HTTPS.");
+    }
+  }
+
+  // A check that produced a finding ran, whatever the conditions above say.
+  for (const ruleId of firedRuleIds) notEvaluated.delete(ruleId);
+  const inCatalogOrder = (map) =>
+    catalog.filter((rule) => map.has(rule.id)).map((rule) => ({ ruleId: rule.id, reason: map.get(rule.id) }));
+  return { notEvaluated: inCatalogOrder(notEvaluated), partial: inCatalogOrder(partial) };
+}
+
 function buildFindings({
   results,
   linkEdges = [],
@@ -1196,6 +1293,11 @@ function buildFindings({
   // False for a URL-list crawl: there is no start page whose links the list's
   // pages are "clicks" from, so no click depth and no deep-page.
   clickDepthFromStart = true,
+  // Whether external links were requested at all, and whether robots.txt was
+  // obeyed (a crawl that ignores it fetches disallowed pages instead of
+  // reporting them). Both only decide what `coverage` says was evaluated.
+  externalLinksChecked = true,
+  robotsRespected = true,
 }) {
   const findings = [];
   // Dedupe ids in a Set rather than scanning `findings` on every add(). The scan
@@ -2523,6 +2625,18 @@ function buildFindings({
     findings,
     results: enrichedResults,
     catalog,
+    // Which checks this crawl could not run, or ran on part of the site, so
+    // "no findings" is not read as "passed".
+    coverage: crawlCoverage({
+      firedRuleIds: new Set(findings.map((finding) => finding.ruleId)),
+      crawlTruncated,
+      sitemapsChecked,
+      externalLinksChecked,
+      robotsRespected,
+      clickDepthFromStart,
+      siteDiagnostics,
+      startUrl,
+    }),
     mediaLibrary: buildMediaLibrary(results, resourceEdges),
     // Internal HTML pages only — the same universe every other page-level
     // metric in this build uses (see healthMetrics's own htmlResults filter

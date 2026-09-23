@@ -254,6 +254,7 @@ async function emailReport(db, { run, summary, counts }) {
       findings,
       siteUrl: run.url,
       crawlDate: finishedAt,
+      coverage: summary.coverage || null,
     });
     const path = await report.storeReport(db, run, workbook);
     if (path) await repo.updateRun(db, run.id, { report_path: path });

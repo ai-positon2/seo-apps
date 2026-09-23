@@ -613,9 +613,14 @@ class RunManager {
         // being flattened into a single "truncated" bit nobody could act on.
         truncated: Boolean(summary.truncated),
         depthLimited: Boolean(summary.depthLimited),
+        budgetReached: Boolean(summary.budgetReached),
         edgesTruncated: Boolean(summary.edgesTruncated),
         trapTemplates: summary.trapTemplates || [],
         lostResultRows: lostRows,
+        // Which checks could not run on this crawl, or ran on part of it —
+        // read by the report and the workbook so "no findings" is not shown
+        // as "passed".
+        coverage: summary.coverage || null,
       };
       await repo.updateRun(db, run.id, {
         status: summary.stopped ? "stopped" : "completed",

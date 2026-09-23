@@ -165,6 +165,7 @@ async function sendReportEmail({
       findings,
       siteUrl: run.url,
       crawlDate: run.finished_at,
+      coverage: run.summary?.coverage || null,
     }));
 
   const host = String(run.url).replace(/^https?:\/\//i, "").split("/")[0];

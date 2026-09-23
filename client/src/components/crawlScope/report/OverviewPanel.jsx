@@ -202,10 +202,41 @@ export default function OverviewPanel({
             </span>
             <span style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>
               {coverage.reasons.join('; ')}.
-              {coverage.limit
+              {coverage.limit && coverage.budgetReached
                 ? ` Raise the page budget in the client’s settings — it is ${coverage.limit.toLocaleString('en-US')} — and crawl again.`
                 : ''}
             </span>
+          </div>
+        )}
+
+        {/* ── Checks this crawl could not run ─────────────────────────────
+            A check that did not run found nothing, and nothing reads as a
+            pass. The analyzer says which checks the crawl's settings or shape
+            kept from running (coverage.notEvaluated) and which ran on part of
+            the site (coverage.partial); this names them. */}
+        {(coverage?.notEvaluated?.length > 0 || coverage?.partlyChecked?.length > 0) && (
+          <div
+            style={{
+              display: 'flex', flexDirection: 'column', gap: 6, padding: '12px 16px',
+              borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border)',
+            }}
+          >
+            <span style={{ fontSize: 12.5, color: 'var(--text)', lineHeight: 1.5 }}>
+              Not every check could run on this crawl. These found nothing because they were not
+              evaluated, not because they passed.
+            </span>
+            {coverage.notEvaluated.map(({ reason, titles }) => (
+              <span key={`n-${reason}`} style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>
+                <strong style={{ fontWeight: 600, color: 'var(--text)' }}>Not evaluated:</strong>
+                {' '}{titles.join(', ')}. {reason}
+              </span>
+            ))}
+            {coverage.partlyChecked.map(({ reason, titles }) => (
+              <span key={`p-${reason}`} style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>
+                <strong style={{ fontWeight: 600, color: 'var(--text)' }}>Partly checked:</strong>
+                {' '}{titles.join(', ')}. {reason}
+              </span>
+            ))}
           </div>
         )}
 

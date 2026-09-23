@@ -45,7 +45,7 @@ import UrlsTable from '../components/crawlScope/report/UrlsTable';
 import IssueDetail from '../components/crawlScope/report/IssueDetail';
 import UrlDetail from '../components/crawlScope/report/UrlDetail';
 import {
-  healthMetrics, issueGroups, siteScopedGroups, healthScoreBreakdown, pageIssueCards,
+  healthMetrics, issueGroups, siteScopedGroups, healthScoreBreakdown, pageIssueCards, crawlCoverageNotice,
   runStatusVariant, formatDuration, TERMINAL_STATUSES, withEffectiveIssues,
   buildCountHierarchy, SEVERITY_ORDER, isHtmlPage,
 } from '../components/crawlScope/crawlHelpers';
@@ -448,32 +448,10 @@ export default function CrawlScopeRunPage() {
   // That is the difference between "your site scores 88" and "the 200 pages we
   // reached score 88". A crawl stopped at its page budget scores whatever part
   // it saw, and nothing on the page said so.
-  const coverage = useMemo(() => {
-    const sum = run?.summary;
-    const limit = Number(run?.options?.maxUrls);
-    const depthCap = Number(run?.options?.maxDepth);
-    const reasons = [];
-    if (sum?.truncated) {
-      reasons.push(Number.isFinite(limit) && limit > 0
-        ? `it reached its budget of ${limit.toLocaleString('en-US')} pages`
-        : 'it reached its page budget');
-    }
-    if (sum?.depthLimited) {
-      reasons.push(Number.isFinite(depthCap) && depthCap > 0
-        ? `pages deeper than ${depthCap} clicks from the homepage were not followed`
-        : 'pages past the depth limit were not followed');
-    }
-    if (sum?.edgesTruncated) reasons.push('the internal link graph hit its size limit');
-    if (sum?.trapTemplates?.length) {
-      reasons.push(`${sum.trapTemplates.length} URL pattern`
-        + `${sum.trapTemplates.length === 1 ? ' was' : 's were'} capped as a crawler trap`);
-    }
-    return {
-      limit: Number.isFinite(limit) && limit > 0 ? limit : null,
-      partial: reasons.length > 0,
-      reasons,
-    };
-  }, [run?.summary, run?.options?.maxUrls, run?.options?.maxDepth]);
+  const coverage = useMemo(
+    () => crawlCoverageNotice(run, catalogById),
+    [run?.summary, run?.status, run?.options?.maxUrls, run?.options?.maxDepth, catalogById],
+  );
 
   // ── Does this page show everything the analyser found? ───────────────────
   //

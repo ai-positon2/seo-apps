@@ -1250,6 +1250,9 @@ class SeoCrawler extends EventEmitter {
     this.stopped = false;
     this.truncated = false;
     this.depthLimited = false;
+    // The page budget itself ran out. `truncated` is also set by the depth
+    // limit and by crawl traps, so it cannot say "raise the budget" alone.
+    this.budgetReached = false;
     this.startedAt = 0;
     this.robotsRules = [];
     this.robotsCrawlDelay = null;
@@ -1355,6 +1358,7 @@ class SeoCrawler extends EventEmitter {
       siteDiagnostics: this.siteDiagnostics,
       truncated: this.truncated,
       depthLimited: this.depthLimited,
+      budgetReached: this.budgetReached,
       // Pages already stored by the previous attempt. The resumed run does not
       // re-fetch them, so this is what its own results array starts short by.
       completedCount: this.results.length + (this._resumedCompleted || 0),
@@ -1389,6 +1393,7 @@ class SeoCrawler extends EventEmitter {
     this.siteDiagnostics = { ...this.siteDiagnostics, ...(checkpoint.siteDiagnostics || {}) };
     this.truncated = Boolean(checkpoint.truncated);
     this.depthLimited = Boolean(checkpoint.depthLimited);
+    this.budgetReached = Boolean(checkpoint.budgetReached);
     this._resumedCompleted = checkpoint.completedCount || 0;
     this._resumed = true;
     this._applyCrawlDelay();
@@ -1473,6 +1478,7 @@ class SeoCrawler extends EventEmitter {
     for (const sitemapUrl of this.sitemapMembership.keys()) {
       if (this.seen.size >= sitemapBudget) {
         this.truncated = true;
+        this.budgetReached = true;
         break;
       }
       if (this._enqueueInternal(sitemapUrl, 1, "", { fromSitemap: true })) seeded += 1;
@@ -1634,6 +1640,7 @@ class SeoCrawler extends EventEmitter {
       // sample, not the real site, and checks that depend on them (e.g.
       // single-inlink, orphan-page) would otherwise report false confidence.
       this.truncated = true;
+      this.budgetReached = true;
       return false;
     }
     if (depth > this.options.maxDepth) {
@@ -2158,6 +2165,8 @@ class SeoCrawler extends EventEmitter {
         startUrl: this.startUrl,
         sitemapsChecked: this.mode !== "list" && this.options.discoverSitemaps,
         clickDepthFromStart: this.mode !== "list",
+        externalLinksChecked: Boolean(this.options.checkExternalLinks),
+        robotsRespected: Boolean(this.options.respectRobots),
         // A stopped crawl saw only part of the link graph, exactly like one that
         // hit a cap: "nothing links to this page" is unknowable when the pages
         // that might link to it were never fetched.
@@ -2171,6 +2180,7 @@ class SeoCrawler extends EventEmitter {
         // Distinguishes the three reasons a crawl can be partial, which
         // `truncated` alone flattened into one bit.
         depthLimited: this.depthLimited,
+        budgetReached: this.budgetReached,
         edgesTruncated: this.edgesTruncated,
         trapTemplates: [...this.trapTemplates],
         results: analysis.results,
@@ -2178,6 +2188,7 @@ class SeoCrawler extends EventEmitter {
         mediaLibrary: analysis.mediaLibrary,
         integrations: analysis.integrations,
         rootCauseGroups: analysis.rootCauseGroups,
+        coverage: analysis.coverage,
         // The internal link graph. Already collected for the findings pass, and
         // now carried out so it can be stored: hub-and-spoke clustering is a
         // question about edges, and crawl_run_results only keeps counts. Not

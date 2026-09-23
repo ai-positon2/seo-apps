@@ -725,6 +725,9 @@ async function buildAuditWorkbook({
   catalog = [],
   siteUrl = "",
   crawlDate = new Date().toISOString(),
+  // analyzer.js buildFindings().coverage: checks this crawl could not run, or
+  // ran on part of the site. Absent for runs analysed before it existed.
+  coverage = null,
 }) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "CrawlScope";
@@ -1152,14 +1155,23 @@ async function buildAuditWorkbook({
   for (const finding of findings) {
     if (!DISMISSED_STATUSES.has(finding.reviewStatus)) cleanRuleIds.delete(finding.ruleId);
   }
-  const automaticChecks = catalog.filter((c) => c.detection === "Automatic");
+  //
+  // A check this crawl could not run (coverage.notEvaluated: orphans on a
+  // capped crawl, sitemap checks with sitemaps off) produced no findings for
+  // want of trying, so it is on neither side of the ratio either: it is listed
+  // below the clean checks with the reason.
+  const notEvaluated = new Map((coverage?.notEvaluated || []).map((entry) => [entry.ruleId, entry.reason]));
+  const partlyChecked = new Map((coverage?.partial || []).map((entry) => [entry.ruleId, entry.reason]));
+  const automaticChecks = catalog.filter((c) => c.detection === "Automatic" && !notEvaluated.has(c.id));
   const cleanChecks = automaticChecks.filter((c) => cleanRuleIds.has(c.id));
+  const notEvaluatedChecks = catalog.filter((c) => c.detection === "Automatic" && notEvaluated.has(c.id));
 
   const passedSheet = workbook.addWorksheet("Checks Passed");
   passedSheet.views = [{ state: "frozen", ySplit: 2, showGridLines: false }];
   passedSheet.columns = [{ width: 34 }, { width: 22 }, { width: 68 }];
   const passedTitleRow = passedSheet.addRow([
-    `${cleanChecks.length} of ${automaticChecks.length} automatic checks clean`,
+    `${cleanChecks.length} of ${automaticChecks.length} automatic checks clean` +
+      (notEvaluatedChecks.length ? `; ${notEvaluatedChecks.length} not evaluated` : ""),
   ]);
   passedSheet.mergeCells(passedTitleRow.number, 1, passedTitleRow.number, 3);
   passedTitleRow.height = 24;
@@ -1173,10 +1185,10 @@ async function buildAuditWorkbook({
     applyGridBorder(cell);
   });
   passedSheet.getRow(2).height = 26;
-  cleanChecks.forEach((definition, index) => {
-    const row = passedSheet.addRow([definition.title, definition.category, definition.description]);
+  const addCheckRow = (definition, text, index) => {
+    const row = passedSheet.addRow([definition.title, definition.category, text]);
     const isZebra = index % 2 === 1;
-    row.height = rowHeightFromLines(estimateWrappedLines(definition.description, 68), {
+    row.height = rowHeightFromLines(estimateWrappedLines(text, 68), {
       lineHeight: 13,
       minHeight: 28,
     });
@@ -1186,9 +1198,28 @@ async function buildAuditWorkbook({
       if (isZebra) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.zebra } };
       applyGridBorder(cell);
     });
+  };
+  cleanChecks.forEach((definition, index) => {
+    // Clean as far as it went, and how far that was.
+    const limit = partlyChecked.get(definition.id);
+    addCheckRow(definition, limit ? `${definition.description} Partly checked: ${limit}` : definition.description, index);
   });
   if (cleanChecks.length) {
     passedSheet.autoFilter = `A2:C${passedSheet.lastRow.number}`;
+  }
+  if (notEvaluatedChecks.length) {
+    passedSheet.addRow([]);
+    const heading = passedSheet.addRow(["Not evaluated on this crawl", "Category", "Why"]);
+    heading.eachCell((cell) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.navy } };
+      cell.font = { name: "Poppins", size: 10, bold: true, color: { argb: COLORS.white } };
+      cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+      applyGridBorder(cell);
+    });
+    heading.height = 26;
+    notEvaluatedChecks.forEach((definition, index) => {
+      addCheckRow(definition, notEvaluated.get(definition.id), index);
+    });
   }
 
   return workbook.xlsx.writeBuffer();
