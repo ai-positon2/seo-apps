@@ -3,7 +3,7 @@ import {
   Panel, Tile, Eyebrow, Chip, Pill, BackLink, OutlineButton, RuledHead,
   TableFrame, Th, Pager, SearchField, sevOf, REVIEW_TONE,
 } from './reportPrimitives';
-import { REVIEW_STATUSES } from '../crawlHelpers';
+import { REVIEW_STATUSES, findingFix } from '../crawlHelpers';
 
 // ── One problem's own page ──────────────────────────────────────────────────
 //
@@ -259,6 +259,27 @@ export default function IssueDetail({
                       || (f.detectedValue !== undefined && f.detectedValue !== ''
                         ? String(f.detectedValue)
                         : '—')}
+                    {/* The page-specific half of the fix: a suggested value
+                        (title, meta description, H1) and, for rules that build
+                        one from this page's evidence, advice naming its URLs.
+                        The card above carries the rule's general fix. */}
+                    {(() => {
+                      const { suggestion, fix } = findingFix(f, entry);
+                      return (
+                        <>
+                          {suggestion && (
+                            <div style={{ marginTop: 6, fontSize: 12.5, color: 'var(--text)' }}>
+                              <strong style={{ fontWeight: 600 }}>Suggested:</strong> {suggestion}
+                            </div>
+                          )}
+                          {fix && (
+                            <div style={{ marginTop: 6, fontSize: 12.5, color: 'var(--text)' }}>
+                              <strong style={{ fontWeight: 600 }}>Fix here:</strong> {fix}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </td>
                   <td style={{ padding: '12px 14px' }}>
                     <select

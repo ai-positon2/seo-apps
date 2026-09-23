@@ -596,6 +596,58 @@ export function groupsByCategory(groups, catalogById) {
     });
 }
 
+// ── What a finding says to do ───────────────────────────────────────────────
+// The analyzer writes page-specific advice onto a finding: a suggested value
+// (a rewritten title, a starter meta description, an H1) in recommendedValue,
+// and for some rules a recommendation built from this page's own evidence —
+// the sitemap fix naming the canonical URL, the robots.txt line naming the real
+// domain. The report showed only the catalog's text for the rule, so that
+// advice reached the Excel export and nowhere else. `fix` is null when the
+// finding only repeats the catalog text, which the issue card already shows.
+export function findingFix(finding, entry) {
+  const raw = finding?.recommendedValue;
+  const suggestion = raw === undefined || raw === null ? '' : String(raw).trim();
+  const own = String(finding?.recommendation || '').trim();
+  const generic = String(entry?.recommendation || '').trim();
+  return {
+    suggestion: suggestion || null,
+    fix: own && own !== generic ? own : null,
+  };
+}
+
+// The issue cards on one page's own view. Page- AND template-scoped findings:
+// a template finding is a page defect found on most pages, so it is on this
+// page too, and it counts toward Site Health; leaving it off the page's own
+// view made a page "have" a problem it did not list. Dismissed findings are
+// left out, matching the page table's issue count.
+export function pageIssueCards(findings, pageUrl, catalogById, pagesByRule = new Map()) {
+  return findings
+    .filter((f) => f.url === pageUrl
+      && PAGE_LEVEL_SCOPES.has(f.scope || 'page')
+      && !DISMISSED.includes(f.reviewStatus))
+    .map((f) => {
+      const entry = catalogById.get(f.ruleId);
+      const { suggestion, fix } = findingFix(f, entry);
+      const detected = f.detail
+        || (f.detectedValue !== undefined && f.detectedValue !== null && f.detectedValue !== ''
+          ? String(f.detectedValue)
+          : null);
+      return {
+        // Per finding, not per rule: a page with two broken links has two.
+        key: f.id || `${f.ruleId}|${f.targetUrl || ''}|${f.detail || ''}`,
+        id: f.ruleId,
+        title: entry?.title || f.title || f.ruleId,
+        severity: f.severity,
+        detected,
+        targetUrl: f.targetUrl || null,
+        suggestion,
+        description: entry?.description || null,
+        recommendation: fix || entry?.recommendation || null,
+        pages: pagesByRule.get(f.ruleId) || 1,
+      };
+    });
+}
+
 // ── Effective issues & count hierarchy ──────────────────────────────────────
 // A crawled page's embedded `.issues` is `quickIssues()` output from crawl time
 // (crawler.js) — a small synchronous rule set evaluated per-page as it's fetched.

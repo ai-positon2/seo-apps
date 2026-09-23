@@ -45,7 +45,7 @@ import UrlsTable from '../components/crawlScope/report/UrlsTable';
 import IssueDetail from '../components/crawlScope/report/IssueDetail';
 import UrlDetail from '../components/crawlScope/report/UrlDetail';
 import {
-  healthMetrics, issueGroups, siteScopedGroups, healthScoreBreakdown,
+  healthMetrics, issueGroups, siteScopedGroups, healthScoreBreakdown, pageIssueCards,
   runStatusVariant, formatDuration, TERMINAL_STATUSES, withEffectiveIssues,
   buildCountHierarchy, SEVERITY_ORDER, isHtmlPage,
 } from '../components/crawlScope/crawlHelpers';
@@ -330,6 +330,15 @@ export default function CrawlScopeRunPage() {
     () => new Map(effectivePages.map((p) => [p.url, p.title])),
     [effectivePages],
   );
+
+  // How many pages each rule is on, for a page's "see all N pages" link. A rule
+  // split across page and template scope appears as two groups; the larger
+  // count is the one the link opens.
+  const pagesByRule = useMemo(() => {
+    const map = new Map();
+    for (const g of groups) map.set(g.id, Math.max(map.get(g.id) || 0, g.pages || 0));
+    return map;
+  }, [groups]);
 
   const shownGroups = useMemo(() => {
     if (tab === 'all') return groups;
@@ -948,23 +957,7 @@ export default function CrawlScopeRunPage() {
       {openPage && (
         <UrlDetail
           page={openPage}
-          issues={findings
-            .filter((f) => f.url === openPage.url && (f.scope || 'page') === 'page')
-            .map((f) => {
-              const entry = catalogById.get(f.ruleId);
-              const group = groups.find((g) => g.id === f.ruleId);
-              return {
-                id: f.ruleId,
-                title: entry?.title || f.title || f.ruleId,
-                severity: f.severity,
-                detected: f.detail || (f.detectedValue !== undefined && f.detectedValue !== ''
-                  ? String(f.detectedValue)
-                  : null),
-                description: entry?.description || null,
-                recommendation: entry?.recommendation || null,
-                pages: group?.pages || 1,
-              };
-            })}
+          issues={pageIssueCards(findings, openPage.url, catalogById, pagesByRule)}
           onBack={() => setOpenUrl(null)}
           onOpenIssue={(ruleId) => setOpenIssueId(ruleId)}
         />

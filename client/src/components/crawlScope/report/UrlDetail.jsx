@@ -57,7 +57,7 @@ export default function UrlDetail({
         {issues.map((i) => {
           const s = sevOf(i.severity);
           return (
-            <Panel key={i.id} pad="18px 20px" style={{ gap: 10, borderRadius: 10 }}>
+            <Panel key={i.key || i.id} pad="18px 20px" style={{ gap: 10, borderRadius: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
                 <span
                   style={{ width: 9, height: 9, borderRadius: '50%', flexShrink: 0, background: s.dot }}
@@ -78,6 +78,22 @@ export default function UrlDetail({
                 <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.55, color: 'var(--text-2)' }}>
                   <strong style={{ fontWeight: 600, color: 'var(--text)' }}>On this page:</strong>
                   {' '}{i.detected}
+                </p>
+              )}
+
+              {/* What the finding points at — the broken link's target, the
+                  canonical, the redirect destination — is the thing to go and
+                  change, so it is shown with the finding rather than dropped. */}
+              {i.targetUrl && (
+                <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: 'var(--text-2)', wordBreak: 'break-all' }}>
+                  <strong style={{ fontWeight: 600, color: 'var(--text)' }}>Points to:</strong>
+                  {' '}<span style={{ fontFamily: 'var(--font-mono)' }}>{i.targetUrl}</span>
+                </p>
+              )}
+
+              {i.suggestion && (
+                <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.55, color: 'var(--text)' }}>
+                  <strong style={{ fontWeight: 600 }}>Suggested:</strong> {i.suggestion}
                 </p>
               )}
 
