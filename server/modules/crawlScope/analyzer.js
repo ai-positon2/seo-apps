@@ -37,6 +37,15 @@ const LINK_ONLY_RESOURCE_RELS = new Set([
   "preload",
   "stylesheet",
 ]);
+// External responses that refuse the crawler rather than report a missing page:
+// login walls (401), bot protection (403, LinkedIn's non-standard 999) and rate
+// limiting (429). Reported as "refusing crawler access", never as broken.
+const REFUSED_EXTERNAL_STATUS = {
+  401: "Unauthorized",
+  403: "Forbidden",
+  429: "Too Many Requests",
+  999: "Request denied",
+};
 const MIN_GENERIC_EXTERNAL_NOFOLLOW_LINKS = 5;
 const MIN_GENERIC_EXTERNAL_NOFOLLOW_RATIO = 0.8;
 const MAX_FETCH_REDIRECTS = 20;
@@ -1982,13 +1991,15 @@ function buildFindings({
       }
       externalNofollowBySource.set(edge.sourceUrl, policy);
 
-      if (target?.status === 403) {
+      if (REFUSED_EXTERNAL_STATUS[target?.status]) {
+        // Refusal, not absence: bot protection, rate limiting and login walls
+        // answer a crawler this way while the page is live for visitors.
+        const label = REFUSED_EXTERNAL_STATUS[target.status];
         add("external-403", source, {
           targetUrl: edge.targetUrl,
-          statusCode: 403,
-          detail:
-            "The crawler received HTTP 403 (Forbidden); this proves request refusal, not that the destination is missing.",
-          detectedValue: "HTTP 403 (Forbidden)",
+          statusCode: target.status,
+          detail: `The crawler received HTTP ${target.status} (${label}); this proves request refusal, not that the destination is missing.`,
+          detectedValue: `HTTP ${target.status} (${label})`,
         });
       } else if (target && (target.status >= 400 || !target.status)) {
         add("broken-external-link", source, {

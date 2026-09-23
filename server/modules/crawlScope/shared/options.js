@@ -132,7 +132,9 @@ function parseCrawlRequest(body = {}, overrides = {}) {
     maxUrls: listUrls
       ? listUrls.length
       : clampInt(1, cap.maxUrls)(raw.maxUrls ?? 500),
-    maxExternalUrls: clampInt(0, cap.maxExternalUrls)(raw.maxExternalUrls ?? 150),
+    // Defaults to the ceiling: 150 left most external links on a real site
+    // unchecked, and nothing said so.
+    maxExternalUrls: clampInt(0, cap.maxExternalUrls)(raw.maxExternalUrls ?? cap.maxExternalUrls),
     concurrency: clampInt(1, cap.concurrency)(
       Math.min(raw.concurrency ?? 4, overrides.concurrency ?? Number.POSITIVE_INFINITY),
     ),

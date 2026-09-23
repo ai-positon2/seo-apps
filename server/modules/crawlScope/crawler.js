@@ -1163,10 +1163,9 @@ class SeoCrawler extends EventEmitter {
     super();
     this.options = {
       maxUrls: Math.max(1, Math.min(Number(options.maxUrls) || 10_000, 50_000)),
-      maxExternalUrls: Math.max(
-        0,
-        Math.min(Number(options.maxExternalUrls) || 150, 2_000),
-      ),
+      // `Number(x) || 150` turned an explicit 0 ("skip external checks", as the
+      // options form says) back into 150.
+      maxExternalUrls: boundedInteger(options.maxExternalUrls, 500, 0, 2_000),
       concurrency: Math.max(1, Math.min(Number(options.concurrency) || 4, 16)),
       timeout: Math.max(3_000, Math.min(Number(options.timeout) || 15_000, 60_000)),
       respectRobots: options.respectRobots !== false,
@@ -1233,6 +1232,8 @@ class SeoCrawler extends EventEmitter {
     this._queueHead = 0;
     this.seen = new Set();
     this.externalSeen = new Set();
+    // Distinct external URLs found after maxExternalUrls was reached.
+    this._externalUnchecked = new Set();
     this.results = [];
     this.inlinkCounts = new Map();
     this.discovery = new Map();
@@ -1691,11 +1692,16 @@ class SeoCrawler extends EventEmitter {
 
   _enqueueExternal(url, sourceUrl) {
     const normalized = normalizeUrl(url);
-    if (
-      !normalized ||
-      this.externalSeen.has(normalized) ||
-      this.externalSeen.size >= this.options.maxExternalUrls
-    ) {
+    if (!normalized || this.externalSeen.has(normalized)) return false;
+    if (this.externalSeen.size >= this.options.maxExternalUrls) {
+      // Counted, not dropped silently: every external link past the limit goes
+      // unchecked, and "no broken external links" must not be read as a clean
+      // bill for links nobody looked at.
+      if (!this._externalUnchecked.has(normalized)) {
+        if (this._externalUnchecked.size < 100_000) this._externalUnchecked.add(normalized);
+        this.siteDiagnostics.externalLinksUnchecked =
+          (this.siteDiagnostics.externalLinksUnchecked || 0) + 1;
+      }
       return false;
     }
     this.externalSeen.add(normalized);
@@ -2537,9 +2543,10 @@ class SeoCrawler extends EventEmitter {
         // responds to HEAD; without this retry, 966 findings on a single crawl
         // declared two live links broken.
         //
-        // External only, once, and never for a deliberate stop() abort.
-        const timedOut = error.name === "TimeoutError" || error.name === "AbortError";
-        if (!job.external || !timedOut || this.stopped) throw error;
+        // External only, once, and never for a deliberate stop() abort or an
+        // SSRF refusal. Not only timeouts: a server that resets the connection
+        // on HEAD is just as live when asked with GET.
+        if (!job.external || this.stopped || error.name === "SsrfError") throw error;
         this.emit("log", {
           level: "warning",
           message: `${this._hostOf(job.url)} did not answer HEAD; retrying ${job.url} with GET`,
@@ -2550,10 +2557,13 @@ class SeoCrawler extends EventEmitter {
         });
       }
 
-      // Servers that REFUSE HEAD outright. The ones that never reply at all are
+      // Servers that answer HEAD with an error they would not give a GET: 405
+      // and 501 by the book, but also 403, 404 and 400 from CDNs and apps that
+      // only route GET. Every failing HEAD is asked once more with GET before
+      // the link is called broken. The ones that never reply at all are
       // handled by the retry in the catch above.
       const usable =
-        job.external && (response.status === 405 || response.status === 501)
+        job.external && response.status >= 400
           ? await this._politeFetch(job.url, fetchInit("GET"), {
               timeout: this.options.timeout,
               signal: this.rootController.signal,
