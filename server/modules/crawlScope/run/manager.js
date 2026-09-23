@@ -8,6 +8,7 @@
 // is bounded (rows are flushed, not accumulated forever in the web layer).
 
 const { SeoCrawler } = require("../crawler");
+const { compareRuns, carriedReviews } = require("./comparison");
 const { createFetch } = require("../net/egress");
 const { parseCrawlRequest } = require("../shared/options");
 const repo = require("../db/repo");
@@ -595,6 +596,38 @@ class RunManager {
       // report with no findings in it.
       await repo.insertRunFindingInstances(db, run.id, run.owner, findings);
 
+      // ── Against the last crawl of the same site ───────────────────────────
+      // New / fixed / persisting per rule, and the reviewers' false positives
+      // carried over to the same issues, so they are not dismissed again every
+      // crawl. Matched by issue key (run/comparison.js). Non-fatal: a crawl
+      // without its comparison is still the crawl.
+      let comparison = null;
+      if (!Array.isArray(run.options?.urls)) {
+        try {
+          const previous = await repo.previousComparableRun(db, run);
+          if (previous) {
+            const [previousFindings, previousReviews] = await Promise.all([
+              repo.listRunIssueRows(db, previous.id),
+              repo.listFindingReviews(db, previous.id),
+            ]);
+            comparison = {
+              previousRunId: previous.id,
+              previousFinishedAt: previous.finished_at || null,
+              ...compareRuns(findings, previousFindings),
+              carriedReviews: await repo.insertCarriedReviews(
+                db,
+                run.id,
+                run.owner,
+                carriedReviews(findings, previousFindings, previousReviews),
+              ),
+            };
+          }
+        } catch (error) {
+          console.error(`[crawlScope] run ${run.id} not compared with the previous crawl:`, error.message);
+        }
+      }
+      summary.comparison = comparison;
+
       // Internal link graph, for hub-and-spoke clustering (migration 0012).
       //
       // Internal edges only: external links are already status-checked per
@@ -710,6 +743,8 @@ class RunManager {
         resumed: summary.resumed
           ? { ...summary.resumed, ...(priorReloadFailed ? { reloadFailed: true } : {}) }
           : null,
+        // New / fixed / persisting against the previous crawl of the site.
+        comparison,
         // Which checks could not run on this crawl, or ran on part of it —
         // read by the report and the workbook so "no findings" is not shown
         // as "passed".

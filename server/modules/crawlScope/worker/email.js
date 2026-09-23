@@ -50,7 +50,18 @@ function topIssues(findings, limit = 8) {
     .slice(0, limit);
 }
 
-function buildHtml({ run, counts, previousCounts, findings, baseUrl, downloadUrl, attached = true }) {
+// New / fixed / persisting against the previous crawl (run/comparison.js). The
+// severity deltas above it only compare totals, which cannot tell "nothing
+// changed" from "twelve fixed and twelve new".
+function comparisonLine(comparison) {
+  const totals = comparison?.totals;
+  if (!totals) return "";
+  const n = (value) => Number(value || 0).toLocaleString("en-US");
+  return `<p style="margin:0 0 16px;">Since the last crawl: ${n(totals.new)} new issue${totals.new === 1 ? "" : "s"}, ` +
+    `${n(totals.fixed)} fixed, ${n(totals.persisting)} still open.</p>`;
+}
+
+function buildHtml({ run, counts, previousCounts, findings, baseUrl, downloadUrl, attached = true, comparison = null }) {
   const rows = SEVERITY_ORDER.map((sev) => {
     const c = counts[sev] || 0;
     return `<tr><td style="padding:4px 12px;">${SEVERITY_LABEL[sev]}</td>
@@ -82,6 +93,7 @@ function buildHtml({ run, counts, previousCounts, findings, baseUrl, downloadUrl
       <th style="text-align:right;padding:4px 12px;background:#f5f7fb;">Count</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
+    ${comparisonLine(comparison)}
     <h3 style="margin:0 0 8px;">Top issues</h3>
     <ul style="margin:0 0 16px;padding-left:20px;">${issues || "<li>No issues detected.</li>"}</ul>
     ${link ? `<p><a href="${esc(link)}">Open full report</a></p>` : ""}
@@ -145,6 +157,7 @@ async function sendReportEmail({
   run,
   counts,
   previousCounts,
+  comparison = null,
   findings,
   recipients,
   workbook = null,
@@ -183,6 +196,7 @@ async function sendReportEmail({
       run,
       counts,
       previousCounts,
+      comparison,
       findings,
       baseUrl,
       downloadUrl,

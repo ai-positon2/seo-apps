@@ -32,7 +32,7 @@ import { healthScoreBreakdown } from '../crawlHelpers';
  */
 export default function OverviewPanel({
   metrics, counts, groups, catalogById, externalChecked, provisional = false, crawled = null,
-  reconciliation = null, coverage = null,
+  reconciliation = null, coverage = null, comparison = null,
 }) {
   const breakdown = healthScoreBreakdown(metrics);
   const lost = breakdown.reduce((sum, b) => sum + b.points, 0);
@@ -206,6 +206,20 @@ export default function OverviewPanel({
                 ? ` Raise the page budget in the client’s settings — it is ${coverage.limit.toLocaleString('en-US')} — and crawl again.`
                 : ''}
             </span>
+          </div>
+        )}
+
+        {/* ── Against the previous crawl of the site ──────────────────────
+            Issues are matched across crawls by rule, page and target, so a
+            count that moved in a finding's wording is not a new issue. */}
+        {comparison && (
+          <div
+            style={{
+              padding: '12px 16px', borderRadius: 10,
+              background: 'var(--surface)', border: '1px solid var(--border)',
+            }}
+          >
+            <span style={{ fontSize: 12.5, color: 'var(--text)', lineHeight: 1.5 }}>{comparison.sentence}</span>
           </div>
         )}
 

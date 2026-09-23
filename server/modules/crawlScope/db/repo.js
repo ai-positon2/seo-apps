@@ -618,6 +618,60 @@ async function previousCompletedRun(client, projectId, beforeIso) {
   );
 }
 
+// The last completed crawl of the same site, for "new since last crawl": the
+// same project, or for a crawl outside any project the same owner and URL. A
+// URL-list crawl is never compared (its url is a label, not a site).
+async function previousComparableRun(client, run) {
+  return client.maybeOne(
+    `select id, created_at, finished_at from crawl_runs
+      where id <> $1
+        and status = 'completed'
+        and created_at < $2
+        and not coalesce(options ? 'urls', false)
+        and (($3::uuid is not null and project_id = $3)
+          or ($3::uuid is null and project_id is null and owner = $4 and url = $5))
+      order by created_at desc
+      limit 1`,
+    [run.id, run.created_at || new Date().toISOString(), run.project_id || null, run.owner, run.url],
+  );
+}
+
+// Just enough of a run's findings to match them against another crawl's.
+async function listRunIssueRows(client, runId) {
+  return client.rows(
+    `select finding_id as id,
+            rule_id as "ruleId",
+            data->>'url' as url,
+            coalesce(data->>'targetUrl', '') as "targetUrl",
+            data->>'issueKey' as "issueKey"
+       from crawl_run_finding_instances
+      where run_id = $1`,
+    [runId],
+  );
+}
+
+// Reviews carried over from the previous crawl (run/comparison.js). Never
+// over a review someone already made on this run.
+async function insertCarriedReviews(client, runId, owner, carried) {
+  if (!carried.length) return 0;
+  const now = new Date().toISOString();
+  const rows = carried.map((review) => ({
+    run_id: runId,
+    finding_id: review.findingId,
+    owner,
+    rule_id: review.ruleId,
+    review_status: review.reviewStatus,
+    reviewer_notes: review.reviewerNotes ?? null,
+    reviewed_by: review.reviewedBy ?? null,
+    updated_at: now,
+  }));
+  const CHUNK = 1_000;
+  for (let at = 0; at < rows.length; at += CHUNK) {
+    await client.upsert("crawl_finding_reviews", rows.slice(at, at + CHUNK), ["run_id", "finding_id"], { merge: false });
+  }
+  return rows.length;
+}
+
 // ---- results / findings ---------------------------------------------------
 
 async function insertResults(client, rows) {
@@ -1092,6 +1146,9 @@ async function saveFindingReviews(client, runId, owner, reviews, reviewedBy = nu
 }
 
 module.exports = {
+  previousComparableRun,
+  listRunIssueRows,
+  insertCarriedReviews,
   resultEdgesSupported,
   listRunResultsForResume,
   clearResultEdges,

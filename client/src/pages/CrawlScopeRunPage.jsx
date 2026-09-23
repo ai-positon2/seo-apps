@@ -46,6 +46,7 @@ import IssueDetail from '../components/crawlScope/report/IssueDetail';
 import UrlDetail from '../components/crawlScope/report/UrlDetail';
 import {
   healthMetrics, issueGroups, siteScopedGroups, healthScoreBreakdown, pageIssueCards, crawlCoverageNotice,
+  crawlComparison,
   runStatusVariant, formatDuration, TERMINAL_STATUSES, withEffectiveIssues,
   buildCountHierarchy, SEVERITY_ORDER, isHtmlPage,
 } from '../components/crawlScope/crawlHelpers';
@@ -456,6 +457,8 @@ export default function CrawlScopeRunPage() {
   // That is the difference between "your site scores 88" and "the 200 pages we
   // reached score 88". A crawl stopped at its page budget scores whatever part
   // it saw, and nothing on the page said so.
+  // What changed since the previous crawl of the site, when there was one.
+  const comparison = useMemo(() => crawlComparison(run), [run?.summary]);
   const coverage = useMemo(
     () => crawlCoverageNotice(run, catalogById),
     [run?.summary, run?.status, run?.options?.maxUrls, run?.options?.maxDepth, catalogById],
@@ -982,6 +985,7 @@ export default function CrawlScopeRunPage() {
               provisional={provisional}
               crawled={crawledSoFar}
               coverage={coverage}
+              comparison={comparison}
             />
           )}
 
@@ -992,6 +996,7 @@ export default function CrawlScopeRunPage() {
               onOpen={setOpenIssueId}
               provisional={provisional}
               crawled={crawledSoFar}
+              comparison={comparison}
             />
           )}
 

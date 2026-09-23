@@ -22,3 +22,15 @@ test("no base URL, no link", () => {
   const html = buildHtml({ run, counts: {}, previousCounts: null, findings: [], baseUrl: "" });
   assert.doesNotMatch(html, /Open full report/);
 });
+
+// The email compared severity totals with the last crawl and nothing else:
+// "Errors 40 (no change)" when 12 were fixed and 12 others appeared.
+test("the report email says what is new and what was fixed since the last crawl", () => {
+  const html = buildHtml({
+    run, counts: {}, previousCounts: null, findings: [], baseUrl: "",
+    comparison: { totals: { new: 12, fixed: 30, persisting: 140 } },
+  });
+  assert.match(html, /Since the last crawl: 12 new issues, 30 fixed, 140 still open\./);
+  const none = buildHtml({ run, counts: {}, previousCounts: null, findings: [], baseUrl: "" });
+  assert.doesNotMatch(none, /Since the last crawl/);
+});

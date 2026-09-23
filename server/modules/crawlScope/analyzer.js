@@ -371,6 +371,19 @@ function findingId(ruleId, url = "", targetUrl = "", detail = "") {
     .slice(0, 16);
 }
 
+// The same issue across crawls. A finding's id includes its detail, which
+// carries counts and lengths ("Shared by 4 pages", "72 characters"), so it
+// changes whenever a number in it moves; the issue key is only the rule, the
+// page and what it points at, so a review can follow it to the next crawl and
+// new / fixed / persisting can be counted against the last one.
+function issueKeyOf(ruleId, url = "", targetUrl = "") {
+  return crypto
+    .createHash("sha1")
+    .update(`${ruleId}|${url}|${targetUrl || ""}`)
+    .digest("hex")
+    .slice(0, 16);
+}
+
 // A page×check matrix can represent "this page has this problem," but it
 // cannot represent "one shared nav/footer link is broken, and every page
 // happens to carry it" without either double-counting (once per page) or —
@@ -1394,6 +1407,7 @@ function buildFindings({
     findingIds.add(id);
     findings.push({
       id,
+      issueKey: issueKeyOf(ruleId, url, targetUrl),
       ruleId,
       // The crawler stops reading at MAX_BODY_BYTES and records bodyTruncated
       // on the result. Without carrying it here, a count measured on the first
@@ -2719,6 +2733,7 @@ function buildFindings({
 
 module.exports = {
   buildFindings,
+  issueKeyOf,
   catalog,
   evidenceSignature,
   groupFixType,

@@ -264,6 +264,8 @@ async function emailReport(db, { run, summary, counts }) {
       run: { ...run, finished_at: finishedAt },
       counts,
       previousCounts,
+      // Computed by the run manager against the same previous crawl.
+      comparison: summary.comparison || null,
       findings,
       recipients,
       workbook,

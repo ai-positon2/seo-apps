@@ -680,6 +680,42 @@ export function crawlCoverageNotice(run, catalogById = new Map()) {
   };
 }
 
+// ── What changed since the last crawl ──────────────────────────────────────
+// run.summary.comparison (run/comparison.js on the server): new / fixed /
+// persisting issues against the previous crawl of the same site, and how many
+// false positives were carried over from it. null when there was no previous
+// crawl to compare with.
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const plural = (count, one, many = `${one}s`) => `${count.toLocaleString('en-US')} ${count === 1 ? one : many}`;
+
+export function crawlComparison(run) {
+  const comparison = run?.summary?.comparison;
+  if (!comparison?.totals) return null;
+  const { totals } = comparison;
+  const carried = Number(comparison.carriedReviews) || 0;
+  // Spelled out rather than toLocaleDateString, whose month abbreviations
+  // differ between ICU versions ("Sep" / "Sept").
+  const finished = comparison.previousFinishedAt ? new Date(comparison.previousFinishedAt) : null;
+  const since = finished && Number.isFinite(finished.getTime())
+    ? `${finished.getUTCDate()} ${MONTHS_SHORT[finished.getUTCMonth()]} ${finished.getUTCFullYear()}`
+    : null;
+  const sentence = `${since ? `Since the crawl of ${since}` : 'Since the last crawl'}: `
+    + `${plural(totals.new, 'new issue')}, ${totals.fixed.toLocaleString('en-US')} fixed, `
+    + `${totals.persisting.toLocaleString('en-US')} still open.`
+    + (carried ? ` ${plural(carried, 'false positive')} ${carried === 1 ? 'was' : 'were'} carried over from it.` : '');
+  return { since, totals, byRule: comparison.byRule || {}, carried, sentence };
+}
+
+// One rule's movement since the last crawl, or null when it did not move.
+export function ruleTrend(comparison, ruleId) {
+  const trend = comparison?.byRule?.[ruleId];
+  if (!trend || (!trend.new && !trend.fixed)) return null;
+  const parts = [];
+  if (trend.new) parts.push(`${trend.new.toLocaleString('en-US')} new`);
+  if (trend.fixed) parts.push(`${trend.fixed.toLocaleString('en-US')} fixed`);
+  return `${parts.join(', ')} since the last crawl`;
+}
+
 // A finding's evidence as two lines: what it means (`detail`, e.g. "2 redirect
 // hops", "HTTP 404 Not Found") and what was found (`detectedValue`: the hops,
 // the link text, the title itself). Rows used to print `detail || value`, so a

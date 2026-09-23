@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { sevOf, AnalyzingNotice } from './reportPrimitives';
+import { ruleTrend } from '../crawlHelpers';
 
 // ── Every problem found, one row per distinct check ─────────────────────────
 //
@@ -17,7 +18,7 @@ import { sevOf, AnalyzingNotice } from './reportPrimitives';
 // panel the page already has the data for.
 
 export default function IssueList({
-  groups, catalogById, onOpen, provisional = false, crawled = null,
+  groups, catalogById, onOpen, provisional = false, crawled = null, comparison = null,
 }) {
   // While the crawl runs, no issues at all — not a shortened list, not a
   // labelled one. The only rules that have run are the crawler's dozen live
@@ -42,6 +43,7 @@ export default function IssueList({
           key={g.id}
           group={g}
           entry={catalogById.get(g.id)}
+          trend={ruleTrend(comparison, g.id)}
           onOpen={() => onOpen(g.id)}
         />
       ))}
@@ -49,7 +51,7 @@ export default function IssueList({
   );
 }
 
-function IssueRow({ group, entry, onOpen }) {
+function IssueRow({ group, entry, trend = null, onOpen }) {
   const [hover, setHover] = useState(false);
   const s = sevOf(group.severity);
   const priority = entry?.priority || null;
@@ -83,6 +85,8 @@ function IssueRow({ group, entry, onOpen }) {
               this" until those names are written. */}
           <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
             {entry?.category || 'Uncategorised'}
+            {/* How this rule moved against the previous crawl of the site. */}
+            {trend && <span style={{ color: 'var(--text-2)' }}>{` · ${trend}`}</span>}
           </span>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
