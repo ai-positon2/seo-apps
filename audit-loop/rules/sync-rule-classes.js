@@ -31,6 +31,8 @@ const CATALOG = path.join(__dirname, "../../server/modules/crawlScope/issue-cata
 const NEW_RULES = {
   "canonical-to-http": { class: "crawl", rarity: "rare" },
   "sitemap-http-url": { class: "crawl", rarity: "occasional" },
+  "broken-internal-image": { class: "crawl", rarity: "common" },
+  "broken-internal-resource": { class: "crawl", rarity: "occasional" },
 };
 
 const GROUPS = [

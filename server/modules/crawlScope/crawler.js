@@ -905,8 +905,11 @@ function quickIssues(result) {
   const issues = [];
   const add = (id, label, severity, category) =>
     issues.push({ id, label, severity, category });
-  if (result.status >= 500) add("server-error", "Server error (5xx)", "error", "Technical");
-  else if (result.status >= 400) add("page-4xx", "Page returns a 4XX error", "error", "Technical");
+  // A broken image, stylesheet or script is reported on the page that uses it
+  // (analyzer.js), not as a page error on its own URL.
+  const brokenAsset = result.isAsset && (result.status >= 400 || !result.status);
+  if (!brokenAsset && result.status >= 500) add("server-error", "Server error (5xx)", "error", "Technical");
+  else if (!brokenAsset && result.status >= 400) add("page-4xx", "Page returns a 4XX error", "error", "Technical");
   // Matches analyzer.js's post-crawl split exactly (permanent-redirect for
   // 301/308, temporary-redirect for 302/303/307) rather than a generic
   // "redirect" id with no catalog entry — that used to leave the live-crawl
@@ -916,7 +919,7 @@ function quickIssues(result) {
     add("permanent-redirect", "Permanent redirects", "warning", "Indexability");
   else if ([302, 303, 307].includes(result.status))
     add("temporary-redirect", "Temporary redirects", "warning", "Indexability");
-  else if (!result.status)
+  else if (!brokenAsset && !result.status)
     add("crawl-failure", "Page cannot be crawled", "error", "Technical");
   if (result.redirectLocationIssue) {
     add(
@@ -3201,11 +3204,15 @@ class SeoCrawler extends EventEmitter {
         const normalized = normalizeUrl(raw, documentBase.url);
         if (!normalized) return;
         const source = { attribute, raw };
+        const tag = element.tagName.toLowerCase();
         trackResource({
           sourceUrl: job.url,
           targetUrl: normalized,
-          tag: element.tagName.toLowerCase(),
+          tag,
           sourceAttribute: attribute,
+          // What a <link> loads — a stylesheet, an icon, a manifest — is its
+          // rel, and a broken one is reported by what it is.
+          ...(tag === "link" ? { rel: cleanText($(element).attr("rel")).toLowerCase() } : {}),
           elementHint: resourceElementHint($, element, source),
           ...documentBaseMetadata(raw, documentBase),
         });

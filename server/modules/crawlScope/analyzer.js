@@ -414,6 +414,33 @@ function buildRootCauseGroups(findings) {
   return result;
 }
 
+// Which broken-resource rule a resource belongs to, from how the page loads it.
+// The response cannot say: a missing /site.css is usually served as a text/html
+// 404 page.
+const IMAGE_FILE = /\.(?:avif|bmp|gif|ico|jpe?g|png|svg|tiff?|webp)(?:$|[?#])/i;
+const SCRIPT_OR_STYLE_FILE = /\.(?:m?js|css)(?:$|[?#])/i;
+const BROKEN_RESOURCE_RULE = {
+  image: "broken-internal-image",
+  "script-style": "broken-javascript",
+  other: "broken-internal-resource",
+};
+
+function resourceKind(edge) {
+  const tag = String(edge.tag || "").toLowerCase();
+  const attribute = String(edge.sourceAttribute || "").toLowerCase();
+  const rel = String(edge.rel || "").toLowerCase().split(/\s+/).filter(Boolean);
+  if (tag === "script") return "script-style";
+  if (tag === "link" && rel.some((token) => token === "stylesheet" || token === "modulepreload")) {
+    return "script-style";
+  }
+  if (tag === "css" && attribute.endsWith("@import")) return "script-style";
+  if (tag === "img" || tag === "input" || (tag === "video" && attribute === "poster")) return "image";
+  if (tag === "link" && rel.some((token) => /icon$/.test(token))) return "image";
+  if (IMAGE_FILE.test(edge.targetUrl || "")) return "image";
+  if (SCRIPT_OR_STYLE_FILE.test(edge.targetUrl || "")) return "script-style";
+  return "other";
+}
+
 function isNonDescriptiveLinkLabel(value) {
   const normalized = String(value || "")
     .toLowerCase()
@@ -1140,18 +1167,23 @@ function buildFindings({
     const hasNoindex = isNoindex(directives);
     const hasNofollow = isNofollow(directives);
 
-    if (result.status >= 500 && result.status < 600) {
+    // Page-level status checks are for pages. A broken image, stylesheet or
+    // script is reported on the pages that load it (see the resource-edge loop
+    // below), which is where someone has to go to fix it; filing it as a "page
+    // returning 4XX" on the file's own URL named nothing to open.
+    const brokenAsset = result.isAsset && (result.status >= 400 || !result.status);
+    if (!brokenAsset && result.status >= 500 && result.status < 600) {
       add("page-5xx", result, {
         detail: result.statusText,
         detectedValue: `HTTP ${result.status}${
           result.statusText ? ` ${result.statusText}` : ""
         }`,
       });
-    } else if (result.status >= 400 && result.status < 500) {
+    } else if (!brokenAsset && result.status >= 400 && result.status < 500) {
       add("page-4xx", result);
     }
     if (!result.status && result.statusText !== "Blocked by robots.txt") {
-      add("crawl-failure", result, { detail: result.statusText });
+      if (!result.isAsset) add("crawl-failure", result, { detail: result.statusText });
       if (/altname|certificate.*name|cert.*hostname/i.test(result.statusText)) {
         add("ssl-certificate-name", result, { detail: result.statusText });
       }
@@ -1160,13 +1192,6 @@ function buildFindings({
       }
     }
 
-    if (
-      result.isAsset &&
-      result.status >= 400 &&
-      (result.contentType?.includes("javascript") || /\.m?js(?:$|\?)/i.test(result.url))
-    ) {
-      add("broken-javascript", result);
-    }
     if (result.statusText === "Blocked by robots.txt") {
       add(result.isAsset ? "blocked-resource" : "robots-blocked", result);
     }
@@ -1955,6 +1980,26 @@ function buildFindings({
 
   for (const edge of resourceEdges) {
     const source = index.get(edge.sourceUrl) || { url: edge.sourceUrl };
+    const resource = index.get(edge.targetUrl);
+    const resourceFailure = resource && redirectTerminalFailures.get(resource.url);
+    if (
+      resource &&
+      resource.scope !== "External" &&
+      resource.statusText !== "Blocked by robots.txt" &&
+      (resource.status >= 400 || !resource.status || resourceFailure)
+    ) {
+      const status = resourceFailure ? resourceFailure.statusCode : resource.status;
+      add(BROKEN_RESOURCE_RULE[resourceKind(edge)], source, {
+        targetUrl: edge.targetUrl,
+        statusCode: status,
+        detail: resourceFailure
+          ? `Redirects to a broken destination: ${resourceFailure.pathEvidence}`
+          : status
+            ? `HTTP ${status}${resource.statusText ? ` ${resource.statusText}` : ""}`
+            : `Could not be fetched (${resource.statusText || "no response"})`,
+        detectedValue: edge.elementHint || `${edge.tag || "resource"} via ${edge.sourceAttribute || "URL"}`,
+      });
+    }
     if (
       source.url?.startsWith("https:") &&
       edge.targetUrl?.startsWith("http:")

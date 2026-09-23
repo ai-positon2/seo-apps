@@ -52,12 +52,35 @@
   },
   {
     "id": "broken-javascript",
-    "title": "Broken JavaScript",
-    "description": "A JavaScript file returns an error instead of loading successfully, which can affect functionality, rendering, navigation, or tracking on every page that loads it.",
-    "recommendation": "Identify the broken JavaScript request, correct its file path or deployment issue, and confirm that it returns a valid 200 response.",
+    "title": "Broken internal JavaScript and CSS files",
+    "description": "These pages load a script or stylesheet from the site that returns an error or cannot be fetched, which can break layout, navigation, tracking, or how search engines render the page.",
+    "recommendation": "Open the file named in the finding. Restore it or correct the path in the page or template that loads it (a build or deployment that renamed hashed files is the usual cause), then confirm it returns 200.",
     "category": "Technical",
     "priority": "High Priority",
     "severity": "error",
+    "detection": "Automatic",
+    "evidenceFamily": "resource-target"
+  },
+  {
+    "id": "broken-internal-image",
+    "evidenceFamily": "resource-target",
+    "title": "Broken internal images",
+    "description": "These pages display an image from the site that returns an error or cannot be fetched, so visitors see a broken image and search engines cannot index it.",
+    "recommendation": "Restore the image at that address or update the page (or its template, when the image is shared) to reference a working one. Check src, srcset and lazy-load attributes alike — the finding names which one.",
+    "category": "Technical",
+    "priority": "High Priority",
+    "severity": "error",
+    "detection": "Automatic"
+  },
+  {
+    "id": "broken-internal-resource",
+    "evidenceFamily": "resource-target",
+    "title": "Broken internal media, fonts and embeds",
+    "description": "These pages load a font, video, audio file, embed or other resource from the site that returns an error or cannot be fetched.",
+    "recommendation": "Restore the file or correct the reference in the page, template or stylesheet named in the finding. For a font or background image referenced from CSS, fix the url() in the stylesheet itself.",
+    "category": "Technical",
+    "priority": "Medium Priority",
+    "severity": "warning",
     "detection": "Automatic"
   },
   {
