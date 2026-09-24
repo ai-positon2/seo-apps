@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 
-import { crawlCoverageNotice } from '../crawlHelpers.js';
+import { crawlCoverageNotice, listOptionText } from '../crawlHelpers.js';
 
 const catalogById = new Map([
   ['orphan-page', { id: 'orphan-page', title: 'Orphaned pages' }],
@@ -70,4 +70,10 @@ test('pages robots.txt closes to CrawlScope alone are named as not audited', () 
   const notice = crawlCoverageNotice(run({ coverage: { notEvaluated: [], partial: [], pagesNotAudited: [{ count: 2, reason }] } }), catalogById);
   assert.deepStrictEqual(notice.pagesNotAudited, [reason]);
   assert.deepStrictEqual(crawlCoverageNotice(run({}), catalogById).pagesNotAudited, []);
+});
+
+test("a list option is edited as one entry per line, saved as an array or typed as text", () => {
+  assert.equal(listOptionText(["/blog/*", "/news/*"]), "/blog/*\n/news/*");
+  assert.equal(listOptionText("/blog/*\n"), "/blog/*\n");
+  assert.equal(listOptionText(undefined), "");
 });

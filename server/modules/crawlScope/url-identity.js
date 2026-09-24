@@ -141,16 +141,45 @@ function normalizeUrl(input, base) {
   }
 }
 
+// Query parameters a crawl was told do not make a different page (the crawl
+// option removeParameters: sort orders, filters, view modes), removed the way
+// tracking parameters are. Names compare without case; "*" removes them all.
+function parameterRemover(names = []) {
+  const list = (names || []).map((name) => String(name).trim().toLowerCase()).filter(Boolean);
+  if (!list.length) return (url) => url;
+  const all = list.includes("*");
+  const removed = new Set(list);
+  return (url) => {
+    if (!url || !url.includes("?")) return url;
+    try {
+      const parsed = new URL(url);
+      const kept = all
+        ? []
+        : parsed.search.slice(1).split("&").filter(Boolean)
+          .filter((pair) => !removed.has(decodeParamName(pair).toLowerCase()));
+      parsed.search = kept.length ? `?${kept.join("&")}` : "";
+      return parsed.href;
+    } catch {
+      return url;
+    }
+  };
+}
+
 /**
  * The key a URL was (or would have been) crawled under, for a crawl anchored at
- * `startUrl`: normalized, and on the crawled host moved to the crawl's scheme.
- * With no start URL (list mode, which fetches URLs exactly as given) only the
- * normalization applies — the same rule crawler.js follows.
+ * `startUrl`: normalized, and on the crawled host moved to the crawl's scheme
+ * and stripped of the parameters the crawl was told to remove. With no start
+ * URL (list mode, which fetches URLs exactly as given) only the normalization
+ * applies — the same rule crawler.js follows.
  *
  * @param {string} startUrl the crawl's final (post-redirect) start URL
+ * @param {{ removeParameters?: string[], includeSubdomains?: boolean }} [options]
+ *   the crawl's own options: parameters are removed from the URLs the crawl
+ *   treats as internal (crawler.js#_inScope), and only those
  * @returns {(url: string) => string} "" for anything that is not an http(s) URL
  */
-function createUrlIdentity(startUrl = "") {
+function createUrlIdentity(startUrl = "", { removeParameters = [], includeSubdomains = false } = {}) {
+  const removeFrom = parameterRemover(removeParameters);
   let scheme = "";
   let hostname = "";
   try {
@@ -162,15 +191,19 @@ function createUrlIdentity(startUrl = "") {
   } catch {
     scheme = "";
   }
+  const root = hostname.replace(/^www\./, "");
+  const internal = (host) =>
+    host === hostname || (includeSubdomains && (host === root || host.endsWith(`.${root}`)));
   return (url) => {
     const normalized = normalizeUrl(url || "");
     if (!normalized) return "";
     if (!scheme) return normalized;
     const parsed = new URL(normalized);
-    if (parsed.hostname !== hostname || parsed.protocol === scheme) return normalized;
-    parsed.protocol = scheme;
-    return parsed.href;
+    if (!internal(parsed.hostname)) return normalized;
+    // The scheme moves only on the crawled host itself, as crawler.js#_canonicalScheme.
+    if (parsed.hostname === hostname) parsed.protocol = scheme;
+    return removeFrom(parsed.href);
   };
 }
 
-module.exports = { normalizeUrl, createUrlIdentity };
+module.exports = { normalizeUrl, createUrlIdentity, parameterRemover };

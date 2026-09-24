@@ -133,9 +133,9 @@ const readsLikeChallenge = (result) =>
  *   statusCounts: Map<string, number> }}
  *   `refused` maps each refused URL to a label ("HTTP 403 Forbidden", "bot check").
  */
-function crawlRefusals(internalResults, startUrl) {
+function crawlRefusals(internalResults, startUrl, identityOptions = {}) {
   const byUrl = new Map(internalResults.map((result) => [result.url, result]));
-  const identity = createUrlIdentity(startUrl);
+  const identity = createUrlIdentity(startUrl, identityOptions);
   const byIdentity = new Map();
   for (const result of internalResults) {
     const key = identity(result.url);
@@ -935,8 +935,8 @@ function declarativeRefreshLabel(refresh) {
 // an http:// href, a Location with a tracking parameter, a sitemap <loc> — and
 // looking those up by exact string missed the page the crawler actually
 // fetched for them.
-function createResultIndex(results, startUrl) {
-  const identity = createUrlIdentity(startUrl);
+function createResultIndex(results, startUrl, identityOptions = {}) {
+  const identity = createUrlIdentity(startUrl, identityOptions);
   const exact = new Map(results.map((result) => [result.url, result]));
   const byIdentity = new Map();
   for (const result of results) {
@@ -1350,6 +1350,8 @@ function crawlCoverage({
   googlebotRobotsChecked = false,
   closedToCrawlScopeOnly = 0,
   nearDuplicatesCapped = false,
+  scopeLimited = false,
+  scopeExcluded = 0,
 }) {
   const notEvaluated = new Map();
   // Pages the crawl reached but did not audit, and why (not per rule).
@@ -1389,6 +1391,24 @@ function crawlCoverage({
         );
       }
     }
+  }
+  if (scopeLimited) {
+    const rules = siteDiagnostics.scopeRules || {};
+    const kinds = [
+      rules.folder ? "folder" : "",
+      rules.includePatterns?.length || rules.excludePatterns?.length ? "include and exclude" : "",
+    ].filter(Boolean);
+    const named = kinds.length ? `${kinds.join(", ")} rules` : "scope rules";
+    if (scopeExcluded > 0) {
+      pagesNotAudited.push({
+        count: scopeExcluded,
+        reason: `${scopeExcluded.toLocaleString("en-US")} URL${scopeExcluded === 1 ? " was" : "s were"} left out by the crawl's ${named}.`,
+      });
+    }
+    skip(
+      ["orphan-page", "single-inlink"],
+      `The crawl covered only part of the site (its ${named}), so the links pointing at a page from the rest of it could not be counted.`,
+    );
   }
   if (crawlTruncated) {
     skip(
@@ -1491,6 +1511,15 @@ function buildFindings({
   // so inlink-count-based checks (single-inlink, orphan-page) would otherwise
   // report false confidence on a crawl that never saw the whole site.
   crawlTruncated = false,
+  // The crawl's removeParameters and includeSubdomains options, for its URL
+  // identity (url-identity.js).
+  removeParameters = [],
+  includeSubdomains = false,
+  // True when include, exclude or folder rules left part of the site out
+  // (url-scope.js), and how many URLs they kept out. Like a truncated crawl,
+  // the links from what was left out are unknown.
+  scopeLimited = false,
+  scopeExcluded = 0,
   // False for a URL-list crawl: there is no start page whose links the list's
   // pages are "clicks" from, so no click depth and no deep-page.
   clickDepthFromStart = true,
@@ -1516,9 +1545,12 @@ function buildFindings({
   // below runs without them: looked up as a link, canonical, hreflang or
   // redirect target, a refused URL is "not crawled" — can't verify, don't guess
   // — exactly like a URL the crawl never reached.
-  const refusals = crawlRefusals(allInternalResults, startUrl);
+  // The crawl's own URL identity: parameters it was told to remove are not
+  // part of what makes a page.
+  const identityOptions = { removeParameters, includeSubdomains };
+  const refusals = crawlRefusals(allInternalResults, startUrl, identityOptions);
   const { refused } = refusals;
-  const index = createResultIndex(results.filter((result) => !refused.has(result.url)), startUrl);
+  const index = createResultIndex(results.filter((result) => !refused.has(result.url)), startUrl, identityOptions);
   const internalResults = allInternalResults.filter((result) => !refused.has(result.url));
   const htmlResults = internalResults.filter((result) =>
     result.contentType?.includes("text/html"),
@@ -1592,7 +1624,7 @@ function buildFindings({
     map.set(targetUrl, set);
   };
   const refusedIndex = refused.size
-    ? createResultIndex(allInternalResults.filter((result) => refused.has(result.url)), startUrl)
+    ? createResultIndex(allInternalResults.filter((result) => refused.has(result.url)), startUrl, identityOptions)
     : null;
   for (const edge of linkEdges) {
     if (!edge.internal) continue;
@@ -1842,6 +1874,7 @@ function buildFindings({
 
     if (
       !crawlTruncated &&
+      !scopeLimited &&
       isHtml &&
       result.status === 200 &&
       result.url !== startUrl &&
@@ -1852,6 +1885,7 @@ function buildFindings({
     }
     if (
       !crawlTruncated &&
+      !scopeLimited &&
       isHtml &&
       result.status === 200 &&
       result.url !== startUrl &&
@@ -3115,6 +3149,8 @@ function buildFindings({
       pagesMissingLinkData,
       googlebotRobotsChecked,
       nearDuplicatesCapped,
+      scopeLimited,
+      scopeExcluded,
       closedToCrawlScopeOnly: allInternalResults.filter(
         (result) => result.statusText === "Blocked by robots.txt" && result.googlebotAllowed === true,
       ).length,

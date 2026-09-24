@@ -1344,4 +1344,18 @@ export const DEFAULT_OPTIONS = {
   userAgentProfile: 'desktop',
   renderCheck: true,
   renderJavaScript: false,
+  // Crawl scope. Lists are sent as typed (one entry per line); the server
+  // parses, trims and bounds them, and saved projects come back as arrays.
+  includePatterns: [],
+  excludePatterns: [],
+  scopeToFolder: false,
+  removeParameters: [],
+  sitemapUrls: [],
 };
+
+// A list option as the text a textarea edits: one entry per line, whether it
+// was saved as an array (the server's parsed form) or is still the typed text.
+export function listOptionText(value) {
+  if (Array.isArray(value)) return value.join('\n');
+  return typeof value === 'string' ? value : '';
+}

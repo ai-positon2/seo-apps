@@ -3,6 +3,7 @@
 // clamps anyway, so these only stop the UI offering something it can't have.
 
 import { Field } from '../../ui';
+import { listOptionText } from './crawlHelpers';
 
 const NUMBERS = [
   { key: 'maxUrls', label: 'Max URLs', min: 1, max: 10000, step: 1,
@@ -32,6 +33,25 @@ const TOGGLES = [
     helper: 'After the crawl, render up to 10 key pages in a browser to see whether scripts add links or content.' },
   { key: 'renderJavaScript', label: 'Render JavaScript (slower)',
     helper: 'Audit every page as a browser builds it, for sites whose links or content come from scripts.' },
+  { key: 'scopeToFolder', label: 'Only this folder',
+    helper: "Crawl only URLs under the start URL's path, such as /blog/." },
+];
+
+// Which part of the site to crawl. Patterns use robots.txt syntax, which is
+// what server/modules/crawlScope/url-scope.js matches them with.
+const SCOPE_LISTS = [
+  { key: 'includePatterns', label: 'Only crawl URLs matching',
+    placeholder: '/blog/*\n/news/*',
+    helper: 'One pattern per line, as in robots.txt: /blog/* from the start of the path, * for anything, $ for the end. The start page is always crawled.' },
+  { key: 'excludePatterns', label: 'Never crawl URLs matching',
+    placeholder: '/tag/*\n*?replytocom=',
+    helper: 'One pattern per line. A pattern without a leading / matches anywhere in the URL.' },
+  { key: 'removeParameters', label: 'Ignore these URL parameters',
+    placeholder: 'sort\nfilter',
+    helper: 'Parameters that do not make a different page (sort orders, filters). One per line, or * for all.' },
+  { key: 'sitemapUrls', label: 'Also read these sitemaps',
+    placeholder: 'https://example.com/sitemap-products.xml',
+    helper: 'Full sitemap URLs, one per line, for sitemaps robots.txt does not name.' },
 ];
 
 // Settings the crawler ignores in list mode, and why.
@@ -44,6 +64,11 @@ const TOGGLES = [
 const INERT_IN_LIST_MODE = {
   maxUrls: 'Set by the list — every URL you give is fetched.',
   discoverSitemaps: 'Not used — a list has no single site to read a sitemap from.',
+  scopeToFolder: 'Not used — a list crawl fetches exactly the URLs given.',
+  includePatterns: 'Not used — a list crawl fetches exactly the URLs given.',
+  excludePatterns: 'Not used — a list crawl fetches exactly the URLs given.',
+  removeParameters: 'Not used — a list crawl fetches exactly the URLs given.',
+  sitemapUrls: 'Not used — a list has no single site to read a sitemap from.',
 };
 
 export default function CrawlOptionsForm({
@@ -109,6 +134,22 @@ export default function CrawlOptionsForm({
               <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{inert(t.key) || t.helper}</span>
             </span>
           </label>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
+        {SCOPE_LISTS.map((f) => (
+          <Field
+            key={f.key}
+            label={f.label}
+            as="textarea"
+            rows={3}
+            placeholder={f.placeholder}
+            helper={inert(f.key) || f.helper}
+            disabled={disabled || Boolean(inert(f.key))}
+            value={listOptionText(options[f.key])}
+            onChange={(e) => set(f.key, e.target.value)}
+          />
         ))}
       </div>
     </div>

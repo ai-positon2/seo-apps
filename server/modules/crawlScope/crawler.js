@@ -18,7 +18,8 @@ const {
   isRedirectStatus,
 } = require("./http-redirect");
 const { parseMetaRefresh } = require("./meta-refresh");
-const { createUrlIdentity, normalizeUrl } = require("./url-identity");
+const { createUrlIdentity, normalizeUrl, parameterRemover } = require("./url-identity");
+const { createScopeRules, folderOf } = require("./url-scope");
 const {
   auditAgents,
   isNoindex,
@@ -90,6 +91,11 @@ function cleanText(value = "") {
 // explicit 0 into the fallback, and `Number(x) ?? fallback` never falls back at
 // all (Number() never returns null), so neither is safe for options where 0 is
 // meaningful or where the option is usually absent.
+// A list option: its strings, or nothing.
+function stringList(value) {
+  return Array.isArray(value) ? value.filter((entry) => typeof entry === "string" && entry.trim()) : [];
+}
+
 function boundedInteger(value, fallback, min, max) {
   if (value === undefined || value === null || value === "") return fallback;
   const number = Math.floor(Number(value));
@@ -1247,7 +1253,18 @@ class SeoCrawler extends EventEmitter {
       maxEdges: Math.max(1_000, Math.min(Number(options.maxEdges) || 400_000, 5_000_000)),
       // Honour Crawl-delay unless the operator explicitly opts out.
       respectCrawlDelay: options.respectCrawlDelay !== false,
+      // What part of the site to crawl (url-scope.js), which parameters do
+      // not make a different page, and sitemaps to read besides the ones
+      // robots.txt names. Validated and bounded by shared/options.js.
+      includePatterns: stringList(options.includePatterns),
+      excludePatterns: stringList(options.excludePatterns),
+      scopeToFolder: options.scopeToFolder === true,
+      removeParameters: stringList(options.removeParameters),
+      sitemapUrls: stringList(options.sitemapUrls).map((url) => normalizeUrl(url)).filter(Boolean),
     };
+    this._removeParameters = parameterRemover(this.options.removeParameters);
+    // Distinct URLs the scope rules left out, for the report.
+    this._scopeExcluded = new Set();
     // Outbound fetch is injected so the transport (direct / proxy / SSRF-guarded)
     // is a hosting concern, not a crawler concern. Defaults to the platform fetch
     // for desktop and unit tests, which may reach localhost.
@@ -1347,9 +1364,15 @@ class SeoCrawler extends EventEmitter {
     } else if (Array.isArray(input)) {
       this._startList(input);
     } else {
-      const initial = normalizeUrl(input);
+      const initial = this._removeParameters(normalizeUrl(input) || "");
       if (!initial) throw new Error("Enter a valid http:// or https:// URL.");
       this._anchorSeed(initial);
+      const { includePatterns, excludePatterns, scopeToFolder, removeParameters } = this.options;
+      if (includePatterns.length || excludePatterns.length || scopeToFolder || removeParameters.length) {
+        // The crawl's scope, as the report shows it (the folder is set by
+        // _scopeRules, which follows a seed redirect).
+        this.siteDiagnostics.scopeRules = { includePatterns, excludePatterns, folder: null, removeParameters, excluded: 0 };
+      }
 
       // robots.txt is still read up front: the seed itself must not be fetched
       // before we are allowed to fetch it.
@@ -1559,7 +1582,7 @@ class SeoCrawler extends EventEmitter {
 
     this._discoveryDone = true;
     await Promise.all([
-      this.options.discoverSitemaps ? this._loadSitemaps() : Promise.resolve(),
+      this.options.discoverSitemaps || this.options.sitemapUrls.length ? this._loadSitemaps() : Promise.resolve(),
       this._checkSiteFiles(),
     ]);
     this._seedSitemapUrls();
@@ -1715,9 +1738,43 @@ class SeoCrawler extends EventEmitter {
     }
   }
 
+  // The crawl's include, exclude and folder rules, for its current start URL
+  // (a seed redirect can move it).
+  _scopeRules() {
+    if (!this._scope || this._scope.startUrl !== this.startUrl) {
+      const folder = this.options.scopeToFolder && this.startUrl ? folderOf(this.startUrl) : "";
+      this._scope = {
+        startUrl: this.startUrl,
+        rules: createScopeRules({
+          includePatterns: this.options.includePatterns,
+          excludePatterns: this.options.excludePatterns,
+          folder,
+        }),
+      };
+      if (this.siteDiagnostics.scopeRules) this.siteDiagnostics.scopeRules.folder = folder || null;
+    }
+    return this._scope.rules;
+  }
+
+  // A same-site URL the scope rules keep out: not fetched, and counted so the
+  // report can say how many were left out. Capped so a faceted site cannot
+  // grow the set without bound; past the cap the count is a lower bound.
+  _noteScopeExcluded(url) {
+    if (this._scopeExcluded.size >= 100_000 || this._scopeExcluded.has(url)) return;
+    this._scopeExcluded.add(url);
+    const rules = this.siteDiagnostics.scopeRules;
+    if (rules) rules.excluded = (rules.excluded || 0) + 1;
+  }
+
   _enqueueInternal(url, depth, sourceUrl, metadata = {}) {
-    const normalized = this._canonicalScheme(normalizeUrl(url) || "");
+    const normalized = this._removeParameters(this._canonicalScheme(normalizeUrl(url) || ""));
     if (!normalized || !this._inScope(normalized)) return false;
+    // The start page is exempt: it is where the links into the section are.
+    // So is a page already crawled (the start page, linked back to).
+    if (!metadata.seed && this.mode !== "list" && !this.seen.has(normalized) && !this._scopeRules().allows(normalized)) {
+      this._noteScopeExcluded(normalized);
+      return false;
+    }
 
     const isAsset = metadata.isAsset ?? ASSET_EXTENSIONS.test(normalized);
     const existing = this.discovery.get(normalized) || {};
@@ -1892,7 +1949,8 @@ class SeoCrawler extends EventEmitter {
   }
 
   async _loadSitemaps() {
-    const declared = [...this.sitemapUrls];
+    const discover = this.options.discoverSitemaps;
+    const declared = discover ? [...this.sitemapUrls] : [];
     // `pending` used to BE `declared` when robots.txt named a sitemap, and the
     // shift() below then drained both. By the time the diagnostic ran,
     // declared.length was always 0 — so a site whose robots.txt declared its
@@ -1900,9 +1958,10 @@ class SeoCrawler extends EventEmitter {
     // robots.txt does not declare it". The count has to be taken before the
     // queue is consumed, and the queue has to be its own array.
     const declaredCount = declared.length;
-    const pending = declaredCount
-      ? [...declared]
-      : [new URL("/sitemap.xml", this.origin).href];
+    const discovered = !discover ? [] : declaredCount ? declared : [new URL("/sitemap.xml", this.origin).href];
+    // Sitemaps given with the crawl are read too, with discovery on or off:
+    // they were asked for.
+    const pending = [...new Set([...discovered, ...this.options.sitemapUrls])];
     const visited = new Set();
     let foundAny = false;
 
@@ -2016,6 +2075,12 @@ class SeoCrawler extends EventEmitter {
         ? `Sitemap traversal stopped after reading 1 GB of sitemaps; ${pending.length} more were not read.`
         : `Sitemap traversal stopped at ${this.options.maxSitemapDocuments} documents; ` +
           `${pending.length} more were not read.`;
+    } else if (!discover) {
+      // Only the sitemaps given with the crawl were read: nothing to say
+      // about how the site declares its own.
+      if (!foundAny && errors.length) {
+        this.siteDiagnostics.sitemapConfigIssue = `The sitemaps given with the crawl could not be read (${errors[0]}).`;
+      }
     } else if (!declaredCount) {
       this.siteDiagnostics.sitemapConfigIssue = foundAny
         ? "A sitemap was found, but robots.txt does not declare it."
@@ -2411,7 +2476,10 @@ class SeoCrawler extends EventEmitter {
       return { ran: false, reason: "off" };
     }
     try {
-      const identity = createUrlIdentity(this.startUrl);
+      const identity = createUrlIdentity(this.startUrl, {
+        removeParameters: this.options.removeParameters,
+        includeSubdomains: this.options.includeSubdomains,
+      });
       return await renderSample(this._renderCandidates(), {
         fetch: this._fetch,
         userAgent: this.options.userAgent,
@@ -2523,8 +2591,16 @@ class SeoCrawler extends EventEmitter {
       sitemapMembership: membership,
       siteDiagnostics: this.siteDiagnostics,
       startUrl: this.startUrl,
-      sitemapsChecked: this.mode !== "list" && this.options.discoverSitemaps,
+      sitemapsChecked: this.mode !== "list" && (this.options.discoverSitemaps || this.options.sitemapUrls.length > 0),
       clickDepthFromStart: this.mode !== "list",
+      // The URL identity the crawl fetched under (url-identity.js), so links
+      // written with a removed parameter find the page they reached.
+      removeParameters: this.options.removeParameters,
+      includeSubdomains: this.options.includeSubdomains,
+      // Part of the site left out on purpose: links from it are unknown, and
+      // the report says how many URLs the rules kept out.
+      scopeLimited: this.mode !== "list" && this._scopeRules().active,
+      scopeExcluded: this.siteDiagnostics.scopeRules?.excluded || 0,
       externalLinksChecked: Boolean(this.options.checkExternalLinks),
       robotsRespected: Boolean(this.options.respectRobots),
       // Pages a resumed run reloaded without their links and resources

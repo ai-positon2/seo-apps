@@ -98,6 +98,52 @@ function parseUrlList(candidates, cap) {
   return { urls: cleaned.slice(0, cap.maxUrls), invalid, truncated, total: cleaned.length };
 }
 
+// ── Crawl scope ─────────────────────────────────────────────────────────────
+// Lists typed into a form arrive as one string (a line, or a comma, per entry)
+// or as an array. Either way: trimmed, blank lines and # comments dropped,
+// duplicates removed, and bounded.
+const MAX_PATTERNS = 50;
+const MAX_PARAMETERS = 50;
+const MAX_SITEMAPS = 10;
+
+function entriesOf(value, separators = /\r?\n/) {
+  const list = Array.isArray(value) ? value : typeof value === "string" ? value.split(separators) : [];
+  return list
+    .map((entry) => String(entry ?? "").trim())
+    .filter((entry) => entry && !entry.startsWith("#"));
+}
+
+// URL patterns in robots.txt's syntax (url-scope.js). A full URL pasted in is
+// taken as its path.
+function patternList(value) {
+  const patterns = entriesOf(value).map((entry) => {
+    if (!/^https?:\/\//i.test(entry)) return entry;
+    try {
+      const parsed = new URL(entry.replace(/\*/g, "__STAR__"));
+      return `${parsed.pathname}${parsed.search}`.replace(/__STAR__/g, "*");
+    } catch {
+      return entry;
+    }
+  });
+  return [...new Set(patterns.filter((entry) => entry.length <= 200))].slice(0, MAX_PATTERNS);
+}
+
+// Parameter names, compared without case; "*" for every parameter.
+function parameterList(value) {
+  return [...new Set(entriesOf(value, /[\r\n,]+/).map((name) => name.toLowerCase()).filter((name) => name.length <= 100))]
+    .slice(0, MAX_PARAMETERS);
+}
+
+function sitemapList(value) {
+  const urls = [];
+  for (const entry of entriesOf(value)) {
+    const result = urlSchema.safeParse(entry);
+    if (!result.success) throw new ValidationError(`Sitemap URL "${entry.slice(0, 80)}" is not a valid http:// or https:// URL.`);
+    urls.push(new URL(result.data).href);
+  }
+  return [...new Set(urls)].slice(0, MAX_SITEMAPS);
+}
+
 // Returns { url, options, listInfo?, budgetClamped } ready for `new SeoCrawler(options)` (pass
 // `options.urls` to start() when present), or throws ValidationError (status 400).
 // `overrides` lets the worker tighten politeness for unattended crawls. Overrides are
@@ -171,6 +217,18 @@ function parseCrawlRequest(body = {}, overrides = {}) {
     // Audit every page as rendered in a headless browser. Off unless asked.
     renderJavaScript: raw.renderJavaScript === true,
     renderSampleSize: clampInt(1, 25)(raw.renderSampleSize ?? 10),
+    // What part of the site to crawl (url-scope.js). Patterns follow
+    // robots.txt: "/blog/*" from the start of the path, "*?sort=" anywhere,
+    // "$" for the end. The start page is crawled whatever they say.
+    includePatterns: patternList(raw.includePatterns),
+    excludePatterns: patternList(raw.excludePatterns),
+    // Only URLs under the start URL's path.
+    scopeToFolder: raw.scopeToFolder === true,
+    // Query parameters that do not make a different page (sort orders,
+    // filters, view modes): removed before a URL is crawled or compared.
+    removeParameters: parameterList(raw.removeParameters),
+    // Sitemaps to read besides the ones robots.txt names (or /sitemap.xml).
+    sitemapUrls: sitemapList(raw.sitemapUrls),
   };
   if (listUrls) options.urls = listUrls;
 
