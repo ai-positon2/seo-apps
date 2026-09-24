@@ -164,6 +164,11 @@ function parseCrawlRequest(body = {}, overrides = {}) {
     // name from a fixed list, never a free string: robots.txt matching and the
     // site's logs both depend on it saying CrawlScope.
     userAgentProfile: raw.userAgentProfile === "mobile" ? "mobile" : "desktop",
+    // Render a sample of the crawled pages in a headless browser after the
+    // crawl, to see whether JavaScript adds links or content or changes the
+    // head tags (render-check.js). On unless asked not to.
+    renderCheck: raw.renderCheck !== false,
+    renderSampleSize: clampInt(1, 25)(raw.renderSampleSize ?? 10),
   };
   if (listUrls) options.urls = listUrls;
 

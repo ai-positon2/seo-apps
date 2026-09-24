@@ -1342,4 +1342,5 @@ export const DEFAULT_OPTIONS = {
   checkExternalLinks: true,
   discoverSitemaps: true,
   userAgentProfile: 'desktop',
+  renderCheck: true,
 };

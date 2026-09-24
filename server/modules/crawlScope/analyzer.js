@@ -1362,6 +1362,15 @@ function crawlCoverage({
     for (const ruleId of LINK_DATA_RULES) if (!partial.has(ruleId)) partial.set(ruleId, reason);
   }
 
+  const render = siteDiagnostics.renderCheck;
+  if (!render?.ran) {
+    skip(["javascript-dependent-content"], ({
+      "no-browser": "No headless browser was available to render pages.",
+      "failed": `Rendering pages failed${render?.error ? ` (${render.error})` : ""}.`,
+      "nothing-to-render": "No page was fetched as HTML, so there was nothing to render.",
+    })[render?.reason] || "JavaScript rendering was not checked on this crawl.");
+  }
+
   // A check that produced a finding ran, whatever the conditions above say.
   for (const ruleId of firedRuleIds) notEvaluated.delete(ruleId);
   const inCatalogOrder = (map) =>
@@ -2797,6 +2806,45 @@ function buildFindings({
       });
     }
   }
+  // JavaScript changing what a page shows (render-check.js): one site-wide
+  // finding naming the sampled pages it changed and how.
+  const render = siteDiagnostics.renderCheck;
+  const changedByScript = render?.ran ? (render.pages || []).filter((entry) => entry.differences?.length) : [];
+  if (changedByScript.length) {
+    const clip = (text) => {
+      const value = String(text || "").replace(/\s+/g, " ").trim();
+      return value.length > 60 ? `${value.slice(0, 59)}…` : value;
+    };
+    const describe = (difference) => {
+      switch (difference.kind) {
+        case "links":
+        case "words":
+          return `${difference.kind} ${Number(difference.raw).toLocaleString("en-US")} → ${Number(difference.rendered).toLocaleString("en-US")}`;
+        case "canonical":
+          return `canonical ${difference.raw} → ${difference.rendered}`;
+        default:
+          return `${difference.kind} "${clip(difference.raw) || "none"}" → "${clip(difference.rendered) || "none"}"`;
+      }
+    };
+    const pathOf = (url) => {
+      try {
+        const parsed = new URL(url);
+        return `${parsed.pathname}${parsed.search}`;
+      } catch {
+        return url;
+      }
+    };
+    const examples = changedByScript
+      .slice(0, 3)
+      .map((entry) => `${pathOf(entry.url)}: ${entry.differences.map(describe).join(", ")}`);
+    add("javascript-dependent-content", { url: startUrl }, {
+      detail:
+        `JavaScript changes what ${changedByScript.length} of ${render.sampled} rendered page${render.sampled === 1 ? "" : "s"} ` +
+        `show, compared with the HTML the server sends. ${examples.join("; ")}.`,
+      detectedValue: [...new Set(changedByScript.flatMap((entry) => entry.differences.map((d) => d.kind)))].join(", "),
+    });
+  }
+
   const www = siteDiagnostics.wwwResolve;
   if (www?.servesContent) {
     const home = (() => {

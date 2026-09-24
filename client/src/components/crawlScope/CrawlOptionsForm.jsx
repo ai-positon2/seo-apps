@@ -28,6 +28,8 @@ const TOGGLES = [
     helper: 'Fetch CSS, JS and images to check they resolve.' },
   { key: 'checkExternalLinks', label: 'Check external links',
     helper: 'Follow outbound links far enough to get a status.' },
+  { key: 'renderCheck', label: 'Check JavaScript rendering',
+    helper: 'After the crawl, render up to 10 key pages in a browser to see whether scripts add links or content.' },
 ];
 
 // Settings the crawler ignores in list mode, and why.

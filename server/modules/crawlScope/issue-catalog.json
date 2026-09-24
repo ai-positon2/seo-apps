@@ -1200,6 +1200,17 @@
     "detection": "Automatic"
   },
   {
+    "id": "javascript-dependent-content",
+    "scope": "site",
+    "title": "Content or tags change with JavaScript",
+    "description": "On pages rendered in a browser, JavaScript adds links or text, or changes the title, meta description, canonical or robots tags, compared with the HTML the server sends. This audit reads the served HTML, as do crawlers that do not render; Google renders later, so links added by scripts are found late or not at all, and a tag a script changes may be read either way.",
+    "recommendation": "Serve the navigation, main content and head tags in the initial HTML, with server-side rendering, static generation or prerendering. Where a script has to change a tag, make the served value agree with it, and never add noindex or change the canonical with JavaScript.",
+    "category": "Technical",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
     "id": "crawl-blocked",
     "scope": "site",
     "title": "Crawler blocked or rate-limited",

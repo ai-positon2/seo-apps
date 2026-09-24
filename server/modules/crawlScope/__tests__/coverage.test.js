@@ -24,6 +24,7 @@ const fullSite = {
     robotsUrl: `${H}/robots.txt`,
     llmsStatus: "found",
     missingPageProbe: { url: `${H}/crawlscope-missing-page-check-1`, status: 404 },
+    renderCheck: { ran: true, sampled: 1, pages: [] },
   },
 };
 const coverageOf = (options) =>

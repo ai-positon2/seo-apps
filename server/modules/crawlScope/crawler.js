@@ -3,6 +3,7 @@ const crypto = require("node:crypto");
 const zlib = require("node:zlib");
 const cheerio = require("cheerio");
 const { buildFindings } = require("./analyzer");
+const { renderSample, launchBrowser } = require("./render-check");
 const { cssResourceReferences } = require("./css-resource-parser");
 const { evaluateBaseUri } = require("./csp-base-uri");
 const {
@@ -10,7 +11,7 @@ const {
   isRedirectStatus,
 } = require("./http-redirect");
 const { parseMetaRefresh } = require("./meta-refresh");
-const { normalizeUrl } = require("./url-identity");
+const { createUrlIdentity, normalizeUrl } = require("./url-identity");
 const {
   auditAgents,
   isNoindex,
@@ -1244,6 +1245,13 @@ class SeoCrawler extends EventEmitter {
       checkExternalLinks: options.checkExternalLinks !== false,
       discoverSitemaps: options.discoverSitemaps !== false,
       userAgentProfile: options.userAgentProfile === "mobile" ? "mobile" : "desktop",
+      // Render a sample of pages in headless Chromium after the crawl
+      // (render-check.js). Off unless asked for: the hosted service asks by
+      // default (shared/options.js), a crawler constructed directly does not.
+      renderCheck: options.renderCheck === true,
+      renderSampleSize: Math.max(1, Math.min(Math.floor(Number(options.renderSampleSize)) || 10, 25)),
+      // Test hook: a function returning a browser, or null for none.
+      launchBrowser: typeof options.launchBrowser === "function" ? options.launchBrowser : null,
       userAgent: options.userAgent || USER_AGENT_PROFILES[options.userAgentProfile] || USER_AGENT,
       // Politeness / outbound-reputation controls. Defaults keep local + desktop
       // behavior identical (no artificial delay); the hosted worker raises
@@ -2368,86 +2376,191 @@ class SeoCrawler extends EventEmitter {
         });
     }
 
-    if ((this.stopped || this._queueLength() === 0) && this.active === 0 && this.resolve) {
-      const baseResults = this.results.map((item) => {
-        const discovery = this.discovery.get(item.url) || {};
-        return {
-          ...item,
-          inlinks:
-            item.scope === "External"
-              ? item.inlinks || 0
-              : this.inlinkCounts.get(item.url) || item.inlinks || 0,
-          fromSitemap: Boolean(discovery.fromSitemap || item.fromSitemap),
-          isAsset: Boolean(discovery.isAsset || item.isAsset),
-        };
+    if (
+      (this.stopped || this._queueLength() === 0) &&
+      this.active === 0 &&
+      this.resolve &&
+      !this._finishing
+    ) {
+      this._finishing = true;
+      this._finish().catch((error) => {
+        this.emit("log", { level: "error", message: `Crawl completion failed: ${error.message}` });
       });
-      const membership = Object.fromEntries(
-        [...this.sitemapMembership].map(([url, sitemaps]) => [url, [...sitemaps]]),
-      );
-      assertGraphReady({
-        queueLength: this._queueLength(),
-        active: this.active,
-        stopped: this.stopped,
-      });
-      const analysis = buildFindings({
-        results: baseResults,
-        linkEdges: this.linkEdges,
-        resourceEdges: this.resourceEdges,
-        sitemapMembership: membership,
-        siteDiagnostics: this.siteDiagnostics,
-        startUrl: this.startUrl,
-        sitemapsChecked: this.mode !== "list" && this.options.discoverSitemaps,
-        clickDepthFromStart: this.mode !== "list",
-        externalLinksChecked: Boolean(this.options.checkExternalLinks),
-        robotsRespected: Boolean(this.options.respectRobots),
-        // Pages a resumed run reloaded without their links and resources
-        // (stored before those were kept), which the link checks cannot see.
-        pagesMissingLinkData: this._priorPagesWithoutEdges,
-        googlebotRobotsChecked: Array.isArray(this.googlebotRobotsRules),
-        // A stopped crawl saw only part of the link graph, exactly like one that
-        // hit a cap: "nothing links to this page" is unknowable when the pages
-        // that might link to it were never fetched.
-        // …and so did one whose link graph hit maxEdges: incoming-link counts
-        // from a capped edge list cannot prove a page is an orphan.
-        crawlTruncated: this.truncated || this.stopped || this.edgesTruncated,
-      });
-      const payload = {
-        stopped: this.stopped,
-        truncated: this.truncated,
-        // Distinguishes the three reasons a crawl can be partial, which
-        // `truncated` alone flattened into one bit.
-        depthLimited: this.depthLimited,
-        budgetReached: this.budgetReached,
-        edgesTruncated: this.edgesTruncated,
-        trapTemplates: [...this.trapTemplates],
-        results: analysis.results,
-        findings: analysis.findings,
-        mediaLibrary: analysis.mediaLibrary,
-        integrations: analysis.integrations,
-        rootCauseGroups: analysis.rootCauseGroups,
-        coverage: analysis.coverage,
-        ruleOrder: analysis.ruleOrder,
-        // A run that continued an interrupted attempt, and how much of that
-        // attempt's work it reloaded.
-        resumed: this._resumed
-          ? { priorPages: this._priorPages, withoutLinkData: this._priorPagesWithoutEdges }
-          : null,
-        // The internal link graph. Already collected for the findings pass, and
-        // now carried out so it can be stored: hub-and-spoke clustering is a
-        // question about edges, and crawl_run_results only keeps counts. Not
-        // recomputed and not re-fetched — PRD §32 forbids re-crawling to answer
-        // a question an existing crawl already saw.
-        linkEdges: this.linkEdges,
-        catalog: analysis.catalog,
-        elapsed: Date.now() - this.startedAt,
-        robotsStatus: this.robotsStatus,
-        siteDiagnostics: this.siteDiagnostics,
-      };
-      const resolve = this.resolve;
-      this.resolve = null;
-      this.emit("complete", payload);
-      resolve(payload);
     }
+  }
+
+  // ── The JavaScript rendering sample (render-check.js) ────────────────────
+  // Up to renderSampleSize crawled pages, rendered in headless Chromium and
+  // compared with what this crawl parsed from them. Never fails the crawl:
+  // any problem comes back as { ran: false, reason }, which the coverage block
+  // reports as "not evaluated".
+  async _renderSample() {
+    if (!this.options.renderCheck || process.env.CRAWLSCOPE_RENDER_CHECK === "off") {
+      return { ran: false, reason: "off" };
+    }
+    try {
+      const identity = createUrlIdentity(this.startUrl);
+      return await renderSample(this._renderCandidates(), {
+        fetch: this._fetch,
+        userAgent: this.options.userAgent,
+        launch: this.options.launchBrowser || launchBrowser,
+        shouldStop: () => this.stopped,
+        identity: {
+          normalize: (url) => normalizeUrl(url),
+          isInternal: (url, pageUrl) => {
+            try {
+              return this._inScope(url, { url: pageUrl });
+            } catch {
+              return false;
+            }
+          },
+          same: (a, b) => identity(a) === identity(b),
+        },
+      });
+    } catch (error) {
+      return { ran: false, reason: "failed", error: cleanText(error.message).slice(0, 200) };
+    }
+  }
+
+  // The pages worth rendering: the start page, then the most-linked pages, no
+  // more than two from any one top-level section so the sample spans the
+  // site's templates rather than one listing's siblings.
+  _renderCandidates() {
+    const pages = this.results.filter(
+      (result) =>
+        result.scope !== "External" &&
+        !result.isAsset &&
+        result.status === 200 &&
+        String(result.contentType || "").includes("html"),
+    );
+    const section = (url) => {
+      try {
+        return new URL(url).pathname.split("/").filter(Boolean)[0] || "";
+      } catch {
+        return "";
+      }
+    };
+    const ordered = [
+      ...pages.filter((result) => result.url === this.startUrl),
+      ...pages
+        .filter((result) => result.url !== this.startUrl)
+        .sort((a, b) =>
+          (this.inlinkCounts.get(b.url) || 0) - (this.inlinkCounts.get(a.url) || 0) ||
+          String(a.url).localeCompare(String(b.url))),
+    ];
+    const perSection = new Map();
+    const chosen = [];
+    for (const result of ordered) {
+      if (chosen.length >= this.options.renderSampleSize) break;
+      const key = section(result.url);
+      if (result.url !== this.startUrl && (perSection.get(key) || 0) >= 2) continue;
+      perSection.set(key, (perSection.get(key) || 0) + 1);
+      chosen.push(result);
+    }
+    const linksFrom = new Map();
+    for (const edge of this.linkEdges) {
+      if (!edge.internal) continue;
+      const list = linksFrom.get(edge.sourceUrl) || new Set();
+      list.add(edge.targetUrl);
+      linksFrom.set(edge.sourceUrl, list);
+    }
+    return chosen.map((result) => ({
+      url: result.url,
+      raw: {
+        links: [...(linksFrom.get(result.url) || [])],
+        words: result.words,
+        title: result.title,
+        metaDescription: result.metaDescription,
+        canonical: result.canonical,
+        robots: result.robots,
+      },
+    }));
+  }
+
+  // Everything after the last page: the JavaScript rendering sample (it needs
+  // the finished crawl to choose from, and never fails the crawl), then the
+  // analysis. Asynchronous because rendering is; _finishing keeps a pause,
+  // resume or stop arriving meanwhile from finishing the crawl twice.
+  async _finish() {
+    if (!this.stopped) this.siteDiagnostics.renderCheck = await this._renderSample();
+    const baseResults = this.results.map((item) => {
+      const discovery = this.discovery.get(item.url) || {};
+      return {
+        ...item,
+        inlinks:
+          item.scope === "External"
+            ? item.inlinks || 0
+            : this.inlinkCounts.get(item.url) || item.inlinks || 0,
+        fromSitemap: Boolean(discovery.fromSitemap || item.fromSitemap),
+        isAsset: Boolean(discovery.isAsset || item.isAsset),
+      };
+    });
+    const membership = Object.fromEntries(
+      [...this.sitemapMembership].map(([url, sitemaps]) => [url, [...sitemaps]]),
+    );
+    assertGraphReady({
+      queueLength: this._queueLength(),
+      active: this.active,
+      stopped: this.stopped,
+    });
+    const analysis = buildFindings({
+      results: baseResults,
+      linkEdges: this.linkEdges,
+      resourceEdges: this.resourceEdges,
+      sitemapMembership: membership,
+      siteDiagnostics: this.siteDiagnostics,
+      startUrl: this.startUrl,
+      sitemapsChecked: this.mode !== "list" && this.options.discoverSitemaps,
+      clickDepthFromStart: this.mode !== "list",
+      externalLinksChecked: Boolean(this.options.checkExternalLinks),
+      robotsRespected: Boolean(this.options.respectRobots),
+      // Pages a resumed run reloaded without their links and resources
+      // (stored before those were kept), which the link checks cannot see.
+      pagesMissingLinkData: this._priorPagesWithoutEdges,
+      googlebotRobotsChecked: Array.isArray(this.googlebotRobotsRules),
+      // A stopped crawl saw only part of the link graph, exactly like one that
+      // hit a cap: "nothing links to this page" is unknowable when the pages
+      // that might link to it were never fetched.
+      // …and so did one whose link graph hit maxEdges: incoming-link counts
+      // from a capped edge list cannot prove a page is an orphan.
+      crawlTruncated: this.truncated || this.stopped || this.edgesTruncated,
+    });
+    const payload = {
+      stopped: this.stopped,
+      truncated: this.truncated,
+      // Distinguishes the three reasons a crawl can be partial, which
+      // `truncated` alone flattened into one bit.
+      depthLimited: this.depthLimited,
+      budgetReached: this.budgetReached,
+      edgesTruncated: this.edgesTruncated,
+      trapTemplates: [...this.trapTemplates],
+      results: analysis.results,
+      findings: analysis.findings,
+      mediaLibrary: analysis.mediaLibrary,
+      integrations: analysis.integrations,
+      rootCauseGroups: analysis.rootCauseGroups,
+      coverage: analysis.coverage,
+      ruleOrder: analysis.ruleOrder,
+      // A run that continued an interrupted attempt, and how much of that
+      // attempt's work it reloaded.
+      resumed: this._resumed
+        ? { priorPages: this._priorPages, withoutLinkData: this._priorPagesWithoutEdges }
+        : null,
+      // The internal link graph. Already collected for the findings pass, and
+      // now carried out so it can be stored: hub-and-spoke clustering is a
+      // question about edges, and crawl_run_results only keeps counts. Not
+      // recomputed and not re-fetched — PRD §32 forbids re-crawling to answer
+      // a question an existing crawl already saw.
+      linkEdges: this.linkEdges,
+      catalog: analysis.catalog,
+      elapsed: Date.now() - this.startedAt,
+      robotsStatus: this.robotsStatus,
+      siteDiagnostics: this.siteDiagnostics,
+    };
+    const resolve = this.resolve;
+    this.resolve = null;
+    this.emit("complete", payload);
+    resolve(payload);
   }
 
   _hostOf(url) {

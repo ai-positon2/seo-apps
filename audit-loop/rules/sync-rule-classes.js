@@ -54,6 +54,7 @@ const NEW_RULES = {
   "doctype-missing": { class: "crawl", rarity: "rare" },
   "too-many-links": { class: "crawl", rarity: "rare" },
   "www-resolve": { class: "crawl", rarity: "occasional" },
+  "javascript-dependent-content": { class: "crawl", rarity: "occasional" },
 };
 
 const GROUPS = [
