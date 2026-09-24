@@ -184,7 +184,7 @@ async function recentCrawlRuns(projectId, limit = 12) {
   try {
     data = await db.rows(
       `select id, status, error, trigger, created_at, started_at, finished_at,
-              progress, heartbeat_at,
+              progress, heartbeat_at, options,
               ${SUMMARY_KEYS.map((k) => `summary->'${k}' as "summary_${k}"`).join(', ')}
          from crawl_runs
         where project_id = $1
@@ -578,8 +578,10 @@ function crawlHealth(run) {
  * On the progress bar's denominator — this is the part that is easy to get
  * dishonest. `discovered` grows as the crawl finds links, so a bar drawn as
  * crawled/discovered MOVES BACKWARDS whenever a page turns up new links, which
- * reads as the crawl losing ground. The ceiling (maxUrls + maxExternalUrls) is
- * fixed for the whole run, so crawled/ceiling only ever advances. It undershoots
+ * reads as the crawl losing ground. The ceiling (the run's own stored
+ * options.maxUrls — see the comment further down on why it is not
+ * progress.maxUrls) is fixed for the whole run, so crawled/ceiling only ever
+ * advances. It undershoots
  * on a site smaller than the cap — the bar stops at 60% and the crawl finishes —
  * which is why the label says "up to" and prints the discovered count beside it
  * rather than letting the bar imply a total it does not know.
@@ -598,7 +600,14 @@ function crawlStatus(runs, followers = 0) {
   const crawled = num(p.crawled);
   const discovered = num(p.discovered);
   const queued = num(p.queued);
-  const ceiling = num(p.maxUrls);
+  // NOT p.maxUrls: crawler.js's _progress() reports that as
+  // options.maxUrls + options.maxExternalUrls (internal pages plus the
+  // external-link check budget), but `crawled` above counts internal pages
+  // only — dividing crawled by that ceiling can never reach 100%, and a
+  // caller who asked for 300 pages saw "up to 450". The run's own stored
+  // options carry the real, uninflated internal cap — the same field
+  // crawledPages.js already reads for exactly this reason.
+  const ceiling = num(inFlight.options?.maxUrls) ?? num(p.maxUrls);
 
   // Null, not 0: a queued crawl has measured nothing, and a 0% bar claims it
   // started and got nowhere (§16.11).
