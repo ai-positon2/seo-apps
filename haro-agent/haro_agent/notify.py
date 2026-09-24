@@ -1,7 +1,9 @@
-"""Notify a human when a match is found. Slack posts use an Incoming Webhook —
-no bot infrastructure needed. This module only ever sends a notification; it never
-reads Slack, never replies to a journalist, and is a separate step from pitch
-drafting (spec §1's 'never send' guarantee is about the journalist, not the team)."""
+"""Notify a human when a match is found. Slack posts use either a classic Incoming
+Webhook (hooks.slack.com/services/...) or a Workflow Builder webhook trigger
+(hooks.slack.com/triggers/...) - no bot infrastructure needed either way. This
+module only ever sends a notification; it never reads Slack, never replies to a
+journalist, and is a separate step from pitch drafting (spec §1's 'never send'
+guarantee is about the journalist, not the team)."""
 from __future__ import annotations
 
 import json
@@ -47,13 +49,19 @@ class ConsoleNotifier:
 
 
 class SlackNotifier:
+    """Classic Incoming Webhooks expect {"text": ...}; a Workflow Builder webhook
+    trigger expects the JSON body to match whatever variables the workflow defines
+    - here, a single Text variable named "message" (see README's Slack setup).
+    Detected from the URL shape so either kind of webhook just works."""
+
     def __init__(self, webhook_url: str):
         if not webhook_url:
             raise NotifyError("SLACK_WEBHOOK_URL is not set")
         self.webhook_url = webhook_url
+        self.payload_key = "message" if "/triggers/" in webhook_url else "text"
 
     def notify(self, match: MatchResult) -> None:
-        payload = json.dumps({"text": _format_message(match)}).encode("utf-8")
+        payload = json.dumps({self.payload_key: _format_message(match)}).encode("utf-8")
         req = urllib.request.Request(
             self.webhook_url, data=payload, headers={"Content-Type": "application/json"}
         )

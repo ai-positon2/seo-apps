@@ -65,3 +65,21 @@ def test_slack_notifier_posts_json_payload_to_webhook():
     body = json.loads(request_obj.data.decode("utf-8"))
     assert "Dentists explain whitening trends" in body["text"]
     assert "Verywell Health" in body["text"]
+
+
+def test_slack_notifier_uses_message_key_for_workflow_trigger_url():
+    """Regression: a Workflow Builder trigger (hooks.slack.com/triggers/...) reads
+    its input from whatever variable name the workflow defines - here "message" -
+    not "text". Sending "text" leaves the workflow's variable unfilled, which
+    fails downstream at the "Send a message" step with an opaque Slack-side
+    'input validation error' that gives no hint the payload key was wrong."""
+    notifier = SlackNotifier("https://hooks.slack.com/triggers/T000/111/aaa")
+    fake_response = MagicMock()
+    fake_response.status = 200
+    fake_response.__enter__.return_value = fake_response
+    with patch("haro_agent.notify.urllib.request.urlopen", return_value=fake_response) as mock_urlopen:
+        notifier.notify(_match())
+    request_obj = mock_urlopen.call_args[0][0]
+    body = json.loads(request_obj.data.decode("utf-8"))
+    assert "text" not in body
+    assert "Dentists explain whitening trends" in body["message"]
