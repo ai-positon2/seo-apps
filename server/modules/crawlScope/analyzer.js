@@ -12,6 +12,7 @@ const {
 } = require("./robots-directives");
 const { createUrlIdentity } = require("./url-identity");
 const { ruleOrder } = require("./rule-order");
+const { decodeSignature, signatureBands, signatureSimilarity } = require("./text-fingerprint");
 
 const catalogById = new Map(catalog.map((definition) => [definition.id, definition]));
 const NON_DESCRIPTIVE_LINK_LABELS = new Set([
@@ -77,6 +78,14 @@ const HTML_COMPRESSION_MIN_BYTES = 1_400;
 const TOO_MANY_LINKS = 3_000;
 const URL_MAX_LENGTH = 200;
 const URL_MAX_PARAMETERS = 2;
+// Near-duplicate main content: the share of three-word phrases two pages have
+// in common (Semrush's bar is 85%), and the page size below which there is
+// too little to compare. A band shared by more fingerprints than this is
+// boilerplate, not a signal, and is skipped.
+const NEAR_DUPLICATE_SIMILARITY = 0.85;
+const NEAR_DUPLICATE_MIN_WORDS = 50;
+const NEAR_DUPLICATE_BAND_MAX = 1_000;
+const NEAR_DUPLICATE_MAX_COMPARISONS = 2_000_000;
 
 // ── Responses that refused the crawler ───────────────────────────────────────
 // Bot protection, rate limiting and login walls answer a crawler instead of the
@@ -1271,6 +1280,7 @@ function crawlCoverage({
   pagesMissingLinkData = 0,
   googlebotRobotsChecked = false,
   closedToCrawlScopeOnly = 0,
+  nearDuplicatesCapped = false,
 }) {
   const notEvaluated = new Map();
   // Pages the crawl reached but did not audit, and why (not per rule).
@@ -1379,6 +1389,13 @@ function crawlCoverage({
       "failed": `Rendering pages failed${render?.error ? ` (${render.error})` : ""}.`,
       "nothing-to-render": "No page was fetched as HTML, so there was nothing to render.",
     })[render?.reason] || "JavaScript rendering was not checked on this crawl.");
+  }
+
+  if (nearDuplicatesCapped) {
+    partial.set(
+      "content-duplicate-near",
+      `So many pages are alike that comparing them stopped at ${NEAR_DUPLICATE_MAX_COMPARISONS.toLocaleString("en-US")} pairs; some near-duplicates may not be listed.`,
+    );
   }
 
   // A check that produced a finding ran, whatever the conditions above say.
@@ -2420,6 +2437,115 @@ function buildFindings({
     }
   }
 
+  // ── Near-duplicate main content ───────────────────────────────────────────
+  // Pages whose main text (crawler mainContentTextOf) is mostly the same: at
+  // least NEAR_DUPLICATE_SIMILARITY of their three-word phrases in common, the
+  // bar Semrush uses. Exact copies are content-duplicate-exact's; they are not
+  // reported again as near each other. Pages with identical fingerprints are
+  // grouped first, so a thousand identical product pages are one group, not
+  // half a million comparisons.
+  const nearPages = htmlResults.filter(
+    (result) =>
+      result.status === 200 &&
+      result.contentSignature &&
+      (Number(result.mainWords) || 0) >= NEAR_DUPLICATE_MIN_WORDS &&
+      isPreferredIndexablePage(result, index) &&
+      !softNotFound.has(result.url),
+  );
+  const byFingerprint = new Map();
+  for (const result of nearPages) {
+    const group = byFingerprint.get(result.contentSignature) || [];
+    group.push(result);
+    byFingerprint.set(result.contentSignature, group);
+  }
+  const fingerprints = [...byFingerprint.keys()];
+  const decoded = fingerprints.map((signature) => decodeSignature(signature));
+  const bandMembers = new Map();
+  decoded.forEach((values, i) => {
+    if (!values) return;
+    for (const band of signatureBands(values)) {
+      const members = bandMembers.get(band) || [];
+      members.push(i);
+      bandMembers.set(band, members);
+    }
+  });
+  // Per fingerprint: how many near pages it has (other fingerprints' pages),
+  // and the closest one. Only a count and the best match are kept, so a site of
+  // thousands of near-identical pages costs comparisons, not memory per pair,
+  // and the comparisons themselves stop at NEAR_DUPLICATE_MAX_COMPARISONS.
+  const groupSizes = fingerprints.map((signature) => byFingerprint.get(signature).length);
+  const nearPageCount = new Array(fingerprints.length).fill(0);
+  const closestFingerprint = new Array(fingerprints.length).fill(-1);
+  const closestSimilarity = new Array(fingerprints.length).fill(0);
+  const comparedPairs = new Set();
+  let comparisons = 0;
+  let comparisonsCapped = false;
+  compare: for (const members of bandMembers.values()) {
+    if (members.length < 2 || members.length > NEAR_DUPLICATE_BAND_MAX) continue;
+    for (let x = 0; x < members.length; x += 1) {
+      for (let y = x + 1; y < members.length; y += 1) {
+        const i = Math.min(members[x], members[y]);
+        const j = Math.max(members[x], members[y]);
+        const pair = i * fingerprints.length + j;
+        if (comparedPairs.has(pair)) continue;
+        if (comparisons >= NEAR_DUPLICATE_MAX_COMPARISONS) {
+          comparisonsCapped = true;
+          break compare;
+        }
+        comparedPairs.add(pair);
+        comparisons += 1;
+        const similarity = signatureSimilarity(decoded[i], decoded[j]);
+        if (similarity < NEAR_DUPLICATE_SIMILARITY) continue;
+        for (const [from, to] of [[i, j], [j, i]]) {
+          nearPageCount[from] += groupSizes[to];
+          if (
+            similarity > closestSimilarity[from] ||
+            (similarity === closestSimilarity[from] && closestFingerprint[from] >= 0 &&
+              byFingerprint.get(fingerprints[to])[0].url < byFingerprint.get(fingerprints[closestFingerprint[from]])[0].url)
+          ) {
+            closestSimilarity[from] = similarity;
+            closestFingerprint[from] = to;
+          }
+        }
+      }
+    }
+  }
+  const hreflangSiblings = (a, b) =>
+    a.hreflangs?.length && b.hreflangs?.length && isReciprocalHreflangGroup([a, b], index);
+  fingerprints.forEach((signature, i) => {
+    const group = [...byFingerprint.get(signature)].sort((a, b) => a.url.localeCompare(b.url));
+    const twins = new Map();
+    for (const result of group) if (result.hash) twins.set(result.hash, (twins.get(result.hash) || 0) + 1);
+    const anyHreflang = group.some((result) => result.hreflangs?.length);
+    for (const result of group) {
+      // Same fingerprint, different text: identical main content, different
+      // template around it. Same text is the exact-duplicate rule's.
+      const sameContent = anyHreflang
+        ? group.filter((other) =>
+          other !== result && !(result.hash && other.hash === result.hash) && !hreflangSiblings(result, other)).length
+        : group.length - (result.hash ? twins.get(result.hash) : 1);
+      const others = sameContent + nearPageCount[i];
+      if (!others) continue;
+      const closestSame = sameContent
+        ? group.find((other) =>
+          other !== result && !(result.hash && other.hash === result.hash) && !hreflangSiblings(result, other))
+        : null;
+      const closest = closestSame
+        ? { url: closestSame.url, similarity: 1 }
+        : { url: byFingerprint.get(fingerprints[closestFingerprint[i]])[0].url, similarity: closestSimilarity[i] };
+      if (!closestSame && hreflangSiblings(result, index.get(closest.url) || {})) continue;
+      const percent = Math.round(closest.similarity * 100);
+      add("content-duplicate-near", result, {
+        targetUrl: closest.url,
+        detail:
+          `Main content ${percent}% the same as ${closest.url}` +
+          (others > 1 ? `, one of ${(others + 1).toLocaleString("en-US")} near-identical pages` : ""),
+        detectedValue: `${percent}% similar`,
+      });
+    }
+  });
+  const nearDuplicatesCapped = comparisonsCapped;
+
   const incomingFollow = new Map();
   const externalNofollowBySource = new Map();
   for (const edge of linkEdges) {
@@ -2964,6 +3090,7 @@ function buildFindings({
       startUrl,
       pagesMissingLinkData,
       googlebotRobotsChecked,
+      nearDuplicatesCapped,
       closedToCrawlScopeOnly: allInternalResults.filter(
         (result) => result.statusText === "Blocked by robots.txt" && result.googlebotAllowed === true,
       ).length,

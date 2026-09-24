@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "total": 122,
-    "severity_counts": { "error": 28, "warning": 55, "notice": 39 },
+    "total": 123,
+    "severity_counts": { "error": 28, "warning": 56, "notice": 39 },
     "eval_class": {
       "crawl": "Fully derivable from a single crawl. A no-fire here must be justified by proving the site condition is absent.",
       "external_gsc": "Needs Search Console. Structurally silent without a connected data source.",
@@ -135,7 +135,8 @@
     "low-word-count":          { "sev": "warning", "class": "crawl",              "rarity": "common" },
     "referring-domains-drop":  { "sev": "warning", "class": "external_analytics", "rarity": "occasional" },
     "top10-drop":              { "sev": "warning", "class": "external_analytics", "rarity": "occasional" },
-    "traffic-drop":            { "sev": "warning", "class": "external_analytics", "rarity": "occasional" }
+    "traffic-drop":            { "sev": "warning", "class": "external_analytics", "rarity": "occasional" },
+    "content-duplicate-near":  { "sev": "warning", "class": "crawl",              "rarity": "common" }
   },
 
   "links": {

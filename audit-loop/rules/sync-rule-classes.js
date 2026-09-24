@@ -55,6 +55,7 @@ const NEW_RULES = {
   "too-many-links": { class: "crawl", rarity: "rare" },
   "www-resolve": { class: "crawl", rarity: "occasional" },
   "javascript-dependent-content": { class: "crawl", rarity: "occasional" },
+  "content-duplicate-near": { class: "crawl", rarity: "common" },
 };
 
 const GROUPS = [

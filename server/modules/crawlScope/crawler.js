@@ -4,6 +4,10 @@ const zlib = require("node:zlib");
 const cheerio = require("cheerio");
 const { buildFindings } = require("./analyzer");
 const { renderSample, renderHtml, launchBrowser } = require("./render-check");
+const { contentSignature } = require("./text-fingerprint");
+// Pages with less main text than this are not fingerprinted: too little of
+// their own to be a duplicate of anything.
+const NEAR_DUPLICATE_MIN_WORDS = 50;
 // Browser tabs rendering at once when a crawl renders every page.
 const RENDER_SLOTS = 2;
 const { cssResourceReferences } = require("./css-resource-parser");
@@ -188,19 +192,34 @@ function pruneInertTemplates($) {
 // removed, with a boundary after block elements so adjacent blocks do not fuse
 // into one word. Shared by page extraction and the missing-page probe, whose
 // fingerprints are compared.
+// Cheerio's `.text()` concatenates adjacent elements without a separator
+// (`</h1><p>` becomes `HeadingParagraph`). Boundaries go after block-like
+// elements before whitespace normalization so samples stay readable and word
+// counts do not merge the last/first words of neighboring elements.
+const BLOCK_ELEMENTS =
+  "address, article, aside, blockquote, br, dd, div, dl, dt, fieldset, figcaption, figure, footer, form, h1, h2, h3, h4, h5, h6, header, hr, li, main, nav, ol, p, pre, section, table, td, th, tr, ul";
+
 function visibleTextOf($) {
   const bodyClone = $("body").clone();
   bodyClone.find("base, link, meta, script, style, noscript, svg, title").remove();
-  // Cheerio's `.text()` concatenates adjacent elements without a separator
-  // (`</h1><p>` becomes `HeadingParagraph`). Add boundaries after block-like
-  // elements before whitespace normalization so samples stay readable and
-  // word counts do not merge the last/first words of neighboring elements.
-  bodyClone
-    .find(
-      "address, article, aside, blockquote, br, dd, div, dl, dt, fieldset, figcaption, figure, footer, form, h1, h2, h3, h4, h5, h6, header, hr, li, main, nav, ol, p, pre, section, table, td, th, tr, ul",
-    )
-    .after(" ");
+  bodyClone.find(BLOCK_ELEMENTS).after(" ");
   return cleanText(bodyClone.text());
+}
+
+// The page's own content: <main> (or role=main) when the page marks it, else
+// the body without the navigation, header, footer and sidebars every page of
+// the template repeats. Two pages that differ only in those are the same page
+// for near-duplicate purposes, and two whose main text differs are not, whatever
+// the template around them shares.
+function mainContentTextOf($) {
+  const main = $("main, [role='main']").first();
+  const clone = (main.length ? main : $("body")).clone();
+  clone
+    .find("base, link, meta, script, style, noscript, svg, title, template, nav, aside, [role='navigation'], [role='complementary']")
+    .remove();
+  if (!main.length) clone.find("header, footer, [role='banner'], [role='contentinfo']").remove();
+  clone.find(BLOCK_ELEMENTS).after(" ");
+  return cleanText(clone.text());
 }
 
 function isInTemplateContents(element) {
@@ -3602,6 +3621,8 @@ class SeoCrawler extends EventEmitter {
     const h2Values = headingTexts("h2");
     const visibleText = visibleTextOf($);
     const words = visibleText ? visibleText.split(/\s+/).length : 0;
+    const mainText = mainContentTextOf($);
+    const mainWords = mainText ? mainText.split(/\s+/).length : 0;
     const links = new Set();
     let externalLinks = 0;
     const headings = headingElements.map((element) => ({
@@ -3926,6 +3947,11 @@ class SeoCrawler extends EventEmitter {
       outlinks: links.size,
       externalLinks,
       hash: crypto.createHash("sha1").update(visibleText).digest("hex"),
+      // The main content's size and MinHash fingerprint (text-fingerprint.js),
+      // for near-duplicate detection. No fingerprint for a page with too
+      // little of its own text to compare.
+      mainWords,
+      contentSignature: mainWords >= NEAR_DUPLICATE_MIN_WORDS ? contentSignature(mainText) : "",
       contentSample:
         visibleText.length > 240 ? `${visibleText.slice(0, 240)}…` : visibleText,
       openGraphMissing: REQUIRED_OPEN_GRAPH.filter((property) =>

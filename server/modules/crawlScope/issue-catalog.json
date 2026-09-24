@@ -886,6 +886,16 @@
     "detection": "Automatic"
   },
   {
+    "id": "content-duplicate-near",
+    "title": "Near-duplicate content",
+    "description": "The page's main content, leaving out the navigation, header, footer and sidebars, shares 85% or more of its three-word phrases with another page. Search engines usually index one of a set of near-duplicates and filter out the rest, so the pages compete with each other instead of ranking for different searches.",
+    "recommendation": "Give each page content that is its own, merge pages that serve the same purpose (and redirect the others), or point the variants' canonical at the one to rank. For product variants, keep them on one page with options instead of one page each.",
+    "category": "Content",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
     "id": "ai-content-signal",
     "title": "High AI-content signals",
     "description": "High levels of AI-generated text can read as generic and add limited value, even though it is not automatically a ranking penalty. Identifying this requires running page content through a dedicated AI-content detector — CrawlScope does not analyze content authorship.",
