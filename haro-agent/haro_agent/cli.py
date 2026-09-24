@@ -45,10 +45,13 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--reports-dir", default="reports")
     run_parser.add_argument("--lookback-hours", type=int, default=24)
     run_parser.add_argument(
-        "--llm", choices=["claude", "mock"], default="claude",
+        "--llm", choices=["claude", "openai", "mock"], default="claude",
         help="'mock' runs the full pipeline offline with heuristic scoring, no API key needed",
     )
-    run_parser.add_argument("--model", default="claude-sonnet-5")
+    run_parser.add_argument(
+        "--model", default=None,
+        help="Defaults to claude-sonnet-5 for --llm claude, gpt-4o for --llm openai",
+    )
     run_parser.add_argument(
         "--as-of", default=None,
         help="ISO datetime to compute hours_remaining against, for reproducible local tests",

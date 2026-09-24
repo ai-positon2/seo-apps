@@ -1,12 +1,14 @@
-"""Thin Anthropic client wrapper. Scoring/pitch calls force a structured tool-use
-response so callers get validated JSON, not freeform text to parse."""
+"""Thin LLM client wrappers (Anthropic and OpenAI). Scoring/pitch calls force a
+structured tool-use response so callers get validated JSON, not freeform text
+to parse."""
 from __future__ import annotations
 
 import json
 import os
 from typing import Optional
 
-DEFAULT_MODEL = "claude-sonnet-5"
+DEFAULT_CLAUDE_MODEL = "claude-sonnet-5"
+DEFAULT_OPENAI_MODEL = "gpt-4o"
 
 
 class LLMError(RuntimeError):
@@ -14,13 +16,13 @@ class LLMError(RuntimeError):
 
 
 class ClaudeClient:
-    def __init__(self, api_key: Optional[str] = None, model: str = DEFAULT_MODEL):
+    def __init__(self, api_key: Optional[str] = None, model: str = DEFAULT_CLAUDE_MODEL):
         api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
             raise LLMError(
                 "ANTHROPIC_API_KEY is not set. Export it, put it in .env, or run with --llm mock."
             )
-        import anthropic  # imported lazily so `--llm mock` never requires the package
+        import anthropic  # imported lazily so `--llm mock`/`--llm openai` never require it
 
         self._client = anthropic.Anthropic(api_key=api_key)
         self.model = model
@@ -51,6 +53,53 @@ class ClaudeClient:
         for block in response.content:
             if block.type == "tool_use" and block.name == tool_name:
                 return block.input
+        raise LLMError(f"Model did not return a {tool_name} tool call")
+
+
+class OpenAIClient:
+    def __init__(self, api_key: Optional[str] = None, model: str = DEFAULT_OPENAI_MODEL):
+        api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise LLMError(
+                "OPENAI_API_KEY is not set. Export it, put it in .env, or run with --llm mock."
+            )
+        import openai  # imported lazily so `--llm mock`/`--llm claude` never require it
+
+        self._client = openai.OpenAI(api_key=api_key)
+        self.model = model
+
+    def structured_call(
+        self,
+        system: str,
+        user_prompt: str,
+        tool_name: str,
+        tool_description: str,
+        input_schema: dict,
+        max_tokens: int = 1024,
+    ) -> dict:
+        response = self._client.chat.completions.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_prompt},
+            ],
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,
+                        "description": tool_description,
+                        "parameters": input_schema,
+                    },
+                }
+            ],
+            tool_choice={"type": "function", "function": {"name": tool_name}},
+        )
+        tool_calls = response.choices[0].message.tool_calls or []
+        for call in tool_calls:
+            if call.function.name == tool_name:
+                return json.loads(call.function.arguments)
         raise LLMError(f"Model did not return a {tool_name} tool call")
 
 
@@ -127,9 +176,11 @@ class MockLLMClient:
         }
 
 
-def build_llm_client(mode: str, api_key: Optional[str] = None, model: str = DEFAULT_MODEL):
+def build_llm_client(mode: str, api_key: Optional[str] = None, model: Optional[str] = None):
     if mode == "mock":
         return MockLLMClient()
     if mode == "claude":
-        return ClaudeClient(api_key=api_key, model=model)
-    raise ValueError(f"Unknown --llm mode: {mode!r} (expected 'claude' or 'mock')")
+        return ClaudeClient(api_key=api_key, model=model or DEFAULT_CLAUDE_MODEL)
+    if mode == "openai":
+        return OpenAIClient(api_key=api_key, model=model or DEFAULT_OPENAI_MODEL)
+    raise ValueError(f"Unknown --llm mode: {mode!r} (expected 'claude', 'openai', or 'mock')")

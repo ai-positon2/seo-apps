@@ -153,6 +153,7 @@ def create_app() -> Flask:
       <select name="llm">
         <option value="mock" selected>mock (offline, free, heuristic)</option>
         <option value="claude">claude (real scoring/drafts, needs ANTHROPIC_API_KEY)</option>
+        <option value="openai">openai (real scoring/drafts, needs OPENAI_API_KEY)</option>
       </select>
     </div>
     <div><label>As-of (optional)</label>

@@ -64,7 +64,7 @@ class PipelineConfig:
     reports_dir: str = "reports"
     lookback_hours: int = 24
     llm_mode: str = "mock"
-    model: str = "claude-sonnet-5"
+    model: Optional[str] = None
     as_of: Optional[datetime] = None
     notify_mode: str = "none"
     slack_webhook_url: Optional[str] = None
