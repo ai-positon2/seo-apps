@@ -53,6 +53,7 @@ const NEW_RULES = {
   "charset-missing": { class: "crawl", rarity: "occasional" },
   "doctype-missing": { class: "crawl", rarity: "rare" },
   "too-many-links": { class: "crawl", rarity: "rare" },
+  "www-resolve": { class: "crawl", rarity: "occasional" },
 };
 
 const GROUPS = [

@@ -1339,7 +1339,7 @@ function crawlCoverage({
   // after the start page answers, and never for a URL list.
   if (!siteDiagnostics.llmsStatus) {
     skip(
-      ["llms-missing", "llms-format", "soft-404-site", "http-homepage"],
+      ["llms-missing", "llms-format", "soft-404-site", "http-homepage", "www-resolve"],
       "Site-wide files were not checked on this crawl (a URL list, or the start page never answered).",
     );
   } else {
@@ -2796,6 +2796,26 @@ function buildFindings({
         detectedValue: `HTTP ${status}`,
       });
     }
+  }
+  const www = siteDiagnostics.wwwResolve;
+  if (www?.servesContent) {
+    const home = (() => {
+      try {
+        return new URL("/", startUrl).href;
+      } catch {
+        return startUrl;
+      }
+    })();
+    add("www-resolve", { url: startUrl }, {
+      targetUrl: www.url,
+      statusCode: www.status,
+      detail:
+        `${www.url} answers HTTP ${www.status} instead of redirecting to ${home}.` +
+        (www.canonical && index.same(www.canonical, home)
+          ? " Its canonical points here, which lets search engines merge the two, but visitors and links still split between them."
+          : ""),
+      detectedValue: `HTTP ${www.status}`,
+    });
   }
   if (siteDiagnostics.httpHomepageIssue) {
     add("http-homepage", { url: startUrl }, {

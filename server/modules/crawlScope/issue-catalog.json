@@ -497,6 +497,17 @@
     "detection": "Automatic"
   },
   {
+    "id": "www-resolve",
+    "scope": "site",
+    "title": "Both www and non-www versions resolve",
+    "description": "The site answers with content on both its www and its non-www host instead of redirecting one to the other. That is two copies of every page: links, bookmarks and ranking signals split between them, and search engines have to pick one themselves.",
+    "recommendation": "Choose one host and permanently redirect (301) every URL on the other to the same path on it, and keep canonical tags, sitemaps and internal links on the chosen host.",
+    "category": "Technical",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
     "id": "hreflang-missing-return",
     "title": "Hreflang missing return tag",
     "description": "This page's hreflang tags point to another language/region version that does not link back to it. Search engines can end up ignoring the whole hreflang cluster for both pages when the relationship isn't confirmed both ways.",

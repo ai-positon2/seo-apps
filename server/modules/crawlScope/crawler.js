@@ -2121,6 +2121,7 @@ class SeoCrawler extends EventEmitter {
     );
 
     checks.push(this._probeMissingPage());
+    checks.push(this._checkWwwResolve());
 
     if (this.startUrl.startsWith("https:")) {
       const httpUrl = this.startUrl.replace(/^https:/, "http:");
@@ -2160,6 +2161,52 @@ class SeoCrawler extends EventEmitter {
       );
     }
     await Promise.all(checks);
+  }
+
+  // ── Does the other host (www or bare) serve the site too? ─────────────────
+  // www.example.com and example.com both answering with content is two copies
+  // of the site, and links and ranking signals split between them. The other
+  // host should redirect to this one. No such host, or one that cannot be
+  // reached, is fine: there is nothing for anyone to land on.
+  _checkWwwResolve() {
+    let start;
+    try {
+      start = new URL(this.startUrl);
+    } catch {
+      return Promise.resolve();
+    }
+    const host = start.hostname;
+    const isAddress = /^\d+(\.\d+){3}$/.test(host) || host.includes(":") || host.startsWith("[");
+    if (!host || isAddress || host === "localhost" || !host.includes(".")) return Promise.resolve();
+    const alternate = new URL("/", start.origin);
+    alternate.hostname = host.startsWith("www.") ? host.slice(4) : `www.${host}`;
+    return this._politeFetch(
+      alternate.href,
+      { redirect: "manual", headers: { "User-Agent": this.options.userAgent, Accept: "text/html,*/*;q=0.8" } },
+      { timeout: this.options.timeout, signal: this.rootController.signal },
+    )
+      .then(async (response) => {
+        const location = headerValue(response.headers, "location");
+        const servesContent = response.status >= 200 && response.status < 300;
+        let canonical = "";
+        if (servesContent && headerValue(response.headers, "content-type").includes("html")) {
+          const body = await this._readTextBody(response);
+          canonical =
+            normalizeUrl(cheerio.load(body)('head link[rel~="canonical" i]').first().attr("href") || "", alternate.href) || "";
+        } else if (response.body) {
+          await response.body.cancel().catch(() => {});
+        }
+        this.siteDiagnostics.wwwResolve = {
+          url: alternate.href,
+          status: response.status,
+          servesContent,
+          redirectsTo: location ? normalizeUrl(location, alternate.href) || location : "",
+          canonical,
+        };
+      })
+      .catch(() => {
+        this.siteDiagnostics.wwwResolve = { url: alternate.href, status: 0, servesContent: false, unreachable: true };
+      });
   }
 
   // ── What does this site answer for a URL that does not exist? ─────────────
