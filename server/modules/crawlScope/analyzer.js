@@ -1743,6 +1743,64 @@ function buildFindings({
   const inlinksOf = (url) => linkingPages.get(url)?.size || 0;
   const followInlinksOf = (url) => followLinkingPages.get(url)?.size || 0;
 
+  // ── Pages that could link to a page ─────────────────────────────────────────
+  // "Add links from related pages" told an SEO nothing the crawl did not know:
+  // it has the whole link graph. The candidates are crawled, indexable pages a
+  // visitor can click to, in the same section as the page (the longest shared
+  // run of leading path segments, with the section's own page counted in its
+  // section), nearest the start page first, then the most linked.
+  const sectionsOf = (url) => {
+    try {
+      const segments = new URL(url).pathname.split("/").filter(Boolean);
+      return segments.map((_, at) => `/${segments.slice(0, at + 1).join("/")}/`);
+    } catch {
+      return [];
+    }
+  };
+  const bySection = new Map();
+  for (const result of htmlResults) {
+    if (result.status !== 200 || result.indexability !== "Indexable" || softNotFound.has(result.url)) continue;
+    if (clickDepthOf(result.url) === null) continue;
+    for (const section of sectionsOf(result.url)) {
+      const list = bySection.get(section) || [];
+      list.push(result.url);
+      bySection.set(section, list);
+    }
+  }
+  for (const list of bySection.values()) {
+    list.sort((a, b) =>
+      clickDepthOf(a) - clickDepthOf(b) || followInlinksOf(b) - followInlinksOf(a) || a.localeCompare(b));
+  }
+  const linkCandidates = (url, { exclude = new Set(), maxDepth = Infinity, limit = 2 } = {}) => {
+    // The page's own path as a section is the page itself; its parents are
+    // where related pages live.
+    const sections = sectionsOf(url);
+    const parents = sections.slice(0, url.endsWith("/") ? -1 : sections.length - 1).reverse();
+    // Nearest section first, widening until there are enough.
+    const picked = [];
+    for (const section of parents) {
+      for (const candidate of bySection.get(section) || []) {
+        if (picked.length >= limit) return picked;
+        // Sorted nearest the start page first: the rest are deeper still.
+        if (clickDepthOf(candidate) > maxDepth) break;
+        if (candidate === url || exclude.has(candidate) || picked.includes(candidate)) continue;
+        picked.push(candidate);
+      }
+    }
+    return picked;
+  };
+  // A same-site URL as its path, which is how the site's own people know it.
+  const shortUrl = (url) => {
+    try {
+      const parsed = new URL(url);
+      return new URL(startUrl).host === parsed.host ? `${parsed.pathname}${parsed.search}` : url;
+    } catch {
+      return url;
+    }
+  };
+  const orList = (items) =>
+    items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} or ${items[items.length - 1]}`;
+
   // A refused page keeps its status finding, so the URLs are listed, but says
   // what happened: the server refused the crawler, and nothing was learned
   // about the page itself.
@@ -1890,7 +1948,15 @@ function buildFindings({
       result.fromSitemap &&
       inlinksOf(result.url) === 0
     ) {
-      add("orphan-page", result);
+      const candidates = linkCandidates(result.url).map(shortUrl);
+      add("orphan-page", result, {
+        recommendation:
+          "No crawled page links to this page; only the sitemap lists it. " +
+          (candidates.length
+            ? `Link to it from related pages, such as ${orList(candidates)}. `
+            : "Link to it from the page its section starts on, or from the navigation. ") +
+          "If it is no longer needed, redirect or remove it and take it out of the sitemap.",
+      });
     }
     if (
       !crawlTruncated &&
@@ -1900,16 +1966,36 @@ function buildFindings({
       result.url !== startUrl &&
       followInlinksOf(result.url) === 1
     ) {
+      const linker = [...(followLinkingPages.get(result.url) || [])][0] || "";
+      const candidates = linkCandidates(result.url, { exclude: new Set([linker]) }).map(shortUrl);
       add("single-inlink", result, {
-        detectedValue: [...(followLinkingPages.get(result.url) || [])][0] || "",
+        detectedValue: linker,
+        recommendation:
+          `Only ${shortUrl(linker)} links to this page. ` +
+          (candidates.length
+            ? `Add links to it from related pages, such as ${orList(candidates)}.`
+            : "Add links to it from related pages in its section, or from the navigation."),
       });
     }
     const clickDepth = clickDepthOf(result.url);
     if (isHtml && result.status >= 200 && result.status < 300 && clickDepth > 3) {
+      // A link from a page two clicks or fewer from the start page brings it
+      // within three.
+      const candidates = linkCandidates(result.url, { maxDepth: 2 });
+      const depthLabel = (url, at) => {
+        const depth = clickDepthOf(url);
+        const clicks = `${depth} click${depth === 1 ? "" : "s"}`;
+        return `${shortUrl(url)} (${at === 0 ? `${clicks} from the start page` : clicks})`;
+      };
       add("deep-page", result, {
         detail: `${clickDepth} clicks from the start page`,
         // The shortest route in, which is where a shortcut link would go.
         detectedValue: clickPath(result.url).join(" -> "),
+        recommendation: candidates.length
+          ? `Add a link to this page from ${orList(candidates.map(depthLabel))}, in the same section, ` +
+            "so it is 3 clicks or fewer from the start page."
+          : "Add a link to this page from the page its section starts on, from the navigation, or from a " +
+            "page 2 clicks or fewer from the start page, so it is 3 clicks or fewer away.",
       });
     }
 
