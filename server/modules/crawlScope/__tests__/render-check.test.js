@@ -102,3 +102,45 @@ test("no browser: the check is not evaluated, and says why", async (t) => {
   const entry = summary.coverage.notEvaluated.find((e) => e.ruleId === "javascript-dependent-content");
   assert.match(entry.reason, /No headless browser/);
 });
+
+test("Render JavaScript: every page is audited as the browser builds it", { skip: !chrome && "no Chromium here" }, async (t) => {
+  process.env.CRAWLSCOPE_CHROME_PATH = chrome;
+  t.after(() => { delete process.env.CRAWLSCOPE_CHROME_PATH; });
+  let documentRequests = 0;
+  const site = http.createServer((request, response) => {
+    response.setHeader("Content-Type", "text/html");
+    if (request.url === "/") {
+      documentRequests += 1;
+      response.end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Served title for the rendered crawl</title>
+        <script src="/app.js"></script></head><body><h1>Home</h1></body></html>`);
+    } else if (request.url === "/app.js") {
+      response.setHeader("Content-Type", "application/javascript");
+      response.end(`document.addEventListener("DOMContentLoaded", () => {
+        for (const path of ["/js-a", "/js-b"]) { const a = document.createElement("a"); a.href = path; a.textContent = path; document.body.appendChild(a); }
+        document.title = "Rendered title for the rendered crawl";
+      });`);
+    } else {
+      response.end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Rendered crawl page ${request.url}</title></head><body><h1>${request.url}</h1></body></html>`);
+    }
+  });
+  await new Promise((resolve) => site.listen(0, "127.0.0.1", resolve));
+  t.after(() => site.close());
+  const crawl = (renderJavaScript) => new SeoCrawler({
+    maxUrls: 10, concurrency: 2, respectRobots: false, discoverSitemaps: false, crawlAssets: false,
+    checkExternalLinks: false, timeout: 10_000, perHostDelay: 0, renderJavaScript,
+  }).start(`http://127.0.0.1:${site.address().port}/`);
+
+  const served = await crawl(false);
+  assert.ok(!served.results.some((r) => r.url.endsWith("/js-a")), "without rendering, script-built links are invisible");
+
+  documentRequests = 0;
+  const rendered = await crawl(true);
+  const home = rendered.results.find((r) => new URL(r.url).pathname === "/");
+  assert.equal(home.renderedWithJavaScript, true);
+  assert.equal(home.title, "Rendered title for the rendered crawl");
+  assert.ok(rendered.results.some((r) => r.url.endsWith("/js-a")) && rendered.results.some((r) => r.url.endsWith("/js-b")),
+    "links a script adds are crawled");
+  assert.equal(documentRequests, 1, "the page was fetched once; the browser was handed that response");
+  assert.equal(rendered.siteDiagnostics.renderCheck.reason, "rendered");
+  assert.deepEqual(rendered.siteDiagnostics.renderJavaScript, { rendered: 3, failed: 0, available: true });
+});

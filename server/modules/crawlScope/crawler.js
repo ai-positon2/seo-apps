@@ -3,7 +3,9 @@ const crypto = require("node:crypto");
 const zlib = require("node:zlib");
 const cheerio = require("cheerio");
 const { buildFindings } = require("./analyzer");
-const { renderSample, launchBrowser } = require("./render-check");
+const { renderSample, renderHtml, launchBrowser } = require("./render-check");
+// Browser tabs rendering at once when a crawl renders every page.
+const RENDER_SLOTS = 2;
 const { cssResourceReferences } = require("./css-resource-parser");
 const { evaluateBaseUri } = require("./csp-base-uri");
 const {
@@ -1249,6 +1251,9 @@ class SeoCrawler extends EventEmitter {
       // (render-check.js). Off unless asked for: the hosted service asks by
       // default (shared/options.js), a crawler constructed directly does not.
       renderCheck: options.renderCheck === true,
+      // Audit every HTML page as rendered by headless Chromium ("Render
+      // JavaScript"). Slower: each page is loaded in a browser tab.
+      renderJavaScript: options.renderJavaScript === true,
       renderSampleSize: Math.max(1, Math.min(Math.floor(Number(options.renderSampleSize)) || 10, 25)),
       // Test hook: a function returning a browser, or null for none.
       launchBrowser: typeof options.launchBrowser === "function" ? options.launchBrowser : null,
@@ -2389,12 +2394,69 @@ class SeoCrawler extends EventEmitter {
     }
   }
 
+  // ── Render JavaScript: one browser for the crawl ──────────────────────────
+  // Launched on the first page that needs it, shared by every page, at most
+  // RENDER_SLOTS pages at once (each is a full browser tab), and closed when
+  // the crawl finishes. null when no browser is available here.
+  _browser() {
+    if (!this._browserLaunch) {
+      const launch = this.options.launchBrowser || launchBrowser;
+      this._browserLaunch = Promise.resolve()
+        .then(() => launch())
+        .catch((error) => {
+          this.emit("log", { level: "warning", message: `JavaScript rendering unavailable: ${cleanText(error.message)}` });
+          return null;
+        });
+    }
+    return this._browserLaunch;
+  }
+
+  async _renderedHtml(url, body, status) {
+    const stats = (this.siteDiagnostics.renderJavaScript ||= { rendered: 0, failed: 0, available: true });
+    const browser = await this._browser();
+    if (!browser) {
+      stats.available = false;
+      stats.failed += 1;
+      return null;
+    }
+    this._renderQueue ||= { active: 0, waiting: [] };
+    const slots = this._renderQueue;
+    if (slots.active >= RENDER_SLOTS) await new Promise((resolve) => slots.waiting.push(resolve));
+    slots.active += 1;
+    try {
+      const html = await renderHtml(browser, url, {
+        fetch: this._fetch,
+        userAgent: this.options.userAgent,
+        timeout: this.options.timeout,
+        document: { status, contentType: "text/html; charset=utf-8", body },
+      });
+      stats.rendered += 1;
+      return html;
+    } catch (error) {
+      stats.failed += 1;
+      this.emit("log", { level: "warning", message: `${url}: could not be rendered (${cleanText(error.message)}); audited as served` });
+      return null;
+    } finally {
+      slots.active -= 1;
+      slots.waiting.shift()?.();
+    }
+  }
+
+  async _closeBrowser() {
+    if (!this._browserLaunch) return;
+    const browser = await this._browserLaunch;
+    this._browserLaunch = null;
+    if (browser) await browser.close().catch(() => {});
+  }
+
   // ── The JavaScript rendering sample (render-check.js) ────────────────────
   // Up to renderSampleSize crawled pages, rendered in headless Chromium and
   // compared with what this crawl parsed from them. Never fails the crawl:
   // any problem comes back as { ran: false, reason }, which the coverage block
   // reports as "not evaluated".
   async _renderSample() {
+    // Every page was rendered: what JavaScript builds is what was audited.
+    if (this.options.renderJavaScript) return { ran: false, reason: "rendered" };
     if (!this.options.renderCheck || process.env.CRAWLSCOPE_RENDER_CHECK === "off") {
       return { ran: false, reason: "off" };
     }
@@ -2482,6 +2544,7 @@ class SeoCrawler extends EventEmitter {
   // analysis. Asynchronous because rendering is; _finishing keeps a pause,
   // resume or stop arriving meanwhile from finishing the crawl twice.
   async _finish() {
+    await this._closeBrowser();
     if (!this.stopped) this.siteDiagnostics.renderCheck = await this._renderSample();
     const baseResults = this.results.map((item) => {
       const discovery = this.discovery.get(item.url) || {};
@@ -3016,6 +3079,26 @@ class SeoCrawler extends EventEmitter {
         await usable.body.cancel().catch(() => {});
       }
 
+      // "Render JavaScript": audit the page as the browser builds it, not as
+      // the server sent it. The browser is handed the response already read
+      // here, so the page is not fetched twice. A page that cannot be rendered
+      // is audited as served, and counted.
+      let renderedWithJavaScript = false;
+      if (
+        this.options.renderJavaScript &&
+        !job.external &&
+        body &&
+        contentType.includes("html") &&
+        usable.status >= 200 &&
+        usable.status < 300
+      ) {
+        const rendered = await this._renderedHtml(job.url, body, usable.status);
+        if (typeof rendered === "string" && rendered) {
+          body = rendered;
+          renderedWithJavaScript = true;
+        }
+      }
+
       // The edges this page contributes, stored with its row (see snapshot()).
       // _extract is synchronous, so nothing else can push between here and its
       // return.
@@ -3053,6 +3136,7 @@ class SeoCrawler extends EventEmitter {
         });
         result.issues = quickIssues(result);
       }
+      if (renderedWithJavaScript) result.renderedWithJavaScript = true;
       // Empty lists for a page with no links are still its lists: a stored
       // row without them reads as a page whose links were never kept.
       pageEdges = {

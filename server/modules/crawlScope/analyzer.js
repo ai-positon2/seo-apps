@@ -1275,6 +1275,15 @@ function crawlCoverage({
   const notEvaluated = new Map();
   // Pages the crawl reached but did not audit, and why (not per rule).
   const pagesNotAudited = [];
+  const renderedCrawl = siteDiagnostics.renderJavaScript;
+  if (renderedCrawl?.failed > 0) {
+    pagesNotAudited.push({
+      count: renderedCrawl.failed,
+      reason: renderedCrawl.available === false
+        ? "JavaScript rendering was asked for, but no headless browser was available, so every page was audited as the server sent it."
+        : `JavaScript rendering was asked for, but ${renderedCrawl.failed.toLocaleString("en-US")} page${renderedCrawl.failed === 1 ? "" : "s"} could not be rendered and ${renderedCrawl.failed === 1 ? "was" : "were"} audited as the server sent ${renderedCrawl.failed === 1 ? "it" : "them"}.`,
+    });
+  }
   if (closedToCrawlScopeOnly > 0) {
     pagesNotAudited.push({
       count: closedToCrawlScopeOnly,
@@ -1365,6 +1374,7 @@ function crawlCoverage({
   const render = siteDiagnostics.renderCheck;
   if (!render?.ran) {
     skip(["javascript-dependent-content"], ({
+      rendered: "Every page was rendered, so the audit already reads what JavaScript builds.",
       "no-browser": "No headless browser was available to render pages.",
       "failed": `Rendering pages failed${render?.error ? ` (${render.error})` : ""}.`,
       "nothing-to-render": "No page was fetched as HTML, so there was nothing to render.",

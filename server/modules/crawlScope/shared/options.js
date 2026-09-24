@@ -168,6 +168,8 @@ function parseCrawlRequest(body = {}, overrides = {}) {
     // crawl, to see whether JavaScript adds links or content or changes the
     // head tags (render-check.js). On unless asked not to.
     renderCheck: raw.renderCheck !== false,
+    // Audit every page as rendered in a headless browser. Off unless asked.
+    renderJavaScript: raw.renderJavaScript === true,
     renderSampleSize: clampInt(1, 25)(raw.renderSampleSize ?? 10),
   };
   if (listUrls) options.urls = listUrls;

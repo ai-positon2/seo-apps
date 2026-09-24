@@ -30,6 +30,8 @@ const TOGGLES = [
     helper: 'Follow outbound links far enough to get a status.' },
   { key: 'renderCheck', label: 'Check JavaScript rendering',
     helper: 'After the crawl, render up to 10 key pages in a browser to see whether scripts add links or content.' },
+  { key: 'renderJavaScript', label: 'Render JavaScript (slower)',
+    helper: 'Audit every page as a browser builds it, for sites whose links or content come from scripts.' },
 ];
 
 // Settings the crawler ignores in list mode, and why.

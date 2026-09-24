@@ -1343,4 +1343,5 @@ export const DEFAULT_OPTIONS = {
   discoverSitemaps: true,
   userAgentProfile: 'desktop',
   renderCheck: true,
+  renderJavaScript: false,
 };

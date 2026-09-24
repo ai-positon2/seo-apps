@@ -148,7 +148,12 @@ function readRenderedDocument() {
   };
 }
 
-async function renderPage(browser, url, { fetch, userAgent, timeout = RENDER_TIMEOUT_MS }) {
+// Opens `url` in a fresh page with every request answered by `fetch` (see the
+// header), runs `read(page)` once the network is idle, and closes the page.
+// `document`, when given, is the response already fetched for `url` itself
+// ({ status, contentType, body }), served to the browser instead of fetching
+// the page a second time.
+async function withRenderedPage(browser, url, { fetch, userAgent, timeout = RENDER_TIMEOUT_MS, document = null }, read) {
   const page = await browser.newPage();
   try {
     await page.setBypassServiceWorker(true);
@@ -164,6 +169,7 @@ async function renderPage(browser, url, { fetch, userAgent, timeout = RENDER_TIM
     });
     await page.setRequestInterception(true);
     let requests = 0;
+    let servedDocument = false;
     page.on("request", (request) => {
       const answer = async () => {
         const target = request.url();
@@ -172,6 +178,14 @@ async function renderPage(browser, url, { fetch, userAgent, timeout = RENDER_TIM
         if (!/^https?:/i.test(target)) return request.abort("blockedbyclient");
         if (SKIPPED_RESOURCES.has(request.resourceType())) {
           return request.respond({ status: 204, headers: {}, body: "" });
+        }
+        if (document && request.isNavigationRequest() && target === url && !servedDocument) {
+          servedDocument = true;
+          return request.respond({
+            status: document.status || 200,
+            headers: { "content-type": document.contentType || "text/html; charset=utf-8" },
+            body: Buffer.from(String(document.body ?? ""), "utf8"),
+          });
         }
         requests += 1;
         if (requests > MAX_REQUESTS_PER_PAGE) return request.abort("blockedbyclient");
@@ -195,10 +209,23 @@ async function renderPage(browser, url, { fetch, userAgent, timeout = RENDER_TIM
       });
     });
     await page.goto(url, { waitUntil: "networkidle2", timeout });
-    return await page.evaluate(readRenderedDocument);
+    return await read(page);
   } finally {
     await page.close().catch(() => {});
   }
+}
+
+const renderPage = (browser, url, options) =>
+  withRenderedPage(browser, url, options, (page) => page.evaluate(readRenderedDocument));
+
+/**
+ * The page's HTML as the browser holds it after its scripts have run, for a
+ * crawl that audits rendered pages ("Render JavaScript"). `document` is the
+ * response the crawler already fetched for it, so the page is not requested
+ * twice; its scripts, styles and data requests go through `fetch`.
+ */
+function renderHtml(browser, url, { fetch, userAgent, timeout, document }) {
+  return withRenderedPage(browser, url, { fetch, userAgent, timeout, document }, (page) => page.content());
 }
 
 const sameText = (a, b) => String(a || "").trim().replace(/\s+/g, " ") === String(b || "").trim().replace(/\s+/g, " ");
@@ -299,4 +326,4 @@ async function renderSample(pages, {
   return { ran: true, sampled: rendered.length - failed, pages: rendered.filter((page) => !page.error) };
 }
 
-module.exports = { renderSample, compareRendering, launchBrowser, findBrowserExecutable };
+module.exports = { renderSample, renderHtml, compareRendering, launchBrowser, findBrowserExecutable };
