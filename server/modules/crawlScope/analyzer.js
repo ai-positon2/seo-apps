@@ -68,6 +68,15 @@ const NOT_FOUND_WORDING = [
 ];
 const readsLikeNotFound = (text) => NOT_FOUND_WORDING.some((pattern) => pattern.test(String(text || "")));
 const SOFT_404_MAX_WORDS = 300;
+// Page and URL hygiene thresholds, at the values Semrush's Site Audit uses
+// (title length: the common 30-character floor).
+const TITLE_MIN_LENGTH = 30;
+const HTML_TOO_LARGE_BYTES = 2 * 1024 * 1024;
+// Below about one packet, compression saves nothing worth a finding.
+const HTML_COMPRESSION_MIN_BYTES = 1_400;
+const TOO_MANY_LINKS = 3_000;
+const URL_MAX_LENGTH = 200;
+const URL_MAX_PARAMETERS = 2;
 
 // ── Responses that refused the crawler ───────────────────────────────────────
 // Bot protection, rate limiting and login walls answer a crawler instead of the
@@ -1914,6 +1923,12 @@ function buildFindings({
         if (result.titleCount > 1) {
           add("title-multiple", result, { detectedValue: result.titleCount });
         }
+        if (result.title && result.titleLength < TITLE_MIN_LENGTH) {
+          add("title-short", result, {
+            detail: `${result.titleLength} characters`,
+            detectedValue: result.title,
+          });
+        }
         if (result.titleLength > 60) {
           add("title-long", result, {
             detail: `${result.titleLength} characters`,
@@ -1962,8 +1977,53 @@ function buildFindings({
         }
       }
       // Explicitly empty only: a result stored before the crawler read the
-      // attribute has no htmlLang at all, which is not the same thing.
+      // attribute has no htmlLang at all, which is not the same thing. The
+      // same goes for charset and doctype below.
       if (result.htmlLang === "") add("html-lang-missing", result);
+      if (result.charsetDeclared === false) add("charset-missing", result);
+      if (result.doctypeDeclared === false) add("doctype-missing", result);
+
+      // Weight and compression of the HTML itself (the resource checks cover
+      // scripts and stylesheets).
+      const htmlBytes = Number(result.decodedSize) || 0;
+      if (result.bodyTruncated || htmlBytes > HTML_TOO_LARGE_BYTES) {
+        add("html-too-large", result, {
+          detail: result.bodyTruncated
+            ? "Larger than 5 MB: the crawler stopped reading there"
+            : `${(htmlBytes / 1_048_576).toFixed(1)} MB of HTML`,
+          detectedValue: result.bodyTruncated ? "> 5 MB" : `${(htmlBytes / 1_048_576).toFixed(1)} MB`,
+        });
+      }
+      const encoding = String(result.contentEncoding || "").trim().toLowerCase();
+      if (htmlBytes >= HTML_COMPRESSION_MIN_BYTES && (!encoding || encoding === "identity")) {
+        add("html-uncompressed", result, {
+          detectedValue: `${(htmlBytes / 1024).toFixed(1)} KB sent with no Content-Encoding`,
+        });
+      }
+      if (Number(result.anchorCount) > TOO_MANY_LINKS) {
+        add("too-many-links", result, {
+          detail: `${Number(result.anchorCount).toLocaleString("en-US")} links on the page`,
+          detectedValue: result.anchorCount,
+        });
+      }
+
+      // The URL itself.
+      let parsedUrl = null;
+      try {
+        parsedUrl = new URL(result.url);
+      } catch {
+        parsedUrl = null;
+      }
+      if (parsedUrl) {
+        if (result.url.length > URL_MAX_LENGTH) {
+          add("url-too-long", result, { detail: `${result.url.length} characters`, detectedValue: result.url.length });
+        }
+        if (parsedUrl.pathname.includes("_")) add("url-underscore", result, { detectedValue: parsedUrl.pathname });
+        const parameters = [...parsedUrl.searchParams.keys()].length;
+        if (parameters > URL_MAX_PARAMETERS) {
+          add("url-too-many-parameters", result, { detail: `${parameters} query parameters`, detectedValue: parsedUrl.search });
+        }
+      }
       for (const issue of result.headingHierarchyIssues || []) {
         add("heading-hierarchy-skipped", result, {
           detail: `${describeHeading(issue.fromLevel, issue.fromText)} is followed by ${describeHeading(issue.toLevel, issue.toText)}`,

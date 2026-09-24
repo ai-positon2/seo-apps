@@ -44,6 +44,15 @@ const NEW_RULES = {
   "hreflang-target-invalid": { class: "crawl", rarity: "occasional" },
   "hreflang-x-default-missing": { class: "crawl", rarity: "occasional" },
   "html-lang-missing": { class: "crawl", rarity: "occasional" },
+  "title-short": { class: "crawl", rarity: "common" },
+  "html-too-large": { class: "crawl", rarity: "rare" },
+  "html-uncompressed": { class: "crawl", rarity: "occasional" },
+  "url-too-long": { class: "crawl", rarity: "occasional" },
+  "url-underscore": { class: "crawl", rarity: "occasional" },
+  "url-too-many-parameters": { class: "crawl", rarity: "occasional" },
+  "charset-missing": { class: "crawl", rarity: "occasional" },
+  "doctype-missing": { class: "crawl", rarity: "rare" },
+  "too-many-links": { class: "crawl", rarity: "rare" },
 };
 
 const GROUPS = [

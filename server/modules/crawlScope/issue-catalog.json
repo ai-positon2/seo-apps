@@ -115,6 +115,56 @@
     "detection": "Automatic"
   },
   {
+    "id": "url-too-long",
+    "title": "URLs longer than 200 characters",
+    "description": "The URL is over 200 characters. Long URLs are hard to share and to read in search results, and usually carry parameters or folder levels that say nothing about the page.",
+    "recommendation": "Use short, readable URLs built from a few meaningful words, and keep tracking and filter parameters out of internal links.",
+    "category": "Technical",
+    "priority": "Low Priority",
+    "severity": "notice",
+    "detection": "Automatic"
+  },
+  {
+    "id": "url-underscore",
+    "title": "Underscores in URLs",
+    "description": "The URL's path contains underscores. Search engines treat hyphens as word separators and may not treat underscores the same way, so words joined by underscores can read as one.",
+    "recommendation": "Use hyphens between words in new URLs. Change existing URLs only with a 301 redirect from the old address, and only where the gain is worth the move.",
+    "category": "Technical",
+    "priority": "Low Priority",
+    "severity": "notice",
+    "detection": "Automatic"
+  },
+  {
+    "id": "url-too-many-parameters",
+    "title": "URLs with too many parameters",
+    "description": "The URL carries more than two query parameters. Parameter combinations multiply into many URLs for the same content, which spreads crawling and ranking signals across duplicates.",
+    "recommendation": "Link internally to clean URLs, canonicalise parameter variants to the main URL, and keep sorting and filter parameters out of crawlable links where they do not create distinct content.",
+    "category": "Technical",
+    "priority": "Low Priority",
+    "severity": "notice",
+    "detection": "Automatic"
+  },
+  {
+    "id": "charset-missing",
+    "title": "Character encoding not declared",
+    "description": "Neither the Content-Type header nor a <meta charset> in the first 1,024 bytes says how the page is encoded. Browsers and crawlers then guess, and a wrong guess shows garbled characters.",
+    "recommendation": "Send Content-Type: text/html; charset=utf-8, and put <meta charset=\"utf-8\"> first in <head>.",
+    "category": "Technical",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
+    "id": "doctype-missing",
+    "title": "Doctype not declared",
+    "description": "The page does not start with a doctype, so browsers render it in quirks mode, emulating decades-old layout bugs. Layout can differ between browsers and from what the page's authors tested.",
+    "recommendation": "Start every page with <!DOCTYPE html>, before anything else.",
+    "category": "Technical",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
     "id": "ssl-certificate-name",
     "title": "Incorrect SSL certificate name",
     "description": "The SSL certificate does not correctly match one of the requested domains or subdomains.",
@@ -642,6 +692,16 @@
     "detection": "Automatic"
   },
   {
+    "id": "title-short",
+    "title": "Titles are too short",
+    "description": "The title is under 30 characters. A title that short rarely says enough about the page to compete in search results, where it is usually the first thing a searcher reads.",
+    "recommendation": "Write a title that names the page's topic and what makes it worth the click, typically 30 to 60 characters, with the brand at the end.",
+    "category": "Metadata",
+    "priority": "Low Priority",
+    "severity": "notice",
+    "detection": "Automatic"
+  },
+  {
     "id": "meta-duplicate",
     "requiresCompleteGraph": true,
     "title": "Duplicate meta descriptions",
@@ -877,6 +937,16 @@
     "detection": "Automatic"
   },
   {
+    "id": "too-many-links",
+    "title": "Too many on-page links",
+    "description": "The page has more than 3,000 links. Each one passes on a smaller share of the page's value, and a page this dense with links is hard to use and slow to crawl.",
+    "recommendation": "Trim navigation and footer links to the pages that matter, move long lists behind pagination or category pages, and remove duplicate links to the same URL.",
+    "category": "Links",
+    "priority": "Low Priority",
+    "severity": "notice",
+    "detection": "Automatic"
+  },
+  {
     "id": "broken-external-link",
     "evidenceFamily": "link-target",
     "title": "External links unavailable during checking",
@@ -1006,6 +1076,26 @@
     "title": "Slow pages",
     "description": "The server took over a second to start answering these URLs (time to first byte, measured per request during the crawl, excluding the crawler's own pacing). Slow server responses hurt users and limit how many pages search engines crawl in a session.",
     "recommendation": "Reduce the server's response time for these URLs: serve HTML from a full-page cache or CDN, look for slow database queries, plugins or API calls on the affected templates, and check hosting capacity at peak load. Images, fonts and scripts do not affect this measurement.",
+    "category": "Performance",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
+    "id": "html-too-large",
+    "title": "Large HTML page size",
+    "description": "The page's HTML is over 2 MB before compression. Crawlers may stop reading large documents before the end, and every visitor downloads and parses all of it before the page is usable.",
+    "recommendation": "Move inline data, styles and scripts into cached files, paginate or lazy-load long lists, and remove markup nobody sees (hidden variants, duplicated menus).",
+    "category": "Performance",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
+    "id": "html-uncompressed",
+    "title": "Uncompressed HTML pages",
+    "description": "The page's HTML was sent without compression although the crawler asked for gzip. Uncompressed HTML is typically four to five times larger on the wire, which slows every visit.",
+    "recommendation": "Enable gzip or Brotli compression for text/html at the server, CDN or hosting level.",
     "category": "Performance",
     "priority": "Medium Priority",
     "severity": "warning",

@@ -2816,6 +2816,10 @@ class SeoCrawler extends EventEmitter {
       let bodyTruncated = false;
       let sniffedHtml = false;
       let bodyError = "";
+      // Whether the page says what encoding it is in: a byte-order mark, the
+      // Content-Type charset, or a <meta> charset in its first 1,024 bytes (the
+      // only place a browser looks for one). null for anything not HTML.
+      let charsetDeclared = null;
       if (wantsBody) {
         try {
           const read = await this._readBodyBuffer(usable);
@@ -2833,6 +2837,13 @@ class SeoCrawler extends EventEmitter {
             contentType.includes("html") || TEXT_ASSET.test(contentType)
               ? this._decodeBuffer(read.buffer, usable)
               : "";
+          if (contentType.includes("html")) {
+            charsetDeclared = Boolean(
+              charsetFromBom(read.buffer) ||
+                charsetFromContentType(headerValue(usable.headers, "content-type")) ||
+                charsetFromMeta(read.buffer),
+            );
+          }
         } catch (error) {
           // The headers already told us the real status. Letting a mid-body
           // reset fall through to the outer handler threw that away and filed a
@@ -2860,6 +2871,7 @@ class SeoCrawler extends EventEmitter {
           bodyTruncated,
           bodyError,
           sniffedHtml,
+          charsetDeclared,
           responseTime,
           redirectUrl,
           redirectLocation,
@@ -2984,6 +2996,7 @@ class SeoCrawler extends EventEmitter {
     bodyTruncated = false,
     bodyError = "",
     sniffedHtml = false,
+    charsetDeclared = null,
     responseTime,
     redirectUrl,
     redirectLocation,
@@ -3655,6 +3668,10 @@ class SeoCrawler extends EventEmitter {
       robotsDirectives: [...robotsDirectives],
       // The document's declared language; "" when <html> has no lang.
       htmlLang: String($("html").first().attr("lang") || "").trim(),
+      charsetDeclared,
+      // A doctype before anything but whitespace and comments; without one the
+      // browser renders in quirks mode.
+      doctypeDeclared: /^\uFEFF?\s*(?:<!--[\s\S]*?-->\s*)*<!doctype\s+html\b/i.test(body),
       canonical,
       canonicals,
       canonicalsOutsideHead,

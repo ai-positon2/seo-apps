@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "total": 111,
-    "severity_counts": { "error": 28, "warning": 49, "notice": 34 },
+    "total": 120,
+    "severity_counts": { "error": 28, "warning": 53, "notice": 39 },
     "eval_class": {
       "crawl": "Fully derivable from a single crawl. A no-fire here must be justified by proving the site condition is absent.",
       "external_gsc": "Needs Search Console. Structurally silent without a connected data source.",
@@ -84,9 +84,14 @@
     "broken-internal-resource":    { "sev": "warning", "class": "crawl", "rarity": "occasional" },
     "sitemap-off-host":            { "sev": "warning", "class": "crawl", "rarity": "occasional" },
     "sitemap-too-large":           { "sev": "warning", "class": "crawl", "rarity": "rare" },
+    "charset-missing":             { "sev": "warning", "class": "crawl", "rarity": "occasional" },
+    "doctype-missing":             { "sev": "warning", "class": "crawl", "rarity": "rare" },
     "hsts-missing":                { "sev": "notice",  "class": "crawl", "rarity": "common" },
     "sitemap-duplicate":           { "sev": "notice",  "class": "crawl", "rarity": "occasional" },
-    "sitemap-missing-indexable":   { "sev": "notice",  "class": "crawl", "rarity": "common" }
+    "sitemap-missing-indexable":   { "sev": "notice",  "class": "crawl", "rarity": "common" },
+    "url-too-long":                { "sev": "notice",  "class": "crawl", "rarity": "occasional" },
+    "url-too-many-parameters":     { "sev": "notice",  "class": "crawl", "rarity": "occasional" },
+    "url-underscore":              { "sev": "notice",  "class": "crawl", "rarity": "occasional" }
   },
 
   "metadata": {
@@ -105,7 +110,8 @@
     "h1-multiple":             { "sev": "notice",  "class": "crawl",        "rarity": "common" },
     "h1-title-duplicate":      { "sev": "notice",  "class": "crawl",        "rarity": "common" },
     "meta-long":               { "sev": "notice",  "class": "crawl",        "rarity": "common" },
-    "meta-short":              { "sev": "notice",  "class": "crawl",        "rarity": "common" }
+    "meta-short":              { "sev": "notice",  "class": "crawl",        "rarity": "common" },
+    "title-short":             { "sev": "notice",  "class": "crawl",        "rarity": "common" }
   },
 
   "accessibility_social": {
@@ -137,14 +143,17 @@
     "anchor-nondescriptive":  { "sev": "notice",  "class": "crawl", "rarity": "common" },
     "resource-as-link":       { "sev": "notice",  "class": "crawl", "rarity": "occasional" },
     "external-403":           { "sev": "notice",  "class": "crawl", "rarity": "common" },
-    "external-nofollow":      { "sev": "notice",  "class": "crawl", "rarity": "occasional" }
+    "external-nofollow":      { "sev": "notice",  "class": "crawl", "rarity": "occasional" },
+    "too-many-links":         { "sev": "notice",  "class": "crawl", "rarity": "rare" }
   },
 
   "performance": {
     "asset-uncached":     { "sev": "warning", "class": "crawl", "rarity": "common" },
     "asset-uncompressed": { "sev": "warning", "class": "crawl", "rarity": "common" },
     "asset-unminified":   { "sev": "warning", "class": "crawl", "rarity": "common" },
-    "slow-page":          { "sev": "warning", "class": "crawl", "rarity": "common" }
+    "slow-page":          { "sev": "warning", "class": "crawl", "rarity": "common" },
+    "html-too-large":     { "sev": "warning", "class": "crawl", "rarity": "rare" },
+    "html-uncompressed":  { "sev": "warning", "class": "crawl", "rarity": "occasional" }
   },
 
   "structured_data": {
