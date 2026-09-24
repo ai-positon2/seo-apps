@@ -79,7 +79,9 @@ class OpenAIClient:
     ) -> dict:
         response = self._client.chat.completions.create(
             model=self.model,
-            max_tokens=max_tokens,
+            # max_completion_tokens (not max_tokens) is required by newer model
+            # families (e.g. gpt-5-mini) and also accepted by older ones (gpt-4o*).
+            max_completion_tokens=max_tokens,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user_prompt},
