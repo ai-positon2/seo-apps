@@ -1365,6 +1365,15 @@ function crawlCoverage({
         : `JavaScript rendering was asked for, but ${renderedCrawl.failed.toLocaleString("en-US")} page${renderedCrawl.failed === 1 ? "" : "s"} could not be rendered and ${renderedCrawl.failed === 1 ? "was" : "were"} audited as the server sent ${renderedCrawl.failed === 1 ? "it" : "them"}.`,
     });
   }
+  const sitemapNotCrawled = Number(siteDiagnostics.sitemapNotCrawled) || 0;
+  if (sitemapNotCrawled > 0) {
+    pagesNotAudited.push({
+      count: sitemapNotCrawled,
+      reason:
+        `${sitemapNotCrawled.toLocaleString("en-US")} URL${sitemapNotCrawled === 1 ? "" : "s"} listed in the sitemaps ` +
+        `${sitemapNotCrawled === 1 ? "was" : "were"} not crawled: the crawl reached its page budget first.`,
+    });
+  }
   if (closedToCrawlScopeOnly > 0) {
     pagesNotAudited.push({
       count: closedToCrawlScopeOnly,

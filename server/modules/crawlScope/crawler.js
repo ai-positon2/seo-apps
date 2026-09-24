@@ -1591,24 +1591,32 @@ class SeoCrawler extends EventEmitter {
   // Sitemap URLs are seeded before a single link has been discovered, so without
   // a reserved share a sitemap larger than maxUrls spent the entire budget and
   // no link-discovered page was ever fetched.
+  //
+  // Entries the budget never reached are kept, to count at the end the ones
+  // no link reached either. They used to be counted here as everything not
+  // queued — which included every entry a link had already found, and on a
+  // two-page site read "Only 0 of 2 sitemap URLs fitted within the crawl
+  // budget", reported as a sitemap configuration issue.
   _seedSitemapUrls() {
     const sitemapBudget = Math.max(
       1,
       Math.floor(this.options.maxUrls * this.options.sitemapBudgetRatio),
     );
-    let seeded = 0;
-    for (const sitemapUrl of this.sitemapMembership.keys()) {
+    const entries = [...this.sitemapMembership.keys()];
+    for (let at = 0; at < entries.length; at += 1) {
       if (this.seen.size >= sitemapBudget) {
         this.truncated = true;
         this.budgetReached = true;
+        this._sitemapUnqueued = entries.slice(at);
         break;
       }
-      if (this._enqueueInternal(sitemapUrl, 1, "", { fromSitemap: true })) seeded += 1;
+      this._enqueueInternal(entries[at], 1, "", { fromSitemap: true });
     }
-    if (this.sitemapMembership.size > seeded && !this.siteDiagnostics.sitemapConfigIssue) {
-      this.siteDiagnostics.sitemapConfigIssue =
-        `Only ${seeded} of ${this.sitemapMembership.size} sitemap URLs fitted within the crawl budget.`;
-    }
+  }
+
+  // The key a same-site URL is queued and fetched under (_enqueueInternal).
+  _crawlKey(url) {
+    return this._removeParameters(this._canonicalScheme(normalizeUrl(url) || ""));
   }
 
 
@@ -1767,7 +1775,7 @@ class SeoCrawler extends EventEmitter {
   }
 
   _enqueueInternal(url, depth, sourceUrl, metadata = {}) {
-    const normalized = this._removeParameters(this._canonicalScheme(normalizeUrl(url) || ""));
+    const normalized = this._crawlKey(url);
     if (!normalized || !this._inScope(normalized)) return false;
     // The start page is exempt: it is where the links into the section are.
     // So is a page already crawled (the start page, linked back to).
@@ -2579,6 +2587,15 @@ class SeoCrawler extends EventEmitter {
     const membership = Object.fromEntries(
       [...this.sitemapMembership].map(([url, sitemaps]) => [url, [...sitemaps]]),
     );
+    // Sitemap entries the page budget kept out of the queue that no link
+    // reached either, for the report's account of what was not crawled.
+    if (this._sitemapUnqueued?.length) {
+      const scope = this._scopeRules();
+      this.siteDiagnostics.sitemapNotCrawled = this._sitemapUnqueued.filter((url) => {
+        const key = this._crawlKey(url);
+        return key && !this.seen.has(key) && scope.allows(key);
+      }).length;
+    }
     assertGraphReady({
       queueLength: this._queueLength(),
       active: this.active,
