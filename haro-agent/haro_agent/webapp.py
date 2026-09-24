@@ -26,6 +26,7 @@ DEFAULT_SETTINGS_PATH = os.environ.get("SETTINGS_PATH", "config/settings.example
 DEFAULT_SAMPLES_DIR = os.environ.get("SAMPLES_DIR", "samples")
 DEFAULT_STATE_DIR = os.environ.get("STATE_DIR", "state")
 DEFAULT_REPORTS_DIR = os.environ.get("REPORTS_DIR", "reports")
+DEFAULT_LLM_MODEL = os.environ.get("LLM_MODEL")  # None -> build_llm_client's per-provider default
 
 PAGE_SHELL = """<!doctype html>
 <html><head><meta charset="utf-8">
@@ -190,6 +191,7 @@ def create_app() -> Flask:
             reports_dir=DEFAULT_REPORTS_DIR,
             lookback_hours=int(request.form.get("lookback_hours") or 24),
             llm_mode=request.form.get("llm", "mock"),
+            model=DEFAULT_LLM_MODEL,
             as_of=parse_as_of(request.form.get("as_of") or None),
             notify_mode=request.form.get("notify", "none"),
             slack_webhook_url=os.environ.get("SLACK_WEBHOOK_URL"),
@@ -221,6 +223,7 @@ def create_app() -> Flask:
             state_dir=DEFAULT_STATE_DIR,
             reports_dir=DEFAULT_REPORTS_DIR,
             llm_mode=os.environ.get("LLM_MODE", "mock"),
+            model=DEFAULT_LLM_MODEL,
             notify_mode=os.environ.get("NOTIFY_MODE", "none"),
             slack_webhook_url=os.environ.get("SLACK_WEBHOOK_URL"),
         )
