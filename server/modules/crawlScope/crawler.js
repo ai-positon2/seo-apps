@@ -5,6 +5,7 @@ const cheerio = require("cheerio");
 const { buildFindings } = require("./analyzer");
 const { renderSample, renderHtml, launchBrowser } = require("./render-check");
 const { contentSignature } = require("./text-fingerprint");
+const { structuredDataFromPage } = require("./structured-data");
 // Pages with less main text than this are not fingerprinted: too little of
 // their own to be a duplicate of anything.
 const NEAR_DUPLICATE_MIN_WORDS = 50;
@@ -1106,7 +1107,7 @@ function emptyResult(job, overrides = {}) {
     openGraphDescriptionMissing: false,
     ogUrlRaw: "",
     ogUrl: "",
-    schemaErrors: [],
+    schemaProblems: [],
     schemaTypes: [],
     baseHrefRaw: "",
     documentBaseUrl: "",
@@ -1134,76 +1135,6 @@ function emptyResult(job, overrides = {}) {
     issues: [],
     ...overrides,
   };
-}
-
-// JSON.parse accepts arbitrarily deep input, so an unbounded walk over its
-// output can exhaust the stack. A RangeError here escapes the per-block try
-// below, and the outer handler in _process would then report a perfectly good
-// 200 page as an unreachable crawl failure.
-const MAX_SCHEMA_DEPTH = 64;
-
-// Returns both the validation errors (as before) and the distinct @type
-// values seen across every JSON-LD block on the page — the same walk was
-// already collecting `types` per node and discarding it. Page categorization
-// (analyzer.js#categorizePage) wants that list too: a page whose schema says
-// Product or Article is a far stronger signal than a URL path guess.
-function schemaErrorsFromPage($) {
-  const errors = [];
-  const allTypes = new Set();
-  const inspectNode = (node, depth = 0) => {
-    if (!node || typeof node !== "object") return;
-    if (depth > MAX_SCHEMA_DEPTH) return;
-    if (Array.isArray(node)) {
-      for (const item of node) inspectNode(item, depth + 1);
-      return;
-    }
-    const type = Array.isArray(node["@type"]) ? node["@type"] : [node["@type"]];
-    const types = type.filter(Boolean).map(String);
-    for (const t of types) allTypes.add(t);
-    if (types.some((item) => /LocalBusiness|Dentist/i.test(item))) {
-      if (!node.name) errors.push(`${types[0]} is missing the required name property`);
-      if (!node.address) errors.push(`${types[0]} is missing the required address property`);
-    }
-    if (types.includes("FAQPage") && !node.mainEntity) {
-      errors.push("FAQPage is missing mainEntity");
-    }
-    if (types.includes("BreadcrumbList") && !node.itemListElement) {
-      errors.push("BreadcrumbList is missing itemListElement");
-    }
-    if (types.includes("Product")) {
-      if (!node.name) errors.push("Product is missing the required name property");
-      if (!node.offers && !node.review && !node.aggregateRating) {
-        errors.push("Product needs at least one of offers, review, or aggregateRating");
-      }
-    }
-    if (types.some((item) => /^(Article|BlogPosting|NewsArticle)$/i.test(item))) {
-      const label = types.find((item) => /^(Article|BlogPosting|NewsArticle)$/i.test(item));
-      if (!node.headline) errors.push(`${label} is missing the required headline property`);
-      if (!node.image) errors.push(`${label} is missing the required image property`);
-      if (!node.datePublished) {
-        errors.push(`${label} is missing the required datePublished property`);
-      }
-    }
-    if (types.includes("Organization") && !node.name) {
-      errors.push("Organization is missing the required name property");
-    }
-    if (node["@graph"]) inspectNode(node["@graph"], depth + 1);
-  };
-
-  documentElements($, 'script[type="application/ld+json" i]').each(
-    (index, element) => {
-      const raw = $(element).html()?.replace(/^\s*<!--|-->\s*$/g, "").trim();
-      if (!raw) return;
-      try {
-        inspectNode(JSON.parse(raw));
-      } catch (error) {
-        errors.push(
-          `JSON-LD block ${index + 1} is invalid: ${cleanText(error.message)}`,
-        );
-      }
-    },
-  );
-  return { errors: [...new Set(errors)].slice(0, 20), types: [...allTypes].slice(0, 20) };
 }
 
 // Inflate a gzip body up to `limit` bytes, keeping what fits. gunzipSync with
@@ -3881,7 +3812,9 @@ class SeoCrawler extends EventEmitter {
     });
 
     const nonIndexableDirective = isNoindex(robotsDirectives);
-    const schemaInfo = schemaErrorsFromPage($);
+    // JSON-LD and microdata, against schema.org and Google's requirements
+    // (structured-data/). Template contents are not the page's markup.
+    const schemaInfo = structuredDataFromPage($, (selector) => documentElements($, selector));
     const integrations = detectIntegrations($, integrationCatalog);
     const openGraph = Object.fromEntries(
       OPEN_GRAPH_PROPERTIES.map((property) => [
@@ -3970,7 +3903,7 @@ class SeoCrawler extends EventEmitter {
       openGraphDescriptionMissing: !openGraph["og:description"],
       ogUrlRaw: openGraph["og:url"],
       ogUrl,
-      schemaErrors: schemaInfo.errors,
+      schemaProblems: schemaInfo.problems,
       schemaTypes: schemaInfo.types,
       integrations,
       baseHrefRaw: documentBase.raw,

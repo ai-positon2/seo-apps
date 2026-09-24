@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "total": 126,
-    "severity_counts": { "error": 28, "warning": 59, "notice": 39 },
+    "total": 128,
+    "severity_counts": { "error": 28, "warning": 60, "notice": 40 },
     "eval_class": {
       "crawl": "Fully derivable from a single crawl. A no-fire here must be justified by proving the site condition is absent.",
       "external_gsc": "Needs Search Console. Structurally silent without a connected data source.",
@@ -164,9 +164,11 @@
   },
 
   "structured_data": {
-    "schema-error":    { "sev": "warning", "class": "crawl",  "rarity": "common" },
-    "llms-missing":    { "sev": "notice",  "class": "crawl",  "rarity": "common" },
-    "llms-format":     { "sev": "notice",  "class": "crawl",  "rarity": "rare" },
-    "indexnow-submit": { "sev": "notice",  "class": "action", "rarity": "occasional" }
+    "schema-error":               { "sev": "warning", "class": "crawl",  "rarity": "common" },
+    "schema-required-missing":    { "sev": "warning", "class": "crawl",  "rarity": "common" },
+    "llms-missing":               { "sev": "notice",  "class": "crawl",  "rarity": "common" },
+    "llms-format":                { "sev": "notice",  "class": "crawl",  "rarity": "rare" },
+    "indexnow-submit":            { "sev": "notice",  "class": "action", "rarity": "occasional" },
+    "schema-recommended-missing": { "sev": "notice",  "class": "crawl",  "rarity": "common" }
   }
 }

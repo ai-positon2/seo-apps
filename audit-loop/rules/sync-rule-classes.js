@@ -56,6 +56,8 @@ const NEW_RULES = {
   "www-resolve": { class: "crawl", rarity: "occasional" },
   "javascript-dependent-content": { class: "crawl", rarity: "occasional" },
   "content-duplicate-near": { class: "crawl", rarity: "common" },
+  "schema-required-missing": { class: "crawl", rarity: "common" },
+  "schema-recommended-missing": { class: "crawl", rarity: "common" },
   "cwv-lcp-poor": { class: "external_pagespeed", rarity: "common" },
   "cwv-inp-poor": { class: "external_pagespeed", rarity: "occasional" },
   "cwv-cls-poor": { class: "external_pagespeed", rarity: "occasional" },

@@ -1227,6 +1227,20 @@ function buildIntegrations(results) {
   };
 }
 
+// Structured-data problems (structured-data/) by kind: markup that cannot be
+// read as schema.org, a property Google requires for a rich result, one it
+// recommends. A page stored before they were told apart (and reloaded by a
+// resumed crawl) has only `schemaErrors`, all of them the first kind.
+const SCHEMA_RULES = {
+  invalid: "schema-error",
+  required: "schema-required-missing",
+  recommended: "schema-recommended-missing",
+};
+function structuredDataProblems(result) {
+  if (Array.isArray(result.schemaProblems)) return result.schemaProblems;
+  return (result.schemaErrors || []).map((message) => ({ kind: "invalid", message }));
+}
+
 // One finding, in the shape every reader of findings expects: the stored
 // instances, the report, the workbook, the email. buildFindings makes all of a
 // crawl's with it, and anything that adds findings to a stored run later (Core
@@ -2142,10 +2156,10 @@ function buildFindings({
           detectedValue: rawOgUrl,
         });
       }
-      for (const schemaError of hasNoindex ? [] : result.schemaErrors || []) {
-        add("schema-error", result, {
-          detail: schemaError,
-          detectedValue: schemaError,
+      for (const problem of hasNoindex ? [] : structuredDataProblems(result)) {
+        add(SCHEMA_RULES[problem.kind] || "schema-error", result, {
+          detail: problem.message,
+          detectedValue: problem.message,
         });
       }
       if (result.responseTime > 1000) {

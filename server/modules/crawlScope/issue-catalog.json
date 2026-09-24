@@ -1188,12 +1188,34 @@
   {
     "id": "schema-error",
     "evidenceFamily": "schema-message",
-    "title": "Schema.org validation errors",
-    "description": "Structured data contains invalid properties, values, syntax, or unsupported relationships.",
-    "recommendation": "Validate affected templates using Schema.org and Google tools, then correct required fields, data types, URLs, and nesting.",
+    "title": "Invalid structured data",
+    "description": "The page's structured data cannot be read as schema.org: a JSON-LD block does not parse or has no @context or @type; a type or property is not one schema.org defines (usually a typo or the wrong capitalisation); a property sits on a type it does not belong to (such as price directly on Product instead of its Offer); or the markup uses data-vocabulary.org, which Google stopped reading in 2020. Search engines skip what they cannot read.",
+    "recommendation": "Fix each message on the template that produces it: correct the JSON, spell types and properties exactly as schema.org does (they are case-sensitive), move properties onto the type schema.org defines them for, and replace data-vocabulary.org markup with schema.org. Check a fixed page with the Schema Markup Validator and Google's Rich Results Test.",
     "category": "Structured Data",
     "priority": "Medium Priority",
     "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
+    "id": "schema-required-missing",
+    "evidenceFamily": "schema-message",
+    "title": "Structured data missing properties Google requires",
+    "description": "Markup written for a Google rich result (product details, review stars, breadcrumbs, events, recipes, videos, job listings, FAQs, local business details) lacks a property Google requires for it, so the page cannot get that rich result.",
+    "recommendation": "Add the properties each finding names, with values that match what the page shows. Google's documentation for each rich result lists what it requires; the Rich Results Test confirms a fixed page is eligible.",
+    "category": "Structured Data",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
+    "id": "schema-recommended-missing",
+    "evidenceFamily": "schema-message",
+    "title": "Structured data missing recommended properties",
+    "description": "The markup has what Google requires but lacks properties Google recommends for the rich result (for example an article's image, date or author, or an offer's currency and availability), which can limit how the result is shown.",
+    "recommendation": "Add the recommended properties each finding names where the page has the information. They are optional: leave out anything the page does not show.",
+    "category": "Structured Data",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {

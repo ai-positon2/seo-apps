@@ -351,7 +351,7 @@ Then write `{{RUN_DIR}}/findings.json` with exactly this shape:
     "exit_code": 0,
     "persistence": "signals-only"
   },
-  "ledger": { "fired": 0, "not_fired": 0, "total": 126 },
+  "ledger": { "fired": 0, "not_fired": 0, "total": 128 },
   "defects": [
     {
       "id": "D1",

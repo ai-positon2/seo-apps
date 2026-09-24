@@ -582,43 +582,19 @@ test("does not parse a redirect's HTML fallback body for links, canonical, or hr
   );
 });
 
-test("validates Product, Article, and Organization JSON-LD against required properties", async (t) => {
+test("checks structured data against schema.org and Google's requirements, and reports each kind under its own rule", async (t) => {
+  const ld = (object) => `<script type="application/ld+json">${JSON.stringify({ "@context": "https://schema.org", ...object })}</script>`;
+  const pages = {
+    "/product-incomplete": ld({ "@type": "Product" }),
+    "/product-complete": ld({ "@type": "Product", name: "Widget", image: "https://example.com/w.jpg", offers: { "@type": "Offer", price: "9.99", priceCurrency: "USD", availability: "https://schema.org/InStock" } }),
+    "/article-incomplete": ld({ "@type": "BlogPosting", headline: "A post" }),
+    "/org-typo": ld({ "@type": "Organisation", name: "Acme" }),
+    "/plumber-microdata": `<div itemscope itemtype="https://schema.org/Plumber"><span itemprop="name">Pipes</span><span itemprop="telephone">+1</span><a itemprop="url" href="https://example.com">site</a></div>`,
+  };
   const server = http.createServer((request, response) => {
     response.statusCode = 200;
     response.setHeader("Content-Type", "text/html");
-    if (request.url === "/product-incomplete") {
-      response.end(
-        `<!doctype html><html><head><title>Product</title>
-          <script type="application/ld+json">{"@type":"Product"}</script>
-        </head><body>ok</body></html>`,
-      );
-      return;
-    }
-    if (request.url === "/product-complete") {
-      response.end(
-        `<!doctype html><html><head><title>Product</title>
-          <script type="application/ld+json">{"@type":"Product","name":"Widget","offers":{"price":"9.99"}}</script>
-        </head><body>ok</body></html>`,
-      );
-      return;
-    }
-    if (request.url === "/article-incomplete") {
-      response.end(
-        `<!doctype html><html><head><title>Article</title>
-          <script type="application/ld+json">{"@type":"BlogPosting","headline":"A post"}</script>
-        </head><body>ok</body></html>`,
-      );
-      return;
-    }
-    if (request.url === "/org-incomplete") {
-      response.end(
-        `<!doctype html><html><head><title>Org</title>
-          <script type="application/ld+json">{"@type":"Organization","url":"https://example.com"}</script>
-        </head><body>ok</body></html>`,
-      );
-      return;
-    }
-    response.end("<html><body>ok</body></html>");
+    response.end(`<!doctype html><html><head><title>Structured data</title>${pages[request.url] || ""}</head><body>ok</body></html>`);
   });
   t.after(() => server.close());
   const port = await listen(server);
@@ -631,26 +607,35 @@ test("validates Product, Article, and Organization JSON-LD against required prop
       timeout: 5_000,
     });
     const summary = await crawler.start(`http://127.0.0.1:${port}${path}`);
-    return summary.results[0];
+    const result = summary.results[0];
+    const rules = summary.findings
+      .filter((f) => f.ruleId.startsWith("schema-"))
+      .map((f) => `${f.ruleId}: ${f.detail}`);
+    return { result, rules };
   }
 
-  const productIncomplete = await crawlOne("/product-incomplete");
-  assert.ok(productIncomplete.schemaErrors.some((e) => e.includes("missing the required name")));
-  assert.ok(productIncomplete.schemaErrors.some((e) => e.includes("offers, review, or aggregateRating")));
+  const incomplete = await crawlOne("/product-incomplete");
+  assert.deepEqual(incomplete.rules, [
+    "schema-required-missing: Product (JSON-LD) is missing name, which Google requires for product results.",
+    "schema-required-missing: Product (JSON-LD) needs offers, review or aggregateRating for Google to show product results.",
+    "schema-recommended-missing: Product (JSON-LD) is missing image, which Google recommends for product results.",
+  ]);
 
-  const productComplete = await crawlOne("/product-complete");
-  assert.equal(productComplete.schemaErrors.length, 0);
+  const complete = await crawlOne("/product-complete");
+  assert.deepEqual(complete.result.schemaProblems, []);
+  assert.deepEqual(complete.result.schemaTypes, ["Product", "Offer"]);
 
-  const articleIncomplete = await crawlOne("/article-incomplete");
-  assert.ok(articleIncomplete.schemaErrors.some((e) => e.includes("missing the required image")));
-  assert.ok(articleIncomplete.schemaErrors.some((e) => e.includes("missing the required datePublished")));
-  assert.ok(
-    !articleIncomplete.schemaErrors.some((e) => e.includes("headline")),
-    "headline was present, should not be flagged",
-  );
-
-  const orgIncomplete = await crawlOne("/org-incomplete");
-  assert.ok(orgIncomplete.schemaErrors.some((e) => e.includes("Organization is missing the required name")));
+  // An article's image and date are recommended by Google, not required.
+  assert.deepEqual((await crawlOne("/article-incomplete")).rules, [
+    "schema-recommended-missing: BlogPosting (JSON-LD) is missing image, datePublished and author, which Google recommends for article results.",
+  ]);
+  assert.deepEqual((await crawlOne("/org-typo")).rules, [
+    'schema-error: Organisation (JSON-LD): "Organisation" is not a schema.org type (did you mean "Organization"?).',
+  ]);
+  // Microdata, and a local business that is not a dentist.
+  assert.deepEqual((await crawlOne("/plumber-microdata")).rules, [
+    "schema-required-missing: Plumber (microdata) is missing address, which Google requires for local business details.",
+  ]);
 });
 
 test("extracts the viewport meta tag's content", async (t) => {
@@ -2227,7 +2212,7 @@ test("excludes inert template contents while retaining declarative shadow conten
     /INERT_TEMPLATE_TEXT_MUST_NOT_ENTER_CONTENT/,
   );
   assert.match(result.contentSample, /Declarative shadow content remains analyzable/);
-  assert.deepEqual(result.schemaErrors, []);
+  assert.deepEqual(result.schemaProblems, []);
   assert.deepEqual(result.openGraphMissing, []);
   assert.equal(result.ogUrl, "https://secure.test/live-base/canonical");
 
