@@ -1103,6 +1103,36 @@
     "detection": "Automatic"
   },
   {
+    "id": "cwv-lcp-poor",
+    "title": "Poor Largest Contentful Paint (Core Web Vitals)",
+    "description": "The page's main content takes too long to appear: Largest Contentful Paint is in Google's \"poor\" range (over 4 seconds for real users at the 75th percentile, from PageSpeed Insights). LCP is one of the Core Web Vitals Google uses in ranking, and slow pages lose visitors before they read anything.",
+    "recommendation": "Serve the main image or text block early: make the server respond faster, preload the LCP image and give it a size, avoid lazy-loading it, and remove render-blocking CSS and JavaScript ahead of it. PageSpeed Insights lists the biggest savings for the page.",
+    "category": "Performance",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Connected data required"
+  },
+  {
+    "id": "cwv-inp-poor",
+    "title": "Poor Interaction to Next Paint (Core Web Vitals)",
+    "description": "The page reacts slowly when real users click, tap or type: Interaction to Next Paint is in Google's \"poor\" range (over 500 ms at the 75th percentile). INP is one of the Core Web Vitals Google uses in ranking.",
+    "recommendation": "Break up long JavaScript tasks, defer scripts that are not needed for the first interaction (third-party tags especially), and keep event handlers short, moving heavy work off the main thread.",
+    "category": "Performance",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Connected data required"
+  },
+  {
+    "id": "cwv-cls-poor",
+    "title": "Poor Cumulative Layout Shift (Core Web Vitals)",
+    "description": "Content on the page moves while it loads: Cumulative Layout Shift is in Google's \"poor\" range (over 0.25). Visitors lose their place or click the wrong thing, and CLS is one of the Core Web Vitals Google uses in ranking.",
+    "recommendation": "Give images, videos, embeds and ad slots their dimensions in the HTML, reserve space for anything injected later (banners, consent notices), and load web fonts so they do not reflow the text.",
+    "category": "Performance",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Connected data required"
+  },
+  {
     "id": "html-too-large",
     "title": "Large HTML page size",
     "description": "The page's HTML is over 2 MB before compression. Crawlers may stop reading large documents before the end, and every visitor downloads and parses all of it before the page is usable.",

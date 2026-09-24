@@ -122,13 +122,33 @@ function ruleOrder(findings, results, { startUrl = "" } = {}) {
     };
   });
 
-  rows.sort((a, b) =>
-    (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9) ||
+  rows.sort(compareRows);
+  return rows.map((row, index) => ({ ...row, rank: index + 1 }));
+}
+
+function compareRows(a, b) {
+  return (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9) ||
     Number(b.siteWide) - Number(a.siteWide) ||
     b.importance - a.importance ||
     b.count - a.count ||
-    String(a.ruleId).localeCompare(String(b.ruleId)));
-  return rows.map((row, index) => ({ ...row, rank: index + 1 }));
+    String(a.ruleId).localeCompare(String(b.ruleId));
+}
+
+/**
+ * A stored ordering with some rules' rows replaced — for findings added to a
+ * run after it was analysed (Core Web Vitals from PageSpeed Insights) — and
+ * re-ranked by the same rules, so they take their place instead of trailing.
+ *
+ * @param {object[]|null} order  the run's stored ordering
+ * @param {string[]} ruleIds     the rules being replaced
+ * @param {object[]} rows        ruleOrder() rows for those rules' new findings
+ */
+function mergeRuleOrder(order, ruleIds, rows) {
+  const replaced = new Set(ruleIds);
+  const kept = (order || []).filter((row) => !replaced.has(row.ruleId));
+  return [...kept, ...rows.filter((row) => replaced.has(row.ruleId))]
+    .sort(compareRows)
+    .map((row, index) => ({ ...row, rank: index + 1 }));
 }
 
 // A rule's place in an ordering, for sorting things keyed by rule; rules the
@@ -138,4 +158,4 @@ function rankLookup(order) {
   return (ruleId) => ranks.get(ruleId) ?? Number.MAX_SAFE_INTEGER;
 }
 
-module.exports = { ruleOrder, pageWeight, rankLookup };
+module.exports = { ruleOrder, mergeRuleOrder, pageWeight, rankLookup };

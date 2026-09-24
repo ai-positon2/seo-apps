@@ -57,6 +57,7 @@ const report = require("../run/report");
 const repo = require("../db/repo");
 const catalog = require("../issue-catalog.json");
 const { getPageSpeedForAllDomains } = require("../../../services/pageSpeedCA");
+const { refreshPageSpeedFindings } = require("../run/pagespeed-findings");
 
 const router = express.Router();
 
@@ -258,6 +259,14 @@ router.post(
         if (!data) {
           setStatus({ status: "error", error: "No crawled result stored for that URL in this run.", finishedAt: Date.now() });
           return;
+        }
+        // The result becomes (or clears) the page's Core Web Vitals findings.
+        // The check itself succeeded either way, so a failure here is logged
+        // rather than reported as a failed check.
+        try {
+          await refreshPageSpeedFindings(db, run.id);
+        } catch (err) {
+          console.error(`[crawl ${run.id}] Core Web Vitals findings not stored:`, err.message);
         }
         setStatus({ status: "done", error: null, finishedAt: Date.now(), pagespeed: data.pagespeed });
       } catch (err) {

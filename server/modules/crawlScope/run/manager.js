@@ -9,6 +9,8 @@
 
 const { SeoCrawler } = require("../crawler");
 const { compareRuns, carriedReviews } = require("./comparison");
+const { aggregateFindings, severityCounts } = require("./finding-rollup");
+const { refreshPageSpeedFindings, CWV_RULES } = require("./pagespeed-findings");
 const { createFetch } = require("../net/egress");
 const { parseCrawlRequest } = require("../shared/options");
 const repo = require("../db/repo");
@@ -88,6 +90,8 @@ async function samplePageSpeed(db, run, summary) {
         auto: true,
       });
     }
+    // The results become Core Web Vitals findings on the run.
+    await refreshPageSpeedFindings(db, run.id);
   });
 }
 
@@ -177,34 +181,6 @@ function priorFromRows(rows) {
     }
   }
   return { storedUrls, results, linkEdges, resourceEdges, pagesWithoutEdges };
-}
-
-function aggregateFindings(findings, owner, runId) {
-  const map = new Map();
-  for (const f of findings) {
-    const cur =
-      map.get(f.ruleId) ||
-      {
-        run_id: runId,
-        owner,
-        rule_id: f.ruleId,
-        severity: f.severity,
-        category: f.category,
-        count: 0,
-        detail: { title: f.title },
-      };
-    cur.count += 1;
-    map.set(f.ruleId, cur);
-  }
-  return [...map.values()];
-}
-
-function severityCounts(findings) {
-  const counts = { error: 0, warning: 0, notice: 0, info: 0 };
-  for (const f of findings) {
-    counts[f.severity] = (counts[f.severity] || 0) + 1;
-  }
-  return counts;
 }
 
 class RunManager {
@@ -613,7 +589,12 @@ class RunManager {
             comparison = {
               previousRunId: previous.id,
               previousFinishedAt: previous.finished_at || null,
-              ...compareRuns(findings, previousFindings),
+              // Core Web Vitals findings are left out: they are added after
+              // this, from PageSpeed Insights (run/pagespeed-findings.js), so
+              // every one the last crawl had would read as fixed. And which
+              // pages PageSpeed checks changes from crawl to crawl, so "new"
+              // would often mean "checked for the first time".
+              ...compareRuns(findings, previousFindings.filter((f) => !CWV_RULES.includes(f.ruleId))),
               carriedReviews: await repo.insertCarriedReviews(
                 db,
                 run.id,
@@ -767,6 +748,16 @@ class RunManager {
           ? { error: `${lostRows} crawled pages could not be stored; the report is incomplete.` }
           : {}),
       });
+
+      // Pages checked with PageSpeed Insights while the crawl ran (from the
+      // report, one page at a time) become Core Web Vitals findings now that
+      // the run's findings exist to add them to. Non-fatal, as the rest of
+      // this enrichment is: the crawl stands without them.
+      try {
+        await refreshPageSpeedFindings(db, run.id);
+      } catch (error) {
+        console.error(`[crawl ${run.id}] Core Web Vitals findings not stored:`, error.message);
+      }
 
       // The project's page inventory follows its crawl. Done here, at the moment
       // the run becomes readable, so a page list is never stale relative to the

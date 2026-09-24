@@ -101,6 +101,8 @@ const SUITES = [
   'modules/crawlScope/__dbtests__/findingsCap.test.js',
   'modules/crawlScope/__dbtests__/resume.test.js',
   'modules/crawlScope/__dbtests__/comparison.test.js',
+  // PageSpeed Insights results become Core Web Vitals findings on the run.
+  'modules/crawlScope/__dbtests__/pagespeedFindings.test.js',
 ];
 
 // The crawlScope suite runs through its own script, which picks the right

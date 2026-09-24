@@ -1,11 +1,12 @@
 {
   "_meta": {
-    "total": 123,
-    "severity_counts": { "error": 28, "warning": 56, "notice": 39 },
+    "total": 126,
+    "severity_counts": { "error": 28, "warning": 59, "notice": 39 },
     "eval_class": {
       "crawl": "Fully derivable from a single crawl. A no-fire here must be justified by proving the site condition is absent.",
       "external_gsc": "Needs Search Console. Structurally silent without a connected data source.",
       "external_analytics": "Needs analytics / rank-tracking data. Structurally silent without a connected data source.",
+      "external_pagespeed": "Needs PageSpeed Insights results, which arrive after the crawl (the CRAWLSCOPE_AUTO_PAGESPEED sample, or a page checked from the report). Structurally silent when PageSpeed was not run.",
       "delta": "Needs a previous crawl of the same domain to diff against. Silent on first crawl.",
       "model": "Needs a classifier / model pass over page text, not crawl data alone.",
       "action": "Performs or reports on an outbound submission, not a page-state detection."
@@ -151,12 +152,15 @@
   },
 
   "performance": {
-    "asset-uncached":     { "sev": "warning", "class": "crawl", "rarity": "common" },
-    "asset-uncompressed": { "sev": "warning", "class": "crawl", "rarity": "common" },
-    "asset-unminified":   { "sev": "warning", "class": "crawl", "rarity": "common" },
-    "slow-page":          { "sev": "warning", "class": "crawl", "rarity": "common" },
-    "html-too-large":     { "sev": "warning", "class": "crawl", "rarity": "rare" },
-    "html-uncompressed":  { "sev": "warning", "class": "crawl", "rarity": "occasional" }
+    "asset-uncached":     { "sev": "warning", "class": "crawl",              "rarity": "common" },
+    "asset-uncompressed": { "sev": "warning", "class": "crawl",              "rarity": "common" },
+    "asset-unminified":   { "sev": "warning", "class": "crawl",              "rarity": "common" },
+    "slow-page":          { "sev": "warning", "class": "crawl",              "rarity": "common" },
+    "html-too-large":     { "sev": "warning", "class": "crawl",              "rarity": "rare" },
+    "html-uncompressed":  { "sev": "warning", "class": "crawl",              "rarity": "occasional" },
+    "cwv-cls-poor":       { "sev": "warning", "class": "external_pagespeed", "rarity": "occasional" },
+    "cwv-inp-poor":       { "sev": "warning", "class": "external_pagespeed", "rarity": "occasional" },
+    "cwv-lcp-poor":       { "sev": "warning", "class": "external_pagespeed", "rarity": "common" }
   },
 
   "structured_data": {

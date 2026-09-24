@@ -1227,6 +1227,61 @@ function buildIntegrations(results) {
   };
 }
 
+// One finding, in the shape every reader of findings expects: the stored
+// instances, the report, the workbook, the email. buildFindings makes all of a
+// crawl's with it, and anything that adds findings to a stored run later (Core
+// Web Vitals from PageSpeed Insights, run/pagespeed-findings.js) uses it too,
+// so those cannot drift from the rest. null for a rule the catalog does not have.
+function findingFor(ruleId, source = {}, extra = {}, { startUrl = "" } = {}) {
+  const definition = catalogById.get(ruleId);
+  if (!definition) return null;
+  const url = extra.url || source.url || startUrl;
+  const targetUrl = extra.targetUrl || "";
+  const detail = extra.detail || "";
+  return {
+    id: findingId(ruleId, url, targetUrl, detail),
+    issueKey: issueKeyOf(ruleId, url, targetUrl),
+    ruleId,
+    // The crawler stops reading at MAX_BODY_BYTES and records bodyTruncated
+    // on the result. Without carrying it here, a count measured on the first
+    // 5MB of a 14.4MB document is published as though it were complete —
+    // iana.org's /domains/idn-tables reported 3,830 nameless anchors against
+    // an actual 11,113. The cap is correct; the silence about it was not.
+    ...(source && source.bodyTruncated ? { sourceTruncated: true } : {}),
+    // The response refused the crawler: listed, not counted in Site Health,
+    // and never grouped as a template-wide defect.
+    ...(extra.crawlRefused ? { crawlRefused: true } : {}),
+    title: definition.title,
+    description: definition.description,
+    recommendation: extra.recommendation || definition.recommendation,
+    severity: definition.severity,
+    priority: definition.priority,
+    category: definition.category,
+    // 'site' | 'template' | 'page' | 'resource' — a page×check matrix can't
+    // represent a whole-site finding (sitemap/robots config, HSTS, llms.txt)
+    // without either double-counting it per host or dropping it. Defaults
+    // to 'page' for the catalog entries that genuinely are about one page;
+    // only the real exceptions carry an explicit value, or a finding does
+    // (a Core Web Vitals result measured for the whole origin).
+    scope: extra.scope || definition.scope || "page",
+    detection: definition.detection,
+    url,
+    targetUrl,
+    detail,
+    statusCode: extra.statusCode ?? source.status ?? 0,
+    detectedValue: extra.detectedValue ?? "",
+    recommendedValue: extra.recommendedValue ?? "",
+    // Raw evidence for root-cause grouping's "missing-property" family —
+    // separate from detectedValue because that column is a display
+    // string (bulleted, human-facing) that isn't safe to re-parse as a
+    // grouping key. Empty for every other rule.
+    evidenceKey: extra.evidenceKey ?? "",
+    reviewStatus: "Needs review",
+    reviewerNotes: "",
+    automated: definition.detection === "Automatic",
+  };
+}
+
 // ── Coverage ─────────────────────────────────────────────────────────────────
 // A check that did not run produces no findings, and no findings read as
 // "passed": a crawl stopped at its page limit showed orphan pages as clean, and
@@ -1478,55 +1533,10 @@ function buildFindings({
   );
 
   const add = (ruleId, source = {}, extra = {}) => {
-    const definition = catalogById.get(ruleId);
-    if (!definition) return;
-    const url = extra.url || source.url || startUrl;
-    const targetUrl = extra.targetUrl || "";
-    const detail = extra.detail || "";
-    const id = findingId(ruleId, url, targetUrl, detail);
-    if (findingIds.has(id)) return;
-    findingIds.add(id);
-    findings.push({
-      id,
-      issueKey: issueKeyOf(ruleId, url, targetUrl),
-      ruleId,
-      // The crawler stops reading at MAX_BODY_BYTES and records bodyTruncated
-      // on the result. Without carrying it here, a count measured on the first
-      // 5MB of a 14.4MB document is published as though it were complete —
-      // iana.org's /domains/idn-tables reported 3,830 nameless anchors against
-      // an actual 11,113. The cap is correct; the silence about it was not.
-      ...(source && source.bodyTruncated ? { sourceTruncated: true } : {}),
-      // The response refused the crawler: listed, not counted in Site Health,
-      // and never grouped as a template-wide defect.
-      ...(extra.crawlRefused ? { crawlRefused: true } : {}),
-      title: definition.title,
-      description: definition.description,
-      recommendation: extra.recommendation || definition.recommendation,
-      severity: definition.severity,
-      priority: definition.priority,
-      category: definition.category,
-      // 'site' | 'template' | 'page' | 'resource' — a page×check matrix can't
-      // represent a whole-site finding (sitemap/robots config, HSTS, llms.txt)
-      // without either double-counting it per host or dropping it. Defaults
-      // to 'page' for the ~86 catalog entries that genuinely are about one
-      // page; only the handful of real exceptions carry an explicit value.
-      scope: definition.scope || "page",
-      detection: definition.detection,
-      url,
-      targetUrl,
-      detail,
-      statusCode: extra.statusCode ?? source.status ?? 0,
-      detectedValue: extra.detectedValue ?? "",
-      recommendedValue: extra.recommendedValue ?? "",
-      // Raw evidence for root-cause grouping's "missing-property" family —
-      // separate from detectedValue because that column is a display
-      // string (bulleted, human-facing) that isn't safe to re-parse as a
-      // grouping key. Empty for every other rule.
-      evidenceKey: extra.evidenceKey ?? "",
-      reviewStatus: "Needs review",
-      reviewerNotes: "",
-      automated: definition.detection === "Automatic",
-    });
+    const finding = findingFor(ruleId, source, extra, { startUrl });
+    if (!finding || findingIds.has(finding.id)) return;
+    findingIds.add(finding.id);
+    findings.push(finding);
   };
 
   // Sitemap entries keyed by the URL the crawler fetched them under, so an
@@ -3110,6 +3120,7 @@ function buildFindings({
 
 module.exports = {
   buildFindings,
+  findingFor,
   issueKeyOf,
   catalog,
   evidenceSignature,

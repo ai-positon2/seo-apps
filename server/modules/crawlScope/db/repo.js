@@ -761,6 +761,81 @@ async function insertRunFindingInstances(client, runId, owner, findings) {
   return written;
 }
 
+// ── Findings added to a stored run ──────────────────────────────────────────
+// Core Web Vitals findings come from PageSpeed Insights, which runs after a
+// crawl is analysed (run/pagespeed-findings.js). These are the reads and the
+// write that replace them; the caller runs them in one transaction.
+
+// The run row, locked until the transaction ends, so two PageSpeed results
+// landing together recompute one after the other instead of over each other.
+async function lockRun(client, runId) {
+  return client.maybeOne(`select * from crawl_runs where id = $1 for update`, [runId]);
+}
+
+// Every page of the run with a stored PageSpeed Insights result: per URL, the
+// row updateResultPagespeed writes to (the first one stored for it). Only the
+// parts the findings are made from, not each result's list of fixes, since a
+// whole-site sample can store thousands.
+async function listRunPageSpeed(client, runId) {
+  return client.rows(
+    `select distinct on (url) url,
+            jsonb_build_object(
+              'dataUnavailable', data#>'{pagespeed,dataUnavailable}',
+              'mobile', jsonb_build_object(
+                'lcpMs', data#>'{pagespeed,mobile,lcpMs}',
+                'cls', data#>'{pagespeed,mobile,cls}',
+                'field', data#>'{pagespeed,mobile,field}'),
+              'desktop', jsonb_build_object('field', data#>'{pagespeed,desktop,field}')
+            ) as pagespeed
+       from crawl_run_results
+      where run_id = $1 and data ? 'pagespeed'
+      order by url, id asc`,
+    [runId],
+  );
+}
+
+// What rule-order.js weighs a page by, and what makes it a page PageSpeed
+// Insights can check, for every page of the run.
+// Numbers and flags are read only when they are one, so an odd stored value is
+// missing rather than an error.
+async function listRunPageFacts(client, runId) {
+  const number = (key) =>
+    `case when jsonb_typeof(data->'${key}') = 'number' then (data->>'${key}')::numeric::int end`;
+  return client.rows(
+    `select url,
+            data->>'scope' as scope,
+            ${number("status")} as status,
+            data->>'contentType' as "contentType",
+            data->>'indexability' as indexability,
+            coalesce(data->'isAsset' = 'true'::jsonb, false) as "isAsset",
+            coalesce(data->'crawlRefused' = 'true'::jsonb, false) as "crawlRefused",
+            ${number("inlinks")} as inlinks,
+            ${number("followInlinks")} as "followInlinks",
+            ${number("clickDepth")} as "clickDepth"
+       from crawl_run_results
+      where run_id = $1`,
+    [runId],
+  );
+}
+
+// Replaces some rules' findings on a stored run, instances and rollup rows.
+// Returns the rollup rows it removed, for the caller to take out of the run's
+// counts.
+async function replaceRuleFindings(client, runId, owner, ruleIds, findings, rollup) {
+  await client.query(
+    `delete from crawl_run_finding_instances where run_id = $1 and rule_id = any($2::text[])`,
+    [runId, ruleIds],
+  );
+  const removed = await client.rows(
+    `delete from crawl_run_findings where run_id = $1 and rule_id = any($2::text[])
+     returning rule_id, severity, count`,
+    [runId, ruleIds],
+  );
+  await insertRunFindingInstances(client, runId, owner, findings);
+  await insertFindings(client, rollup);
+  return removed;
+}
+
 // The per-RULE rollup, which aggregateFindings() already writes on every
 // completed run: one row per ruleId carrying a count. 18 rows for a crawl whose
 // instance table holds 7,298.
@@ -1187,6 +1262,10 @@ module.exports = {
   readControlRequest,
   clearControlRequest,
   insertRunFindingInstances,
+  lockRun,
+  listRunPageSpeed,
+  listRunPageFacts,
+  replaceRuleFindings,
   listAllRunFindingInstances,
   listRunFindingRollup,
   listRunFindingInstancesPage,
