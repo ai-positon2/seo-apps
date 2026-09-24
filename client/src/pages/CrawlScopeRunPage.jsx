@@ -45,9 +45,10 @@ import UrlsTable from '../components/crawlScope/report/UrlsTable';
 import IssueDetail from '../components/crawlScope/report/IssueDetail';
 import UrlDetail from '../components/crawlScope/report/UrlDetail';
 import {
-  healthMetrics, issueGroups, siteScopedGroups, healthScoreBreakdown,
+  healthMetrics, issueGroups, siteScopedGroups, healthScoreBreakdown, pageIssueCards, crawlCoverageNotice,
+  crawlComparison, reviewBatches, orderIssueGroups,
   runStatusVariant, formatDuration, TERMINAL_STATUSES, withEffectiveIssues,
-  buildCountHierarchy, SEVERITY_ORDER, isHtmlPage,
+  buildCountHierarchy, isHtmlPage,
 } from '../components/crawlScope/crawlHelpers';
 import { cs, saveBlob } from '../lib/crawlScopeApi';
 
@@ -85,7 +86,15 @@ export default function CrawlScopeRunPage() {
   const [run, setRun] = useState(null);
   const [results, setResults] = useState([]);
   const [findings, setFindings] = useState([]);
-  // Whether the AUDIT — the 96-rule finding set — has actually been loaded.
+  // { shown, total } when the run holds more findings than one read returns
+  // (the server's 50,000 cap), else null.
+  const [findingsCap, setFindingsCap] = useState(null);
+  const takeFindings = (response) => {
+    const list = response?.findings || [];
+    setFindings(list);
+    setFindingsCap(response?.capped ? { shown: list.length, total: Number(response.total) || list.length } : null);
+  };
+  // Whether the AUDIT — the full rule catalog's finding set — has actually been loaded.
   //
   // Tracked separately from `findings` because an empty array is ambiguous and
   // the two meanings are opposites: "this crawl found nothing" and "I could not
@@ -150,7 +159,7 @@ export default function CrawlScopeRunPage() {
           try {
             const f = await cs.findings(id);
             if (!cancelled) {
-              setFindings(f.findings || []);
+              takeFindings(f);
               setFindingsState('ready');
             }
           } catch (e) {
@@ -225,7 +234,7 @@ export default function CrawlScopeRunPage() {
       // then silently fell back to the crawler's live checks.
       setFindingsState('loading');
       cs.findings(id)
-        .then((f) => { setFindings(f.findings || []); setFindingsState('ready'); })
+        .then((f) => { takeFindings(f); setFindingsState('ready'); })
         .catch((e) => { setFindingsState('error'); setFindingsError(e.message); });
       source.close();
     });
@@ -304,17 +313,16 @@ export default function CrawlScopeRunPage() {
   // `count` and `pages` are attached because the views display both and they
   // are different quantities: one page can trip the same check twice, so
   // occurrences and affected pages diverge.
+  // In the run's own order (orderIssueGroups): the one the workbook and the
+  // email use, with a reason per rule.
   const groups = useMemo(() => {
     const merged = [...pageGroups, ...siteGroups].map((g) => ({
       ...g,
       count: g.urls.length,
       pages: new Set(g.urls).size,
     }));
-    return merged.sort((a, b) => {
-      const bySeverity = SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity);
-      return bySeverity !== 0 ? bySeverity : b.pages - a.pages;
-    });
-  }, [pageGroups, siteGroups]);
+    return orderIssueGroups(merged, run?.summary?.ruleOrder);
+  }, [pageGroups, siteGroups, run?.summary?.ruleOrder]);
 
   const findingsByRule = useMemo(() => {
     const map = new Map();
@@ -330,6 +338,15 @@ export default function CrawlScopeRunPage() {
     () => new Map(effectivePages.map((p) => [p.url, p.title])),
     [effectivePages],
   );
+
+  // How many pages each rule is on, for a page's "see all N pages" link. A rule
+  // split across page and template scope appears as two groups; the larger
+  // count is the one the link opens.
+  const pagesByRule = useMemo(() => {
+    const map = new Map();
+    for (const g of groups) map.set(g.id, Math.max(map.get(g.id) || 0, g.pages || 0));
+    return map;
+  }, [groups]);
 
   const shownGroups = useMemo(() => {
     if (tab === 'all') return groups;
@@ -375,7 +392,7 @@ export default function CrawlScopeRunPage() {
 
   // ── While a crawl is running, these counts are NOT the audit ─────────────
   //
-  // The 96-rule analyzer catalog runs once, when the crawl reaches a terminal
+  // The analyzer's rule catalog runs once, when the crawl reaches a terminal
   // state, and `findings` is empty until then. So withEffectiveIssues() returns
   // the pages unchanged and issueGroups() groups each page's crawl-time
   // quickIssues() instead — about a dozen cheap checks on status code,
@@ -439,32 +456,12 @@ export default function CrawlScopeRunPage() {
   // That is the difference between "your site scores 88" and "the 200 pages we
   // reached score 88". A crawl stopped at its page budget scores whatever part
   // it saw, and nothing on the page said so.
-  const coverage = useMemo(() => {
-    const sum = run?.summary;
-    const limit = Number(run?.options?.maxUrls);
-    const depthCap = Number(run?.options?.maxDepth);
-    const reasons = [];
-    if (sum?.truncated) {
-      reasons.push(Number.isFinite(limit) && limit > 0
-        ? `it reached its budget of ${limit.toLocaleString('en-US')} pages`
-        : 'it reached its page budget');
-    }
-    if (sum?.depthLimited) {
-      reasons.push(Number.isFinite(depthCap) && depthCap > 0
-        ? `pages deeper than ${depthCap} clicks from the homepage were not followed`
-        : 'pages past the depth limit were not followed');
-    }
-    if (sum?.edgesTruncated) reasons.push('the internal link graph hit its size limit');
-    if (sum?.trapTemplates?.length) {
-      reasons.push(`${sum.trapTemplates.length} URL pattern`
-        + `${sum.trapTemplates.length === 1 ? ' was' : 's were'} capped as a crawler trap`);
-    }
-    return {
-      limit: Number.isFinite(limit) && limit > 0 ? limit : null,
-      partial: reasons.length > 0,
-      reasons,
-    };
-  }, [run?.summary, run?.options?.maxUrls, run?.options?.maxDepth]);
+  // What changed since the previous crawl of the site, when there was one.
+  const comparison = useMemo(() => crawlComparison(run), [run?.summary]);
+  const coverage = useMemo(
+    () => crawlCoverageNotice(run, catalogById),
+    [run?.summary, run?.status, run?.options?.maxUrls, run?.options?.maxDepth, catalogById],
+  );
 
   // ── Does this page show everything the analyser found? ───────────────────
   //
@@ -513,11 +510,14 @@ export default function CrawlScopeRunPage() {
       rows, analyser, shown, dismissed: 0,
       stored: findings.length, storedCount: findings.length, byScope,
       agrees: analyser === shown,
+      // Short by design, not by loss: the run holds more findings than one
+      // read returns.
+      capped: findingsCap,
       // The audit ran and its output was not kept — the failure mode migration
       // 0023 exists to end. Kept as a check rather than assumed fixed.
       notStored: Boolean(analyser) && findings.length === 0,
     };
-  }, [run?.summary?.counts, findings, running, findingsState]);
+  }, [run?.summary?.counts, findings, findingsCap, running, findingsState]);
 
   // ── Actions ───────────────────────────────────────────────────────────────
   /**
@@ -604,6 +604,30 @@ export default function CrawlScopeRunPage() {
       setFindings((prev) => prev.map((f) => (
         f.id === findingId ? { ...f, reviewStatus: previous } : f)));
       toast.error(`Could not save that decision: ${e.message}`);
+    }
+  }, [findings, id, toast]);
+
+  /**
+   * One decision for many findings — every URL a filter shows — so triaging a
+   * rule that fired 800 times is one action rather than 800. Same shape as
+   * onReview: on screen first, and put back if the write fails.
+   */
+  const onBulkReview = useCallback(async (findingIds, reviewStatus) => {
+    if (!findingIds.length) return;
+    const chosen = new Set(findingIds);
+    const previous = new Map(findings.filter((f) => chosen.has(f.id)).map((f) => [f.id, f.reviewStatus || 'Needs review']));
+    setFindings((prev) => prev.map((f) => (chosen.has(f.id) ? { ...f, reviewStatus } : f)));
+    let saved = 0;
+    try {
+      for (const batch of reviewBatches(findingIds, reviewStatus)) {
+        await cs.saveReviews(id, batch);
+        saved += batch.length;
+      }
+    } catch (e) {
+      const unsaved = new Set(findingIds.slice(saved));
+      setFindings((prev) => prev.map((f) => (
+        unsaved.has(f.id) ? { ...f, reviewStatus: previous.get(f.id) } : f)));
+      toast.error(`Saved ${saved.toLocaleString()} of ${findingIds.length.toLocaleString()} decisions: ${e.message}`);
     }
   }, [findings, id, toast]);
 
@@ -857,7 +881,7 @@ export default function CrawlScopeRunPage() {
           </span>
           <span style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5 }}>
             The crawl itself finished and every page it fetched is listed under “All Pages”. What
-            failed is the finding set — the 96-rule audit — so no score, no issue list and no
+            failed is the finding set — the full audit — so no score, no issue list and no
             counts are shown: they would be computed from the crawler’s live status checks alone
             and would understate the site.
             {run?.summary?.counts && (
@@ -884,7 +908,7 @@ export default function CrawlScopeRunPage() {
                 setFindingsState('loading');
                 setFindingsError(null);
                 cs.findings(id)
-                  .then((f) => { setFindings(f.findings || []); setFindingsState('ready'); })
+                  .then((f) => { takeFindings(f); setFindingsState('ready'); })
                   .catch((e) => { setFindingsState('error'); setFindingsError(e.message); });
               }}
               style={{ height: 34, fontSize: 12.5, padding: '0 14px' }}
@@ -940,6 +964,7 @@ export default function CrawlScopeRunPage() {
             if (n) setOpenIssueId(n.id);
           }}
           onReview={onReview}
+          onBulkReview={onBulkReview}
           onExport={exportFindings}
         />
       )}
@@ -948,23 +973,7 @@ export default function CrawlScopeRunPage() {
       {openPage && (
         <UrlDetail
           page={openPage}
-          issues={findings
-            .filter((f) => f.url === openPage.url && (f.scope || 'page') === 'page')
-            .map((f) => {
-              const entry = catalogById.get(f.ruleId);
-              const group = groups.find((g) => g.id === f.ruleId);
-              return {
-                id: f.ruleId,
-                title: entry?.title || f.title || f.ruleId,
-                severity: f.severity,
-                detected: f.detail || (f.detectedValue !== undefined && f.detectedValue !== ''
-                  ? String(f.detectedValue)
-                  : null),
-                description: entry?.description || null,
-                recommendation: entry?.recommendation || null,
-                pages: group?.pages || 1,
-              };
-            })}
+          issues={pageIssueCards(findings, openPage.url, catalogById, pagesByRule)}
           onBack={() => setOpenUrl(null)}
           onOpenIssue={(ruleId) => setOpenIssueId(ruleId)}
         />
@@ -1000,6 +1009,7 @@ export default function CrawlScopeRunPage() {
               provisional={provisional}
               crawled={crawledSoFar}
               coverage={coverage}
+              comparison={comparison}
             />
           )}
 
@@ -1010,6 +1020,7 @@ export default function CrawlScopeRunPage() {
               onOpen={setOpenIssueId}
               provisional={provisional}
               crawled={crawledSoFar}
+              comparison={comparison}
             />
           )}
 

@@ -252,9 +252,10 @@ async function emailReport(db, { run, summary, counts }) {
   try {
     const workbook = await report.buildReportBuffer({
       findings,
-      notEvaluated: summary.notEvaluated || [],
       siteUrl: run.url,
       crawlDate: finishedAt,
+      coverage: summary.coverage || null,
+      ruleOrder: summary.ruleOrder || null,
     });
     const path = await report.storeReport(db, run, workbook);
     if (path) await repo.updateRun(db, run.id, { report_path: path });
@@ -264,6 +265,9 @@ async function emailReport(db, { run, summary, counts }) {
       run: { ...run, finished_at: finishedAt },
       counts,
       previousCounts,
+      // Computed by the run manager against the same previous crawl.
+      comparison: summary.comparison || null,
+      ruleOrder: summary.ruleOrder || null,
       findings,
       recipients,
       workbook,
@@ -333,7 +337,8 @@ async function runOne(manager, db, state, run, slot) {
   try {
     // execute() rethrows after marking the run failed, and the web service relies on
     // that, so the catch belongs here rather than inside the manager.
-    result = await manager.execute(run);
+    // Already claimed atomically by claimNextQueuedRun.
+    result = await manager.execute(run, { claimed: true });
   } catch (error) {
     failure = error;
   }

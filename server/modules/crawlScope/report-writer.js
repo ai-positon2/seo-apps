@@ -1,5 +1,6 @@
 const ExcelJS = require("exceljs");
 const { buildRootCauseGroups } = require("./analyzer");
+const { rankLookup } = require("./rule-order");
 
 const COLORS = {
   navy: "1F4E78",
@@ -296,6 +297,10 @@ function detailColumns(ruleId) {
     { key: "url", header: "Page URL", width: 54, type: "url" },
     { key: "target", header: "Target / Related URL", width: 48, type: "url" },
     { key: "value", header: "Detected Value", width: 40, type: "text" },
+    // What was observed, in words: the redirect path, the canonical's chain,
+    // the status the target answered. It used to stand in for the target URL
+    // only when there was none, so a finding with both lost its proof.
+    { key: "evidence", header: "Evidence", width: 56, type: "text" },
     { key: "code", header: "HTTP Code", width: 13, type: "code" },
     { key: "recommendation", header: "Recommendations", width: 62, type: "text" },
     { key: "status", header: "SEO Status", width: 22, type: "status" },
@@ -308,14 +313,28 @@ function detailColumns(ruleId) {
   return ruleId === "slow-page" ? columns.filter((c) => c.key !== "target") : columns;
 }
 
+const ABSENT_VALUES = new Set(["(none)", "(absent)"]);
+
 function cellValueFor(key, finding) {
   switch (key) {
     case "url":
       return finding.url;
     case "target":
-      return finding.targetUrl || finding.detail || null;
+      return finding.targetUrl || null;
     case "value":
       return valueOrNull(finding.detectedValue);
+    case "evidence": {
+      // Not repeated when it says exactly what Detected Value already does.
+      const detail = finding.detail && finding.detail !== String(finding.detectedValue ?? "")
+        ? finding.detail
+        : "";
+      // The crawler reads the first 5 MB of a page; a count taken on a larger
+      // one is a floor, and says so.
+      const note = finding.sourceTruncated
+        ? "(Counted on the first 5 MB of the page, which is larger; the true figure may be higher.)"
+        : "";
+      return [detail, note].filter(Boolean).join(" ") || null;
+    }
     case "code":
       return valueOrNull(finding.statusCode) || null;
     case "recommendation":
@@ -325,8 +344,11 @@ function cellValueFor(key, finding) {
     case "recommended":
       return valueOrNull(finding.recommendedValue);
     case "currentLength": {
+      // "(absent)" and "(none)" say there is no value; their own 8 characters
+      // are not a length the page has.
       const v = finding.detectedValue;
-      return typeof v === "string" && v !== "(none)" ? v.length : null;
+      if (typeof v !== "string") return null;
+      return ABSENT_VALUES.has(v) ? 0 : v.length;
     }
     case "recommendedLength":
       return TARGET_LENGTH_RANGES[finding.ruleId] ?? null;
@@ -567,7 +589,7 @@ function addDetailSheet(workbook, definition, findings, sheetName, displayTitle 
 // external links to 43 different domains correctly stay 43 rows. This is
 // the sheet a reviewer should start on; the per-rule detail sheets that
 // follow are the occurrence-level backing data for whichever row they open.
-function addConsolidatedActionsSheet(workbook, { findings, sheetPlan, findingScope }) {
+function addConsolidatedActionsSheet(workbook, { findings, sheetPlan, findingScope, rankOf = () => 0 }) {
   const rootCauseGroups = buildRootCauseGroups(findings);
   const findingsByGroupId = new Map();
   for (const finding of findings) {
@@ -601,6 +623,7 @@ function addConsolidatedActionsSheet(workbook, { findings, sheetPlan, findingSco
   rows.sort(
     (a, b) =>
       (priorityRank[a.group.priority] ?? 3) - (priorityRank[b.group.priority] ?? 3) ||
+      rankOf(a.group.ruleId) - rankOf(b.group.ruleId) ||
       b.group.memberCount - a.group.memberCount,
   );
 
@@ -709,11 +732,14 @@ function addConsolidatedActionsSheet(workbook, { findings, sheetPlan, findingSco
 async function buildAuditWorkbook({
   findings = [],
   catalog = [],
-  // [{ ruleId, reason }] from analyzer.notEvaluatedRules: checks this crawl
-  // could not run. Empty for runs stored before it existed.
-  notEvaluated = [],
   siteUrl = "",
   crawlDate = new Date().toISOString(),
+  // analyzer.js buildFindings().coverage: checks this crawl could not run, or
+  // ran on part of the site. Absent for runs analysed before it existed.
+  coverage = null,
+  // rule-order.js: the run's one ordering of its problems, with a reason per
+  // rule. Absent for older runs, which keep the count-based order.
+  ruleOrder = null,
 }) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "CrawlScope";
@@ -726,6 +752,8 @@ async function buildAuditWorkbook({
   workbook.description =
     "Editable technical SEO findings generated locally by CrawlScope.";
 
+  const rankOf = rankLookup(ruleOrder);
+  const reasonOf = new Map((ruleOrder || []).map((row) => [row.ruleId, row.reason]));
   const summary = workbook.addWorksheet("SUMMARY", {
     properties: { tabColor: { argb: COLORS.navy } },
   });
@@ -806,7 +834,7 @@ async function buildAuditWorkbook({
   // whatever findings actually went into this workbook — the same class of
   // "computed it, forgot to pass it through" bug that dropped
   // summary.integrations earlier this build doesn't have anywhere to hide.
-  addConsolidatedActionsSheet(workbook, { findings, sheetPlan, findingScope });
+  addConsolidatedActionsSheet(workbook, { findings, sheetPlan, findingScope, rankOf });
 
   for (const [key, group] of grouped) {
     const { definition, sheetName, sheetTitle } = sheetPlan.get(key);
@@ -845,6 +873,9 @@ async function buildAuditWorkbook({
       }))
       .sort(
         (a, b) =>
+          // The run's own order first (severity, site-wide, how much the
+          // affected pages matter), the same one the report and the email use.
+          rankOf(a.definition.id) - rankOf(b.definition.id) ||
           b.activeCount - a.activeCount ||
           a.definition.category.localeCompare(b.definition.category) ||
           a.definition.title.localeCompare(b.definition.title),
@@ -907,6 +938,8 @@ async function buildAuditWorkbook({
         definition.recommendation,
         priority,
       ]);
+      // Why it is where it is, on the issue's own cell.
+      if (reasonOf.get(definition.id)) row.getCell(2).note = `Ranked here: ${reasonOf.get(definition.id)}`;
       countRows.push(row.number);
       sequence += 1;
       const isZebra = indexInTier % 2 === 1;
@@ -1136,26 +1169,29 @@ async function buildAuditWorkbook({
   // resolved is not a live, outstanding issue, so it doesn't disqualify the
   // check. "Connected data required" checks (e.g. Search Console-backed
   // ones CrawlScope can't run alone) are excluded from both sides of the
-  // ratio — they were never actually checked, clean or not. So are the
-  // automatic checks this particular crawl could not run (`notEvaluated`: an
-  // inlink rule on a truncated crawl, an asset rule with no internal assets);
-  // those are listed at the end with the reason instead.
+  // ratio — they were never actually checked, clean or not.
   const cleanRuleIds = new Set(catalog.map((c) => c.id));
   for (const finding of findings) {
     if (!DISMISSED_STATUSES.has(finding.reviewStatus)) cleanRuleIds.delete(finding.ruleId);
   }
-  const notEvaluatedReason = new Map(notEvaluated.map((entry) => [entry.ruleId, entry.reason]));
-  const automaticCatalog = catalog.filter((c) => c.detection === "Automatic");
-  const automaticChecks = automaticCatalog.filter((c) => !notEvaluatedReason.has(c.id));
-  const skippedChecks = automaticCatalog.filter((c) => notEvaluatedReason.has(c.id));
+  //
+  // A check this crawl could not run (coverage.notEvaluated: orphans on a
+  // capped crawl, sitemap checks with sitemaps off, asset checks on a site
+  // that serves every asset from a CDN) produced no findings for
+  // want of trying, so it is on neither side of the ratio either: it is listed
+  // below the clean checks with the reason.
+  const notEvaluated = new Map((coverage?.notEvaluated || []).map((entry) => [entry.ruleId, entry.reason]));
+  const partlyChecked = new Map((coverage?.partial || []).map((entry) => [entry.ruleId, entry.reason]));
+  const automaticChecks = catalog.filter((c) => c.detection === "Automatic" && !notEvaluated.has(c.id));
   const cleanChecks = automaticChecks.filter((c) => cleanRuleIds.has(c.id));
+  const notEvaluatedChecks = catalog.filter((c) => c.detection === "Automatic" && notEvaluated.has(c.id));
 
   const passedSheet = workbook.addWorksheet("Checks Passed");
   passedSheet.views = [{ state: "frozen", ySplit: 2, showGridLines: false }];
   passedSheet.columns = [{ width: 34 }, { width: 22 }, { width: 68 }];
   const passedTitleRow = passedSheet.addRow([
     `${cleanChecks.length} of ${automaticChecks.length} automatic checks clean` +
-      (skippedChecks.length ? ` (${skippedChecks.length} not evaluated this run)` : ""),
+      (notEvaluatedChecks.length ? `; ${notEvaluatedChecks.length} not evaluated` : ""),
   ]);
   passedSheet.mergeCells(passedTitleRow.number, 1, passedTitleRow.number, 3);
   passedTitleRow.height = 24;
@@ -1169,10 +1205,10 @@ async function buildAuditWorkbook({
     applyGridBorder(cell);
   });
   passedSheet.getRow(2).height = 26;
-  cleanChecks.forEach((definition, index) => {
-    const row = passedSheet.addRow([definition.title, definition.category, definition.description]);
+  const addCheckRow = (definition, text, index) => {
+    const row = passedSheet.addRow([definition.title, definition.category, text]);
     const isZebra = index % 2 === 1;
-    row.height = rowHeightFromLines(estimateWrappedLines(definition.description, 68), {
+    row.height = rowHeightFromLines(estimateWrappedLines(text, 68), {
       lineHeight: 13,
       minHeight: 28,
     });
@@ -1182,24 +1218,27 @@ async function buildAuditWorkbook({
       if (isZebra) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.zebra } };
       applyGridBorder(cell);
     });
+  };
+  cleanChecks.forEach((definition, index) => {
+    // Clean as far as it went, and how far that was.
+    const limit = partlyChecked.get(definition.id);
+    addCheckRow(definition, limit ? `${definition.description} Partly checked: ${limit}` : definition.description, index);
   });
   if (cleanChecks.length) {
     passedSheet.autoFilter = `A2:C${passedSheet.lastRow.number}`;
   }
-  if (skippedChecks.length) {
+  if (notEvaluatedChecks.length) {
     passedSheet.addRow([]);
-    const skippedTitleRow = passedSheet.addRow(["Not evaluated this run"]);
-    passedSheet.mergeCells(skippedTitleRow.number, 1, skippedTitleRow.number, 3);
-    skippedTitleRow.getCell(1).font = { name: "Poppins", size: 11, bold: true, color: { argb: COLORS.navy } };
-    skippedChecks.forEach((definition) => {
-      const reason = `Not evaluated: ${notEvaluatedReason.get(definition.id)}`;
-      const row = passedSheet.addRow([definition.title, definition.category, reason]);
-      row.height = rowHeightFromLines(estimateWrappedLines(reason, 68), { lineHeight: 13, minHeight: 28 });
-      row.eachCell((cell) => {
-        cell.font = { name: "Poppins", size: 9, italic: true, color: { argb: COLORS.black } };
-        cell.alignment = { vertical: "top", horizontal: "left", wrapText: true };
-        applyGridBorder(cell);
-      });
+    const heading = passedSheet.addRow(["Not evaluated on this crawl", "Category", "Why"]);
+    heading.eachCell((cell) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.navy } };
+      cell.font = { name: "Poppins", size: 10, bold: true, color: { argb: COLORS.white } };
+      cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+      applyGridBorder(cell);
+    });
+    heading.height = 26;
+    notEvaluatedChecks.forEach((definition, index) => {
+      addCheckRow(definition, notEvaluated.get(definition.id), index);
     });
   }
 

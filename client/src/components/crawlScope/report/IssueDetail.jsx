@@ -3,7 +3,7 @@ import {
   Panel, Tile, Eyebrow, Chip, Pill, BackLink, OutlineButton, RuledHead,
   TableFrame, Th, Pager, SearchField, sevOf, REVIEW_TONE,
 } from './reportPrimitives';
-import { REVIEW_STATUSES } from '../crawlHelpers';
+import { REVIEW_STATUSES, findingEvidence, findingFix } from '../crawlHelpers';
 
 // ── One problem's own page ──────────────────────────────────────────────────
 //
@@ -37,11 +37,12 @@ const PAGE_SIZE = 25;
  * @param {Function} props.onBack
  * @param {Function} props.onOpenNext
  * @param {Function} props.onReview       (findingId, reviewStatus) => void
+ * @param {Function} [props.onBulkReview] (findingIds, reviewStatus) => void, for every URL the filters show
  * @param {Function} props.onExport       exports the listed URLs as CSV
  */
 export default function IssueDetail({
   group, entry, findings, titleByUrl, metrics, breakdown = [],
-  next, backLabel, onBack, onOpenNext, onReview, onExport,
+  next, backLabel, onBack, onOpenNext, onReview, onBulkReview = null, onExport,
 }) {
   const [review, setReview] = useState('all');
   const [query, setQuery] = useState('');
@@ -194,6 +195,25 @@ export default function IssueDetail({
               {r === 'all' ? 'All statuses' : r}
             </Pill>
           ))}
+          {/* Every URL the search and status filter show, not just this page
+              of the table. A false positive marked here also carries over to
+              the same issue on the next crawl of this site. */}
+          {onBulkReview && filtered.length > 1 && (
+            <select
+              value=""
+              aria-label={`Set the review of all ${filtered.length} URLs shown`}
+              onChange={(e) => {
+                if (e.target.value) onBulkReview(filtered.map((f) => f.id), e.target.value);
+              }}
+              style={{
+                fontSize: 12.5, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)',
+                background: 'var(--card)', color: 'var(--text)', fontFamily: 'var(--font-sans)',
+              }}
+            >
+              <option value="">{`Set all ${filtered.length.toLocaleString()} shown to…`}</option>
+              {REVIEW_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+            </select>
+          )}
         </div>
 
         <TableFrame>
@@ -255,10 +275,53 @@ export default function IssueDetail({
                       overflow: 'hidden', textOverflow: 'ellipsis',
                     }}
                   >
-                    {f.detail
-                      || (f.detectedValue !== undefined && f.detectedValue !== ''
-                        ? String(f.detectedValue)
-                        : '—')}
+                    {/* What it means, then what was found: the link text,
+                        every redirect hop, the title as written. */}
+                    {(() => {
+                      const { primary, secondary } = findingEvidence(f);
+                      return (
+                        <>
+                          {primary}
+                          {secondary && (
+                            <div
+                              style={{
+                                marginTop: 4, fontSize: 12, color: 'var(--text-3)',
+                                fontFamily: 'var(--font-mono)', wordBreak: 'break-word',
+                              }}
+                            >
+                              {secondary}
+                            </div>
+                          )}
+                          {f.sourceTruncated && (
+                            <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-3)' }}>
+                              Counted on the first 5 MB of the page, which is larger: the true
+                              figure may be higher.
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                    {/* The page-specific half of the fix: a suggested value
+                        (title, meta description, H1) and, for rules that build
+                        one from this page's evidence, advice naming its URLs.
+                        The card above carries the rule's general fix. */}
+                    {(() => {
+                      const { suggestion, fix } = findingFix(f, entry);
+                      return (
+                        <>
+                          {suggestion && (
+                            <div style={{ marginTop: 6, fontSize: 12.5, color: 'var(--text)' }}>
+                              <strong style={{ fontWeight: 600 }}>Suggested:</strong> {suggestion}
+                            </div>
+                          )}
+                          {fix && (
+                            <div style={{ marginTop: 6, fontSize: 12.5, color: 'var(--text)' }}>
+                              <strong style={{ fontWeight: 600 }}>Fix here:</strong> {fix}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </td>
                   <td style={{ padding: '12px 14px' }}>
                     <select

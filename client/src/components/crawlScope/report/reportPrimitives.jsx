@@ -289,7 +289,7 @@ const PagerButton = ({ disabled, onClick, children }) => (
  * Errors (0)", which is not a small inaccuracy: it told the reader their site
  * was clean when nothing had looked.
  *
- * So nothing is shown. The full 96-rule catalog runs once, at crawl
+ * So nothing is shown. The full rule catalog runs once, at crawl
  * completion, and until every rule has run over every page there is no partial
  * answer worth giving — a list that is 5% of the truth invites exactly the
  * wrong conclusion, and the live checks are visible per-page in All Pages
@@ -318,7 +318,7 @@ export const AnalyzingNotice = ({ crawled = null }) => (
       </span>
     </div>
     <span style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.55 }}>
-      The audit is 96 checks and runs over every page once the crawl reaches a terminal state.
+      The full audit runs over every page once the crawl reaches a terminal state.
       {crawled ? ` ${crawled.toLocaleString()} pages have been fetched so far.` : ''}
       {' '}
       Nothing is listed until all of it has run: a partial list would understate what is wrong,

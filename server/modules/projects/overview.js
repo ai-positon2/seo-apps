@@ -184,7 +184,7 @@ async function recentCrawlRuns(projectId, limit = 12) {
   try {
     data = await db.rows(
       `select id, status, error, trigger, created_at, started_at, finished_at,
-              progress, heartbeat_at,
+              progress, heartbeat_at, options,
               ${SUMMARY_KEYS.map((k) => `summary->'${k}' as "summary_${k}"`).join(', ')}
          from crawl_runs
         where project_id = $1
@@ -232,11 +232,14 @@ async function internalHtmlPageCount(runId) {
     //
     // Not showing an error on somebody else's page and then counting that page
     // as clean are the same mistake pointing in two directions.
+    // Pages that refused the crawler (bot protection, rate limiting) were not
+    // audited, so they are not pages the score can describe either way.
     return await db.count(
       `select count(*) from crawl_run_results
         where run_id = $1
           and content_type ilike '%text/html%'
-          and data->>'scope' = 'Internal'`,
+          and data->>'scope' = 'Internal'
+          and coalesce(data->>'crawlRefused', 'false') <> 'true'`,
       [runId]
     );
   } catch (error) {
@@ -252,21 +255,15 @@ async function internalHtmlPageCount(runId) {
 // and was crossing the wire 1,590 times per dashboard load to be dropped on
 // arrival.
 //
-// The two shapes exist because the two callers are nothing alike. siteHealth()
-// counts distinct affected pages per severity, so it reads two fields and only
-// two. The insight layer's crawlAdapter groups by rule and describes each one
-// from its first instance, so it needs the catalog text as well — and that text
-// (`recommendation` and `description`) is 43% of the payload, repeated
-// identically on every instance of a rule.
-//
-// Charging the dashboard for the insight layer's columns is what made the page
-// wait: on the live Palo Alto run the wide shape is 1,111KB and 1,205ms, the
-// narrow one 149KB and 488ms, for a score computed from severity and url.
+// The insight layer's crawlAdapter groups by rule and describes each one from
+// its first instance, so it needs the catalog text as well. siteHealth() does
+// not read instances at all any more: its distinct-page counts come from
+// healthAffectedPages(), a three-row aggregate, instead of a second projection
+// of this table (a two-field "light" shape used to exist just for it).
 const INSTANCE_KEYS = [
   'ruleId', 'url', 'title', 'severity', 'priority', 'category',
   'detectedValue', 'recommendedValue', 'recommendation', 'detail', 'description',
 ];
-const INSTANCE_KEYS_LIGHT = ['severity', 'url'];
 // `->`, not `->>`. The text operator stringifies whatever it projects, and a
 // stored instance's detectedValue is a NUMBER on 286 of this run's 1,000 rows —
 // a page's title length, a byte count. `->>` hands those back as "1342", which
@@ -277,7 +274,6 @@ const INSTANCE_KEYS_LIGHT = ['severity', 'url'];
 // quoted alias is what keeps the camelCase spelling the callers read.
 const selectFor = (keys) => keys.map((k) => `data->'${k}' as "${k}"`).join(', ');
 const INSTANCE_SELECT = selectFor(INSTANCE_KEYS);
-const INSTANCE_SELECT_LIGHT = selectFor(INSTANCE_KEYS_LIGHT);
 
 // One terminal run's instances, kept for a minute.
 //
@@ -293,7 +289,7 @@ const INSTANCE_SELECT_LIGHT = selectFor(INSTANCE_KEYS_LIGHT);
 // correctness, then, but to bound the memory of a process that would otherwise
 // hold every run it had ever been asked about.
 const INSTANCE_TTL_MS = 60_000;
-const instanceCache = new Map();   // `${runId}:${shape}` -> { at, rows }
+const instanceCache = new Map();   // runId -> { at, rows }
 
 function cachedInstances(key) {
   const hit = instanceCache.get(key);
@@ -328,9 +324,9 @@ function cacheInstances(key, rows) {
  * @param {object} [opts]
  * @param {boolean} [opts.cache=true]  read and write the terminal-run cache
  */
-async function findingInstancesForRun(runId, { cache = true, shape = 'full' } = {}) {
-  const select = shape === 'light' ? INSTANCE_SELECT_LIGHT : INSTANCE_SELECT;
-  const cacheKey = `${runId}:${shape}`;
+async function findingInstancesForRun(runId, { cache = true } = {}) {
+  const select = INSTANCE_SELECT;
+  const cacheKey = String(runId);
   if (cache) {
     const hit = cachedInstances(cacheKey);
     if (hit) return hit;
@@ -411,10 +407,9 @@ async function findingInstancesForRun(runId, { cache = true, shape = 'full' } = 
   } catch (error) {
     throw new Error(`[projects.overview.findingInstancesForRun] ${error.message}`);
   }
-  // The pre-0023 fallback returns whole stored findings whatever the shape asked
-  // for. That is not a shape violation: siteHealth reads severity and url off
-  // them either way, and narrowing an already-fetched array would only throw
-  // away fields the wide caller still wants.
+  // The pre-0023 fallback returns whole stored findings rather than the
+  // projected keys: narrowing an already-fetched array would only throw away
+  // fields a caller may still want.
   const stored = Array.isArray(run?.summary?.findings) ? run.summary.findings : [];
   if (cache) cacheInstances(cacheKey, stored);
   return stored;
@@ -449,6 +444,59 @@ async function findingsForRun(runId) {
  * Returns null if the count can't be taken, and the caller falls back to the
  * summary total rather than showing a confident wrong number.
  */
+// Finding scopes that describe pages (see siteHealth) and the review statuses
+// that take a finding out of the score. Mirrors client crawlHelpers.js.
+const PAGE_LEVEL_SCOPES = new Set(['page', 'template']);
+const DISMISSED_REVIEW_STATUSES = ['False positive', 'Resolved'];
+
+/**
+ * Distinct internal HTML pages carrying at least one counted finding, per
+ * severity — the numerator of siteHealth, computed where the data lives.
+ *
+ * Counted exactly the way the crawl report counts them: page- and
+ * template-scoped findings, on pages that are part of the denominator (internal
+ * text/html results that did not refuse the crawler), not dismissed by a
+ * reviewer. Three rows come back instead
+ * of every finding instance crossing the wire to be reduced to three numbers.
+ *
+ * Returns null when the run stored no instances at all (a crawl from before
+ * migration 0023), so siteHealth can fall back to the summary or withhold.
+ */
+async function healthAffectedPages(runId) {
+  try {
+    const [hasInstances] = await db.rows(
+      'select exists(select 1 from crawl_run_finding_instances where run_id = $1) as present',
+      [runId],
+    );
+    if (!hasInstances?.present) return null;
+    const rows = await db.rows(
+      `select f.data->>'severity' as severity,
+              count(distinct f.data->>'url')::int as pages
+         from crawl_run_finding_instances f
+         join crawl_run_results r
+           on r.run_id = f.run_id and r.url = f.data->>'url'
+         left join crawl_finding_reviews v
+           on v.run_id = f.run_id and v.finding_id = f.finding_id
+        where f.run_id = $1
+          and coalesce(f.data->>'scope', 'page') = any($2)
+          and r.content_type ilike '%text/html%'
+          and r.data->>'scope' = 'Internal'
+          and coalesce(r.data->>'crawlRefused', 'false') <> 'true'
+          and coalesce(v.review_status, '') <> all($3)
+        group by 1`,
+      [runId, [...PAGE_LEVEL_SCOPES], DISMISSED_REVIEW_STATUSES],
+    );
+    const counts = { error: 0, warning: 0, notice: 0 };
+    for (const row of rows) {
+      if (row.severity in counts) counts[row.severity] = Number(row.pages) || 0;
+    }
+    return counts;
+  } catch (error) {
+    console.error('[projects.overview.healthAffectedPages]', error.message);
+    return null;
+  }
+}
+
 async function internalPageCount(runId) {
   try {
     return await db.count(
@@ -530,8 +578,10 @@ function crawlHealth(run) {
  * On the progress bar's denominator — this is the part that is easy to get
  * dishonest. `discovered` grows as the crawl finds links, so a bar drawn as
  * crawled/discovered MOVES BACKWARDS whenever a page turns up new links, which
- * reads as the crawl losing ground. The ceiling (maxUrls + maxExternalUrls) is
- * fixed for the whole run, so crawled/ceiling only ever advances. It undershoots
+ * reads as the crawl losing ground. The ceiling (the run's own stored
+ * options.maxUrls — see the comment further down on why it is not
+ * progress.maxUrls) is fixed for the whole run, so crawled/ceiling only ever
+ * advances. It undershoots
  * on a site smaller than the cap — the bar stops at 60% and the crawl finishes —
  * which is why the label says "up to" and prints the discovered count beside it
  * rather than letting the bar imply a total it does not know.
@@ -550,7 +600,14 @@ function crawlStatus(runs, followers = 0) {
   const crawled = num(p.crawled);
   const discovered = num(p.discovered);
   const queued = num(p.queued);
-  const ceiling = num(p.maxUrls);
+  // NOT p.maxUrls: crawler.js's _progress() reports that as
+  // options.maxUrls + options.maxExternalUrls (internal pages plus the
+  // external-link check budget), but `crawled` above counts internal pages
+  // only — dividing crawled by that ceiling can never reach 100%, and a
+  // caller who asked for 300 pages saw "up to 450". The run's own stored
+  // options carry the real, uninflated internal cap — the same field
+  // crawledPages.js already reads for exactly this reason.
+  const ceiling = num(inFlight.options?.maxUrls) ?? num(p.maxUrls);
 
   // Null, not 0: a queued crawl has measured nothing, and a 0% bar claims it
   // started and got nowhere (§16.11).
@@ -659,7 +716,7 @@ async function liveCrawlStatus(projectId) {
  *
  * @returns {{ score: number|null, affected: object, denominator: number }|null}
  */
-function siteHealth(run, internalHtmlCount = null, instances = []) {
+function siteHealth(run, internalHtmlCount = null, instances = [], affectedPageCounts = null) {
   // Falls back to run.summary.findings when the caller didn't pre-fetch
   // instances (or a run predates migration 0023 and has none stored under
   // its own id) — same fallback findingInstancesForRun/loadRunFindings
@@ -685,18 +742,33 @@ function siteHealth(run, internalHtmlCount = null, instances = []) {
   // describes a catastrophic site, not an absent crawl (§16.11).
   if (!denominator) return null;
 
+  // The same rule the crawl report's own score applies (client
+  // crawlHelpers.js#healthMetrics): page- and template-scoped findings count —
+  // 'template' is a page defect found on most pages, not a site setting — while
+  // site-wide configuration and resource-file findings are reported on their
+  // own, and reviewer-dismissed findings no longer count. A finding stored
+  // without a scope predates the field and is a page finding.
+  const counted = (f) => PAGE_LEVEL_SCOPES.has(f.scope || 'page')
+    && !DISMISSED_REVIEW_STATUSES.includes(f.reviewStatus);
   const affectedPages = (severity) => new Set(
-    effectiveInstances.filter((f) => f.severity === severity && f.url).map((f) => f.url),
+    effectiveInstances
+      .filter((f) => f.severity === severity && f.url && counted(f))
+      .map((f) => f.url),
   ).size;
 
-  const error = affectedPages('error');
-  const warning = affectedPages('warning');
-  const notice = affectedPages('notice');
+  // Precomputed distinct-page counts (healthAffectedPages) are exact where the
+  // instance list is not: they are restricted to the internal HTML pages the
+  // denominator counts, and they honour stored reviews.
+  const useCounts = affectedPageCounts && typeof affectedPageCounts === 'object';
+  const error = useCounts ? Number(affectedPageCounts.error) || 0 : affectedPages('error');
+  const warning = useCounts ? Number(affectedPageCounts.warning) || 0 : affectedPages('warning');
+  const notice = useCounts ? Number(affectedPageCounts.notice) || 0 : affectedPages('notice');
 
   // A crawl stored before per-instance findings existed has counts but no urls,
   // so the shares cannot be computed. Withheld rather than reported as 100%,
   // which is what an empty instance list would otherwise produce.
-  if (!effectiveInstances.length && (Number(run?.summary?.counts?.error) || Number(run?.summary?.counts?.warning))) {
+  if (!useCounts && !effectiveInstances.length
+      && (Number(run?.summary?.counts?.error) || Number(run?.summary?.counts?.warning))) {
     return null;
   }
 
@@ -712,14 +784,20 @@ function siteHealth(run, internalHtmlCount = null, instances = []) {
   };
 }
 
-// Versioned, because the denominator changed. A stored score and the sentence
+// Versioned, because the formula moves: v2 changed the denominator, v3 the
+// numerator (template-wide page findings now count, reviewer-dismissed ones and
+// findings on non-page URLs do not), v4 the denominator again (pages that
+// refused the crawler are not counted). A stored score and the sentence
 // explaining it have to stay readable together after the formula moves.
-const SITE_HEALTH_BASIS = 'the site crawl\'s own health score (v2, internal pages only): 100 '
+const SITE_HEALTH_BASIS = 'the site crawl\'s own health score (v4, internal pages only): 100 '
   + 'less 45 points scaled by the share of internal pages with an error, 22 by pages with a '
-  + 'warning and 8 by pages with a notice. External pages the crawler followed are excluded '
-  + 'from both the findings and the denominator, so the score describes the site you own';
+  + 'warning and 8 by pages with a notice. A problem found on most pages counts on every one '
+  + 'of them; findings a reviewer marked false positive or resolved do not count, and site-wide '
+  + 'configuration findings are reported separately. External pages the crawler followed, and '
+  + 'pages that refused the crawler (bot protection, rate limiting), are excluded from both the '
+  + 'findings and the denominator, so the score describes the pages of your site that were audited';
 
-function technicalCard(runs, findings, internalPages = null, internalHtmlPages = null, findingInstances = []) {
+function technicalCard(runs, findings, internalPages = null, internalHtmlPages = null, findingInstances = [], affectedPageCounts = null) {
   const module = MODULES[0];
   const terminal = runs.find((r) => ['completed', 'stopped'].includes(r.status));
   const inFlight = runs.find((r) => ['queued', 'running', 'paused'].includes(r.status));
@@ -811,7 +889,7 @@ function technicalCard(runs, findings, internalPages = null, internalHtmlPages =
   // crawlHealth(), which answers a different question — is the crawl process
   // alive — and two things called health in one scope is how you get a card that
   // reports liveness as a quality score.
-  const siteScore = siteHealth(terminal, internalHtmlPages, findingInstances);
+  const siteScore = siteHealth(terminal, internalHtmlPages, findingInstances, affectedPageCounts);
 
   return {
     ...module,
@@ -1250,17 +1328,16 @@ async function buildOverview({ access }) {
   ]);
 
   const latestTerminal = crawlRuns.find((r) => ['completed', 'stopped'].includes(r.status));
-  const [findings, internalPages, internalHtmlPages, findingInstances, evidenceByModule] = await Promise.all([
+  const [findings, internalPages, internalHtmlPages, affectedPageCounts, evidenceByModule] = await Promise.all([
     latestTerminal ? findingsForRun(latestTerminal.id) : Promise.resolve([]),
     latestTerminal ? internalPageCount(latestTerminal.id) : Promise.resolve(null),
     latestTerminal ? internalHtmlPageCount(latestTerminal.id) : Promise.resolve(null),
-    // `light`: two fields, because the only thing this feeds is siteHealth's
-    // count of distinct affected pages per severity. The wide shape is the
-    // insight layer's, and it was setting the pace for the whole batch — the
-    // other four reads here finish in ~300ms and then wait on it.
-    latestTerminal
-      ? findingInstancesForRun(latestTerminal.id, { shape: 'light' })
-      : Promise.resolve([]),
+    // The only thing this feeds is siteHealth's count of distinct affected
+    // pages per severity, so it is counted in the database: three rows instead
+    // of every finding instance (the light instance shape it replaces was
+    // already the slowest read in this batch). null for a run that stored no
+    // instances, which siteHealth handles by falling back to the summary.
+    latestTerminal ? healthAffectedPages(latestTerminal.id) : Promise.resolve(null),
     moduleEvidence.latestByModule(projectRow.id).catch((e) => {
       // A card that can't read its evidence must fall back to "not run", never
       // to a made-up value.
@@ -1294,7 +1371,7 @@ async function buildOverview({ access }) {
   );
 
   const modules = [
-    technicalCard(crawlRuns, findings, internalPages, internalHtmlPages, findingInstances),
+    technicalCard(crawlRuns, findings, internalPages, internalHtmlPages, [], affectedPageCounts),
     ...MODULES.slice(1).map((module) => {
       const entry = evidenceByModule.get(module.key);
       if (entry && (entry.terminal || entry.inFlight)) return evidenceCard(module, entry);
@@ -1356,6 +1433,7 @@ module.exports = {
   internalHtmlPageCount,
   technicalCard,
   siteHealth,
+  healthAffectedPages,
   SITE_HEALTH_BASIS,
   cardLine,
   crawlLabel,

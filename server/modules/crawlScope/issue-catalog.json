@@ -41,6 +41,17 @@
     "detection": "Automatic"
   },
   {
+    "id": "soft-404-site",
+    "title": "Missing pages don't return a 404 status",
+    "description": "A URL that cannot exist on this site returned a normal page, or redirected elsewhere, instead of a 404. Deleted and mistyped URLs then look live to search engines, which report them as soft 404s, and links to removed pages never show up as broken.",
+    "recommendation": "Configure the server or CMS to answer unknown URLs with HTTP 404 (410 for content removed on purpose) while still showing the friendly not-found page. Do not redirect every missing URL to the homepage; redirect only removed pages that have a genuine replacement.",
+    "category": "Technical",
+    "priority": "High Priority",
+    "severity": "error",
+    "detection": "Automatic",
+    "scope": "site"
+  },
+  {
     "id": "redirect-location-invalid",
     "title": "Redirect destination is missing or unusable",
     "description": "A Fetch redirect response has no Location header, has a Location value that cannot be resolved as a URL, or points to a non-HTTP(S) scheme. The advertised redirect therefore cannot take users or crawlers to a usable web destination.",
@@ -52,12 +63,35 @@
   },
   {
     "id": "broken-javascript",
-    "title": "Broken JavaScript",
-    "description": "A JavaScript file returns an error instead of loading successfully, which can affect functionality, rendering, navigation, or tracking on every page that loads it.",
-    "recommendation": "Identify the broken JavaScript request, correct its file path or deployment issue, and confirm that it returns a valid 200 response.",
+    "title": "Broken internal JavaScript and CSS files",
+    "description": "These pages load a script or stylesheet from the site that returns an error or cannot be fetched, which can break layout, navigation, tracking, or how search engines render the page.",
+    "recommendation": "Open the file named in the finding. Restore it or correct the path in the page or template that loads it (a build or deployment that renamed hashed files is the usual cause), then confirm it returns 200.",
     "category": "Technical",
     "priority": "High Priority",
     "severity": "error",
+    "detection": "Automatic",
+    "evidenceFamily": "resource-target"
+  },
+  {
+    "id": "broken-internal-image",
+    "evidenceFamily": "resource-target",
+    "title": "Broken internal images",
+    "description": "These pages display an image from the site that returns an error or cannot be fetched, so visitors see a broken image and search engines cannot index it.",
+    "recommendation": "Restore the image at that address or update the page (or its template, when the image is shared) to reference a working one. Check src, srcset and lazy-load attributes alike — the finding names which one.",
+    "category": "Technical",
+    "priority": "High Priority",
+    "severity": "error",
+    "detection": "Automatic"
+  },
+  {
+    "id": "broken-internal-resource",
+    "evidenceFamily": "resource-target",
+    "title": "Broken internal media, fonts and embeds",
+    "description": "These pages load a font, video, audio file, embed or other resource from the site that returns an error or cannot be fetched.",
+    "recommendation": "Restore the file or correct the reference in the page, template or stylesheet named in the finding. For a font or background image referenced from CSS, fix the url() in the stylesheet itself.",
+    "category": "Technical",
+    "priority": "Medium Priority",
+    "severity": "warning",
     "detection": "Automatic"
   },
   {
@@ -75,6 +109,56 @@
     "title": "Document base URL is ignored",
     "description": "The first <base href> cannot become the document base because it is invalid, uses a prohibited scheme, or is rejected by an enforcing Content-Security-Policy base-uri directive. Browsers therefore resolve relative URLs against the page URL, which can make links and resources behave differently from what the markup implies.",
     "recommendation": "Correct or remove the first <base href>. If Content-Security-Policy blocks it, use an allowed base URL or remove the conflicting element. Loosen base-uri only after a security review because it limits malicious base-tag injection.",
+    "category": "Technical",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
+    "id": "url-too-long",
+    "title": "URLs longer than 200 characters",
+    "description": "The URL is over 200 characters. Long URLs are hard to share and to read in search results, and usually carry parameters or folder levels that say nothing about the page.",
+    "recommendation": "Use short, readable URLs built from a few meaningful words, and keep tracking and filter parameters out of internal links.",
+    "category": "Technical",
+    "priority": "Low Priority",
+    "severity": "notice",
+    "detection": "Automatic"
+  },
+  {
+    "id": "url-underscore",
+    "title": "Underscores in URLs",
+    "description": "The URL's path contains underscores. Search engines treat hyphens as word separators and may not treat underscores the same way, so words joined by underscores can read as one.",
+    "recommendation": "Use hyphens between words in new URLs. Change existing URLs only with a 301 redirect from the old address, and only where the gain is worth the move.",
+    "category": "Technical",
+    "priority": "Low Priority",
+    "severity": "notice",
+    "detection": "Automatic"
+  },
+  {
+    "id": "url-too-many-parameters",
+    "title": "URLs with too many parameters",
+    "description": "The URL carries more than two query parameters. Parameter combinations multiply into many URLs for the same content, which spreads crawling and ranking signals across duplicates.",
+    "recommendation": "Link internally to clean URLs, canonicalise parameter variants to the main URL, and keep sorting and filter parameters out of crawlable links where they do not create distinct content.",
+    "category": "Technical",
+    "priority": "Low Priority",
+    "severity": "notice",
+    "detection": "Automatic"
+  },
+  {
+    "id": "charset-missing",
+    "title": "Character encoding not declared",
+    "description": "Neither the Content-Type header nor a <meta charset> in the first 1,024 bytes says how the page is encoded. Browsers and crawlers then guess, and a wrong guess shows garbled characters.",
+    "recommendation": "Send Content-Type: text/html; charset=utf-8, and put <meta charset=\"utf-8\"> first in <head>.",
+    "category": "Technical",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
+    "id": "doctype-missing",
+    "title": "Doctype not declared",
+    "description": "The page does not start with a doctype, so browsers render it in quirks mode, emulating decades-old layout bugs. Layout can differ between browsers and from what the page's authors tested.",
+    "recommendation": "Start every page with <!DOCTYPE html>, before anything else.",
     "category": "Technical",
     "priority": "Medium Priority",
     "severity": "warning",
@@ -107,8 +191,8 @@
     "description": "Some subdomains do not instruct browsers to use HTTPS automatically.",
     "recommendation": "Add the Strict-Transport-Security response header after confirming all pages and resources work correctly over HTTPS.",
     "category": "Technical",
-    "priority": "High Priority",
-    "severity": "error",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
@@ -125,11 +209,11 @@
   {
     "id": "blocked-resource",
     "title": "Blocked internal resources",
-    "description": "Internal resources are blocked by robots.txt, potentially preventing search engines from fully rendering pages that depend on them.",
+    "description": "Internal resources robots.txt disallows for Googlebot, which can keep Google from rendering the pages that depend on them the way visitors see them.",
     "recommendation": "Review blocked CSS, JavaScript, image, API, and asset folders. Allow crawling for resources required to render page content and layout.",
     "category": "Technical",
-    "priority": "High Priority",
-    "severity": "error",
+    "priority": "Medium Priority",
+    "severity": "warning",
     "detection": "Automatic"
   },
   {
@@ -149,8 +233,18 @@
     "description": "At least one sitemap URL returns a 3XX redirect instead of a direct 200 response.",
     "recommendation": "Replace the redirected sitemap URL with its final destination URL.",
     "category": "Technical",
-    "priority": "High Priority",
-    "severity": "error",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
+    "id": "sitemap-http-url",
+    "title": "HTTP URLs in sitemap for an HTTPS site",
+    "description": "The sitemap lists http:// addresses for pages the site serves over HTTPS. Every one is a redirect for search engines to follow, and the listed address is not the page's canonical URL.",
+    "recommendation": "Regenerate the sitemap with the https:// URLs. Sitemap generators usually take the scheme from the site's configured address, so correcting that setting fixes every entry at once.",
+    "category": "Technical",
+    "priority": "Medium Priority",
+    "severity": "warning",
     "detection": "Automatic"
   },
   {
@@ -159,8 +253,8 @@
     "description": "Many indexable pages are not included in the XML sitemap, which may reduce efficient discovery.",
     "recommendation": "Add important canonical, indexable pages that return 200 responses to the appropriate sitemap.",
     "category": "Technical",
-    "priority": "High Priority",
-    "severity": "error",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
@@ -169,8 +263,8 @@
     "description": "A URL is listed in more than one sitemap, creating unnecessary duplication.",
     "recommendation": "Keep the URL in only the most relevant sitemap.",
     "category": "Technical",
-    "priority": "High Priority",
-    "severity": "error",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
@@ -180,8 +274,8 @@
     "description": "The sitemap is not declared in robots.txt, which makes it harder for search engines to discover automatically without relying on a manual submission.",
     "recommendation": "Add a \"Sitemap: https://yoursite.com/sitemap.xml\" line to robots.txt pointing at the live sitemap, and confirm the sitemap itself returns a 200 response.",
     "category": "Technical",
-    "priority": "High Priority",
-    "severity": "error",
+    "priority": "Medium Priority",
+    "severity": "warning",
     "detection": "Automatic"
   },
   {
@@ -190,8 +284,8 @@
     "description": "Some pages contain a noindex directive, which prevents them from appearing in search results.",
     "recommendation": "Confirm whether each page should remain excluded. Remove the noindex directive from valuable pages that should rank.",
     "category": "Indexability",
-    "priority": "High Priority",
-    "severity": "warning",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
@@ -200,8 +294,8 @@
     "description": "Some pages prevent both indexing and link discovery.",
     "recommendation": "Use noindex only where necessary and avoid nofollow unless search engines should not crawl links from the page.",
     "category": "Indexability",
-    "priority": "High Priority",
-    "severity": "warning",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
@@ -210,17 +304,27 @@
     "description": "A page contains a page-level nofollow directive, preventing search engines from following its links.",
     "recommendation": "Remove the nofollow directive unless there is a specific technical or compliance reason to retain it.",
     "category": "Indexability",
-    "priority": "High Priority",
+    "priority": "Medium Priority",
     "severity": "warning",
     "detection": "Automatic"
   },
   {
     "id": "robots-blocked",
     "title": "Pages blocked from crawling",
-    "description": "Several pages are blocked by robots.txt or another crawl restriction.",
+    "description": "Pages robots.txt disallows for Googlebot, so Google cannot crawl them. The rules are read the way Googlebot reads them: a URL closed only to other crawlers is not listed here.",
     "recommendation": "Unblock indexable pages. Keep blocked only pages that should not be crawled, such as internal search results or staging URLs.",
     "category": "Indexability",
-    "priority": "High Priority",
+    "priority": "Low Priority",
+    "severity": "notice",
+    "detection": "Automatic"
+  },
+  {
+    "id": "soft-404",
+    "title": "Possible soft 404 pages",
+    "description": "These URLs return 200 but show a 'not found' page — the same page the site serves for a URL that does not exist, or one titled like an error page with almost no content. Search engines treat them as errors and drop them from the index.",
+    "recommendation": "If the content is gone, return 404 or 410 (or a 301 to a genuinely equivalent page) and update the links that point here. If the page should exist, restore its content.",
+    "category": "Indexability",
+    "priority": "Medium Priority",
     "severity": "warning",
     "detection": "Automatic"
   },
@@ -228,32 +332,32 @@
     "id": "orphan-page",
     "requiresCompleteGraph": true,
     "title": "Orphan pages",
-    "description": "A large number of pages have no crawlable internal links pointing to them, even though some appear in sitemaps.",
-    "recommendation": "Add relevant internal links from category, service, location, article, or navigation pages. Remove outdated orphan pages if they no longer provide value.",
+    "description": "The page is listed in a sitemap, but no crawled page links to it, so visitors cannot reach it by clicking and search engines see it as unimportant.",
+    "recommendation": "Link to each page from related pages: the page its section starts on, related articles or products, and the navigation or breadcrumbs where it belongs. If a page is no longer needed, redirect or remove it and take it out of the sitemap.",
     "category": "Indexability",
-    "priority": "High Priority",
-    "severity": "warning",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
     "id": "single-inlink",
     "requiresCompleteGraph": true,
     "title": "Pages with only one incoming internal link",
-    "description": "Some pages receive very limited internal linking support, making them difficult to discover and reducing their authority.",
-    "recommendation": "Add contextual internal links from related high-authority pages.",
+    "description": "Only one crawled page links to this page with a link search engines follow, which makes it hard to find and signals that it matters little.",
+    "recommendation": "Add links to it from related pages in the same section, and from the navigation or a hub page if it is important.",
     "category": "Indexability",
-    "priority": "High Priority",
-    "severity": "warning",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
     "id": "deep-page",
     "title": "Pages more than three clicks deep",
-    "description": "Important pages require too many clicks to reach from the homepage.",
-    "recommendation": "Improve navigation, category structure, breadcrumbs, hub pages, and contextual internal linking.",
+    "description": "The page is more than 3 clicks from the start page along the shortest route of followed links. Deep pages are found and recrawled less often, and visitors rarely reach them.",
+    "recommendation": "Add a shortcut link from a page 2 clicks or fewer from the start page, such as the page its section starts on, a hub page, or the navigation, and add breadcrumbs so each level links back up.",
     "category": "Indexability",
-    "priority": "High Priority",
-    "severity": "warning",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
@@ -264,7 +368,7 @@
     "description": "Internal links point to URLs that redirect before reaching the destination.",
     "recommendation": "Update internal links to point directly to the final 200-response URL.",
     "category": "Indexability",
-    "priority": "High Priority",
+    "priority": "Medium Priority",
     "severity": "warning",
     "detection": "Automatic"
   },
@@ -275,8 +379,8 @@
     "description": "These URLs return permanent (301/308) redirects. Many redirects are legitimate, but a large volume of them can waste crawl budget and slow the discovery of new or updated content.",
     "recommendation": "Review redirect volume, remove unnecessary legacy redirects where safe, and update internal links, sitemaps, canonicals, and navigation to final URLs.",
     "category": "Indexability",
-    "priority": "High Priority",
-    "severity": "warning",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
@@ -285,7 +389,7 @@
     "description": "Some URLs use 302 redirects where a permanent destination may be intended.",
     "recommendation": "Use 301 redirects when the URL change is permanent. Retain 302 only for genuinely temporary changes.",
     "category": "Indexability",
-    "priority": "High Priority",
+    "priority": "Medium Priority",
     "severity": "warning",
     "detection": "Automatic"
   },
@@ -295,7 +399,7 @@
     "description": "A successful HTML page schedules a browser navigation or full-page reload through <meta http-equiv=\"refresh\"> instead of HTTP redirect semantics. Search engines, assistive technology, and users can receive the original 200-response page before the timer fires; delayed redirects can be confusing, reloads can interrupt interaction, and crawl/indexing signals may be split between URLs.",
     "recommendation": "For a URL move, replace the meta refresh with an appropriate server-side 301, 308, 302, or 307 response and update internal links, canonicals, and sitemaps to the intended destination. For periodic updates, update only the necessary content without forcing a full-page reload, or provide a user-controlled refresh.",
     "category": "Indexability",
-    "priority": "High Priority",
+    "priority": "Medium Priority",
     "severity": "warning",
     "detection": "Automatic"
   },
@@ -305,7 +409,7 @@
     "description": "A successful HTML response schedules a browser navigation or full-page reload through the Refresh response header instead of an HTTP 3XX status. The original URL still returns 200, delayed navigation can confuse users and crawlers, reloads can interrupt interaction, and crawl/indexing signals may be split between URLs.",
     "recommendation": "For a URL move, replace the Refresh header with an appropriate server-side 301, 308, 302, or 307 response and update internal links, canonicals, and sitemaps to the intended destination. For periodic updates, update only the necessary content without forcing a full-page reload, or provide a user-controlled refresh.",
     "category": "Indexability",
-    "priority": "High Priority",
+    "priority": "Medium Priority",
     "severity": "warning",
     "detection": "Automatic"
   },
@@ -316,7 +420,7 @@
     "description": "A URL passes through more than one redirect before reaching the final page.",
     "recommendation": "Redirect the original URL directly to the final destination.",
     "category": "Indexability",
-    "priority": "High Priority",
+    "priority": "Medium Priority",
     "severity": "warning",
     "detection": "Automatic"
   },
@@ -356,7 +460,7 @@
     "description": "A redirect path reaches a successful internal HTML response, but the final page is marked noindex or declares a different canonical URL. Redirect signals therefore point to a URL that is not intended to remain indexed as the preferred destination.",
     "recommendation": "Confirm the intended final page. If it should rank, remove the noindex directive and make its canonical self-referencing. Otherwise, redirect every entry URL directly to the actual indexable canonical page and update internal links, canonicals, and sitemap entries to reference that page.",
     "category": "Indexability",
-    "priority": "High Priority",
+    "priority": "Medium Priority",
     "severity": "warning",
     "detection": "Automatic"
   },
@@ -368,8 +472,8 @@
     "description": "Some pages receive a mixture of crawlable and nofollow internal links. This may be intentional but should be reviewed.",
     "recommendation": "Remove unnecessary nofollow attributes from internal links so search engines can consistently crawl and understand the site structure.",
     "category": "Indexability",
-    "priority": "High Priority",
-    "severity": "warning",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
@@ -378,7 +482,7 @@
     "description": "Internal links contain a nofollow attribute, which can interrupt normal internal authority flow.",
     "recommendation": "Remove nofollow from internal links unless there is a specific reason to prevent crawling.",
     "category": "Indexability",
-    "priority": "High Priority",
+    "priority": "Medium Priority",
     "severity": "warning",
     "detection": "Automatic"
   },
@@ -389,6 +493,17 @@
     "recommendation": "Add a server-side 301 redirect from all HTTP homepage variants to the preferred HTTPS homepage.",
     "category": "Indexability",
     "priority": "High Priority",
+    "severity": "error",
+    "detection": "Automatic"
+  },
+  {
+    "id": "www-resolve",
+    "scope": "site",
+    "title": "Both www and non-www versions resolve",
+    "description": "The site answers with content on both its www and its non-www host instead of redirecting one to the other. That is two copies of every page: links, bookmarks and ranking signals split between them, and search engines have to pick one themselves.",
+    "recommendation": "Choose one host and permanently redirect (301) every URL on the other to the same path on it, and keep canonical tags, sitemaps and internal links on the chosen host.",
+    "category": "Technical",
+    "priority": "Medium Priority",
     "severity": "warning",
     "detection": "Automatic"
   },
@@ -420,6 +535,36 @@
     "category": "Indexability",
     "priority": "Medium Priority",
     "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
+    "id": "hreflang-conflict",
+    "title": "Conflicting hreflang annotations",
+    "description": "The page's hreflang annotations give one language (or language and region) code to two or more different URLs. Search engines cannot tell which page serves that audience, and may ignore the annotations.",
+    "recommendation": "Give each language and region code exactly one URL in the set, and repeat the same set on every page in it.",
+    "category": "Indexability",
+    "priority": "High Priority",
+    "severity": "error",
+    "detection": "Automatic"
+  },
+  {
+    "id": "hreflang-target-invalid",
+    "title": "hreflang pointing at a broken, redirected or non-canonical page",
+    "description": "An hreflang alternate is a page search engines will not index as that language version: it returns an error, redirects, is noindex, or names another URL as its canonical. The annotation then points at nothing usable.",
+    "recommendation": "Point every hreflang alternate at the final, indexable, self-canonical URL of that language version, and update the annotations when a page moves.",
+    "category": "Indexability",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
+    "id": "hreflang-x-default-missing",
+    "title": "hreflang set without x-default",
+    "description": "The page lists language versions but no x-default, the version for visitors whose language or region none of the others match. Search engines then choose one themselves.",
+    "recommendation": "Add an x-default alternate to the set, usually the language selector or the main-market version, on every page in the set.",
+    "category": "Indexability",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
@@ -467,6 +612,36 @@
     "detection": "Automatic"
   },
   {
+    "id": "canonical-to-http",
+    "title": "Canonical points to an HTTP URL",
+    "description": "These HTTPS pages declare an http:// URL as their canonical, which asks search engines to prefer the insecure address over the one the page is served on.",
+    "recommendation": "Change the canonical to the page's HTTPS URL. When a template builds canonicals from the request scheme or a hard-coded http:// base URL, fix it there once rather than page by page.",
+    "category": "Indexability",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
+    "id": "multiple-canonical",
+    "title": "Pages with more than one canonical URL",
+    "description": "The page declares two or more different canonical URLs, in its <head> or its Link header. Search engines ignore conflicting canonicals and pick the preferred URL themselves, so none of them takes effect.",
+    "recommendation": "Keep exactly one canonical per page. When a CMS, a theme and an SEO plugin each add one, remove all but the one that names the preferred URL, and make the Link header agree with it or drop it.",
+    "category": "Indexability",
+    "priority": "High Priority",
+    "severity": "error",
+    "detection": "Automatic"
+  },
+  {
+    "id": "canonical-outside-head",
+    "title": "Canonical tag outside <head>",
+    "description": "A rel=canonical link sits in the page's <body>, where search engines ignore it. This also happens when something that does not belong in <head>, such as an image or a script that writes content, comes before the tag: the browser's parser moves everything after it into <body>.",
+    "recommendation": "Put the canonical link in <head>, above any element that could end it early, and check it in the served HTML rather than in the browser inspector.",
+    "category": "Indexability",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
     "id": "pagination-link-broken",
     "title": "Broken pagination link",
     "description": "A rel=\"next\" or rel=\"prev\" pagination link points to a page that returns an error or cannot be reached, breaking the crawlable path through a paginated series.",
@@ -490,7 +665,7 @@
     "id": "title-missing",
     "title": "Missing page title",
     "description": "A page has no <title> tag, or its title tag is empty. Search engines usually generate their own title from other page signals, which is rarely the one you'd choose.",
-    "recommendation": "Add a unique, descriptive <title> tag summarizing the page's specific topic, service, or location.",
+    "recommendation": "Add a unique, descriptive <title> tag that names the page's specific topic.",
     "category": "Metadata",
     "priority": "High Priority",
     "severity": "error",
@@ -501,7 +676,7 @@
     "requiresCompleteGraph": true,
     "title": "Duplicate title tags",
     "description": "Multiple indexable pages that do not canonicalize elsewhere use the same title tag, making it difficult for search engines to understand which page answers each search intent.",
-    "recommendation": "Create a unique, descriptive title for each indexable page based on its specific topic, service, or location.",
+    "recommendation": "Write a unique, descriptive title for each indexable page, based on what that page is about.",
     "category": "Metadata",
     "priority": "Medium Priority",
     "severity": "warning",
@@ -528,6 +703,16 @@
     "detection": "Automatic"
   },
   {
+    "id": "title-short",
+    "title": "Titles are too short",
+    "description": "The title is under 30 characters. A title that short rarely says enough about the page to compete in search results, where it is usually the first thing a searcher reads.",
+    "recommendation": "Write a title that names the page's topic and what makes it worth the click, typically 30 to 60 characters, with the brand at the end.",
+    "category": "Metadata",
+    "priority": "Low Priority",
+    "severity": "notice",
+    "detection": "Automatic"
+  },
+  {
     "id": "meta-duplicate",
     "requiresCompleteGraph": true,
     "title": "Duplicate meta descriptions",
@@ -542,7 +727,7 @@
     "id": "meta-missing",
     "title": "Missing meta descriptions",
     "description": "Many pages do not contain a meta description.",
-    "recommendation": "Add unique, relevant descriptions to indexable pages, prioritizing service, location, product, category, and high-traffic pages.",
+    "recommendation": "Add a unique description to each indexable page, starting with the pages that matter most: the homepage, the main sections, and the pages that earn search traffic.",
     "category": "Metadata",
     "priority": "Medium Priority",
     "severity": "warning",
@@ -554,8 +739,8 @@
     "description": "Many descriptions may be truncated in search results.",
     "recommendation": "Rewrite descriptions to approximately 150 to 160 characters while clearly communicating page value and a relevant call to action.",
     "category": "Metadata",
-    "priority": "Medium Priority",
-    "severity": "warning",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
@@ -564,8 +749,8 @@
     "description": "Some descriptions do not provide enough context or value.",
     "recommendation": "Expand them with the main topic, differentiating information, and a clear next step.",
     "category": "Metadata",
-    "priority": "Medium Priority",
-    "severity": "warning",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
@@ -584,8 +769,8 @@
     "description": "Some pages contain more than one H1, which can weaken page hierarchy.",
     "recommendation": "Keep one primary H1 and change supporting headings to H2 or H3 where appropriate.",
     "category": "Metadata",
-    "priority": "Medium Priority",
-    "severity": "warning",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
@@ -603,10 +788,10 @@
     "requiresCompleteGraph": true,
     "title": "Duplicate H1 headings across pages",
     "description": "Multiple indexable pages that do not canonicalize elsewhere use the same primary H1, making distinct pages look like they target the same topic and weakening page-specific context for visitors and search engines.",
-    "recommendation": "Rewrite each affected page's H1 to name its specific topic, service, product, location, or intent. Keep intentionally repeated sitewide labels outside the H1.",
+    "recommendation": "Rewrite each affected page's H1 to name its specific topic. Keep labels repeated across the site (the brand, a section name) outside the H1.",
     "category": "Metadata",
-    "priority": "Medium Priority",
-    "severity": "warning",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
@@ -615,8 +800,8 @@
     "description": "A page uses identical wording for the H1 and title tag. This is not always an error, but it limits optimization opportunities.",
     "recommendation": "Differentiate them naturally. Use the title for search visibility and the H1 for the on-page user message.",
     "category": "Metadata",
-    "priority": "Medium Priority",
-    "severity": "warning",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
@@ -637,6 +822,16 @@
     "category": "Metadata",
     "priority": "Medium Priority",
     "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
+    "id": "html-lang-missing",
+    "title": "Language not declared",
+    "description": "The page's <html> element has no lang attribute. Screen readers use it to choose a voice and pronunciation, browsers to offer translation, and search engines as one signal of the page's language.",
+    "recommendation": "Declare the page's language on the root element, for example <html lang=\"en\">, with the region where it matters (en-GB).",
+    "category": "Accessibility & Social",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
@@ -673,7 +868,7 @@
     "id": "low-word-count",
     "title": "Low word count",
     "description": "Some pages contain limited useful content and may not adequately answer user needs.",
-    "recommendation": "Expand important pages with original, relevant information, FAQs, services, benefits, expectations, and location-specific details.",
+    "recommendation": "Expand the pages that should rank with original content that answers what a visitor comes for: explanations, specifics, examples and answers to common questions. Merge, redirect or noindex thin pages that cannot be expanded, such as empty tag or archive pages.",
     "category": "Content",
     "priority": "Medium Priority",
     "severity": "warning",
@@ -686,6 +881,16 @@
     "description": "Two or more successful, indexable pages contain exactly the same visible body text and do not canonicalize to one preferred URL. Search engines must choose between indistinguishable pages, which can split ranking signals and crawl attention.",
     "recommendation": "Choose the page that should rank. Redirect redundant URLs to it, or add a canonical when duplicate variants must remain accessible. If each page serves a distinct intent, rewrite the shared body copy with page-specific information instead.",
     "category": "Content",
+    "priority": "High Priority",
+    "severity": "error",
+    "detection": "Automatic"
+  },
+  {
+    "id": "content-duplicate-near",
+    "title": "Near-duplicate content",
+    "description": "The page's main content, leaving out the navigation, header, footer and sidebars, shares 85% or more of its three-word phrases with another page. Search engines usually index one of a set of near-duplicates and filter out the rest, so the pages compete with each other instead of ranking for different searches.",
+    "recommendation": "Give each page content that is its own, merge pages that serve the same purpose (and redirect the others), or point the variants' canonical at the one to rank. For product variants, keep them on one page with options instead of one page each.",
+    "category": "Content",
     "priority": "Medium Priority",
     "severity": "warning",
     "detection": "Automatic"
@@ -694,7 +899,7 @@
     "id": "ai-content-signal",
     "title": "High AI-content signals",
     "description": "High levels of AI-generated text can read as generic and add limited value, even though it is not automatically a ranking penalty. Identifying this requires running page content through a dedicated AI-content detector — CrawlScope does not analyze content authorship.",
-    "recommendation": "Run your highest-priority pages through an AI-content detection tool. For any flagged pages, add original examples, local specifics, named expertise, and brand-specific details a generic AI draft would not include.",
+    "recommendation": "Run your highest-priority pages through an AI-content detection tool. For any flagged pages, add original examples, specific details, named expertise and first-hand information a generic AI draft would not include.",
     "category": "Content",
     "priority": "Medium Priority",
     "severity": "warning",
@@ -737,8 +942,8 @@
     "description": "These links have no visible text or accessible name, so screen-reader and keyboard users cannot tell where they lead.",
     "recommendation": "For an icon-only link, add a descriptive aria-label to the <a> element (for example, \"View Jane Doe on LinkedIn\"). For an image link, use meaningful alt text or label the link itself. Keep empty alt text only for decorative images that are not the link's sole label.",
     "category": "Links",
-    "priority": "Medium Priority",
-    "severity": "warning",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
@@ -748,8 +953,18 @@
     "description": "A link's visible text or accessible name uses vague wording such as “click here” or “learn more” without identifying the destination.",
     "recommendation": "Replace generic visible text with a concise destination or action (for example, “Read the technical SEO guide”). For an icon-only link, make its aria-label equally specific (for example, “View Jane Doe on LinkedIn”).",
     "category": "Links",
-    "priority": "Medium Priority",
-    "severity": "warning",
+    "priority": "Low Priority",
+    "severity": "notice",
+    "detection": "Automatic"
+  },
+  {
+    "id": "too-many-links",
+    "title": "Too many on-page links",
+    "description": "The page has more than 3,000 links. Each one passes on a smaller share of the page's value, and a page this dense with links is hard to use and slow to crawl.",
+    "recommendation": "Trim navigation and footer links to the pages that matter, move long lists behind pagination or category pages, and remove duplicate links to the same URL.",
+    "category": "Links",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
@@ -757,7 +972,7 @@
     "evidenceFamily": "link-target",
     "title": "External links unavailable during checking",
     "description": "The crawler could not retrieve these destinations or received an HTTP error other than 403. A 404 or 410 indicates no current resource; timeouts, rate limits, authentication responses, and 5xx errors can be temporary or audience-specific.",
-    "recommendation": "For 404 or 410, replace the link with a current authoritative source or remove it. For other failures, retest and open the destination manually before changing content. HTTP 403 responses are reported separately because request refusal does not prove a broken destination.",
+    "recommendation": "For 404 or 410, replace the link with a current authoritative source or remove it. For other failures, retest and open the destination manually before changing content. Responses that refuse the crawler (401, 403, 429, 999) are reported separately because a refusal does not prove a broken destination.",
     "category": "Links",
     "priority": "Medium Priority",
     "severity": "warning",
@@ -767,10 +982,10 @@
     "id": "external-403",
     "evidenceFamily": "link-target",
     "title": "External links refusing crawler access",
-    "description": "The external server returned HTTP 403 Forbidden: it understood the crawler's request but refused to fulfill it. This can reflect bot protection, authentication, geography, or another access policy and does not prove that the destination is missing or broken for users.",
+    "description": "External links answered HTTP 401, 403, 429 or 999: the destination refused the audit crawler (login wall, bot protection or rate limiting). That shows the request was refused, not that the page is missing — these links often work for visitors.",
     "recommendation": "Open the destination in a normal signed-out or private browser session. If it works for the intended audience, keep the link and mark this notice reviewed. Replace or remove it only if users are also denied access, the destination requires unexpected authentication, or it is no longer an appropriate source.",
     "category": "Links",
-    "priority": "Medium Priority",
+    "priority": "Low Priority",
     "severity": "notice",
     "detection": "Automatic"
   },
@@ -780,7 +995,7 @@
     "description": "At least five external links on a page, and 80% or more of its external links, use generic rel=\"nofollow\" without sponsored or ugc qualification. This dominant pattern may reflect a blanket outbound-link policy rather than link-by-link intent.",
     "recommendation": "Review this as a page-level policy signal, not as a list of individual errors. Prefer sponsored for paid or affiliate links and ugc for user-generated links; generic nofollow remains acceptable when intentionally used, including legacy paid or UGC markup. Use it when the more specific values do not apply and you do not want Google to associate with or crawl the destination. Remove it only from ordinary editorial citations you trust.",
     "category": "Links",
-    "priority": "Medium Priority",
+    "priority": "Low Priority",
     "severity": "notice",
     "detection": "Automatic"
   },
@@ -800,8 +1015,8 @@
     "description": "An <a> element declares a resource-loading relationship such as stylesheet, preload, or modulepreload that browsers only process on <link>. Ordinary hyperlinks to documents, images, CSS, JavaScript, and fonts are valid and are not reported.",
     "recommendation": "If the browser should load the resource for the page, move the href and relationship to <link>, or use <script> or <img> where appropriate. If users should navigate to or download the file, keep <a> and remove the resource-loading rel value; the download attribute is optional.",
     "category": "Links",
-    "priority": "Medium Priority",
-    "severity": "warning",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
@@ -810,8 +1025,8 @@
     "description": "An exposed img element omits its alt attribute or uses whitespace-only alt text, so assistive technology may announce an unhelpful file name or provide no equivalent meaning.",
     "recommendation": "For an informative image, add concise alt text that conveys its purpose in context. For a decorative image, use exactly alt=\"\" (no spaces) so assistive technology ignores it. For an image-only link, describe the link destination or action.",
     "category": "Accessibility & Social",
-    "priority": "Low Priority",
-    "severity": "notice",
+    "priority": "Medium Priority",
+    "severity": "warning",
     "detection": "Automatic"
   },
   {
@@ -880,8 +1095,58 @@
     "id": "slow-page",
     "evidenceFamily": "config",
     "title": "Slow pages",
-    "description": "These pages took over a second to respond during the crawl, which can hurt both user experience and how much of the page search engines process before moving on.",
-    "recommendation": "Optimize server response time, images, fonts, scripts, third-party tags, caching, compression, and render-blocking resources.",
+    "description": "The server took over a second to start answering these URLs (time to first byte, measured per request during the crawl, excluding the crawler's own pacing). Slow server responses hurt users and limit how many pages search engines crawl in a session.",
+    "recommendation": "Reduce the server's response time for these URLs: serve HTML from a full-page cache or CDN, look for slow database queries, plugins or API calls on the affected templates, and check hosting capacity at peak load. Images, fonts and scripts do not affect this measurement.",
+    "category": "Performance",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
+    "id": "cwv-lcp-poor",
+    "title": "Poor Largest Contentful Paint (Core Web Vitals)",
+    "description": "The page's main content takes too long to appear: Largest Contentful Paint is in Google's \"poor\" range (over 4 seconds for real users at the 75th percentile, from PageSpeed Insights). LCP is one of the Core Web Vitals Google uses in ranking, and slow pages lose visitors before they read anything.",
+    "recommendation": "Serve the main image or text block early: make the server respond faster, preload the LCP image and give it a size, avoid lazy-loading it, and remove render-blocking CSS and JavaScript ahead of it. PageSpeed Insights lists the biggest savings for the page.",
+    "category": "Performance",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Connected data required"
+  },
+  {
+    "id": "cwv-inp-poor",
+    "title": "Poor Interaction to Next Paint (Core Web Vitals)",
+    "description": "The page reacts slowly when real users click, tap or type: Interaction to Next Paint is in Google's \"poor\" range (over 500 ms at the 75th percentile). INP is one of the Core Web Vitals Google uses in ranking.",
+    "recommendation": "Break up long JavaScript tasks, defer scripts that are not needed for the first interaction (third-party tags especially), and keep event handlers short, moving heavy work off the main thread.",
+    "category": "Performance",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Connected data required"
+  },
+  {
+    "id": "cwv-cls-poor",
+    "title": "Poor Cumulative Layout Shift (Core Web Vitals)",
+    "description": "Content on the page moves while it loads: Cumulative Layout Shift is in Google's \"poor\" range (over 0.25). Visitors lose their place or click the wrong thing, and CLS is one of the Core Web Vitals Google uses in ranking.",
+    "recommendation": "Give images, videos, embeds and ad slots their dimensions in the HTML, reserve space for anything injected later (banners, consent notices), and load web fonts so they do not reflow the text.",
+    "category": "Performance",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Connected data required"
+  },
+  {
+    "id": "html-too-large",
+    "title": "Large HTML page size",
+    "description": "The page's HTML is over 2 MB before compression. Crawlers may stop reading large documents before the end, and every visitor downloads and parses all of it before the page is usable.",
+    "recommendation": "Move inline data, styles and scripts into cached files, paginate or lazy-load long lists, and remove markup nobody sees (hidden variants, duplicated menus).",
+    "category": "Performance",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
+    "id": "html-uncompressed",
+    "title": "Uncompressed HTML pages",
+    "description": "The page's HTML was sent without compression although the crawler asked for gzip. Uncompressed HTML is typically four to five times larger on the wire, which slows every visit.",
+    "recommendation": "Enable gzip or Brotli compression for text/html at the server, CDN or hosting level.",
     "category": "Performance",
     "priority": "Medium Priority",
     "severity": "warning",
@@ -923,9 +1188,31 @@
   {
     "id": "schema-error",
     "evidenceFamily": "schema-message",
-    "title": "Schema.org validation errors",
-    "description": "Structured data contains invalid properties, values, syntax, or unsupported relationships.",
-    "recommendation": "Validate affected templates using Schema.org and Google tools, then correct required fields, data types, URLs, and nesting.",
+    "title": "Invalid structured data",
+    "description": "The page's structured data cannot be read as schema.org: a JSON-LD block does not parse or has no @context or @type; a type or property is not one schema.org defines (usually a typo or the wrong capitalisation); a property sits on a type it does not belong to (such as price directly on Product instead of its Offer); or the markup uses data-vocabulary.org, which Google stopped reading in 2020. Search engines skip what they cannot read.",
+    "recommendation": "Fix each message on the template that produces it: correct the JSON, spell types and properties exactly as schema.org does (they are case-sensitive), move properties onto the type schema.org defines them for, and replace data-vocabulary.org markup with schema.org. Check a fixed page with the Schema Markup Validator and Google's Rich Results Test.",
+    "category": "Structured Data",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
+    "id": "schema-required-missing",
+    "evidenceFamily": "schema-message",
+    "title": "Structured data missing properties Google requires",
+    "description": "Markup written for a Google rich result (product details, review stars, breadcrumbs, events, recipes, videos, job listings, FAQs, local business details) lacks a property Google requires for it, so the page cannot get that rich result.",
+    "recommendation": "Add the properties each finding names, with values that match what the page shows. Google's documentation for each rich result lists what it requires; the Rich Results Test confirms a fixed page is eligible.",
+    "category": "Structured Data",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
+    "id": "schema-recommended-missing",
+    "evidenceFamily": "schema-message",
+    "title": "Structured data missing recommended properties",
+    "description": "The markup has what Google requires but lacks properties Google recommends for the rich result (for example an article's image, date or author, or an offer's currency and availability), which can limit how the result is shown.",
+    "recommendation": "Add the recommended properties each finding names where the page has the information. They are optional: leave out anything the page does not show.",
     "category": "Structured Data",
     "priority": "Low Priority",
     "severity": "notice",
@@ -975,6 +1262,28 @@
     "detection": "Automatic"
   },
   {
+    "id": "javascript-dependent-content",
+    "scope": "site",
+    "title": "Content or tags change with JavaScript",
+    "description": "On pages rendered in a browser, JavaScript adds links or text, or changes the title, meta description, canonical or robots tags, compared with the HTML the server sends. This audit reads the served HTML, as do crawlers that do not render; Google renders later, so links added by scripts are found late or not at all, and a tag a script changes may be read either way.",
+    "recommendation": "Serve the navigation, main content and head tags in the initial HTML, with server-side rendering, static generation or prerendering. Where a script has to change a tag, make the served value agree with it, and never add noindex or change the canonical with JavaScript.",
+    "category": "Technical",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
+    "id": "crawl-blocked",
+    "scope": "site",
+    "title": "Crawler blocked or rate-limited",
+    "description": "The site answered the crawler with a refusal instead of its pages: HTTP 403 or 401 from a firewall, bot protection or login wall, 429 from a rate limiter, 503, or a \"checking your browser\" challenge page. A refused response says nothing about the page behind it, so those pages were not audited: they are listed under their status code but left out of the link, content and duplicate checks and out of Site Health. The audit describes only the pages the site actually served.",
+    "recommendation": "Let the crawler through, then crawl again: allow-list the CrawlScope user agent (or the crawler's IP addresses) in the firewall, CDN or bot-protection settings, lower the crawl speed if the site rate-limits, and give the crawl access to a password-protected staging site. If search engines are refused the same way, it is an indexing problem, not only an audit one: check the crawl stats in Google Search Console.",
+    "category": "Technical",
+    "priority": "High Priority",
+    "severity": "error",
+    "detection": "Automatic"
+  },
+  {
     "id": "crawl-trap",
     "scope": "template",
     "title": "Crawl trap generating unbounded URLs",
@@ -994,6 +1303,28 @@
     "category": "Technical",
     "priority": "High Priority",
     "severity": "error",
+    "detection": "Automatic"
+  },
+  {
+    "id": "sitemap-too-large",
+    "scope": "site",
+    "title": "Sitemap file too large",
+    "description": "A sitemap file is over the protocol's limits of 50 MB uncompressed or 50,000 URLs. Search engines reject a file past either limit, so none of the URLs in it are submitted through it.",
+    "recommendation": "Split the sitemap into files of at most 50,000 URLs and 50 MB each, and list them in a sitemap index file that robots.txt declares instead.",
+    "category": "Technical",
+    "priority": "Medium Priority",
+    "severity": "warning",
+    "detection": "Automatic"
+  },
+  {
+    "id": "sitemap-off-host",
+    "scope": "site",
+    "title": "Sitemap lists URLs on another host",
+    "description": "A sitemap lists URLs on a different host from the one it is served on, such as the www or non-www version of the site, or a staging host. Search engines accept a sitemap entry only on the sitemap's own host (unless both hosts are verified together), so those entries are ignored and the pages they name get no sitemap coverage.",
+    "recommendation": "List every page under the host the site actually serves, the one its redirects and canonical tags point to. If the pages really live on the other host, give that host its own sitemap and declare it in that host's robots.txt.",
+    "category": "Technical",
+    "priority": "Medium Priority",
+    "severity": "warning",
     "detection": "Automatic"
   }
 ]

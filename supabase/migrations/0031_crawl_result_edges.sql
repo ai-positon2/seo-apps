@@ -1,0 +1,22 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+-- 0031: each crawled page's own links and resources, kept until the run ends
+-- ═══════════════════════════════════════════════════════════════════════════
+--
+-- A crawl interrupted mid-way (a deploy, a worker restart) resumes from its
+-- checkpoint, and the checkpoint deliberately carries no results or link lists
+-- (crawler.js snapshot()). Rows already stored in crawl_run_results kept the
+-- pages, but not what those pages linked to, so the resumed run's analysis saw
+-- only the pages fetched after the restart: every earlier page had no findings,
+-- and the site-wide checks (broken links, duplicates, orphans, click depth) ran
+-- on part of the site.
+--
+-- `edges` holds the page's outgoing link edges and resource references as the
+-- crawler recorded them, so a resumed run can reload the pages it had already
+-- fetched and analyse the whole crawl. It is written with the row, is never
+-- served by the results API (which returns `data`), and is cleared when the run
+-- completes: after that nothing reads it.
+--
+-- Nullable, no default, no index: existing rows are untouched, and the column is
+-- only ever read by run id through the existing (run_id, id) index.
+
+alter table crawl_run_results add column if not exists edges jsonb;

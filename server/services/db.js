@@ -242,6 +242,9 @@ async function tx(fn) {
       const r = await client.query(t, p);
       return r.rows.length ? r.rows[0][r.fields[0].name] : null;
     },
+    // The bulk writers, inside the same transaction.
+    insertMany: (table, list, opts = {}) => insertMany(table, list, { ...opts, client: scoped }),
+    upsert: (table, list, conflictCols, opts = {}) => upsert(table, list, conflictCols, { ...opts, client: scoped }),
   };
   try {
     await client.query('begin');

@@ -91,7 +91,20 @@ const SUITES = [
   'modules/projects/__tests__/recommendations.test.js',
   'modules/projects/__tests__/report.test.js',
   'config/__tests__/registry.test.js',
-  'config/__tests__/moduleRuns.test.js',];
+  'config/__tests__/moduleRuns.test.js',
+  // Site Health's affected-page counts, in SQL. Skips without TEST_DATABASE_URL.
+  'modules/projects/__tests__/siteHealthDb.test.js',
+  // One queued crawl runs once, however many executors reach for it. Skips
+  // without TEST_DATABASE_URL.
+  'modules/crawlScope/__dbtests__/runClaim.test.js',
+  // A finished crawl writes whole-crawl link counts onto its stored rows.
+  'modules/crawlScope/__dbtests__/resultPatches.test.js',
+  'modules/crawlScope/__dbtests__/findingsCap.test.js',
+  'modules/crawlScope/__dbtests__/resume.test.js',
+  'modules/crawlScope/__dbtests__/comparison.test.js',
+  // PageSpeed Insights results become Core Web Vitals findings on the run.
+  'modules/crawlScope/__dbtests__/pagespeedFindings.test.js',
+];
 
 // The crawlScope suite runs through its own script, which picks the right
 // --test-isolation spelling for the Node version in use. See testCrawlScope.js.

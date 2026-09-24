@@ -100,10 +100,9 @@ test("D1: a sitemap larger than the crawl budget is crawl coverage, not a robots
     [],
     "robots.txt declares a readable sitemap, so there is no sitemap configuration problem",
   );
-  const coverage = payload.siteDiagnostics.sitemapCoverage;
-  assert.equal(coverage.listed, 12);
-  assert.equal(coverage.budgetLimited, true);
-  assert.ok(coverage.queued < 12, `queued ${coverage.queued} of 12`);
+  const notCrawled = payload.coverage.pagesNotAudited.find((entry) => /listed in the sitemaps/.test(entry.reason));
+  assert.ok(notCrawled, "the shortfall is reported as crawl coverage");
+  assert.ok(notCrawled.count > 0 && notCrawled.count < 12, `${notCrawled.count} of 12 not crawled`);
 });
 
 // The same message fired with no budget pressure at all: sitemap URLs the
@@ -127,9 +126,10 @@ test("D1: sitemap URLs already discovered through links are not a budget shortfa
     payload.findings.filter((f) => f.ruleId === "sitemap-robots-config").map((f) => f.detail),
     [],
   );
+  assert.ok(!payload.coverage.pagesNotAudited.some((entry) => /listed in the sitemaps/.test(entry.reason)));
   assert.deepEqual(
     { ...payload.siteDiagnostics.sitemapCoverage },
-    { listed: 2, queued: 2, budgetLimited: false, traversalStopped: false, documentsNotRead: 0 },
+    { traversalStopped: false, documentsNotRead: 0 },
   );
 });
 
@@ -346,9 +346,11 @@ test("D4: a sitemap URL blocked by robots.txt is described as blocked, not unrea
 
 test("D8: the analyzer names the checks it could not evaluate, with the reason", () => {
   const fixture = jsonFixture("checks-passed__D8.json");
-  const { notEvaluated } = findingsFor(fixture, { crawlTruncated: fixture.crawlTruncated });
-  assert.deepEqual(notEvaluated.map((entry) => entry.ruleId).sort(), fixture.expectedNotEvaluated);
-  assert.ok(notEvaluated.every((entry) => entry.reason), "every entry says why");
+  const { coverage } = findingsFor(fixture, { crawlTruncated: fixture.crawlTruncated });
+  const reasons = new Map(coverage.notEvaluated.map((entry) => [entry.ruleId, entry.reason]));
+  for (const ruleId of fixture.expectedNotEvaluated) {
+    assert.ok(reasons.get(ruleId), `${ruleId} is not evaluated, and says why`);
+  }
 
   const complete = findingsFor(
     {
@@ -362,7 +364,10 @@ test("D8: the analyzer names the checks it could not evaluate, with the reason",
     },
     { crawlTruncated: false },
   );
-  assert.deepEqual(complete.notEvaluated, [], "a complete crawl with internal assets evaluates everything");
+  const stillSkipped = new Set(complete.coverage.notEvaluated.map((entry) => entry.ruleId));
+  for (const ruleId of fixture.expectedNotEvaluated) {
+    assert.ok(!stillSkipped.has(ruleId), `${ruleId} runs on a complete crawl with internal assets`);
+  }
 });
 
 test("D8: 'Checks Passed' leaves checks that did not run out of the ratio and says so", async () => {
@@ -377,7 +382,7 @@ test("D8: 'Checks Passed' leaves checks that did not run out of the ratio and sa
   const buffer = await buildAuditWorkbook({
     findings: [],
     catalog,
-    notEvaluated,
+    coverage: { notEvaluated, partial: [], pagesNotAudited: [] },
     siteUrl: "https://practice.example/",
     crawlDate: "2026-09-23T00:00:00.000Z",
   });
@@ -388,15 +393,16 @@ test("D8: 'Checks Passed' leaves checks that did not run out of the ratio and sa
   const automatic = catalog.filter((c) => c.detection === "Automatic").length;
   assert.equal(
     sheet.getCell("A1").value,
-    `${automatic - 2} of ${automatic - 2} automatic checks clean (2 not evaluated this run)`,
+    `${automatic - 2} of ${automatic - 2} automatic checks clean; 2 not evaluated`,
   );
   const rows = [];
   sheet.eachRow((row) => rows.push(row.values.slice(1).map((v) => String(v ?? ""))));
   const orphanTitle = catalog.find((c) => c.id === "orphan-page").title;
   const orphanRows = rows.filter((cells) => cells[0] === orphanTitle);
   assert.equal(orphanRows.length, 1, "listed once, as not evaluated, never among the clean checks");
-  assert.match(orphanRows[0].join(" | "), /Not evaluated/);
   assert.match(orphanRows[0].join(" | "), /truncated crawl/);
+  const heading = rows.findIndex((cells) => cells[0] === "Not evaluated on this crawl");
+  assert.ok(heading >= 0 && heading < rows.indexOf(orphanRows[0]), "under the not-evaluated heading");
 });
 
 test("D8: the list travels from the crawl to the stored report", async (t) => {
@@ -408,8 +414,9 @@ test("D8: the list travels from the crawl to the stored report", async (t) => {
   t.after(site.close);
   const payload = await crawl(site.origin, { maxUrls: 5 });
   assert.equal(payload.truncated, true);
+  const { notEvaluated } = payload.coverage;
   assert.ok(
-    payload.notEvaluated.some((entry) => entry.ruleId === "orphan-page"),
+    notEvaluated.some((entry) => entry.ruleId === "orphan-page"),
     "the crawl payload carries the analyzer's list",
   );
 
@@ -417,17 +424,14 @@ test("D8: the list travels from the crawl to the stored report", async (t) => {
   const report = require("../run/report");
   const buffer = await report.buildReportBuffer({
     findings: payload.findings,
-    notEvaluated: payload.notEvaluated,
+    coverage: payload.coverage,
     siteUrl: site.origin,
     crawlDate: "2026-09-23T00:00:00.000Z",
   });
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer);
   const title = String(workbook.getWorksheet("Checks Passed").getCell("A1").value);
-  assert.ok(
-    title.endsWith(`(${payload.notEvaluated.length} not evaluated this run)`),
-    `title: ${title}`,
-  );
+  assert.ok(title.endsWith(`; ${notEvaluated.length} not evaluated`), `title: ${title}`);
 });
 
 // ── D14 · www.brushandfloss.com, 2026-09-23 ───────────────────────────────────
@@ -559,14 +563,14 @@ test("D13: schema-error calls a property required only where Google requires it"
   t.after(site.close);
 
   const payload = await crawl(site.origin, { maxUrls: 5, respectRobots: false, discoverSitemaps: false });
-  const errors = payload.results.find((r) => r.url.endsWith("/locations/harrisburg")).schemaErrors;
-  assert.deepEqual(errors.slice().sort(), [
-    "BlogPosting is missing the recommended datePublished property",
-    "BlogPosting is missing the recommended headline property",
-    "BlogPosting is missing the recommended image property",
-    "Dentist is missing the required address property",
-    "Organization is missing the recommended name property",
+  const problems = payload.results.find((r) => r.url.endsWith("/locations/harrisburg")).schemaProblems;
+  const byKind = (kind) => problems.filter((p) => p.kind === kind).map((p) => p.message);
+  assert.deepEqual(byKind("required"), [
+    "Dentist (JSON-LD) is missing address, which Google requires for local business details.",
   ]);
+  const recommended = byKind("recommended");
+  assert.ok(recommended.some((m) => m.startsWith("Organization (JSON-LD) is missing name")));
+  assert.ok(recommended.some((m) => m.startsWith("BlogPosting (JSON-LD) is missing headline, image and datePublished")));
 });
 
 // ── D15 · www.brushandfloss.com, 2026-09-23 ───────────────────────────────────
@@ -658,13 +662,15 @@ test("M1: retries default to 2, so a throttled page is retried instead of record
 // treated it as one: page-4xx, broken-internal-links and sitemap-incorrect-url
 // for the same throttled product pages.
 
-test("M2: a page still rate-limited after retries is one crawl-failure, not a broken page or link", () => {
+test("M2: a page still rate-limited after retries is listed once as refused, not as a broken page or link", () => {
   const fixture = jsonFixture("page-4xx__M2.json");
   const { findings } = findingsFor(fixture, { linkEdges: fixture.linkEdges, sitemapsChecked: true });
   const on = (path) => findings.filter((f) => f.url.endsWith(path) || f.targetUrl.endsWith(path)).map((f) => f.ruleId).sort();
 
-  assert.deepEqual(on("/products/tree-runner"), ["crawl-failure"], "throttled page: reported once, as not crawled");
-  assert.match(findings.find((f) => f.ruleId === "crawl-failure").detail, /429/);
+  assert.deepEqual(on("/products/tree-runner"), ["page-4xx"], "throttled page: reported once");
+  const throttled = findings.find((f) => f.url.endsWith("/products/tree-runner"));
+  assert.equal(throttled.crawlRefused, true, "as a refusal, kept out of Site Health");
+  assert.match(throttled.detail, /rate-limited the crawler.*not audited/);
   assert.deepEqual(
     on("/products/retired-shoe"),
     ["broken-internal-links", "page-4xx", "sitemap-incorrect-url"],
@@ -753,9 +759,11 @@ test("M5: a page in a sitemap the crawler did not get to read is not reported as
     payload.findings.filter((f) => f.ruleId === "sitemap-missing-indexable").map((f) => new URL(f.url).pathname),
     [],
   );
-  const entry = payload.notEvaluated.find((e) => e.ruleId === "sitemap-missing-indexable");
+  const entry = payload.coverage.notEvaluated.find((e) => e.ruleId === "sitemap-missing-indexable");
   assert.ok(entry, "reported as not evaluated instead");
   assert.match(entry.reason, /sitemap/i);
+  // The other sitemap checks ran, on the documents that were read.
+  assert.ok(payload.coverage.partial.some((e) => e.ruleId === "sitemap-duplicate" && /not read/.test(e.reason)));
 });
 
 // ── M6 · five-domain run (techcrunch.com), 2026-09-23 ─────────────────────────

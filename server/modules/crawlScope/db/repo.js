@@ -26,7 +26,7 @@ const { json } = require("../../../services/db");
 const JSONB_COLUMNS = {
   crawl_projects: new Set(["options", "settings"]),
   crawl_runs: new Set(["options", "progress", "summary", "checkpoint", "site_diagnostics"]),
-  crawl_run_results: new Set(["data"]),
+  crawl_run_results: new Set(["data", "edges"]),
   crawl_run_findings: new Set(["detail"]),
   crawl_run_finding_instances: new Set(["data"]),
 };
@@ -420,6 +420,27 @@ async function claimNextQueuedRun(client, { triggers, trigger, workerId } = {}) 
   );
 }
 
+// Take ownership of ONE specific queued run — the guarantee claimNextQueuedRun
+// gives the worker, for a caller that already knows which run it wants: the web
+// process executing a run it has just created (POST /runs, the project's first
+// crawl). Without it, that caller's plain UPDATE to 'running' raced the
+// worker's claim, and a worker poll landing between the two executed the same
+// crawl twice into one run id. Returns the claimed row, or null when the run
+// is no longer queued (someone else owns it).
+async function claimRun(client, id, { workerId = null } = {}) {
+  const nowIso = new Date().toISOString();
+  return client.maybeOne(
+    `update crawl_runs
+        set status = 'running',
+            started_at = coalesce(started_at, $2),
+            heartbeat_at = $2,
+            worker_id = coalesce($3, worker_id)
+      where id = $1 and status = 'queued'
+      returning *`,
+    [id, nowIso, workerId],
+  );
+}
+
 // ── The control channel (migration 0025) ───────────────────────────────────
 //
 // Pause/resume/stop reach the RunManager in the process that receives the
@@ -597,11 +618,117 @@ async function previousCompletedRun(client, projectId, beforeIso) {
   );
 }
 
+// The last completed crawl of the same site, for "new since last crawl": the
+// same project, or for a crawl outside any project the same owner and URL. A
+// URL-list crawl is never compared (its url is a label, not a site).
+async function previousComparableRun(client, run) {
+  return client.maybeOne(
+    `select id, created_at, finished_at from crawl_runs
+      where id <> $1
+        and status = 'completed'
+        and created_at < $2
+        and not coalesce(options ? 'urls', false)
+        and (($3::uuid is not null and project_id = $3)
+          or ($3::uuid is null and project_id is null and owner = $4 and url = $5))
+      order by created_at desc
+      limit 1`,
+    [run.id, run.created_at || new Date().toISOString(), run.project_id || null, run.owner, run.url],
+  );
+}
+
+// Just enough of a run's findings to match them against another crawl's.
+async function listRunIssueRows(client, runId) {
+  return client.rows(
+    `select finding_id as id,
+            rule_id as "ruleId",
+            data->>'url' as url,
+            coalesce(data->>'targetUrl', '') as "targetUrl",
+            data->>'issueKey' as "issueKey"
+       from crawl_run_finding_instances
+      where run_id = $1`,
+    [runId],
+  );
+}
+
+// Reviews carried over from the previous crawl (run/comparison.js). Never
+// over a review someone already made on this run.
+async function insertCarriedReviews(client, runId, owner, carried) {
+  if (!carried.length) return 0;
+  const now = new Date().toISOString();
+  const rows = carried.map((review) => ({
+    run_id: runId,
+    finding_id: review.findingId,
+    owner,
+    rule_id: review.ruleId,
+    review_status: review.reviewStatus,
+    reviewer_notes: review.reviewerNotes ?? null,
+    reviewed_by: review.reviewedBy ?? null,
+    updated_at: now,
+  }));
+  const CHUNK = 1_000;
+  for (let at = 0; at < rows.length; at += CHUNK) {
+    await client.upsert("crawl_finding_reviews", rows.slice(at, at + CHUNK), ["run_id", "finding_id"], { merge: false });
+  }
+  return rows.length;
+}
+
 // ---- results / findings ---------------------------------------------------
 
 async function insertResults(client, rows) {
   if (!rows.length) return;
   await client.insertMany("crawl_run_results", rows);
+}
+
+// ── Each page's own edges, for resuming (migration 0031) ────────────────────
+// Whether crawl_run_results.edges exists here. Asked once per process: a
+// database the migration has not reached must keep storing results without it
+// rather than fail every insert over an unknown column.
+let resultEdgesColumn = null;
+async function resultEdgesSupported(client) {
+  if (resultEdgesColumn !== null) return resultEdgesColumn;
+  try {
+    const rows = await client.rows(
+      `select 1 from information_schema.columns
+        where table_name = 'crawl_run_results' and column_name = 'edges' limit 1`,
+    );
+    resultEdgesColumn = rows.length > 0;
+  } catch {
+    resultEdgesColumn = false;
+  }
+  return resultEdgesColumn;
+}
+
+// Every row an interrupted attempt stored, with its edges, in the order it was
+// stored — what a resumed run reloads so its analysis covers the whole crawl.
+// Keyset-paged on the (run_id, id) index.
+async function listRunResultsForResume(client, runId) {
+  const withEdges = await resultEdgesSupported(client);
+  const PAGE = 2_000;
+  const rows = [];
+  let after = 0;
+  for (;;) {
+    const page = await client.rows(
+      `select id, url, data, ${withEdges ? "edges" : "null::jsonb as edges"}
+         from crawl_run_results
+        where run_id = $1 and id > $2
+        order by id
+        limit $3`,
+      [runId, after, PAGE],
+    );
+    rows.push(...page);
+    if (page.length < PAGE) return rows;
+    after = page[page.length - 1].id;
+  }
+}
+
+// Nothing reads a finished run's edges; they are only kept for a resume.
+async function clearResultEdges(client, runId) {
+  if (!(await resultEdgesSupported(client))) return 0;
+  const result = await client.query(
+    `update crawl_run_results set edges = null where run_id = $1 and edges is not null`,
+    [runId],
+  );
+  return result?.rowCount || 0;
 }
 
 async function insertFindings(client, rows) {
@@ -632,6 +759,81 @@ async function insertRunFindingInstances(client, runId, owner, findings) {
     written += chunk.length;
   }
   return written;
+}
+
+// ── Findings added to a stored run ──────────────────────────────────────────
+// Core Web Vitals findings come from PageSpeed Insights, which runs after a
+// crawl is analysed (run/pagespeed-findings.js). These are the reads and the
+// write that replace them; the caller runs them in one transaction.
+
+// The run row, locked until the transaction ends, so two PageSpeed results
+// landing together recompute one after the other instead of over each other.
+async function lockRun(client, runId) {
+  return client.maybeOne(`select * from crawl_runs where id = $1 for update`, [runId]);
+}
+
+// Every page of the run with a stored PageSpeed Insights result: per URL, the
+// row updateResultPagespeed writes to (the first one stored for it). Only the
+// parts the findings are made from, not each result's list of fixes, since a
+// whole-site sample can store thousands.
+async function listRunPageSpeed(client, runId) {
+  return client.rows(
+    `select distinct on (url) url,
+            jsonb_build_object(
+              'dataUnavailable', data#>'{pagespeed,dataUnavailable}',
+              'mobile', jsonb_build_object(
+                'lcpMs', data#>'{pagespeed,mobile,lcpMs}',
+                'cls', data#>'{pagespeed,mobile,cls}',
+                'field', data#>'{pagespeed,mobile,field}'),
+              'desktop', jsonb_build_object('field', data#>'{pagespeed,desktop,field}')
+            ) as pagespeed
+       from crawl_run_results
+      where run_id = $1 and data ? 'pagespeed'
+      order by url, id asc`,
+    [runId],
+  );
+}
+
+// What rule-order.js weighs a page by, and what makes it a page PageSpeed
+// Insights can check, for every page of the run.
+// Numbers and flags are read only when they are one, so an odd stored value is
+// missing rather than an error.
+async function listRunPageFacts(client, runId) {
+  const number = (key) =>
+    `case when jsonb_typeof(data->'${key}') = 'number' then (data->>'${key}')::numeric::int end`;
+  return client.rows(
+    `select url,
+            data->>'scope' as scope,
+            ${number("status")} as status,
+            data->>'contentType' as "contentType",
+            data->>'indexability' as indexability,
+            coalesce(data->'isAsset' = 'true'::jsonb, false) as "isAsset",
+            coalesce(data->'crawlRefused' = 'true'::jsonb, false) as "crawlRefused",
+            ${number("inlinks")} as inlinks,
+            ${number("followInlinks")} as "followInlinks",
+            ${number("clickDepth")} as "clickDepth"
+       from crawl_run_results
+      where run_id = $1`,
+    [runId],
+  );
+}
+
+// Replaces some rules' findings on a stored run, instances and rollup rows.
+// Returns the rollup rows it removed, for the caller to take out of the run's
+// counts.
+async function replaceRuleFindings(client, runId, owner, ruleIds, findings, rollup) {
+  await client.query(
+    `delete from crawl_run_finding_instances where run_id = $1 and rule_id = any($2::text[])`,
+    [runId, ruleIds],
+  );
+  const removed = await client.rows(
+    `delete from crawl_run_findings where run_id = $1 and rule_id = any($2::text[])
+     returning rule_id, severity, count`,
+    [runId, ruleIds],
+  );
+  await insertRunFindingInstances(client, runId, owner, findings);
+  await insertFindings(client, rollup);
+  return removed;
 }
 
 // The per-RULE rollup, which aggregateFindings() already writes on every
@@ -686,7 +888,12 @@ async function listRunFindingInstancesPage(client, runId, { offset = 0, limit = 
 // shape analyzer.js produced (just `row.data`) — a drop-in replacement for
 // the old `run.summary.findings` array. `cap` is a safety ceiling, not an
 // expected limit.
-async function listAllRunFindingInstances(client, runId, { cap = 50_000 } = {}) {
+// The most finding instances any one read returns. A run can hold more; the
+// report says so (see `meta` below) instead of presenting the first 50,000 as
+// all of them.
+const FINDINGS_READ_CAP = 50_000;
+
+async function listAllRunFindingInstances(client, runId, { cap = FINDINGS_READ_CAP, meta = null } = {}) {
   // Paged rather than one unbounded select, so a 20,000-row run cannot arrive as
   // one enormous result set.
   //
@@ -732,6 +939,9 @@ async function listAllRunFindingInstances(client, runId, { cap = 50_000 } = {}) 
     ),
   ]);
 
+  // `meta.total` is how many the run holds, which a caller compares with what
+  // came back to know whether the cap cut the list short.
+  if (meta) meta.total = Number(countRow[0]?.n) || 0;
   const total = Math.min(Number(countRow[0]?.n) || 0, cap);
   if (!total) return [];
 
@@ -914,6 +1124,28 @@ async function patchResultCategories(client, runId, patches) {
   );
 }
 
+// Merges analyzer-computed fields into stored result rows. crawl_run_results
+// rows are written as each page is fetched, before anything that needs the
+// whole crawl exists — so a row's `inlinks` was the count at fetch time (0 for
+// most pages; projects/crawledPages.js documents it as "0 on every row") and
+// the report's Inlinks column showed that. `patches` is [{ url, fields }];
+// `fields` is merged into `data`, never replacing it. Chunked so a 10,000-page
+// crawl is several statements, not one enormous parameter.
+const RESULT_PATCH_CHUNK = 1_000;
+
+async function patchResultData(client, runId, patches) {
+  for (let i = 0; i < patches.length; i += RESULT_PATCH_CHUNK) {
+    const chunk = patches.slice(i, i + RESULT_PATCH_CHUNK);
+    await client.query(
+      `update crawl_run_results r
+          set data = r.data || p.fields
+         from jsonb_to_recordset($2::jsonb) as p(url text, fields jsonb)
+        where r.run_id = $1 and r.url = p.url`,
+      [runId, json(chunk)],
+    );
+  }
+}
+
 // Upserts a project's classification, skipping any URL a human has already
 // manually corrected (manual_override = true) — enforced by the function's own
 // WHERE clause, not here, so it holds regardless of caller. `entries` is
@@ -989,6 +1221,13 @@ async function saveFindingReviews(client, runId, owner, reviews, reviewedBy = nu
 }
 
 module.exports = {
+  previousComparableRun,
+  listRunIssueRows,
+  insertCarriedReviews,
+  resultEdgesSupported,
+  listRunResultsForResume,
+  clearResultEdges,
+  FINDINGS_READ_CAP,
   canViewRow,
   viewerScope,
   getRunForViewer,
@@ -1007,6 +1246,7 @@ module.exports = {
   getRun,
   listRuns,
   claimNextQueuedRun,
+  claimRun,
   updateRun,
   requeueRun,
   getRunCheckpoint,
@@ -1022,6 +1262,10 @@ module.exports = {
   readControlRequest,
   clearControlRequest,
   insertRunFindingInstances,
+  lockRun,
+  listRunPageSpeed,
+  listRunPageFacts,
+  replaceRuleFindings,
   listAllRunFindingInstances,
   listRunFindingRollup,
   listRunFindingInstancesPage,
@@ -1029,6 +1273,7 @@ module.exports = {
   listResults,
   updateResultPagespeed,
   patchResultCategories,
+  patchResultData,
   upsertPageCategories,
   listPageCategories,
   listFindingReviews,

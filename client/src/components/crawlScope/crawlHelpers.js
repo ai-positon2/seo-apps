@@ -21,6 +21,9 @@ export const REVIEW_STATUSES = [
 // A finding marked either of these is out of the picture for metrics and counts:
 // it is not an outstanding problem any more.
 const DISMISSED = ['False positive', 'Resolved'];
+// Finding scopes that describe the pages themselves, and so count toward Site
+// Health. Mirrored by server/modules/projects/overview.js#siteHealth.
+const PAGE_LEVEL_SCOPES = new Set(['page', 'template']);
 
 export const SEVERITY_ORDER = ['error', 'warning', 'notice', 'info'];
 
@@ -256,15 +259,24 @@ export function filterResults(results, { tab = 'all', issueFilter = '', filter =
 // scored as pages of this site.
 export function healthMetrics(results, findings = []) {
   const internalResults = results.filter((item) => item.scope !== 'External');
-  const htmlResults = internalResults.filter(isHtmlPage);
+  // A response that refused the crawler (bot protection, rate limiting — the
+  // analyzer's crawl-blocked finding) is not one of the site's pages: nothing
+  // was learned about it, so it is neither counted clean nor counted broken.
+  const htmlResults = internalResults.filter((item) => isHtmlPage(item) && !item.crawlRefused);
+  const htmlUrls = new Set(htmlResults.map((item) => item.url));
   // `finding.scope` ('page' | 'site' | 'resource' | 'template') is unrelated to
-  // a crawl result's own `.scope` ('Internal' | 'External') just above — only
-  // page-scoped findings belong in a page-level tally. A site-wide
-  // misconfiguration (sitemap/robots, HSTS, llms.txt) or a resource file's
-  // issue must never inflate Errors/Warnings/Notices here; siteScopedGroups()
-  // is where those are counted instead.
+  // a crawl result's own `.scope` ('Internal' | 'External') just above. A
+  // site-wide misconfiguration (sitemap/robots, HSTS, llms.txt) or a resource
+  // file's issue must never inflate Errors/Warnings/Notices here;
+  // siteScopedGroups() is where those are counted instead.
+  //
+  // 'template' is different: it is a PAGE defect that the analyzer found on at
+  // least half the pages (collapseTemplateFindings), so it is grouped as one
+  // cause for display — but every one of those pages still has it. Leaving it
+  // out made the score rise as a problem spread: 45% of pages missing a meta
+  // description scored 90, and 100% of them scored 100.
   const activeFindings = findings.filter(
-    (f) => !DISMISSED.includes(f.reviewStatus) && (f.scope || 'page') === 'page',
+    (f) => !DISMISSED.includes(f.reviewStatus) && PAGE_LEVEL_SCOPES.has(f.scope || 'page'),
   );
   const useFindings = findings.length > 0;
 
@@ -276,13 +288,17 @@ export function healthMetrics(results, findings = []) {
           0,
         );
 
+  // Counted over the same pages as the denominator. A finding on an image,
+  // script or unreachable URL is real, but that URL is not one of the HTML
+  // pages the share is taken over, so it cannot be one of the pages "with" it.
   const affectedPages = (severity) =>
     new Set(
-      useFindings
+      (useFindings
         ? activeFindings.filter((f) => f.severity === severity).map((f) => f.url)
         : internalResults
             .filter((item) => (item.issues || []).some((i) => i.severity === severity))
-            .map((item) => item.url),
+            .map((item) => item.url)
+      ).filter((url) => htmlUrls.has(url)),
     ).size;
 
   const errors = countBySeverity('error');
@@ -314,6 +330,7 @@ export function healthMetrics(results, findings = []) {
     health,
     indexable: htmlResults.filter((item) => item.indexability === 'Indexable').length,
     htmlCount: htmlResults.length,
+    refusedCount: internalResults.filter((item) => item.crawlRefused).length,
     affectedErrorPages,
     affectedWarningPages,
     affectedNoticePages,
@@ -580,6 +597,204 @@ export function groupsByCategory(groups, catalogById) {
     .sort((a, b) => {
       const bySeverity = SEVERITY_ORDER.indexOf(a.worstSeverity) - SEVERITY_ORDER.indexOf(b.worstSeverity);
       return bySeverity !== 0 ? bySeverity : b.affectedPages - a.affectedPages;
+    });
+}
+
+// ── What a finding says to do ───────────────────────────────────────────────
+// The analyzer writes page-specific advice onto a finding: a suggested value
+// (a rewritten title, a starter meta description, an H1) in recommendedValue,
+// and for some rules a recommendation built from this page's own evidence —
+// the sitemap fix naming the canonical URL, the robots.txt line naming the real
+// domain. The report showed only the catalog's text for the rule, so that
+// advice reached the Excel export and nowhere else. `fix` is null when the
+// finding only repeats the catalog text, which the issue card already shows.
+export function findingFix(finding, entry) {
+  const raw = finding?.recommendedValue;
+  const suggestion = raw === undefined || raw === null ? '' : String(raw).trim();
+  const own = String(finding?.recommendation || '').trim();
+  const generic = String(entry?.recommendation || '').trim();
+  return {
+    suggestion: suggestion || null,
+    fix: own && own !== generic ? own : null,
+  };
+}
+
+// ── Did the crawl reach the whole site, and run every check? ────────────────
+// Why a crawl was partial, and which checks it could not run, in words.
+//
+// `truncated` is set by the page budget, the depth limit and crawl traps alike,
+// so "it reached its budget" (and "raise the budget") is said only when the
+// crawler recorded budgetReached; a run stored before that flag existed is read
+// as budget-limited when nothing else explains its truncation.
+//
+// `notEvaluated` / `partlyChecked` come from the analyzer's coverage block
+// (run.summary.coverage), grouped by reason so a capped crawl reads as one
+// sentence naming its two link checks, not two sentences.
+export function crawlCoverageNotice(run, catalogById = new Map()) {
+  const sum = run?.summary || {};
+  const limit = Number(run?.options?.maxUrls);
+  const depthCap = Number(run?.options?.maxDepth);
+  const budgetReached = sum.budgetReached !== undefined
+    ? Boolean(sum.budgetReached)
+    : Boolean(sum.truncated && !sum.depthLimited && !sum.edgesTruncated && !sum.trapTemplates?.length);
+  const reasons = [];
+  if (run?.status === 'stopped') reasons.push('it was stopped before it finished');
+  // Interrupted and resumed, and the pages stored before the interruption could
+  // not be loaded back: they have rows but are not in this analysis.
+  if (sum.resumed?.reloadFailed) {
+    reasons.push('it was interrupted, and the pages it had stored before then could not be reloaded into this analysis');
+  }
+  if (budgetReached) {
+    reasons.push(Number.isFinite(limit) && limit > 0
+      ? `it reached its budget of ${limit.toLocaleString('en-US')} pages`
+      : 'it reached its page budget');
+  }
+  if (sum.depthLimited) {
+    reasons.push(Number.isFinite(depthCap) && depthCap > 0
+      ? `pages deeper than ${depthCap} clicks from the homepage were not followed`
+      : 'pages past the depth limit were not followed');
+  }
+  if (sum.edgesTruncated) reasons.push('the internal link graph hit its size limit');
+  if (sum.trapTemplates?.length) {
+    reasons.push(`${sum.trapTemplates.length} URL pattern`
+      + `${sum.trapTemplates.length === 1 ? ' was' : 's were'} capped as a crawler trap`);
+  }
+
+  const byReason = (entries = []) => {
+    const groups = new Map();
+    for (const { ruleId, reason } of entries) {
+      const titles = groups.get(reason) || [];
+      titles.push(catalogById.get(ruleId)?.title || ruleId);
+      groups.set(reason, titles);
+    }
+    return [...groups].map(([reason, titles]) => ({ reason, titles }));
+  };
+
+  return {
+    limit: Number.isFinite(limit) && limit > 0 ? limit : null,
+    partial: reasons.length > 0,
+    reasons,
+    budgetReached,
+    notEvaluated: byReason(sum.coverage?.notEvaluated),
+    partlyChecked: byReason(sum.coverage?.partial),
+    // Pages reached but not audited (robots.txt closing them to CrawlScope
+    // while leaving them open to Google), each as one sentence.
+    pagesNotAudited: (sum.coverage?.pagesNotAudited || []).map((entry) => entry.reason).filter(Boolean),
+  };
+}
+
+// One review decision applied to many findings, split into requests the review
+// endpoint accepts (at most 5,000 reviews each; server api/routes.js).
+export const REVIEW_BATCH_SIZE = 5_000;
+export function reviewBatches(findingIds, reviewStatus, size = REVIEW_BATCH_SIZE) {
+  const batches = [];
+  for (let at = 0; at < findingIds.length; at += size) {
+    batches.push(findingIds.slice(at, at + size).map((findingId) => ({ findingId, reviewStatus, reviewerNotes: '' })));
+  }
+  return batches;
+}
+
+// ── Which problem first ─────────────────────────────────────────────────────
+// The run's own order (server rule-order.js: severity, site-wide first, then how
+// much the affected pages matter), the one the workbook and the email use too,
+// with its reason per rule. A run analysed before it existed keeps severity
+// then affected pages.
+export function orderIssueGroups(groups, ruleOrder = null) {
+  const ranked = new Map((ruleOrder || []).map((row) => [row.ruleId, row]));
+  const rankOf = (id) => ranked.get(id)?.rank ?? Number.MAX_SAFE_INTEGER;
+  return [...groups]
+    .map((group) => ({ ...group, reason: ranked.get(group.id)?.reason || null }))
+    .sort((a, b) =>
+      rankOf(a.id) - rankOf(b.id)
+      || SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity)
+      || (b.pages || 0) - (a.pages || 0));
+}
+
+// ── What changed since the last crawl ──────────────────────────────────────
+// run.summary.comparison (run/comparison.js on the server): new / fixed /
+// persisting issues against the previous crawl of the same site, and how many
+// false positives were carried over from it. null when there was no previous
+// crawl to compare with.
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const plural = (count, one, many = `${one}s`) => `${count.toLocaleString('en-US')} ${count === 1 ? one : many}`;
+
+export function crawlComparison(run) {
+  const comparison = run?.summary?.comparison;
+  if (!comparison?.totals) return null;
+  const { totals } = comparison;
+  const carried = Number(comparison.carriedReviews) || 0;
+  // Spelled out rather than toLocaleDateString, whose month abbreviations
+  // differ between ICU versions ("Sep" / "Sept").
+  const finished = comparison.previousFinishedAt ? new Date(comparison.previousFinishedAt) : null;
+  const since = finished && Number.isFinite(finished.getTime())
+    ? `${finished.getUTCDate()} ${MONTHS_SHORT[finished.getUTCMonth()]} ${finished.getUTCFullYear()}`
+    : null;
+  const sentence = `${since ? `Since the crawl of ${since}` : 'Since the last crawl'}: `
+    + `${plural(totals.new, 'new issue')}, ${totals.fixed.toLocaleString('en-US')} fixed, `
+    + `${totals.persisting.toLocaleString('en-US')} still open.`
+    + (carried ? ` ${plural(carried, 'false positive')} ${carried === 1 ? 'was' : 'were'} carried over from it.` : '');
+  return { since, totals, byRule: comparison.byRule || {}, carried, sentence };
+}
+
+// One rule's movement since the last crawl, or null when it did not move.
+export function ruleTrend(comparison, ruleId) {
+  const trend = comparison?.byRule?.[ruleId];
+  if (!trend || (!trend.new && !trend.fixed)) return null;
+  const parts = [];
+  if (trend.new) parts.push(`${trend.new.toLocaleString('en-US')} new`);
+  if (trend.fixed) parts.push(`${trend.fixed.toLocaleString('en-US')} fixed`);
+  return `${parts.join(', ')} since the last crawl`;
+}
+
+// A finding's evidence as two lines: what it means (`detail`, e.g. "2 redirect
+// hops", "HTTP 404 Not Found") and what was found (`detectedValue`: the hops,
+// the link text, the title itself). Rows used to print `detail || value`, so a
+// finding with both showed only the first. The value is left off when it says
+// the same thing, or is only a placeholder for "nothing there".
+const ABSENT_VALUES = new Set(['(absent)', '(none)']);
+const EVIDENCE_MAX = 240;
+
+export function findingEvidence(finding) {
+  const detail = String(finding?.detail ?? '').trim();
+  const raw = finding?.detectedValue;
+  const value = raw === undefined || raw === null ? '' : String(raw).trim();
+  if (!detail) return { primary: value || '—', secondary: null };
+  const secondary = value && value !== detail && !ABSENT_VALUES.has(value)
+    ? (value.length > EVIDENCE_MAX ? `${value.slice(0, EVIDENCE_MAX - 1)}…` : value)
+    : null;
+  return { primary: detail, secondary };
+}
+
+// The issue cards on one page's own view. Page- AND template-scoped findings:
+// a template finding is a page defect found on most pages, so it is on this
+// page too, and it counts toward Site Health; leaving it off the page's own
+// view made a page "have" a problem it did not list. Dismissed findings are
+// left out, matching the page table's issue count.
+export function pageIssueCards(findings, pageUrl, catalogById, pagesByRule = new Map()) {
+  return findings
+    .filter((f) => f.url === pageUrl
+      && PAGE_LEVEL_SCOPES.has(f.scope || 'page')
+      && !DISMISSED.includes(f.reviewStatus))
+    .map((f) => {
+      const entry = catalogById.get(f.ruleId);
+      const { suggestion, fix } = findingFix(f, entry);
+      const evidence = findingEvidence(f);
+      return {
+        // Per finding, not per rule: a page with two broken links has two.
+        key: f.id || `${f.ruleId}|${f.targetUrl || ''}|${f.detail || ''}`,
+        id: f.ruleId,
+        title: entry?.title || f.title || f.ruleId,
+        severity: f.severity,
+        detected: evidence.primary === '—' ? null : evidence.primary,
+        found: evidence.secondary,
+        // Counted on the first 5 MB of a larger page: a floor, not the count.
+        truncated: Boolean(f.sourceTruncated),
+        targetUrl: f.targetUrl || null,
+        suggestion,
+        description: entry?.description || null,
+        recommendation: fix || entry?.recommendation || null,
+        pages: pagesByRule.get(f.ruleId) || 1,
+      };
     });
 }
 
@@ -971,7 +1186,7 @@ const CSV_COLUMNS = [
   ['words', 'Word count'],
   ['size', 'Size (bytes)'],
   ['responseTime', 'Response time (ms)'],
-  ['depth', 'Crawl depth'],
+  ['clickDepth', 'Click depth'],
   ['inlinks', 'Inlinks'],
   ['outlinks', 'Outlinks'],
   ['externalLinks', 'External links'],
@@ -990,10 +1205,18 @@ function csvCell(value) {
   return text;
 }
 
+// The fewest links from the start page, once the crawl has been analysed (null:
+// no followable link reaches the page). A crawl analysed before click depth
+// existed only has the order the crawler found the page in.
+function clickDepthCell(result) {
+  if (result.clickDepth === undefined) return result.depth;
+  return result.clickDepth === null ? 'not linked' : result.clickDepth;
+}
+
 export function toCsv(results) {
   const header = CSV_COLUMNS.map(([, label]) => csvCell(label)).join(',');
   const rows = results.map((result) => {
-    const cells = CSV_COLUMNS.map(([key]) => csvCell(result[key]));
+    const cells = CSV_COLUMNS.map(([key]) => csvCell(key === 'clickDepth' ? clickDepthCell(result) : result[key]));
     const issues = (result.issues || []).map((i) => i.label).join('; ');
     return [...cells, csvCell(issues)].join(',');
   });
@@ -1107,9 +1330,23 @@ export const WORKER_EXECUTED_TRIGGERS = ['schedule', 'initial'];
 // Mirrors parseCrawlRequest in server/modules/crawlScope/shared/options.js. The
 // server clamps against operator ceilings regardless of what is sent, so these
 // are starting points for the form, not limits.
+// The limits the audit judges pages by, at their defaults. Mirrors
+// server/modules/crawlScope/thresholds.js.
+export const DEFAULT_THRESHOLDS = {
+  titleMinLength: 30,
+  titleMaxLength: 60,
+  metaMinLength: 70,
+  metaMaxLength: 160,
+  minWords: 200,
+  slowResponseMs: 1000,
+  maxClickDepth: 3,
+  urlMaxLength: 200,
+  maxLinksPerPage: 3000,
+};
+
 export const DEFAULT_OPTIONS = {
   maxUrls: 500,
-  maxExternalUrls: 150,
+  maxExternalUrls: 500,
   concurrency: 4,
   timeout: 15000,
   perHostDelay: 250,
@@ -1118,4 +1355,22 @@ export const DEFAULT_OPTIONS = {
   crawlAssets: true,
   checkExternalLinks: true,
   discoverSitemaps: true,
+  userAgentProfile: 'desktop',
+  renderCheck: true,
+  renderJavaScript: false,
+  // Crawl scope. Lists are sent as typed (one entry per line); the server
+  // parses, trims and bounds them, and saved projects come back as arrays.
+  includePatterns: [],
+  excludePatterns: [],
+  scopeToFolder: false,
+  removeParameters: [],
+  sitemapUrls: [],
+  thresholds: { ...DEFAULT_THRESHOLDS },
 };
+
+// A list option as the text a textarea edits: one entry per line, whether it
+// was saved as an array (the server's parsed form) or is still the typed text.
+export function listOptionText(value) {
+  if (Array.isArray(value)) return value.join('\n');
+  return typeof value === 'string' ? value : '';
+}

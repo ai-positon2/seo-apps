@@ -4,6 +4,7 @@
 
 const { Resend } = require("resend");
 const { buildReportBuffer, reportFilename } = require("../run/report");
+const { rankLookup } = require("../rule-order");
 
 // Providers cap total message size (Resend's documented limit is 40 MB), and base64
 // inflates the payload by a third. Rather than letting an oversize attachment fail the
@@ -27,22 +28,49 @@ function delta(current, previous) {
   return diff > 0 ? ` (▲ +${diff})` : ` (▼ ${diff})`;
 }
 
-function topIssues(findings, limit = 8) {
+// The run's report page in the web app (client/src/App.jsx). The emails used to
+// link to "/?run=<id>", a query parameter from an earlier, router-less client
+// that nothing reads any more, so the link opened the home page.
+function runReportLink(baseUrl, runId) {
+  if (!baseUrl) return "";
+  return `${String(baseUrl).replace(/\/+$/, "")}/crawl-scope/runs/${encodeURIComponent(runId)}`;
+}
+
+// In the run's own order when it has one (rule-order.js: severity, site-wide,
+// how much the affected pages matter), the same order the report and the
+// workbook use, with the reason for each; otherwise severity then count.
+function topIssues(findings, limit = 8, ruleOrder = null) {
   const map = new Map();
   for (const f of findings) {
     const cur =
       map.get(f.ruleId) ||
-      { title: f.title, severity: f.severity, recommendation: f.recommendation, count: 0 };
+      { ruleId: f.ruleId, title: f.title, severity: f.severity, recommendation: f.recommendation, count: 0 };
     cur.count += 1;
     map.set(f.ruleId, cur);
   }
+  const rankOf = rankLookup(ruleOrder);
+  const reasonOf = new Map((ruleOrder || []).map((row) => [row.ruleId, row.reason]));
   const rank = { error: 0, warning: 1, notice: 2, info: 3 };
   return [...map.values()]
-    .sort((a, b) => (rank[a.severity] - rank[b.severity]) || b.count - a.count)
-    .slice(0, limit);
+    .sort((a, b) => rankOf(a.ruleId) - rankOf(b.ruleId) || (rank[a.severity] - rank[b.severity]) || b.count - a.count)
+    .slice(0, limit)
+    .map((issue) => ({ ...issue, reason: reasonOf.get(issue.ruleId) || null }));
 }
 
-function buildHtml({ run, counts, previousCounts, findings, baseUrl, downloadUrl, attached = true }) {
+// New / fixed / persisting against the previous crawl (run/comparison.js). The
+// severity deltas above it only compare totals, which cannot tell "nothing
+// changed" from "twelve fixed and twelve new".
+function comparisonLine(comparison) {
+  const totals = comparison?.totals;
+  if (!totals) return "";
+  const n = (value) => Number(value || 0).toLocaleString("en-US");
+  return `<p style="margin:0 0 16px;">Since the last crawl: ${n(totals.new)} new issue${totals.new === 1 ? "" : "s"}, ` +
+    `${n(totals.fixed)} fixed, ${n(totals.persisting)} still open.</p>`;
+}
+
+function buildHtml({
+  run, counts, previousCounts, findings, baseUrl, downloadUrl, attached = true, comparison = null, ruleOrder = null,
+}) {
   const rows = SEVERITY_ORDER.map((sev) => {
     const c = counts[sev] || 0;
     return `<tr><td style="padding:4px 12px;">${SEVERITY_LABEL[sev]}</td>
@@ -51,10 +79,10 @@ function buildHtml({ run, counts, previousCounts, findings, baseUrl, downloadUrl
       )}</td></tr>`;
   }).join("");
 
-  const issues = topIssues(findings)
+  const issues = topIssues(findings, 8, ruleOrder)
     .map(
       (i) => `<li style="margin-bottom:10px;">
-          <strong>${esc(i.title)}</strong> — ${esc(i.severity)} · ${i.count} page(s)
+          <strong>${esc(i.title)}</strong> — ${esc(i.severity)} · ${i.reason ? esc(i.reason) : `${i.count} page(s)`}
           ${
             i.recommendation
               ? `<br><span style="color:#5a6a7a;font-size:13px;">${esc(i.recommendation)}</span>`
@@ -64,10 +92,7 @@ function buildHtml({ run, counts, previousCounts, findings, baseUrl, downloadUrl
     )
     .join("");
 
-  // The app has no client-side router — there is no "#/runs/:id" route for
-  // this to resolve to. "?run=<id>" is a real query param the renderer reads
-  // on load (see app.js) to jump straight to this run.
-  const link = baseUrl ? `${baseUrl.replace(/\/$/, "")}/?run=${encodeURIComponent(run.id)}` : "";
+  const link = runReportLink(baseUrl, run.id);
 
   return `<div style="font-family:Segoe UI,Arial,sans-serif;color:#1f2733;max-width:640px;">
     <h2 style="margin:0 0 4px;">CrawlScope audit — ${esc(run.url)}</h2>
@@ -77,6 +102,7 @@ function buildHtml({ run, counts, previousCounts, findings, baseUrl, downloadUrl
       <th style="text-align:right;padding:4px 12px;background:#f5f7fb;">Count</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
+    ${comparisonLine(comparison)}
     <h3 style="margin:0 0 8px;">Top issues</h3>
     <ul style="margin:0 0 16px;padding-left:20px;">${issues || "<li>No issues detected.</li>"}</ul>
     ${link ? `<p><a href="${esc(link)}">Open full report</a></p>` : ""}
@@ -93,7 +119,7 @@ function buildHtml({ run, counts, previousCounts, findings, baseUrl, downloadUrl
 }
 
 function buildFailureHtml({ run, projectName, message, baseUrl }) {
-  const link = baseUrl ? `${baseUrl.replace(/\/$/, "")}/?run=${encodeURIComponent(run.id)}` : "";
+  const link = runReportLink(baseUrl, run.id);
   return `<div style="font-family:Segoe UI,Arial,sans-serif;color:#1f2733;max-width:640px;">
     <h2 style="margin:0 0 4px;">CrawlScope crawl failed — ${esc(projectName || run.url)}</h2>
     <p style="color:#5a6a7a;margin:0 0 16px;">The scheduled audit for ${esc(run.url)} could not be completed.</p>
@@ -140,6 +166,8 @@ async function sendReportEmail({
   run,
   counts,
   previousCounts,
+  comparison = null,
+  ruleOrder = null,
   findings,
   recipients,
   workbook = null,
@@ -158,9 +186,10 @@ async function sendReportEmail({
     workbook ||
     (await buildReportBuffer({
       findings,
-      notEvaluated: run.summary?.notEvaluated || [],
       siteUrl: run.url,
       crawlDate: run.finished_at,
+      coverage: run.summary?.coverage || null,
+      ruleOrder: run.summary?.ruleOrder || null,
     }));
 
   const host = String(run.url).replace(/^https?:\/\//i, "").split("/")[0];
@@ -178,6 +207,8 @@ async function sendReportEmail({
       run,
       counts,
       previousCounts,
+      comparison,
+      ruleOrder,
       findings,
       baseUrl,
       downloadUrl,

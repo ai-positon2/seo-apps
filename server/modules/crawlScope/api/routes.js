@@ -57,6 +57,7 @@ const report = require("../run/report");
 const repo = require("../db/repo");
 const catalog = require("../issue-catalog.json");
 const { getPageSpeedForAllDomains } = require("../../../services/pageSpeedCA");
+const { refreshPageSpeedFindings } = require("../run/pagespeed-findings");
 
 const router = express.Router();
 
@@ -121,11 +122,11 @@ async function crawlScopeContext(req, res, next) {
   }
 }
 
-// The issue catalog is static reference data (96 checks: names, categories,
+// The issue catalog is static reference data (every check: names, categories,
 // severities) the UI needs to render any result, so it is readable by any
-// signed-in user without a DB round trip. The count is asserted against the
-// file rather than trusted: issue-catalog.json holds 96 entries (27 error,
-// 54 warning, 15 notice), matching audit-loop/rules/rule-classes.json's _meta.
+// signed-in user without a DB round trip. audit-loop/rules/rule-classes.json
+// mirrors its ids and severities; rule-classes-sync.test.js keeps the two in
+// step (regenerate with node audit-loop/rules/sync-rule-classes.js).
 router.get("/catalog", (_req, res) => res.json(catalog));
 
 router.use(crawlScopeContext);
@@ -259,6 +260,14 @@ router.post(
           setStatus({ status: "error", error: "No crawled result stored for that URL in this run.", finishedAt: Date.now() });
           return;
         }
+        // The result becomes (or clears) the page's Core Web Vitals findings.
+        // The check itself succeeded either way, so a failure here is logged
+        // rather than reported as a failed check.
+        try {
+          await refreshPageSpeedFindings(db, run.id);
+        } catch (err) {
+          console.error(`[crawl ${run.id}] Core Web Vitals findings not stored:`, err.message);
+        }
         setStatus({ status: "done", error: null, finishedAt: Date.now(), pagespeed: data.pagespeed });
       } catch (err) {
         setStatus({ status: "error", error: err.message, finishedAt: Date.now() });
@@ -300,8 +309,8 @@ const REVIEW_STATUSES = new Set([
 // location, run.summary.findings. Falling back there (rather than showing
 // zero findings for every run that predates the migration) costs nothing:
 // `run` is already fetched, so this reads a field already in memory.
-async function loadRunFindings(db, run) {
-  const stored = await repo.listAllRunFindingInstances(db, run.id);
+async function loadRunFindings(db, run, meta = null) {
+  const stored = await repo.listAllRunFindingInstances(db, run.id, { meta });
   if (stored.length) return stored;
   return Array.isArray(run.summary?.findings) ? run.summary.findings : [];
 }
@@ -373,9 +382,18 @@ router.get(
       });
     }
 
-    const findings = await loadRunFindings(req.db, run);
+    const meta = {};
+    const findings = await loadRunFindings(req.db, run, meta);
     const reviews = await repo.listFindingReviews(req.db, run.id);
-    res.json({ grain: "instance", findings: mergeReviews(findings, reviews) });
+    const total = Math.max(Number(meta.total) || 0, findings.length);
+    res.json({
+      grain: "instance",
+      findings: mergeReviews(findings, reviews),
+      // A run can hold more findings than one read returns; the report says
+      // "the first N of M" instead of calling N the whole audit.
+      total,
+      capped: total > findings.length,
+    });
   }),
 );
 
@@ -531,9 +549,10 @@ router.get(
     const findings = await loadRunFindings(req.db, run);
     const buffer = await report.buildReportBuffer({
       findings: mergeReviews(findings, reviews),
-      notEvaluated: run.summary?.notEvaluated || [],
       siteUrl: run.url,
       crawlDate: run.finished_at || run.created_at,
+      coverage: run.summary?.coverage || null,
+      ruleOrder: run.summary?.ruleOrder || null,
     });
     res.setHeader("Content-Type", report.XLSX_MIME);
     res.setHeader(

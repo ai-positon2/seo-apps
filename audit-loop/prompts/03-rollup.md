@@ -5,7 +5,7 @@ All domains have completed. Read every `findings.json` and `verification.json` u
 
 ## Step 1 — Coverage matrix
 
-Build a 96 × N matrix (rules × domains) of fire counts. Write it to
+Build a rules × domains matrix of fire counts, one row per rule in the catalog. Write it to
 `{{RUNS_ROOT}}/coverage.csv`.
 
 ## A property to hold throughout
@@ -47,8 +47,8 @@ confidently wrong.
 A rule that fired zero times across every domain is the loop's blind spot: it looks clean in
 every report and has never actually been executed. For each, decide:
 
-- Legitimately silent (eval class is `external_gsc`, `external_analytics`, `delta`, `model`,
-  `action`) — needs a connected data source or a second crawl to test at all.
+- Legitimately silent (eval class is `external_gsc`, `external_analytics`, `external_pagespeed`,
+  `delta`, `model`, `action`) — needs a connected data source or a second crawl to test at all.
 - `fixture_only` rarity — needs a synthetic fixture; a live domain will not produce it.
 - Neither of the above, and `rarity` is `common` — a candidate dead detector, and what you
   may claim about it depends entirely on the denominator.

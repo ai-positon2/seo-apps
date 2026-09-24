@@ -3,6 +3,7 @@
 // clamps anyway, so these only stop the UI offering something it can't have.
 
 import { Field } from '../../ui';
+import { DEFAULT_THRESHOLDS, listOptionText } from './crawlHelpers';
 
 const NUMBERS = [
   { key: 'maxUrls', label: 'Max URLs', min: 1, max: 10000, step: 1,
@@ -19,7 +20,7 @@ const NUMBERS = [
 
 const TOGGLES = [
   { key: 'respectRobots', label: 'Respect robots.txt',
-    helper: 'Uses CrawlScope as the user-agent token.' },
+    helper: 'Obeys the rules for CrawlScope. Blocked pages are reported as Googlebot reads robots.txt.' },
   { key: 'discoverSitemaps', label: 'Discover sitemaps',
     helper: 'Seed the crawl from sitemap.xml as well as links.' },
   { key: 'includeSubdomains', label: 'Include subdomains',
@@ -28,6 +29,43 @@ const TOGGLES = [
     helper: 'Fetch CSS, JS and images to check they resolve.' },
   { key: 'checkExternalLinks', label: 'Check external links',
     helper: 'Follow outbound links far enough to get a status.' },
+  { key: 'renderCheck', label: 'Check JavaScript rendering',
+    helper: 'After the crawl, render up to 10 key pages in a browser to see whether scripts add links or content.' },
+  { key: 'renderJavaScript', label: 'Render JavaScript (slower)',
+    helper: 'Audit every page as a browser builds it, for sites whose links or content come from scripts.' },
+  { key: 'scopeToFolder', label: 'Only this folder',
+    helper: "Crawl only URLs under the start URL's path, such as /blog/." },
+];
+
+// Which part of the site to crawl. Patterns use robots.txt syntax, which is
+// what server/modules/crawlScope/url-scope.js matches them with.
+const SCOPE_LISTS = [
+  { key: 'includePatterns', label: 'Only crawl URLs matching',
+    placeholder: '/blog/*\n/news/*',
+    helper: 'One pattern per line, as in robots.txt: /blog/* from the start of the path, * for anything, $ for the end. The start page is always crawled.' },
+  { key: 'excludePatterns', label: 'Never crawl URLs matching',
+    placeholder: '/tag/*\n*?replytocom=',
+    helper: 'One pattern per line. A pattern without a leading / matches anywhere in the URL.' },
+  { key: 'removeParameters', label: 'Ignore these URL parameters',
+    placeholder: 'sort\nfilter',
+    helper: 'Parameters that do not make a different page (sort orders, filters). One per line, or * for all.' },
+  { key: 'sitemapUrls', label: 'Also read these sitemaps',
+    placeholder: 'https://example.com/sitemap-products.xml',
+    helper: 'Full sitemap URLs, one per line, for sitemaps robots.txt does not name.' },
+];
+
+// The limits the audit judges pages by (server thresholds.js), each with the
+// server's bounds.
+const THRESHOLD_FIELDS = [
+  { key: 'titleMinLength', label: 'Title too short under (characters)', min: 1, max: 200 },
+  { key: 'titleMaxLength', label: 'Title too long over (characters)', min: 10, max: 300 },
+  { key: 'metaMinLength', label: 'Description too short under (characters)', min: 1, max: 300 },
+  { key: 'metaMaxLength', label: 'Description too long over (characters)', min: 50, max: 1000 },
+  { key: 'minWords', label: 'Thin page under (words)', min: 1, max: 10000 },
+  { key: 'slowResponseMs', label: 'Slow response over (ms)', min: 100, max: 60000 },
+  { key: 'maxClickDepth', label: 'Deep page over (clicks from the start page)', min: 1, max: 50 },
+  { key: 'urlMaxLength', label: 'URL too long over (characters)', min: 50, max: 2000 },
+  { key: 'maxLinksPerPage', label: 'Too many links on a page over', min: 10, max: 100000 },
 ];
 
 // Settings the crawler ignores in list mode, and why.
@@ -40,12 +78,19 @@ const TOGGLES = [
 const INERT_IN_LIST_MODE = {
   maxUrls: 'Set by the list — every URL you give is fetched.',
   discoverSitemaps: 'Not used — a list has no single site to read a sitemap from.',
+  scopeToFolder: 'Not used — a list crawl fetches exactly the URLs given.',
+  includePatterns: 'Not used — a list crawl fetches exactly the URLs given.',
+  excludePatterns: 'Not used — a list crawl fetches exactly the URLs given.',
+  removeParameters: 'Not used — a list crawl fetches exactly the URLs given.',
+  sitemapUrls: 'Not used — a list has no single site to read a sitemap from.',
 };
 
 export default function CrawlOptionsForm({
   options, onChange, disabled = false, mode = 'spider',
 }) {
   const set = (key, value) => onChange({ ...options, [key]: value });
+  const thresholds = { ...DEFAULT_THRESHOLDS, ...(options.thresholds || {}) };
+  const setThreshold = (key, value) => onChange({ ...options, thresholds: { ...thresholds, [key]: value } });
   const inert = (key) => (mode === 'list' ? INERT_IN_LIST_MODE[key] : null);
 
   return (
@@ -66,6 +111,21 @@ export default function CrawlOptionsForm({
           />
         ))}
       </div>
+
+      {/* The User-Agent the crawl sends. Both say CrawlScope, so robots.txt
+          and the site's logs see the same crawler; "Smartphone" is for sites
+          that serve phones different pages, which is what Google indexes. */}
+      <Field
+        label="Crawl as"
+        helper="Smartphone sends a mobile browser's user-agent, for sites that serve phones different pages."
+        disabled={disabled}
+        value={options.userAgentProfile || 'desktop'}
+        onChange={(e) => set('userAgentProfile', e.target.value)}
+        as="select"
+      >
+        <option value="desktop">CrawlScope (desktop)</option>
+        <option value="mobile">CrawlScope (smartphone)</option>
+      </Field>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 10 }}>
         {TOGGLES.map((t) => (
@@ -92,6 +152,47 @@ export default function CrawlOptionsForm({
           </label>
         ))}
       </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
+        {SCOPE_LISTS.map((f) => (
+          <Field
+            key={f.key}
+            label={f.label}
+            as="textarea"
+            rows={3}
+            placeholder={f.placeholder}
+            helper={inert(f.key) || f.helper}
+            disabled={disabled || Boolean(inert(f.key))}
+            value={listOptionText(options[f.key])}
+            onChange={(e) => set(f.key, e.target.value)}
+          />
+        ))}
+      </div>
+
+      <details>
+        <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>
+          Audit thresholds
+        </summary>
+        <p style={{ fontSize: 11, color: 'var(--text-3)', margin: '6px 0 12px' }}>
+          The limits pages are judged by. A finding measured against a changed limit says which limit it used.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+          {THRESHOLD_FIELDS.map((f) => (
+            <Field
+              key={f.key}
+              label={f.label}
+              helper={`Default ${DEFAULT_THRESHOLDS[f.key].toLocaleString()}.`}
+              type="number"
+              min={f.min}
+              max={f.max}
+              step={1}
+              disabled={disabled}
+              value={thresholds[f.key]}
+              onChange={(e) => setThreshold(f.key, e.target.value === '' ? '' : Number(e.target.value))}
+            />
+          ))}
+        </div>
+      </details>
     </div>
   );
 }

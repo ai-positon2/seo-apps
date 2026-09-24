@@ -32,7 +32,7 @@ import { healthScoreBreakdown } from '../crawlHelpers';
  */
 export default function OverviewPanel({
   metrics, counts, groups, catalogById, externalChecked, provisional = false, crawled = null,
-  reconciliation = null, coverage = null,
+  reconciliation = null, coverage = null, comparison = null,
 }) {
   const breakdown = healthScoreBreakdown(metrics);
   const lost = breakdown.reduce((sum, b) => sum + b.points, 0);
@@ -79,7 +79,7 @@ export default function OverviewPanel({
         {health === null ? (
           <span style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.5 }}>
             {provisional
-              ? 'Not scored yet. The score comes from the full 96-rule audit, which runs once '
+              ? 'Not scored yet. The score comes from the full audit, which runs once '
                 + 'the crawl reaches a terminal state — scoring the live status checks instead '
                 + 'would print a near-perfect number for a site nothing has audited.'
               : 'No HTML pages were crawled, so there is nothing to score. A score of zero '
@@ -146,7 +146,9 @@ export default function OverviewPanel({
           <Tile
             label="HTML pages"
             value={metrics.htmlCount.toLocaleString()}
-            sub="The audit universe — the rest are files and feeds"
+            sub={metrics.refusedCount
+              ? `The audit universe — ${metrics.refusedCount.toLocaleString()} URL${metrics.refusedCount === 1 ? '' : 's'} refused the crawler and ${metrics.refusedCount === 1 ? 'is' : 'are'} not counted`
+              : 'The audit universe — the rest are files and feeds'}
           />
           <Tile
             label="Findable by Google"
@@ -200,10 +202,62 @@ export default function OverviewPanel({
             </span>
             <span style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>
               {coverage.reasons.join('; ')}.
-              {coverage.limit
+              {coverage.limit && coverage.budgetReached
                 ? ` Raise the page budget in the client’s settings — it is ${coverage.limit.toLocaleString('en-US')} — and crawl again.`
                 : ''}
             </span>
+          </div>
+        )}
+
+        {/* ── Against the previous crawl of the site ──────────────────────
+            Issues are matched across crawls by rule, page and target, so a
+            count that moved in a finding's wording is not a new issue. */}
+        {comparison && (
+          <div
+            style={{
+              padding: '12px 16px', borderRadius: 10,
+              background: 'var(--surface)', border: '1px solid var(--border)',
+            }}
+          >
+            <span style={{ fontSize: 12.5, color: 'var(--text)', lineHeight: 1.5 }}>{comparison.sentence}</span>
+          </div>
+        )}
+
+        {/* ── Checks this crawl could not run ─────────────────────────────
+            A check that did not run found nothing, and nothing reads as a
+            pass. The analyzer says which checks the crawl's settings or shape
+            kept from running (coverage.notEvaluated) and which ran on part of
+            the site (coverage.partial); this names them. */}
+        {(coverage?.notEvaluated?.length > 0 || coverage?.partlyChecked?.length > 0
+          || coverage?.pagesNotAudited?.length > 0) && (
+          <div
+            style={{
+              display: 'flex', flexDirection: 'column', gap: 6, padding: '12px 16px',
+              borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border)',
+            }}
+          >
+            <span style={{ fontSize: 12.5, color: 'var(--text)', lineHeight: 1.5 }}>
+              Not every check could run on this crawl. These found nothing because they were not
+              evaluated, not because they passed.
+            </span>
+            {coverage.notEvaluated.map(({ reason, titles }) => (
+              <span key={`n-${reason}`} style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>
+                <strong style={{ fontWeight: 600, color: 'var(--text)' }}>Not evaluated:</strong>
+                {' '}{titles.join(', ')}. {reason}
+              </span>
+            ))}
+            {coverage.partlyChecked.map(({ reason, titles }) => (
+              <span key={`p-${reason}`} style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>
+                <strong style={{ fontWeight: 600, color: 'var(--text)' }}>Partly checked:</strong>
+                {' '}{titles.join(', ')}. {reason}
+              </span>
+            ))}
+            {(coverage.pagesNotAudited || []).map((reason) => (
+              <span key={`a-${reason}`} style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>
+                <strong style={{ fontWeight: 600, color: 'var(--text)' }}>Not audited:</strong>
+                {' '}{reason}
+              </span>
+            ))}
           </div>
         )}
 
@@ -250,9 +304,15 @@ export default function OverviewPanel({
                     + `${reconciliation.analyser.toLocaleString()} findings and the run holds none. `
                     + 'Nothing here can be fixed by reloading — the crawl needs re-running, and '
                     + 'this is worth reporting.'
-                  : `Incomplete: the analyser recorded ${reconciliation.analyser.toLocaleString()} `
-                    + `findings and this page received ${reconciliation.shown.toLocaleString()}. `
-                    + 'Every figure above understates the site — please report this.'}
+                  : reconciliation.capped
+                    // The report reads at most this many findings at once; the
+                    // run itself holds them all.
+                    ? `Partial: this crawl produced ${reconciliation.capped.total.toLocaleString()} findings `
+                      + `and the report reads the first ${reconciliation.capped.shown.toLocaleString()}, its limit, `
+                      + 'so every figure above covers those. The Excel export has the same limit.'
+                    : `Incomplete: the analyser recorded ${reconciliation.analyser.toLocaleString()} `
+                      + `findings and this page received ${reconciliation.shown.toLocaleString()}. `
+                      + 'Every figure above understates the site — please report this.'}
             </span>
             <span style={{ fontSize: 11.5, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
               {reconciliation.rows

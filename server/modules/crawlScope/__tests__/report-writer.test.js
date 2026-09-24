@@ -58,16 +58,19 @@ test("builds a formatted, editable multi-sheet Excel audit", async () => {
   await workbook.xlsx.load(buffer);
   assert.ok(workbook.getWorksheet("SUMMARY"));
   assert.ok(workbook.getWorksheet("Issue Catalog"));
-  // One header row plus the 96 catalog entries.
-  assert.equal(workbook.getWorksheet("Issue Catalog").rowCount, 97);
+  // One header row plus one row per catalog entry.
+  assert.equal(workbook.getWorksheet("Issue Catalog").rowCount, catalog.length + 1);
 
   const detail = workbook.worksheets.find(
     (sheet) => sheet.getCell("A1").value === "Pages returning 4XX errors",
   );
   assert.ok(detail);
-  assert.equal(detail.getCell("F10").value, "Confirmed issue");
-  assert.equal(detail.getCell("G10").value, "Confirmed manually.");
-  assert.equal(detail.getCell("F10").dataValidation.type, "list");
+  // Generic layout: url(A) target(B) value(C) evidence(D) code(E)
+  // recommendation(F) status(G) notes(H).
+  assert.equal(detail.getCell("D10").value, "Not Found");
+  assert.equal(detail.getCell("G10").value, "Confirmed issue");
+  assert.equal(detail.getCell("H10").value, "Confirmed manually.");
+  assert.equal(detail.getCell("G10").dataValidation.type, "list");
 
   const metaDetail = workbook.worksheets.find(
     (sheet) => sheet.getCell("A1").value === "Missing meta descriptions",
@@ -176,9 +179,9 @@ test("V9.0: Consolidated Actions is one row per root cause, links to its detail 
 test("SUMMARY ranks issues within a priority tier by affected-page count, not alphabetically", async () => {
   const definitions = Object.fromEntries(catalog.map((item) => [item.id, item]));
   // Both High Priority + category "Technical", so alphabetical order (by title)
-  // would put "Broken internal links" before "Page appears in multiple
-  // sitemaps". Give the alphabetically-later one more active findings and
-  // confirm it still comes first — ranking must be count-driven, not A-Z.
+  // would put "Broken internal links" before "URLs returning server errors".
+  // Give the alphabetically-later one more active findings and confirm it
+  // still comes first — ranking must be count-driven, not A-Z.
   const makeFinding = (n, ruleId, reviewStatus) => ({
     id: `finding-${ruleId}-${n}`,
     ruleId,
@@ -193,9 +196,9 @@ test("SUMMARY ranks issues within a priority tier by affected-page count, not al
   });
   const findings = [
     makeFinding(1, "broken-internal-links", "Confirmed issue"),
-    makeFinding(1, "sitemap-duplicate", "Confirmed issue"),
-    makeFinding(2, "sitemap-duplicate", "Needs review"),
-    makeFinding(3, "sitemap-duplicate", "Needs review"),
+    makeFinding(1, "page-5xx", "Confirmed issue"),
+    makeFinding(2, "page-5xx", "Needs review"),
+    makeFinding(3, "page-5xx", "Needs review"),
   ];
 
   const buffer = await buildAuditWorkbook({
@@ -209,12 +212,13 @@ test("SUMMARY ranks issues within a priority tier by affected-page count, not al
   const summary = workbook.getWorksheet("SUMMARY");
   const titles = summary.getColumn(2).values.map((value) => value?.text).filter(Boolean);
 
-  const sitemapRow = titles.indexOf("Page appears in multiple sitemaps");
+  assert.equal(definitions["page-5xx"].priority, definitions["broken-internal-links"].priority);
+  const serverErrorRow = titles.indexOf("URLs returning server errors");
   const brokenLinksRow = titles.indexOf("Broken internal links");
-  assert.notEqual(sitemapRow, -1);
+  assert.notEqual(serverErrorRow, -1);
   assert.notEqual(brokenLinksRow, -1);
   assert.ok(
-    sitemapRow < brokenLinksRow,
+    serverErrorRow < brokenLinksRow,
     "the 3-finding issue should rank above the 1-finding issue despite alphabetical order",
   );
 });
@@ -262,11 +266,11 @@ test("V5.1: site-scoped and slow-page findings get Site/Config fix types, never 
     (sheet) => sheet.getCell("A1").value === "Subdomains do not support HSTS",
   );
   assert.ok(hstsDetail);
-  // Generic layout: url(1) target(2) value(3) code(4) recommendation(5)
-  // status(6) notes(7) fixType(8) effort(9) owner(10) targetDate(11) impact(12).
-  // Data rows start at 10 (tableHeaderRow is a fixed 9).
-  assert.equal(hstsDetail.getCell(10, 8).value, "Site");
-  assert.equal(hstsDetail.getCell(10, 9).value, "Easy");
+  // Generic layout: url(1) target(2) value(3) evidence(4) code(5)
+  // recommendation(6) status(7) notes(8) fixType(9) effort(10) owner(11)
+  // targetDate(12) impact(13). Data rows start at 10 (tableHeaderRow is a fixed 9).
+  assert.equal(hstsDetail.getCell(10, 9).value, "Site");
+  assert.equal(hstsDetail.getCell(10, 10).value, "Easy");
 
   const slowDetail = workbook.worksheets.find(
     (sheet) => sheet.getCell("A1").value === "Slow pages",
@@ -274,10 +278,11 @@ test("V5.1: site-scoped and slow-page findings get Site/Config fix types, never 
   assert.ok(slowDetail);
   // slow-page drops the "Target / Related URL" column, so every column from
   // "value" onward shifts one to the left of the generic layout above:
-  // url(1) value(2) code(3) recommendation(4) status(5) notes(6) fixType(7) effort(8).
+  // url(1) value(2) evidence(3) code(4) recommendation(5) status(6) notes(7)
+  // fixType(8) effort(9).
   assert.notEqual(slowDetail.getCell(9, 2).value, "Target / Related URL");
-  assert.equal(slowDetail.getCell(10, 7).value, "Config");
-  assert.equal(slowDetail.getCell(10, 8).value, "Easy");
+  assert.equal(slowDetail.getCell(10, 8).value, "Config");
+  assert.equal(slowDetail.getCell(10, 9).value, "Easy");
   // Raw ms, not seconds ("2.87s") — the number itself, display formatting is separate.
   assert.equal(slowDetail.getCell(10, 2).value, 2871);
 });
@@ -572,7 +577,150 @@ test("crawler-completeness Phase 1: a rule split across page and template scope 
   const templateDetail = workbook.worksheets.find((s) => s.getCell("A1").value === "Broken internal links (Template)");
   assert.ok(pageDetail && templateDetail && pageDetail !== templateDetail);
 
-  // Generic layout: url(1) target(2) value(3) code(4) recommendation(5)
-  // status(6) notes(7) fixType(8). Data rows start at 10.
-  assert.equal(templateDetail.getCell(10, 8).value, "Template");
+  // Generic layout: url(1) target(2) value(3) evidence(4) code(5)
+  // recommendation(6) status(7) notes(8) fixType(9). Data rows start at 10.
+  assert.equal(templateDetail.getCell(10, 9).value, "Template");
+});
+
+test("evidence has its own column, and a missing value has no length", async () => {
+  const definitions = Object.fromEntries(catalog.map((item) => [item.id, item]));
+  const findings = [
+    {
+      id: "finding-canonical",
+      ruleId: "canonical-to-broken",
+      ...definitions["canonical-to-broken"],
+      url: "https://example.com/a",
+      targetUrl: "https://example.com/old",
+      // The "Target / Related URL" cell used to be `targetUrl || detail`: with a
+      // target present, the path that proves the finding was dropped.
+      detail: "Canonical target's redirect path ends at https://example.com/gone with HTTP 404. Path: https://example.com/old -> https://example.com/gone",
+      statusCode: 404,
+      detectedValue: "",
+      reviewStatus: "Needs review",
+      reviewerNotes: "",
+    },
+    {
+      id: "finding-meta",
+      ruleId: "meta-missing",
+      ...definitions["meta-missing"],
+      url: "https://example.com/b",
+      targetUrl: "",
+      detail: 'No <meta name="description"> on this page',
+      statusCode: 200,
+      detectedValue: "(absent)",
+      reviewStatus: "Needs review",
+      reviewerNotes: "",
+    },
+  ];
+  const buffer = await buildAuditWorkbook({
+    findings,
+    catalog,
+    siteUrl: "https://example.com/",
+    crawlDate: "2026-09-23T10:00:00.000Z",
+  });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheetTitled = (title) => workbook.worksheets.find((sheet) => sheet.getCell("A1").value === title);
+
+  const canonical = sheetTitled(definitions["canonical-to-broken"].title);
+  const headers = canonical.getRow(9).values.slice(1);
+  const cell = (header) => canonical.getCell(10, headers.indexOf(header) + 1).value;
+  assert.equal(cell("Target / Related URL").text, "https://example.com/old");
+  assert.match(cell("Evidence"), /Path: https:\/\/example\.com\/old -> https:\/\/example\.com\/gone/);
+
+  const meta = sheetTitled(definitions["meta-missing"].title);
+  const metaHeaders = meta.getRow(9).values.slice(1);
+  assert.equal(meta.getCell(10, metaHeaders.indexOf("Current Length") + 1).value, 0, '"(absent)" is not 8 characters of description');
+});
+
+test("a check the crawl could not run is listed as not evaluated, not as passed", async () => {
+  const buffer = await buildAuditWorkbook({
+    findings: [],
+    catalog,
+    siteUrl: "https://example.com/",
+    crawlDate: "2026-09-23T10:00:00.000Z",
+    coverage: {
+      notEvaluated: [
+        { ruleId: "orphan-page", reason: "The crawl did not see the whole site." },
+        { ruleId: "single-inlink", reason: "The crawl did not see the whole site." },
+      ],
+      partial: [{ ruleId: "broken-external-link", reason: "37 external URLs past the limit were not requested." }],
+    },
+  });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.getWorksheet("Checks Passed");
+  const automatic = catalog.filter((c) => c.detection === "Automatic").length;
+  assert.equal(sheet.getCell("A1").value, `${automatic - 2} of ${automatic - 2} automatic checks clean; 2 not evaluated`);
+  const rows = [];
+  sheet.eachRow((row) => rows.push(row.values.slice(1)));
+  const titleOf = (id) => catalog.find((c) => c.id === id).title;
+  const at = (title) => rows.findIndex((r) => r[0] === title);
+  const heading = rows.findIndex((r) => r[0] === "Not evaluated on this crawl");
+  assert.ok(heading > 0, "a not-evaluated block follows the clean checks");
+  assert.ok(at(titleOf("orphan-page")) > heading);
+  assert.equal(rows[at(titleOf("orphan-page"))][2], "The crawl did not see the whole site.");
+  // Partly checked still counts as clean, with the limit stated beside it.
+  assert.ok(at(titleOf("broken-external-link")) < heading);
+  assert.match(rows[at(titleOf("broken-external-link"))][2], /Partly checked: 37 external URLs/);
+});
+
+test("a count taken on a truncated page says so in the workbook", async () => {
+  const definitions = Object.fromEntries(catalog.map((item) => [item.id, item]));
+  const buffer = await buildAuditWorkbook({
+    findings: [{
+      id: "finding-big",
+      ruleId: "broken-internal-links",
+      ...definitions["broken-internal-links"],
+      url: "https://example.com/big",
+      targetUrl: "https://example.com/gone",
+      detail: "HTTP 404 Not Found",
+      statusCode: 404,
+      detectedValue: "Link text: “Old page”",
+      sourceTruncated: true,
+      reviewStatus: "Needs review",
+      reviewerNotes: "",
+    }],
+    catalog,
+    siteUrl: "https://example.com/",
+    crawlDate: "2026-09-23T10:00:00.000Z",
+  });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.worksheets.find((s) => s.getCell("A1").value === definitions["broken-internal-links"].title);
+  const headers = sheet.getRow(9).values.slice(1);
+  const evidence = sheet.getCell(10, headers.indexOf("Evidence") + 1).value;
+  assert.match(evidence, /^HTTP 404 Not Found/);
+  assert.match(evidence, /first 5 MB of the page/);
+});
+
+test("SUMMARY follows the run's importance order within a tier, and says why", async () => {
+  const definitions = Object.fromEntries(catalog.map((item) => [item.id, item]));
+  const make = (n, ruleId, url) => ({
+    id: `f-${ruleId}-${n}`, ruleId, ...definitions[ruleId], url, targetUrl: "", detail: "",
+    statusCode: 200, detectedValue: "", reviewStatus: "Needs review", reviewerNotes: "",
+  });
+  assert.equal(definitions["title-long"].priority, definitions["h1-missing"].priority, "fixture: same tier");
+  const findings = [
+    make(1, "title-long", "https://example.com/"),
+    make(1, "h1-missing", "https://example.com/tag/a"),
+    make(2, "h1-missing", "https://example.com/tag/b"),
+    make(3, "h1-missing", "https://example.com/tag/c"),
+  ];
+  const ruleOrder = [
+    { ruleId: "title-long", rank: 1, reason: "On 1 page, the homepage." },
+    { ruleId: "h1-missing", rank: 2, reason: "On 3 pages." },
+  ];
+  const buffer = await buildAuditWorkbook({ findings, catalog, siteUrl: "https://example.com/", crawlDate: "2026-09-23T10:00:00.000Z", ruleOrder });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const summary = workbook.getWorksheet("SUMMARY");
+  const titles = [];
+  summary.eachRow((row) => {
+    const cell = row.getCell(2);
+    if (cell.value?.hyperlink) titles.push({ text: cell.value.text, note: cell.note });
+  });
+  assert.deepEqual(titles.map((t) => t.text), [definitions["title-long"].title, definitions["h1-missing"].title]);
+  const noteText = (note) => (typeof note === "string" ? note : (note?.texts || []).map((t) => t.text).join(""));
+  assert.match(noteText(titles[0].note), /the homepage/);
 });

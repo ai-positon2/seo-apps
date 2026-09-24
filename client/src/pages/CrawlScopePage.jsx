@@ -403,7 +403,7 @@ export default function CrawlScopePage() {
     <main style={{ padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
       <SectionHeader
         title="CrawlScope"
-        subtitle="Crawl a site, audit every URL against 92 technical SEO checks, and schedule the whole thing to re-run and email itself."
+        subtitle="Crawl a site, audit every URL against 100+ technical SEO checks, and schedule the whole thing to re-run and email itself."
       />
 
       {error && (

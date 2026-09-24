@@ -5,15 +5,17 @@ const {
   isRedirectStatus,
   redirectLocationIssueDetail,
 } = require("./http-redirect");
+const {
+  isNofollow,
+  isNoindex,
+  resultRobotsDirectives,
+} = require("./robots-directives");
+const { createUrlIdentity } = require("./url-identity");
+const { resolveThresholds, DEFAULT_THRESHOLDS } = require("./thresholds");
+const { ruleOrder } = require("./rule-order");
+const { decodeSignature, signatureBands, signatureSimilarity } = require("./text-fingerprint");
 
 const catalogById = new Map(catalog.map((definition) => [definition.id, definition]));
-
-// HTTP 429 is the site throttling the crawler ("slow down"), not a statement
-// about the page. A result still at 429 after the crawler's retries was never
-// checked, so no rule may treat it as broken: it is reported once, as a
-// crawl-failure, and left out of every "status >= 400 means broken" test.
-const isRateLimited = (result) => Boolean(result) && result.status === 429;
-
 const NON_DESCRIPTIVE_LINK_LABELS = new Set([
   "click here",
   "here",
@@ -38,13 +40,155 @@ const LINK_ONLY_RESOURCE_RELS = new Set([
   "preload",
   "stylesheet",
 ]);
+// External responses that refuse the crawler rather than report a missing page:
+// login walls (401), bot protection (403, LinkedIn's non-standard 999) and rate
+// limiting (429). Reported as "refusing crawler access", never as broken.
+const REFUSED_EXTERNAL_STATUS = {
+  401: "Unauthorized",
+  403: "Forbidden",
+  429: "Too Many Requests",
+  999: "Request denied",
+};
 const MIN_GENERIC_EXTERNAL_NOFOLLOW_LINKS = 5;
 const MIN_GENERIC_EXTERNAL_NOFOLLOW_RATIO = 0.8;
 const MAX_FETCH_REDIRECTS = 20;
 const MAX_REDIRECT_TRACE_HOPS = 100;
-// ISO 639-1 language, optionally "-" + ISO 3166-1 region, or the special
-// "x-default" value. Values are lowercased before this check runs.
-const HREFLANG_CODE = /^(x-default|[a-z]{2,3}(-[a-z]{2})?)$/;
+// ISO 639-1 language, optionally "-" + an ISO 15924 script ("zh-hant"), then
+// optionally "-" + ISO 3166-1 region, or the special "x-default" value. Values
+// are lowercased before this check runs. Script subtags are valid hreflang
+// values and were being reported as invalid codes.
+const HREFLANG_CODE = /^(x-default|[a-z]{2,3}(-[a-z]{4})?(-[a-z]{2})?)$/;
+// Wording of a "not found" page, for soft-404 detection — phrased the way error
+// pages are, not merely containing "404" ("Area code 404", "How to fix 404
+// errors" are real pages). Only trusted on a thin page, too.
+const NOT_FOUND_WORDING = [
+  /^\s*(?:error\s*)?404\b/i,
+  /\b404\b.*\bnot\s+found\b|\bnot\s+found\b.*\b404\b/i,
+  /^\s*not\s+found\b/i,
+  /\bpage\s+(?:not\s+found|(?:does\s+not|doesn['’]t|could\s+not\s+be)\s+(?:exist|found))\b/i,
+  /\b(?:page|content|article|product)\s+(?:is\s+)?no\s+longer\s+(?:available|exists)\b/i,
+];
+const readsLikeNotFound = (text) => NOT_FOUND_WORDING.some((pattern) => pattern.test(String(text || "")));
+const SOFT_404_MAX_WORDS = 300;
+// Page and URL hygiene thresholds that are not a crawl's to set (thresholds.js
+// holds the ones that are).
+const HTML_TOO_LARGE_BYTES = 2 * 1024 * 1024;
+// Below about one packet, compression saves nothing worth a finding.
+const HTML_COMPRESSION_MIN_BYTES = 1_400;
+const URL_MAX_PARAMETERS = 2;
+// Near-duplicate main content: the share of three-word phrases two pages have
+// in common (Semrush's bar is 85%), and the page size below which there is
+// too little to compare. A band shared by more fingerprints than this is
+// boilerplate, not a signal, and is skipped.
+const NEAR_DUPLICATE_SIMILARITY = 0.85;
+const NEAR_DUPLICATE_MIN_WORDS = 50;
+const NEAR_DUPLICATE_BAND_MAX = 1_000;
+const NEAR_DUPLICATE_MAX_COMPARISONS = 2_000_000;
+
+// ── Responses that refused the crawler ───────────────────────────────────────
+// Bot protection, rate limiting and login walls answer a crawler instead of the
+// page it asked for. Such a response says nothing about the page, so it is not
+// audited: it cannot be a broken-link target, a duplicate, an orphan or a slow
+// page, and it is left out of Site Health. How the site treated the crawler is
+// reported once, as crawl-blocked.
+//
+// 429 always means "slow down", on any page. 401, 403 and 503 are also what a
+// members area, a private page or a maintenance window legitimately return, so
+// they are only read as refusals when they are how the site answered the crawl
+// as a whole (REFUSED_SHARE of its pages, or its start page). A bot check served
+// as a normal page is recognised by its wording.
+const RATE_LIMIT_STATUS = 429;
+const REFUSAL_STATUS = new Set([401, 403, 429, 503]);
+const REFUSED_SHARE = 0.5;
+const CHALLENGE_WORDING = [
+  /^\s*just a moment\b/i,
+  /^\s*attention required\b/i,
+  /^\s*one more step\b/i,
+  /\bchecking (?:your browser|if the site connection is secure)\b/i,
+  /\b(?:verify(?:ing)?|confirm) (?:that )?(?:you are|you['’]re) (?:a )?human\b/i,
+  /^\s*(?:human verification|security check(?:point)?|bot (?:check|verification))\s*$/i,
+  /^\s*are you a (?:robot|human)\b/i,
+  /^\s*access (?:to this page has been )?denied\b/i,
+  /^\s*pardon our interruption\b/i,
+  /^\s*request unsuccessful\b.*\bincapsula\b/i,
+  /^\s*ddos protection by\b/i,
+];
+const CHALLENGE_MAX_WORDS = 150;
+const readsLikeChallenge = (result) =>
+  (Number(result?.words) || 0) < CHALLENGE_MAX_WORDS &&
+  [result?.title, result?.h1].some((text) =>
+    CHALLENGE_WORDING.some((pattern) => pattern.test(String(text || ""))),
+  );
+
+/**
+ * Which internal responses refused the crawler, and whether the site refused
+ * the crawl as a whole.
+ *
+ * @param {object[]} internalResults
+ * @param {string} startUrl
+ * @returns {{ refused: Map<string, string>, blocked: boolean, startRefused: boolean,
+ *   pageResponses: number, refusedPages: number, refusedFiles: number,
+ *   statusCounts: Map<string, number> }}
+ *   `refused` maps each refused URL to a label ("HTTP 403 Forbidden", "bot check").
+ */
+function crawlRefusals(internalResults, startUrl, identityOptions = {}) {
+  const byUrl = new Map(internalResults.map((result) => [result.url, result]));
+  const identity = createUrlIdentity(startUrl, identityOptions);
+  const byIdentity = new Map();
+  for (const result of internalResults) {
+    const key = identity(result.url);
+    if (key && !byIdentity.has(key)) byIdentity.set(key, result);
+  }
+  const find = (url) => (url ? byUrl.get(url) || byIdentity.get(identity(url)) : undefined);
+  // A page, answered: not a redirect hop, a file, or a URL that was never
+  // fetched (robots.txt, network failure).
+  const pages = internalResults.filter(
+    (result) => !result.isAsset && result.status >= 200 && !isRedirectStatus(result.status),
+  );
+  const label = (result) =>
+    REFUSAL_STATUS.has(result.status)
+      ? `HTTP ${result.status}${result.statusText ? ` ${result.statusText}` : ""}`
+      : result.status < 300 && result.contentType?.includes("text/html") && readsLikeChallenge(result)
+        ? "bot check"
+        : "";
+  const candidates = pages.filter((result) => label(result));
+
+  // The start page, after any redirect the site sends it through.
+  let start = find(startUrl);
+  for (let hops = 0; start && isRedirectStatus(start.status) && start.redirectUrl && hops < MAX_FETCH_REDIRECTS; hops += 1) {
+    start = find(start.redirectUrl);
+  }
+  const startRefused = Boolean(start && !start.isAsset && label(start));
+  const blocked =
+    startRefused ||
+    (candidates.length >= 2 && candidates.length >= pages.length * REFUSED_SHARE);
+
+  const refused = new Map();
+  for (const result of internalResults) {
+    const reason = label(result);
+    if (!reason) continue;
+    // Files are only read as refused when the site refused the crawl: an
+    // image answering 403 on an otherwise open site is a broken image.
+    if (blocked || result.status === RATE_LIMIT_STATUS || reason === "bot check") {
+      refused.set(result.url, reason);
+    }
+  }
+  const statusCounts = new Map();
+  let refusedPages = 0;
+  for (const [url, reason] of refused) {
+    if (!byUrl.get(url)?.isAsset) refusedPages += 1;
+    statusCounts.set(reason, (statusCounts.get(reason) || 0) + 1);
+  }
+  return {
+    refused,
+    blocked,
+    startRefused,
+    pageResponses: pages.length,
+    refusedPages,
+    refusedFiles: refused.size - refusedPages,
+    statusCounts,
+  };
+}
 
 // Titles commonly carry a "Page Name | Brand" or "Page Name - Brand" suffix.
 // Trimming to the primary segment first keeps the brand off the chopping
@@ -170,6 +314,7 @@ function sitemapIncorrectUrlRecommendation({
   terminalFailure,
   terminalSuitability,
   declarativeRedirect,
+  canonicalMismatch,
 }) {
   if (terminalFailure) {
     return `Remove this URL from the sitemap — its redirect path ends at a broken destination (${terminalFailure.detail}). Fix or redirect the destination first, then add back a URL that returns 200.`;
@@ -189,7 +334,7 @@ function sitemapIncorrectUrlRecommendation({
   if (declarativeRedirect) {
     return `Replace this sitemap entry with its redirect destination: ${declarativeRedirect}.`;
   }
-  if (result.canonical && result.canonical !== result.url) {
+  if (canonicalMismatch) {
     return `Replace this sitemap entry with its canonical URL: ${result.canonical}. Only list the canonical version in the sitemap.`;
   }
   return `Remove this non-indexable URL from the sitemap (${result.indexabilityReason || "not the preferred canonical version"}), or resolve the underlying indexability issue first.`;
@@ -286,6 +431,19 @@ function findingId(ruleId, url = "", targetUrl = "", detail = "") {
     .slice(0, 16);
 }
 
+// The same issue across crawls. A finding's id includes its detail, which
+// carries counts and lengths ("Shared by 4 pages", "72 characters"), so it
+// changes whenever a number in it moves; the issue key is only the rule, the
+// page and what it points at, so a review can follow it to the next crawl and
+// new / fixed / persisting can be counted against the last one.
+function issueKeyOf(ruleId, url = "", targetUrl = "") {
+  return crypto
+    .createHash("sha1")
+    .update(`${ruleId}|${url}|${targetUrl || ""}`)
+    .digest("hex")
+    .slice(0, 16);
+}
+
 // A page×check matrix can represent "this page has this problem," but it
 // cannot represent "one shared nav/footer link is broken, and every page
 // happens to carry it" without either double-counting (once per page) or —
@@ -316,6 +474,9 @@ function collapseTemplateFindings(findings, htmlPageCount) {
   const groups = new Map(); // "ruleId|signature" -> finding[]
   for (const finding of findings) {
     if (finding.scope !== "page") continue; // only page-scope findings can collapse
+    // A thousand refusals are the crawl being blocked (crawl-blocked), not a
+    // defect in a template the pages share.
+    if (finding.crawlRefused) continue;
     const signature = finding.targetUrl || finding.detectedValue || "";
     const key = `${finding.ruleId}|${signature}`;
     const list = groups.get(key) || [];
@@ -455,6 +616,33 @@ function buildRootCauseGroups(findings) {
   return result;
 }
 
+// Which broken-resource rule a resource belongs to, from how the page loads it.
+// The response cannot say: a missing /site.css is usually served as a text/html
+// 404 page.
+const IMAGE_FILE = /\.(?:avif|bmp|gif|ico|jpe?g|png|svg|tiff?|webp)(?:$|[?#])/i;
+const SCRIPT_OR_STYLE_FILE = /\.(?:m?js|css)(?:$|[?#])/i;
+const BROKEN_RESOURCE_RULE = {
+  image: "broken-internal-image",
+  "script-style": "broken-javascript",
+  other: "broken-internal-resource",
+};
+
+function resourceKind(edge) {
+  const tag = String(edge.tag || "").toLowerCase();
+  const attribute = String(edge.sourceAttribute || "").toLowerCase();
+  const rel = String(edge.rel || "").toLowerCase().split(/\s+/).filter(Boolean);
+  if (tag === "script") return "script-style";
+  if (tag === "link" && rel.some((token) => token === "stylesheet" || token === "modulepreload")) {
+    return "script-style";
+  }
+  if (tag === "css" && attribute.endsWith("@import")) return "script-style";
+  if (tag === "img" || tag === "input" || (tag === "video" && attribute === "poster")) return "image";
+  if (tag === "link" && rel.some((token) => /icon$/.test(token))) return "image";
+  if (IMAGE_FILE.test(edge.targetUrl || "")) return "image";
+  if (SCRIPT_OR_STYLE_FILE.test(edge.targetUrl || "")) return "script-style";
+  return "other";
+}
+
 function isNonDescriptiveLinkLabel(value) {
   const normalized = String(value || "")
     .toLowerCase()
@@ -484,11 +672,36 @@ function redirectEdge(result) {
     : null;
 }
 
+// Which link on the page a link finding is about, as someone looking at the page
+// or its editor would recognise it.
+function linkTextEvidence(edge) {
+  const text = String(edge?.anchorText || "").replace(/\s+/g, " ").trim();
+  if (!text) return "(no visible link text)";
+  return `Link text: “${text.length > 120 ? `${text.slice(0, 119)}…` : text}”`;
+}
+
+// Why a crawled hreflang target cannot stand in the set, or "" when it can.
+function hreflangTargetProblem(target, index) {
+  if (target.statusText === "Blocked by robots.txt") return "";
+  if (!target.status) return `could not be fetched (${target.statusText || "no response"})`;
+  if (target.status >= 400) return `returns HTTP ${target.status}${target.statusText ? ` ${target.statusText}` : ""}`;
+  if (isRedirectStatus(target.status)) {
+    return `redirects (HTTP ${target.status}${target.redirectUrl ? ` to ${target.redirectUrl}` : ""}) instead of being the page itself`;
+  }
+  const refresh = redirectDestination(target);
+  if (refresh) return `sends visitors on to ${refresh} with a refresh instead of being the page itself`;
+  if (isNoindex(resultRobotsDirectives(target))) return "is noindex, so it will not be shown in any language";
+  if (target.canonical && !index.same(target.canonical, target.url)) {
+    return `declares ${target.canonical} as its canonical, so it is not the version that gets indexed`;
+  }
+  return "";
+}
+
 function redirectDestination(result) {
   return redirectEdge(result)?.url || "";
 }
 
-function redirectTrace(result, resultByUrl) {
+function redirectTrace(result, index) {
   let edge = redirectEdge(result);
   if (!result || !edge) return null;
 
@@ -525,7 +738,7 @@ function redirectTrace(result, resultByUrl) {
 
     const next = edge.url;
     path.push(next);
-    const target = resultAtUrl(resultByUrl, next);
+    const target = index.get(next);
     const targetIdentity = target?.url || next;
     const loopStartIndex = firstVisit.get(targetIdentity);
     if (loopStartIndex !== undefined) {
@@ -602,7 +815,7 @@ function redirectLimitEvidence(trace) {
   return `${followedPath} -[next redirect blocked]-> ${trace.blockedTargetUrl}`;
 }
 
-function redirectTerminalFailure(trace, resultByUrl) {
+function redirectTerminalFailure(trace, index) {
   if (
     !trace ||
     trace.loop ||
@@ -612,7 +825,7 @@ function redirectTerminalFailure(trace, resultByUrl) {
     return null;
   }
 
-  const terminal = resultAtUrl(resultByUrl, trace.targetUrl);
+  const terminal = index.get(trace.targetUrl);
   if (
     !terminal ||
     terminal.scope === "External" ||
@@ -634,7 +847,7 @@ function redirectTerminalFailure(trace, resultByUrl) {
     };
   }
 
-  if (terminal.status >= 400 && !isRateLimited(terminal)) {
+  if (terminal.status >= 400) {
     const responseLabel = `HTTP ${terminal.status}${
       terminal.statusText ? ` ${terminal.statusText}` : ""
     }`;
@@ -665,7 +878,7 @@ function redirectTerminalFailure(trace, resultByUrl) {
   return null;
 }
 
-function redirectTerminalSuitability(trace, resultByUrl) {
+function redirectTerminalSuitability(trace, index) {
   if (
     !trace ||
     trace.loop ||
@@ -675,7 +888,7 @@ function redirectTerminalSuitability(trace, resultByUrl) {
     return null;
   }
 
-  const terminal = resultAtUrl(resultByUrl, trace.targetUrl);
+  const terminal = index.get(trace.targetUrl);
   const terminalContentType = String(
     terminal?.contentType || "",
   ).toLowerCase();
@@ -691,13 +904,11 @@ function redirectTerminalSuitability(trace, resultByUrl) {
     return null;
   }
 
-  const robots = String(terminal.robots || "").toLowerCase();
   const isNonIndexable =
     terminal.indexability === "Non-indexable" ||
-    robots.includes("noindex") ||
-    robots.includes("none");
+    isNoindex(resultRobotsDirectives(terminal));
   const canonicalMismatch =
-    Boolean(terminal.canonical) && terminal.canonical !== terminal.url;
+    Boolean(terminal.canonical) && !index.same(terminal.canonical, terminal.url);
   if (!isNonIndexable && !canonicalMismatch) return null;
 
   const reasons = [];
@@ -758,15 +969,32 @@ function declarativeRefreshLabel(refresh) {
   return refresh?.source === "header" ? "HTTP Refresh header" : "Meta refresh";
 }
 
-function resultAtUrl(resultByUrl, url) {
-  if (resultByUrl.has(url)) return resultByUrl.get(url);
-  try {
-    const parsed = new URL(url);
-    parsed.hash = "";
-    return resultByUrl.get(parsed.href);
-  } catch {
-    return undefined;
+// Crawl results, addressable by any spelling of their URL the crawler would
+// have fetched them under (url-identity.js). Evidence keeps URLs as written —
+// an http:// href, a Location with a tracking parameter, a sitemap <loc> — and
+// looking those up by exact string missed the page the crawler actually
+// fetched for them.
+function createResultIndex(results, startUrl, identityOptions = {}) {
+  const identity = createUrlIdentity(startUrl, identityOptions);
+  const exact = new Map(results.map((result) => [result.url, result]));
+  const byIdentity = new Map();
+  for (const result of results) {
+    const key = identity(result.url);
+    if (key && !byIdentity.has(key)) byIdentity.set(key, result);
   }
+  return {
+    identity,
+    // The result stored under exactly this URL, and nothing else — for
+    // evidence about the URL as written (did the http:// URL itself redirect?).
+    exact: (url) => exact.get(url),
+    get: (url) => (url ? exact.get(url) || byIdentity.get(identity(url)) : undefined),
+    same: (a, b) => {
+      if (!a || !b) return false;
+      if (a === b) return true;
+      const key = identity(a);
+      return Boolean(key) && key === identity(b);
+    },
+  };
 }
 
 function refreshDelayLabel(refresh) {
@@ -783,7 +1011,19 @@ function redirectLocationDetectedValue(result) {
     : `HTTP ${result.status}; Location: ${result.locationHeaderRaw || ""}`;
 }
 
-function httpLinkEvidence(edge, target) {
+function httpLinkEvidence(edge, target, fetchedAs = null) {
+  // The crawler never requests an http:// URL on the crawled host: it fetches
+  // the https equivalent instead (crawler.js#_canonicalScheme). So "not
+  // fetched" was never true for those — what is true is that the link is
+  // written as HTTP and the page lives at the HTTPS address.
+  if (!target && fetchedAs) {
+    const status = Number(fetchedAs.status) || 0;
+    return {
+      statusCode: status,
+      detail: `The link is written as HTTP; the crawl fetched the HTTPS version instead (${fetchedAs.url} returned ${status ? `HTTP ${status}` : "no response"}). Link to the HTTPS URL directly.`,
+      detectedValue: `${edge.download ? "download; " : ""}written as HTTP; HTTPS version returned ${status || "no response"}`,
+    };
+  }
   const status = Number(target?.status) || 0;
   const redirectUrl = String(target?.redirectUrl || "");
   const isRedirect = isRedirectStatus(status);
@@ -892,19 +1132,19 @@ function isPaginatedListingPage(result) {
   return /\/page\/\d+\/?$/i.test(parsed.pathname);
 }
 
-function isPreferredIndexablePage(result) {
+function isPreferredIndexablePage(result, index) {
   return (
     result.status === 200 &&
     result.indexability === "Indexable" &&
-    (!result.canonical || result.canonical === result.url)
+    (!result.canonical || index.same(result.canonical, result.url))
   );
 }
 
-function isReciprocalHreflangGroup(group) {
-  const groupUrls = new Set(group.map((result) => result.url));
+function isReciprocalHreflangGroup(group, index) {
+  const groupUrls = new Set(group.map((result) => index.identity(result.url)));
   return group.every((result) => {
     const alternateUrls = new Set(
-      (result.hreflangs || []).map((entry) => entry.url),
+      (result.hreflangs || []).map((entry) => index.identity(entry.url)),
     );
     return [...groupUrls].every((url) => alternateUrls.has(url));
   });
@@ -1047,59 +1287,317 @@ function buildIntegrations(results) {
   };
 }
 
-// ── Checks this crawl could not run ──────────────────────────────────────
-// A rule with no findings is only "clean" if it looked at something. These
-// are the ones that could not: the inlink-graph rules are switched off on a
-// truncated crawl (buildFindings' crawlTruncated gate), and the asset rules
-// only read internal assets, of which a site serving everything from a CDN
-// has none. Reports keep them out of "N of M checks clean" rather than
-// telling a client an unrun check passed. The conditions mirror each rule's
-// own eligibility test below; change one and change the other.
-const isScriptAsset = (result) =>
-  (result.contentType || "").includes("javascript") || /\.m?js(?:$|\?)/i.test(result.url);
-const isStyleAsset = (result) =>
-  (result.contentType || "").includes("css") || /\.css(?:$|\?)/i.test(result.url);
+// Structured-data problems (structured-data/) by kind: markup that cannot be
+// read as schema.org, a property Google requires for a rich result, one it
+// recommends. A page stored before they were told apart (and reloaded by a
+// resumed crawl) has only `schemaErrors`, all of them the first kind.
+const SCHEMA_RULES = {
+  invalid: "schema-error",
+  required: "schema-required-missing",
+  recommended: "schema-recommended-missing",
+};
+function structuredDataProblems(result) {
+  if (Array.isArray(result.schemaProblems)) return result.schemaProblems;
+  return (result.schemaErrors || []).map((message) => ({ kind: "invalid", message }));
+}
 
-function notEvaluatedRules({ results = [], crawlTruncated = false, siteDiagnostics = {} } = {}) {
-  const notEvaluated = [];
-  const coverage = siteDiagnostics?.sitemapCoverage;
-  if (coverage?.traversalStopped) {
-    notEvaluated.push({
-      ruleId: "sitemap-missing-indexable",
-      reason: `Sitemap traversal stopped at the document limit with ${coverage.documentsNotRead} sitemap documents not read, so a page's absence from the sitemap cannot be established.`,
+// One finding, in the shape every reader of findings expects: the stored
+// instances, the report, the workbook, the email. buildFindings makes all of a
+// crawl's with it, and anything that adds findings to a stored run later (Core
+// Web Vitals from PageSpeed Insights, run/pagespeed-findings.js) uses it too,
+// so those cannot drift from the rest. null for a rule the catalog does not have.
+function findingFor(ruleId, source = {}, extra = {}, { startUrl = "" } = {}) {
+  const definition = catalogById.get(ruleId);
+  if (!definition) return null;
+  const url = extra.url || source.url || startUrl;
+  const targetUrl = extra.targetUrl || "";
+  const detail = extra.detail || "";
+  return {
+    id: findingId(ruleId, url, targetUrl, detail),
+    issueKey: issueKeyOf(ruleId, url, targetUrl),
+    ruleId,
+    // The crawler stops reading at MAX_BODY_BYTES and records bodyTruncated
+    // on the result. Without carrying it here, a count measured on the first
+    // 5MB of a 14.4MB document is published as though it were complete —
+    // iana.org's /domains/idn-tables reported 3,830 nameless anchors against
+    // an actual 11,113. The cap is correct; the silence about it was not.
+    ...(source && source.bodyTruncated ? { sourceTruncated: true } : {}),
+    // The response refused the crawler: listed, not counted in Site Health,
+    // and never grouped as a template-wide defect.
+    ...(extra.crawlRefused ? { crawlRefused: true } : {}),
+    title: definition.title,
+    description: definition.description,
+    recommendation: extra.recommendation || definition.recommendation,
+    severity: definition.severity,
+    priority: definition.priority,
+    category: definition.category,
+    // 'site' | 'template' | 'page' | 'resource' — a page×check matrix can't
+    // represent a whole-site finding (sitemap/robots config, HSTS, llms.txt)
+    // without either double-counting it per host or dropping it. Defaults
+    // to 'page' for the catalog entries that genuinely are about one page;
+    // only the real exceptions carry an explicit value, or a finding does
+    // (a Core Web Vitals result measured for the whole origin).
+    scope: extra.scope || definition.scope || "page",
+    detection: definition.detection,
+    url,
+    targetUrl,
+    detail,
+    statusCode: extra.statusCode ?? source.status ?? 0,
+    detectedValue: extra.detectedValue ?? "",
+    recommendedValue: extra.recommendedValue ?? "",
+    // Raw evidence for root-cause grouping's "missing-property" family —
+    // separate from detectedValue because that column is a display
+    // string (bulleted, human-facing) that isn't safe to re-parse as a
+    // grouping key. Empty for every other rule.
+    evidenceKey: extra.evidenceKey ?? "",
+    reviewStatus: "Needs review",
+    reviewerNotes: "",
+    automated: definition.detection === "Automatic",
+  };
+}
+
+// ── Coverage ─────────────────────────────────────────────────────────────────
+// A check that did not run produces no findings, and no findings read as
+// "passed": a crawl stopped at its page limit showed orphan pages as clean, and
+// one with sitemaps turned off showed every sitemap check clean. These are the
+// checks a crawl's own settings or shape keep from running, each with the
+// reason in words.
+const SITEMAP_RULES = [
+  "sitemap-missing-indexable",
+  "sitemap-incorrect-url",
+  "sitemap-redirect",
+  "sitemap-duplicate",
+  "sitemap-http-url",
+  "sitemap-unreadable",
+  "sitemap-robots-config",
+  "sitemap-too-large",
+  "sitemap-off-host",
+  // An orphan is a page the sitemap lists and no link reaches.
+  "orphan-page",
+];
+const EXTERNAL_FETCH_RULES = ["broken-external-link", "external-403"];
+// Checks read from the pages' link and resource edges.
+const LINK_DATA_RULES = [
+  "broken-internal-links",
+  "link-to-redirect",
+  "internal-nofollow-link",
+  "mixed-incoming-follow",
+  "orphan-page",
+  "single-inlink",
+  "deep-page",
+  "anchor-missing",
+  "anchor-nondescriptive",
+  "broken-external-link",
+  "external-403",
+  "external-nofollow",
+  "broken-internal-image",
+  "broken-internal-resource",
+  "broken-javascript",
+  "mixed-content",
+  "image-alt-missing",
+];
+
+function crawlCoverage({
+  firedRuleIds,
+  crawlTruncated,
+  sitemapsChecked,
+  externalLinksChecked,
+  robotsRespected,
+  clickDepthFromStart,
+  siteDiagnostics = {},
+  startUrl = "",
+  pagesMissingLinkData = 0,
+  googlebotRobotsChecked = false,
+  closedToCrawlScopeOnly = 0,
+  nearDuplicatesCapped = false,
+  scopeLimited = false,
+  scopeExcluded = 0,
+  internalResults = [],
+}) {
+  const notEvaluated = new Map();
+  // Pages the crawl reached but did not audit, and why (not per rule).
+  const pagesNotAudited = [];
+  const renderedCrawl = siteDiagnostics.renderJavaScript;
+  if (renderedCrawl?.failed > 0) {
+    pagesNotAudited.push({
+      count: renderedCrawl.failed,
+      reason: renderedCrawl.available === false
+        ? "JavaScript rendering was asked for, but no headless browser was available, so every page was audited as the server sent it."
+        : `JavaScript rendering was asked for, but ${renderedCrawl.failed.toLocaleString("en-US")} page${renderedCrawl.failed === 1 ? "" : "s"} could not be rendered and ${renderedCrawl.failed === 1 ? "was" : "were"} audited as the server sent ${renderedCrawl.failed === 1 ? "it" : "them"}.`,
     });
   }
-  if (crawlTruncated) {
-    const reason =
-      "Switched off on a truncated crawl: inlink counts from part of a site do not describe the site.";
-    notEvaluated.push({ ruleId: "orphan-page", reason }, { ruleId: "single-inlink", reason });
-  }
-  // HTML documents discovered through a resource element are not assets.
-  const assets = results.filter(
-    (result) =>
-      result.scope !== "External" &&
-      result.isAsset &&
-      !(result.contentType || "").includes("html"),
-  );
-  const fetched = assets.filter((result) => result.status === 200);
-  if (!assets.length) {
-    notEvaluated.push({
-      ruleId: "blocked-resource",
-      reason: "No internal resource files (CSS, JavaScript, images, documents) were found to check.",
+  const sitemapNotCrawled = Number(siteDiagnostics.sitemapNotCrawled) || 0;
+  if (sitemapNotCrawled > 0) {
+    pagesNotAudited.push({
+      count: sitemapNotCrawled,
+      reason:
+        `${sitemapNotCrawled.toLocaleString("en-US")} URL${sitemapNotCrawled === 1 ? "" : "s"} listed in the sitemaps ` +
+        `${sitemapNotCrawled === 1 ? "was" : "were"} not crawled: the crawl reached its page budget first.`,
     });
   }
-  if (!assets.some(isScriptAsset)) {
-    notEvaluated.push({ ruleId: "broken-javascript", reason: "No internal JavaScript files were fetched." });
+  if (closedToCrawlScopeOnly > 0) {
+    pagesNotAudited.push({
+      count: closedToCrawlScopeOnly,
+      reason:
+        `robots.txt closes ${closedToCrawlScopeOnly.toLocaleString("en-US")} URL${closedToCrawlScopeOnly === 1 ? "" : "s"} ` +
+        "to CrawlScope but not to Googlebot, so Google can crawl them and this audit did not. " +
+        "Allow CrawlScope in robots.txt to audit them.",
+    });
   }
-  if (!fetched.some((result) => isScriptAsset(result) || isStyleAsset(result))) {
-    for (const ruleId of ["asset-uncached", "asset-unminified", "asset-uncompressed"]) {
-      notEvaluated.push({ ruleId, reason: "No internal CSS or JavaScript files were fetched." });
+  const partial = new Map();
+  const skip = (ruleIds, reason) => {
+    for (const ruleId of ruleIds) if (!notEvaluated.has(ruleId)) notEvaluated.set(ruleId, reason);
+  };
+
+  if (!sitemapsChecked) {
+    skip(SITEMAP_RULES, "Sitemaps were not read on this crawl: sitemap discovery was off, or this was a URL list.");
+  } else {
+    // Traversal stopped at the crawler's cap (documents or bytes): "absent from
+    // every sitemap" cannot be established, and entries in the unread
+    // documents were not checked.
+    const traversal = siteDiagnostics.sitemapCoverage;
+    if (traversal?.traversalStopped) {
+      const unread = Number(traversal.documentsNotRead) || 0;
+      const reason =
+        `Sitemap traversal stopped at the crawler's limit with ${unread.toLocaleString("en-US")} ` +
+        `sitemap document${unread === 1 ? "" : "s"} not read`;
+      skip(["sitemap-missing-indexable"], `${reason}, so a page's absence from the sitemaps cannot be established.`);
+      for (const ruleId of SITEMAP_RULES) {
+        if (!notEvaluated.has(ruleId)) partial.set(ruleId, `${reason}, so URLs listed only there were not checked.`);
+      }
+    }
+    const cut = (siteDiagnostics.sitemapLimits || []).filter((limit) => limit.truncated).length;
+    if (cut) {
+      for (const ruleId of SITEMAP_RULES) {
+        partial.set(
+          ruleId,
+          `${cut} sitemap ${cut === 1 ? "file was" : "files were"} larger than 50 MB and read only that far, so URLs listed past that point were not seen.`,
+        );
+      }
     }
   }
-  if (!fetched.some((result) => (result.contentType || "").startsWith("image/"))) {
-    notEvaluated.push({ ruleId: "image-oversized", reason: "No internal images were fetched." });
+  if (scopeLimited) {
+    const rules = siteDiagnostics.scopeRules || {};
+    const kinds = [
+      rules.folder ? "folder" : "",
+      rules.includePatterns?.length || rules.excludePatterns?.length ? "include and exclude" : "",
+    ].filter(Boolean);
+    const named = kinds.length ? `${kinds.join(", ")} rules` : "scope rules";
+    if (scopeExcluded > 0) {
+      pagesNotAudited.push({
+        count: scopeExcluded,
+        reason: `${scopeExcluded.toLocaleString("en-US")} URL${scopeExcluded === 1 ? " was" : "s were"} left out by the crawl's ${named}.`,
+      });
+    }
+    skip(
+      ["orphan-page", "single-inlink"],
+      `The crawl covered only part of the site (its ${named}), so the links pointing at a page from the rest of it could not be counted.`,
+    );
   }
-  return notEvaluated;
+  if (crawlTruncated) {
+    skip(
+      ["orphan-page", "single-inlink"],
+      "The crawl did not see the whole site (it was stopped, reached its page limit, or its link list was capped), " +
+        "so the links pointing at a page could not all be counted.",
+    );
+  }
+  if (!externalLinksChecked) {
+    skip(EXTERNAL_FETCH_RULES, "External links were not checked on this crawl.");
+  } else if (Number(siteDiagnostics.externalLinksUnchecked) > 0) {
+    const unchecked = Number(siteDiagnostics.externalLinksUnchecked);
+    for (const ruleId of EXTERNAL_FETCH_RULES) {
+      partial.set(
+        ruleId,
+        `${unchecked.toLocaleString("en-US")} external URLs past the crawl's external-link limit were not requested, so links to them were not checked.`,
+      );
+    }
+  }
+  if (!robotsRespected && !googlebotRobotsChecked) {
+    skip(
+      ["robots-blocked", "blocked-resource"],
+      "The crawl ignored robots.txt, so it fetched the URLs robots.txt disallows instead of reporting them.",
+    );
+  }
+  if (!siteDiagnostics.robotsUrl) {
+    skip(["robots-issue", "sitemap-robots-config"], "robots.txt was not read on this crawl.");
+  }
+  if (!clickDepthFromStart) {
+    skip(
+      ["deep-page", "javascript-rendered-site", "crawl-trap"],
+      "A URL list has no start page to follow links from.",
+    );
+  }
+  // llms.txt, the missing-page probe and the HTTP homepage are checked once,
+  // after the start page answers, and never for a URL list.
+  if (!siteDiagnostics.llmsStatus) {
+    skip(
+      ["llms-missing", "llms-format", "soft-404-site", "http-homepage", "www-resolve"],
+      "Site-wide files were not checked on this crawl (a URL list, or the start page never answered).",
+    );
+  } else {
+    if (siteDiagnostics.llmsStatus === "unavailable") {
+      skip(["llms-missing", "llms-format"], "llms.txt could not be fetched, so whether it exists is unknown.");
+    }
+    if (!siteDiagnostics.missingPageProbe?.status) {
+      skip(["soft-404-site"], "The request for a URL that cannot exist got no answer.");
+    }
+    if (!String(startUrl).startsWith("https:")) {
+      skip(["http-homepage"], "The crawl started on http://, so the HTTP homepage was not tested for a redirect to HTTPS.");
+    }
+  }
+
+  // The asset checks read internal files only, and a site serving its CSS,
+  // JavaScript and images from a CDN has none: they looked at nothing. The
+  // tests mirror each rule's own eligibility in buildFindings.
+  const assets = internalResults.filter(
+    (result) => result.isAsset && !(result.contentType || "").includes("html"),
+  );
+  const fetchedAssets = assets.filter((result) => result.status === 200);
+  const isScriptOrStyle = (result) =>
+    /javascript|css/.test(result.contentType || "") || /\.(?:m?js|css)(?:$|\?)/i.test(result.url);
+  if (!assets.length) {
+    skip(["blocked-resource"], "No internal resource files (CSS, JavaScript, images, documents) were found to check.");
+  }
+  if (!assets.some(isScriptOrStyle)) {
+    skip(["broken-javascript"], "No internal JavaScript or CSS files were found to check.");
+  }
+  if (!fetchedAssets.some(isScriptOrStyle)) {
+    skip(["asset-uncached", "asset-unminified", "asset-uncompressed"], "No internal CSS or JavaScript files were fetched.");
+  }
+  if (!fetchedAssets.some((result) => (result.contentType || "").startsWith("image/"))) {
+    skip(["image-oversized"], "No internal images were fetched.");
+  }
+
+  if (pagesMissingLinkData > 0) {
+    const reason =
+      `This crawl was interrupted and resumed, and ${pagesMissingLinkData.toLocaleString("en-US")} ` +
+      `page${pagesMissingLinkData === 1 ? "" : "s"} fetched before the interruption were stored without their ` +
+      "links and resources, so those pages' links, images and scripts were not checked.";
+    for (const ruleId of LINK_DATA_RULES) if (!partial.has(ruleId)) partial.set(ruleId, reason);
+  }
+
+  const render = siteDiagnostics.renderCheck;
+  if (!render?.ran) {
+    skip(["javascript-dependent-content"], ({
+      rendered: "Every page was rendered, so the audit already reads what JavaScript builds.",
+      "no-browser": "No headless browser was available to render pages.",
+      "failed": `Rendering pages failed${render?.error ? ` (${render.error})` : ""}.`,
+      "nothing-to-render": "No page was fetched as HTML, so there was nothing to render.",
+    })[render?.reason] || "JavaScript rendering was not checked on this crawl.");
+  }
+
+  if (nearDuplicatesCapped) {
+    partial.set(
+      "content-duplicate-near",
+      `So many pages are alike that comparing them stopped at ${NEAR_DUPLICATE_MAX_COMPARISONS.toLocaleString("en-US")} pairs; some near-duplicates may not be listed.`,
+    );
+  }
+
+  // A check that produced a finding ran, whatever the conditions above say.
+  for (const ruleId of firedRuleIds) notEvaluated.delete(ruleId);
+  const inCatalogOrder = (map) =>
+    catalog.filter((rule) => map.has(rule.id)).map((rule) => ({ ruleId: rule.id, reason: map.get(rule.id) }));
+  return { notEvaluated: inCatalogOrder(notEvaluated), partial: inCatalogOrder(partial), pagesNotAudited };
 }
 
 function buildFindings({
@@ -1119,6 +1617,31 @@ function buildFindings({
   // so inlink-count-based checks (single-inlink, orphan-page) would otherwise
   // report false confidence on a crawl that never saw the whole site.
   crawlTruncated = false,
+  // The crawl's removeParameters and includeSubdomains options, for its URL
+  // identity (url-identity.js).
+  removeParameters = [],
+  includeSubdomains = false,
+  // True when include, exclude or folder rules left part of the site out
+  // (url-scope.js), and how many URLs they kept out. Like a truncated crawl,
+  // the links from what was left out are unknown.
+  scopeLimited = false,
+  scopeExcluded = 0,
+  // The crawl's own limits (thresholds.js), or the defaults.
+  thresholds = null,
+  // False for a URL-list crawl: there is no start page whose links the list's
+  // pages are "clicks" from, so no click depth and no deep-page.
+  clickDepthFromStart = true,
+  // Whether external links were requested at all, and whether robots.txt was
+  // obeyed (a crawl that ignores it fetches disallowed pages instead of
+  // reporting them). Both only decide what `coverage` says was evaluated.
+  externalLinksChecked = true,
+  robotsRespected = true,
+  // Pages in `results` whose links and resources are not in the edge lists (a
+  // resumed run reloading rows stored before edges were kept).
+  pagesMissingLinkData = 0,
+  // robots.txt was read as Googlebot too, so "blocked" can be reported for
+  // Google even on a crawl that ignored robots.txt itself.
+  googlebotRobotsChecked = false,
 }) {
   const findings = [];
   // Dedupe ids in a Set rather than scanning `findings` on every add(). The scan
@@ -1126,11 +1649,26 @@ function buildFindings({
   // worker's event loop at the end of every crawl.
   const findingIds = new Set();
   // "Absent from every sitemap" needs every sitemap document. When traversal
-  // stopped at the document cap, the unread ones may list the page (M5).
+  // stopped at its cap, the unread ones may list the page (M5).
   const sitemapsComplete = sitemapsChecked && !siteDiagnostics?.sitemapCoverage?.traversalStopped;
   const newsSitemaps = new Set(siteDiagnostics?.newsSitemaps || []);
-  const resultByUrl = new Map(results.map((result) => [result.url, result]));
-  const internalResults = results.filter((result) => result.scope !== "External");
+  const allInternalResults = results.filter((result) => result.scope !== "External");
+  // Responses that refused the crawler are not the site's pages, so every check
+  // below runs without them: looked up as a link, canonical, hreflang or
+  // redirect target, a refused URL is "not crawled" — can't verify, don't guess
+  // — exactly like a URL the crawl never reached.
+  // The crawl's own URL identity: parameters it was told to remove are not
+  // part of what makes a page.
+  const identityOptions = { removeParameters, includeSubdomains };
+  // The limits pages are judged by. A finding measured against one the crawl
+  // set itself says so, so its number is read against the right line.
+  const limits = resolveThresholds(thresholds);
+  const limitNote = (key) =>
+    limits[key] === DEFAULT_THRESHOLDS[key] ? "" : ` (this crawl's limit: ${limits[key].toLocaleString("en-US")})`;
+  const refusals = crawlRefusals(allInternalResults, startUrl, identityOptions);
+  const { refused } = refusals;
+  const index = createResultIndex(results.filter((result) => !refused.has(result.url)), startUrl, identityOptions);
+  const internalResults = allInternalResults.filter((result) => !refused.has(result.url));
   const htmlResults = internalResults.filter((result) =>
     result.contentType?.includes("text/html"),
   );
@@ -1139,14 +1677,14 @@ function buildFindings({
   );
   const redirectTraces = new Map(
     internalResults
-      .map((result) => [result.url, redirectTrace(result, resultByUrl)])
+      .map((result) => [result.url, redirectTrace(result, index)])
       .filter(([, trace]) => trace),
   );
   const redirectTerminalFailures = new Map(
     [...redirectTraces]
       .map(([url, trace]) => [
         url,
-        redirectTerminalFailure(trace, resultByUrl),
+        redirectTerminalFailure(trace, index),
       ])
       .filter(([, failure]) => failure),
   );
@@ -1155,85 +1693,268 @@ function buildFindings({
       .filter(([url]) => !redirectTerminalFailures.has(url))
       .map(([url, trace]) => [
         url,
-        redirectTerminalSuitability(trace, resultByUrl),
+        redirectTerminalSuitability(trace, index),
       ])
       .filter(([, issue]) => issue),
   );
 
   const add = (ruleId, source = {}, extra = {}) => {
-    const definition = catalogById.get(ruleId);
-    if (!definition) return;
-    const url = extra.url || source.url || startUrl;
-    const targetUrl = extra.targetUrl || "";
-    const detail = extra.detail || "";
-    const id = findingId(ruleId, url, targetUrl, detail);
-    if (findingIds.has(id)) return;
-    findingIds.add(id);
-    findings.push({
-      id,
-      ruleId,
-      // The crawler stops reading at MAX_BODY_BYTES and records bodyTruncated
-      // on the result. Without carrying it here, a count measured on the first
-      // 5MB of a 14.4MB document is published as though it were complete —
-      // iana.org's /domains/idn-tables reported 3,830 nameless anchors against
-      // an actual 11,113. The cap is correct; the silence about it was not.
-      ...(source && source.bodyTruncated ? { sourceTruncated: true } : {}),
-      title: definition.title,
-      description: definition.description,
-      recommendation: extra.recommendation || definition.recommendation,
-      severity: definition.severity,
-      priority: definition.priority,
-      category: definition.category,
-      // 'site' | 'template' | 'page' | 'resource' — a page×check matrix can't
-      // represent a whole-site finding (sitemap/robots config, HSTS, llms.txt)
-      // without either double-counting it per host or dropping it. Defaults
-      // to 'page' for the ~86 catalog entries that genuinely are about one
-      // page; only the handful of real exceptions carry an explicit value.
-      scope: definition.scope || "page",
-      detection: definition.detection,
-      url,
-      targetUrl,
-      detail,
-      statusCode: extra.statusCode ?? source.status ?? 0,
-      detectedValue: extra.detectedValue ?? "",
-      recommendedValue: extra.recommendedValue ?? "",
-      // Raw evidence for root-cause grouping's "missing-property" family —
-      // separate from detectedValue because that column is a display
-      // string (bulleted, human-facing) that isn't safe to re-parse as a
-      // grouping key. Empty for every other rule.
-      evidenceKey: extra.evidenceKey ?? "",
-      reviewStatus: "Needs review",
-      reviewerNotes: "",
-      automated: definition.detection === "Automatic",
-    });
+    const finding = findingFor(ruleId, source, extra, { startUrl });
+    if (!finding || findingIds.has(finding.id)) return;
+    findingIds.add(finding.id);
+    findings.push(finding);
   };
+
+  // Sitemap entries keyed by the URL the crawler fetched them under, so an
+  // http:// <loc> on an https site is matched to the page it names — the
+  // crawler crawled it from that entry — instead of reading "missing from every
+  // sitemap". Entries written with the wrong scheme are kept for their own
+  // finding.
+  const sitemapsByPage = new Map();
+  const httpSitemapEntries = new Map();
+  for (const [loc, sitemaps] of Object.entries(sitemapMembership)) {
+    const key = index.identity(loc);
+    if (!key) continue;
+    const merged = sitemapsByPage.get(key) || new Set();
+    for (const sitemap of sitemaps || []) merged.add(sitemap);
+    sitemapsByPage.set(key, merged);
+    if (loc.startsWith("http:") && key.startsWith("https:")) {
+      const entries = httpSitemapEntries.get(key) || [];
+      entries.push({ loc, sitemaps: [...(sitemaps || [])] });
+      httpSitemapEntries.set(key, entries);
+    }
+  }
+
+  // ── Incoming internal links, per page ─────────────────────────────────────
+  // DISTINCT linking pages, not <a> elements. The crawler's own count
+  // (inlinkCounts) added one per element: a nav link and its footer twin were
+  // two inlinks, a nofollow link counted, and a redirect hop counted as a link
+  // from the redirecting URL — so "only one incoming internal link" missed the
+  // pages it exists to find. A link to a redirect credits the redirect's
+  // destination too, the page it actually delivers the visitor to.
+  // `followInlinks` counts only links a search engine follows: not rel=nofollow
+  // and not on a page whose robots directives say nofollow.
+  const linkingPages = new Map();
+  const followLinkingPages = new Map();
+  // The same followable links, from each page: the graph click depth walks.
+  const followLinksFrom = new Map();
+  const creditLink = (map, targetUrl, sourceUrl) => {
+    const set = map.get(targetUrl) || new Set();
+    set.add(sourceUrl);
+    map.set(targetUrl, set);
+  };
+  const refusedIndex = refused.size
+    ? createResultIndex(allInternalResults.filter((result) => refused.has(result.url)), startUrl, identityOptions)
+    : null;
+  for (const edge of linkEdges) {
+    if (!edge.internal) continue;
+    const source = index.get(edge.sourceUrl);
+    // A refused page is not audited, but how many pages link to it is still
+    // true, and is what the URL table shows for it.
+    const target = index.get(edge.targetUrl) || refusedIndex?.get(edge.targetUrl);
+    if (!source || !target) continue;
+    const followable =
+      !(edge.nofollow || linkRelTokens(edge).has("nofollow")) &&
+      !isNofollow(resultRobotsDirectives(source));
+    const destinations = [target.url];
+    const trace = redirectTraces.get(target.url);
+    if (trace && !trace.loop && !trace.limitReached) {
+      const destination = index.get(trace.targetUrl);
+      if (destination) destinations.push(destination.url);
+    }
+    for (const url of destinations) {
+      if (url === source.url) continue;
+      creditLink(linkingPages, url, source.url);
+      if (followable) {
+        creditLink(followLinkingPages, url, source.url);
+        creditLink(followLinksFrom, source.url, url);
+      }
+    }
+  }
+  // A page that sends the visitor on with a meta refresh or Refresh header
+  // links to its destination as surely as an <a> does (Google treats an
+  // instant refresh like a redirect), so that destination is not an orphan.
+  for (const result of internalResults) {
+    if (result.status < 200 || result.status >= 300) continue;
+    const refresh = declarativeRefresh(result);
+    if (!refresh || refresh.isReload) continue;
+    const destination = index.get(refresh.url);
+    if (!destination || destination.url === result.url) continue;
+    creditLink(linkingPages, destination.url, result.url);
+    if (!isNofollow(resultRobotsDirectives(result))) {
+      creditLink(followLinkingPages, destination.url, result.url);
+      creditLink(followLinksFrom, result.url, destination.url);
+    }
+  }
+
+  // ── Click depth ────────────────────────────────────────────────────────────
+  // The fewest followable links from the start page, found by a breadth-first
+  // walk of the link graph. The crawler's own `depth` is the order it found a
+  // page in, and it queued every sitemap URL at depth 1, so on a site with a
+  // sitemap nearly every page read as one click from home. A redirect is not a
+  // click: its destination is as deep as the link to it. A page no followable
+  // link reaches has no click depth (null), rather than a guessed one.
+  const clickDepths = new Map();
+  const clickParents = new Map();
+  if (clickDepthFromStart) {
+    const queue = [];
+    const visit = (url, depth, parent) => {
+      if (clickDepths.has(url)) return;
+      clickDepths.set(url, depth);
+      if (parent) clickParents.set(url, parent);
+      queue.push(url);
+      const trace = redirectTraces.get(url);
+      if (trace && !trace.loop && !trace.limitReached) {
+        const destination = index.get(trace.targetUrl);
+        if (destination) visit(destination.url, depth, url);
+      }
+    };
+    const root = index.get(startUrl);
+    if (root) visit(root.url, 0, null);
+    for (let at = 0; at < queue.length; at += 1) {
+      const url = queue[at];
+      for (const next of followLinksFrom.get(url) || []) visit(next, clickDepths.get(url) + 1, url);
+    }
+  }
+  const clickDepthOf = (url) => (clickDepths.has(url) ? clickDepths.get(url) : null);
+  const clickPath = (url) => {
+    const path = [url];
+    for (let at = url; clickParents.has(at); ) {
+      at = clickParents.get(at);
+      path.unshift(at);
+    }
+    return path;
+  };
+  // ── Soft 404s ──────────────────────────────────────────────────────────────
+  // Pages that answer 200 but are the site's "not found" page: the same body as
+  // the crawler's probe of a URL that cannot exist, or titled like an error page
+  // with almost nothing on it. Kept out of the duplicate checks below — five
+  // soft 404s share a title because they are one error page, and that is one
+  // problem, reported once per URL as soft-404.
+  const missingPageProbe = siteDiagnostics.missingPageProbe || null;
+  const softNotFound = new Map(); // url -> detail
+  for (const result of htmlResults) {
+    if (result.status !== 200 || result.url === startUrl) continue;
+    if (missingPageProbe?.hash && result.hash === missingPageProbe.hash) {
+      softNotFound.set(
+        result.url,
+        "Returns 200 with the same page the site serves for a URL that does not exist",
+      );
+      continue;
+    }
+    const wording = [result.title, result.h1].find(readsLikeNotFound);
+    if (wording && (Number(result.words) || 0) < SOFT_404_MAX_WORDS) {
+      softNotFound.set(
+        result.url,
+        `Returns 200, reads "${String(wording).slice(0, 120)}" and has only ${Number(result.words) || 0} words`,
+      );
+    }
+  }
+
+  const inlinksOf = (url) => linkingPages.get(url)?.size || 0;
+  const followInlinksOf = (url) => followLinkingPages.get(url)?.size || 0;
+
+  // ── Pages that could link to a page ─────────────────────────────────────────
+  // "Add links from related pages" told an SEO nothing the crawl did not know:
+  // it has the whole link graph. The candidates are crawled, indexable pages a
+  // visitor can click to, in the same section as the page (the longest shared
+  // run of leading path segments, with the section's own page counted in its
+  // section), nearest the start page first, then the most linked.
+  const sectionsOf = (url) => {
+    try {
+      const segments = new URL(url).pathname.split("/").filter(Boolean);
+      return segments.map((_, at) => `/${segments.slice(0, at + 1).join("/")}/`);
+    } catch {
+      return [];
+    }
+  };
+  const bySection = new Map();
+  for (const result of htmlResults) {
+    if (result.status !== 200 || result.indexability !== "Indexable" || softNotFound.has(result.url)) continue;
+    if (clickDepthOf(result.url) === null) continue;
+    for (const section of sectionsOf(result.url)) {
+      const list = bySection.get(section) || [];
+      list.push(result.url);
+      bySection.set(section, list);
+    }
+  }
+  for (const list of bySection.values()) {
+    list.sort((a, b) =>
+      clickDepthOf(a) - clickDepthOf(b) || followInlinksOf(b) - followInlinksOf(a) || a.localeCompare(b));
+  }
+  const linkCandidates = (url, { exclude = new Set(), maxDepth = Infinity, limit = 2 } = {}) => {
+    // The page's own path as a section is the page itself; its parents are
+    // where related pages live.
+    const sections = sectionsOf(url);
+    const parents = sections.slice(0, url.endsWith("/") ? -1 : sections.length - 1).reverse();
+    // Nearest section first, widening until there are enough.
+    const picked = [];
+    for (const section of parents) {
+      for (const candidate of bySection.get(section) || []) {
+        if (picked.length >= limit) return picked;
+        // Sorted nearest the start page first: the rest are deeper still.
+        if (clickDepthOf(candidate) > maxDepth) break;
+        if (candidate === url || exclude.has(candidate) || picked.includes(candidate)) continue;
+        picked.push(candidate);
+      }
+    }
+    return picked;
+  };
+  // A same-site URL as its path, which is how the site's own people know it.
+  const shortUrl = (url) => {
+    try {
+      const parsed = new URL(url);
+      return new URL(startUrl).host === parsed.host ? `${parsed.pathname}${parsed.search}` : url;
+    } catch {
+      return url;
+    }
+  };
+  const orList = (items) =>
+    items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} or ${items[items.length - 1]}`;
+
+  // A refused page keeps its status finding, so the URLs are listed, but says
+  // what happened: the server refused the crawler, and nothing was learned
+  // about the page itself.
+  for (const result of allInternalResults) {
+    if (!refused.has(result.url) || result.isAsset) continue;
+    const reason = refused.get(result.url);
+    const refusal = {
+      detail: result.status === RATE_LIMIT_STATUS
+        ? `The server rate-limited the crawler (${reason}); the page itself was not audited.`
+        : `The server refused the crawler (${reason}); the page itself was not audited.`,
+      detectedValue: reason,
+      crawlRefused: true,
+    };
+    if (result.status >= 500) add("page-5xx", result, refusal);
+    else if (result.status >= 400) add("page-4xx", result, refusal);
+  }
 
   for (const result of internalResults) {
     const isHtml = result.contentType?.includes("text/html");
+    const inSitemaps = [...(sitemapsByPage.get(index.identity(result.url)) || [])];
+    // Whole directive tokens that apply to CrawlScope or Googlebot — never a
+    // substring test, which read max-image-preview:none as noindex + nofollow.
+    const directives = resultRobotsDirectives(result);
+    const hasNoindex = isNoindex(directives);
+    const hasNofollow = isNofollow(directives);
     // The headers arrived but none of the body did (a read timeout or reset):
     // the page's content is unknown, so no rule may judge it. A partially read
     // body is still evaluated, and its findings carry sourceTruncated.
     const bodyUnread = Boolean(result.bodyError) && !(result.decodedSize > 0);
-    const inSitemaps = sitemapMembership[result.url] || [];
-    const robots = (result.robots || "").toLowerCase();
-    const hasNoindex = robots.includes("noindex") || robots.includes("none");
-    const hasNofollow = robots.includes("nofollow") || robots.includes("none");
 
-    if (result.status >= 500 && result.status < 600) {
+    // Page-level status checks are for pages. A broken image, stylesheet or
+    // script is reported on the pages that load it (see the resource-edge loop
+    // below), which is where someone has to go to fix it; filing it as a "page
+    // returning 4XX" on the file's own URL named nothing to open.
+    const brokenAsset = result.isAsset && (result.status >= 400 || !result.status);
+    if (!brokenAsset && result.status >= 500 && result.status < 600) {
       add("page-5xx", result, {
         detail: result.statusText,
         detectedValue: `HTTP ${result.status}${
           result.statusText ? ` ${result.statusText}` : ""
         }`,
       });
-    } else if (isRateLimited(result)) {
-      // The site throttled the crawl and was still refusing after the
-      // retries: the page was not checked, which is what crawl-failure says.
-      // Reporting it as a 4xx called working pages broken (M2).
-      add("crawl-failure", result, {
-        detail: "Rate limited: the site answered HTTP 429 Too Many Requests after the crawler's retries, so this page was not checked",
-      });
-    } else if (result.status >= 400 && result.status < 500) {
+    } else if (!brokenAsset && result.status >= 400 && result.status < 500) {
       add("page-4xx", result);
     }
     if (bodyUnread && result.status >= 200 && result.status < 300) {
@@ -1242,7 +1963,7 @@ function buildFindings({
       });
     }
     if (!result.status && result.statusText !== "Blocked by robots.txt") {
-      add("crawl-failure", result, { detail: result.statusText });
+      if (!result.isAsset) add("crawl-failure", result, { detail: result.statusText });
       if (/altname|certificate.*name|cert.*hostname/i.test(result.statusText)) {
         add("ssl-certificate-name", result, { detail: result.statusText });
       }
@@ -1251,16 +1972,22 @@ function buildFindings({
       }
     }
 
-    if (
-      result.isAsset &&
-      result.status >= 400 &&
-      !isRateLimited(result) &&
-      (result.contentType?.includes("javascript") || /\.m?js(?:$|\?)/i.test(result.url))
-    ) {
-      add("broken-javascript", result);
-    }
+    // Blocked means blocked for Googlebot: that is what keeps a page out of
+    // Google. robots.txt is read for both. A URL closed to CrawlScope alone was
+    // not fetched (the crawl obeys its own group) but is open to Google, so it
+    // is not reported, only counted as not audited (coverage); one closed to
+    // Googlebot alone was fetched and audited, and is reported.
     if (result.statusText === "Blocked by robots.txt") {
-      add(result.isAsset ? "blocked-resource" : "robots-blocked", result);
+      if (result.googlebotAllowed !== true) {
+        add(result.isAsset ? "blocked-resource" : "robots-blocked", result,
+          result.googlebotAllowed === false
+            ? { detail: "robots.txt disallows this URL for Googlebot, and for CrawlScope." }
+            : {});
+      }
+    } else if (result.googlebotDisallowed) {
+      add(result.isAsset ? "blocked-resource" : "robots-blocked", result, {
+        detail: "robots.txt disallows this URL for Googlebot. It is open to CrawlScope, so it was still audited.",
+      });
     }
 
     if (inSitemaps.length) {
@@ -1269,6 +1996,10 @@ function buildFindings({
       const terminalFailure = redirectTerminalFailures.get(result.url);
       const terminalSuitability =
         redirectTerminalSuitabilityIssues.get(result.url);
+      // Canonical to another page — not merely to this page's own http://
+      // spelling, which canonical-to-http reports; sending the sitemap to the
+      // http:// URL would be the wrong fix.
+      const canonicalMismatch = Boolean(result.canonical) && !index.same(result.canonical, result.url);
       // A plain HTTP redirect is exactly what sitemap-redirect reports, so it
       // is not reported a second time here. sitemap-incorrect-url keeps the
       // redirects whose destination is broken or unsuitable: that is extra
@@ -1277,12 +2008,9 @@ function buildFindings({
         isRedirectStatus(result.status) && !terminalFailure && !terminalSuitability;
       if (
         !plainRedirect &&
-        // A rate-limited entry was not checked (see isRateLimited), so it is
-        // not known to be incorrect; its crawl-failure already reports it.
-        !isRateLimited(result) &&
         (result.status !== 200 ||
           result.indexability !== "Indexable" ||
-          (result.canonical && result.canonical !== result.url) ||
+          canonicalMismatch ||
           declarativeRedirect)
       ) {
         add("sitemap-incorrect-url", result, {
@@ -1303,6 +2031,7 @@ function buildFindings({
             terminalFailure,
             terminalSuitability,
             declarativeRedirect,
+            canonicalMismatch,
           }),
         });
       }
@@ -1312,6 +2041,13 @@ function buildFindings({
           detectedValue: result.redirectUrl
             ? `${result.status} -> ${result.redirectUrl}`
             : `HTTP ${result.status}`,
+        });
+      }
+      for (const entry of httpSitemapEntries.get(index.identity(result.url)) || []) {
+        add("sitemap-http-url", result, {
+          targetUrl: entry.loc,
+          detail: `Listed as ${entry.loc} in ${entry.sitemaps.join(", ")}; the site is served over HTTPS`,
+          detectedValue: entry.loc,
         });
       }
       // A fresh article in both a Google News sitemap and a regular sitemap
@@ -1335,7 +2071,7 @@ function buildFindings({
       // A sitemap lists canonical URLs only. A page whose canonical names
       // another URL (a filter or tracking-parameter variant, /home -> /)
       // belongs out of it; `indexability` alone ignores the canonical (M3).
-      (!result.canonical || result.canonical === result.url) &&
+      (!result.canonical || index.same(result.canonical, result.url)) &&
       // Later pages of a listing are reached through the listing's own
       // pagination links and are normally left out of a sitemap, so their
       // absence is not something to fix. On brushandfloss.com they were 37 of
@@ -1357,25 +2093,62 @@ function buildFindings({
 
     if (
       !crawlTruncated &&
+      !scopeLimited &&
       isHtml &&
       result.status === 200 &&
       result.url !== startUrl &&
       result.fromSitemap &&
-      result.inlinks === 0
+      inlinksOf(result.url) === 0
     ) {
-      add("orphan-page", result);
+      const candidates = linkCandidates(result.url).map(shortUrl);
+      add("orphan-page", result, {
+        recommendation:
+          "No crawled page links to this page; only the sitemap lists it. " +
+          (candidates.length
+            ? `Link to it from related pages, such as ${orList(candidates)}. `
+            : "Link to it from the page its section starts on, or from the navigation. ") +
+          "If it is no longer needed, redirect or remove it and take it out of the sitemap.",
+      });
     }
     if (
       !crawlTruncated &&
+      !scopeLimited &&
       isHtml &&
       result.status === 200 &&
       result.url !== startUrl &&
-      result.inlinks === 1
+      followInlinksOf(result.url) === 1
     ) {
-      add("single-inlink", result);
+      const linker = [...(followLinkingPages.get(result.url) || [])][0] || "";
+      const candidates = linkCandidates(result.url, { exclude: new Set([linker]) }).map(shortUrl);
+      add("single-inlink", result, {
+        detectedValue: linker,
+        recommendation:
+          `Only ${shortUrl(linker)} links to this page. ` +
+          (candidates.length
+            ? `Add links to it from related pages, such as ${orList(candidates)}.`
+            : "Add links to it from related pages in its section, or from the navigation."),
+      });
     }
-    if (isHtml && result.depth > 3) {
-      add("deep-page", result, { detectedValue: result.depth });
+    const clickDepth = clickDepthOf(result.url);
+    if (isHtml && result.status >= 200 && result.status < 300 && clickDepth > limits.maxClickDepth) {
+      // A link from a page one click short of the limit brings it within it.
+      const candidates = linkCandidates(result.url, { maxDepth: limits.maxClickDepth - 1 });
+      const depthLabel = (url, at) => {
+        const depth = clickDepthOf(url);
+        const clicks = `${depth} click${depth === 1 ? "" : "s"}`;
+        return `${shortUrl(url)} (${at === 0 ? `${clicks} from the start page` : clicks})`;
+      };
+      add("deep-page", result, {
+        detail: `${clickDepth} clicks from the start page${limitNote("maxClickDepth")}`,
+        // The shortest route in, which is where a shortcut link would go.
+        detectedValue: clickPath(result.url).join(" -> "),
+        recommendation: candidates.length
+          ? `Add a link to this page from ${orList(candidates.map(depthLabel))}, in the same section, ` +
+            `so it is ${limits.maxClickDepth} clicks or fewer from the start page.`
+          : "Add a link to this page from the page its section starts on, from the navigation, or from a " +
+            `page ${limits.maxClickDepth - 1} click${limits.maxClickDepth - 1 === 1 ? "" : "s"} or fewer from the start page, ` +
+            `so it is ${limits.maxClickDepth} clicks or fewer away.`,
+      });
     }
 
     const redirectDetectedValue = result.redirectUrl ? `${result.status} -> ${result.redirectUrl}` : `HTTP ${result.status}`;
@@ -1424,7 +2197,9 @@ function buildFindings({
           ? `At least ${trace.hops} redirect-like hops; trace stopped at the safety bound`
           : `${trace.hops} redirect hops`,
         targetUrl: trace.targetUrl,
-        detectedValue: trace.hops,
+        // Every hop, which is what has to be collapsed into one redirect —
+        // not just how many there are.
+        detectedValue: trace.path.join(" -> "),
       });
     }
 
@@ -1450,7 +2225,7 @@ function buildFindings({
             detectedValue: `${evidence}; reload after ${delay}`,
           });
         } else {
-          const target = resultAtUrl(resultByUrl, refresh.url);
+          const target = index.get(refresh.url);
           const targetStatus = target
             ? ` The crawled destination returned HTTP ${target.status || "no response"}.`
             : "";
@@ -1468,75 +2243,133 @@ function buildFindings({
           detectedValue: `<base href="${raw}">; ${result.documentBaseFallbackReason}`,
         });
       }
-      // Previously only caught by crawler.js's live quickIssues() pass, which
-      // never gets re-run once findings replace it after the crawl completes
-      // — a page missing its <title> silently lost this finding entirely at
-      // that point, rather than just losing its category/description.
-      if (!result.title) {
-        // Same URL-slug fallback suggestH1 uses — there's no existing title
-        // to trim, so this is a starting point to hand-refine, not a
-        // finished recommendation.
-        const slugTitle = humanizeUrlSlug(result.url);
-        add("title-missing", result, {
-          // Empty and absent look the same in `title` but not in view-source:
-          // a CMS template with an unbound title field renders <title></title>,
-          // and without saying so the finding reads as wrong to whoever checks.
-          detectedValue: result.titleCount > 0 ? "<title> present but empty" : "No <title> element",
-          ...(slugTitle ? { recommendedValue: slugTitle } : {}),
+      // A deliberately noindexed page won't appear in search results, so how
+      // its title, description, headings, viewport, Open Graph tags or word
+      // count would look there has no SEO consequence. Flagging them is noise
+      // on top of the noindex finding itself — the one thing worth reviewing on
+      // the /cart, /login and tag pages sites noindex on purpose. Speed,
+      // security, redirects and links are still checked below.
+      if (!hasNoindex) {
+        // Previously only caught by crawler.js's live quickIssues() pass, which
+        // never gets re-run once findings replace it after the crawl completes
+        // — a page missing its <title> silently lost this finding entirely at
+        // that point, rather than just losing its category/description.
+        if (!result.title) {
+          // Same URL-slug fallback suggestH1 uses — there's no existing title
+          // to trim, so this is a starting point to hand-refine, not a
+          // finished recommendation.
+          const slugTitle = humanizeUrlSlug(result.url);
+          add("title-missing", result, {
+            // Empty and absent look the same in `title` but not in view-source:
+            // a CMS template with an unbound title field renders <title></title>,
+            // and without saying so the finding reads as wrong to whoever checks.
+            detectedValue: result.titleCount > 0 ? "<title> present but empty" : "No <title> element",
+            ...(slugTitle ? { recommendedValue: slugTitle } : {}),
+          });
+        }
+        if (result.titleCount > 1) {
+          add("title-multiple", result, { detectedValue: result.titleCount });
+        }
+        if (result.title && result.titleLength < limits.titleMinLength) {
+          add("title-short", result, {
+            detail: `${result.titleLength} characters${limitNote("titleMinLength")}`,
+            detectedValue: result.title,
+          });
+        }
+        if (result.titleLength > limits.titleMaxLength) {
+          add("title-long", result, {
+            detail: `${result.titleLength} characters${limitNote("titleMaxLength")}`,
+            detectedValue: result.title,
+            recommendedValue: suggestTitle(result.title, brandSegments),
+          });
+        }
+        if (!result.metaDescription) {
+          // Both of these carried an empty detail and detectedValue, so 484
+          // identical rows on one crawl told a developer nothing about which page
+          // to open or what was actually observed there.
+          add("meta-missing", result, {
+            detail: "No <meta name=\"description\"> on this page",
+            detectedValue: "(absent)",
+            recommendedValue: suggestMetaDescription(result),
+          });
+        } else if (result.metaLength > limits.metaMaxLength) {
+          add("meta-long", result, {
+            detail: `${result.metaLength} characters${limitNote("metaMaxLength")}`,
+            detectedValue: result.metaDescription,
+            recommendedValue: `Needs a manual rewrite — current description is ${result.metaLength} characters (target 150-160). Trim to the most important sentence rather than cutting mid-sentence.`,
+          });
+        } else if (result.metaLength < limits.metaMinLength) {
+          add("meta-short", result, {
+            detail: `${result.metaLength} characters${limitNote("metaMinLength")}`,
+            detectedValue: result.metaDescription,
+            recommendedValue: suggestMetaDescription(result),
+          });
+        }
+        if (!result.h1Count) {
+          add("h1-missing", result, { recommendedValue: suggestH1(result) });
+        } else if (result.h1Count > 1) {
+          add("h1-multiple", result, { detectedValue: result.h1Count });
+        }
+        if (!result.viewport) {
+          add("viewport-missing", result);
+        } else if (!/width\s*=\s*device-width/i.test(result.viewport)) {
+          add("viewport-not-responsive", result, { detectedValue: result.viewport });
+        }
+        if (
+          result.h1 &&
+          result.title &&
+          result.h1.split("|")[0].trim().toLowerCase() === result.title.trim().toLowerCase()
+        ) {
+          add("h1-title-duplicate", result, { detectedValue: `Title and H1 both read "${result.title.trim()}"` });
+        }
+      }
+      // Explicitly empty only: a result stored before the crawler read the
+      // attribute has no htmlLang at all, which is not the same thing. The
+      // same goes for charset and doctype below.
+      if (result.htmlLang === "") add("html-lang-missing", result);
+      if (result.charsetDeclared === false) add("charset-missing", result);
+      if (result.doctypeDeclared === false) add("doctype-missing", result);
+
+      // Weight and compression of the HTML itself (the resource checks cover
+      // scripts and stylesheets).
+      const htmlBytes = Number(result.decodedSize) || 0;
+      if (result.bodyTruncated || htmlBytes > HTML_TOO_LARGE_BYTES) {
+        add("html-too-large", result, {
+          detail: result.bodyTruncated
+            ? "Larger than 5 MB: the crawler stopped reading there"
+            : `${(htmlBytes / 1_048_576).toFixed(1)} MB of HTML`,
+          detectedValue: result.bodyTruncated ? "> 5 MB" : `${(htmlBytes / 1_048_576).toFixed(1)} MB`,
         });
       }
-      if (result.titleCount > 1) {
-        add("title-multiple", result, { detectedValue: result.titleCount });
-      }
-      if (result.titleLength > 60) {
-        add("title-long", result, {
-          detail: `${result.titleLength} characters`,
-          detectedValue: result.title,
-          recommendedValue: suggestTitle(result.title, brandSegments),
+      const encoding = String(result.contentEncoding || "").trim().toLowerCase();
+      if (htmlBytes >= HTML_COMPRESSION_MIN_BYTES && (!encoding || encoding === "identity")) {
+        add("html-uncompressed", result, {
+          detectedValue: `${(htmlBytes / 1024).toFixed(1)} KB sent with no Content-Encoding`,
         });
       }
-      if (!result.metaDescription) {
-        // Both of these carried an empty detail and detectedValue, so 484
-        // identical rows on one crawl told a developer nothing about which page
-        // to open or what was actually observed there.
-        add("meta-missing", result, {
-          detail: "No <meta name=\"description\"> on this page",
-          detectedValue: "(absent)",
-          recommendedValue: suggestMetaDescription(result),
-        });
-      } else if (result.metaLength > 160) {
-        add("meta-long", result, {
-          detail: `${result.metaLength} characters`,
-          detectedValue: result.metaDescription,
-          recommendedValue: `Needs a manual rewrite — current description is ${result.metaLength} characters (target 150-160). Trim to the most important sentence rather than cutting mid-sentence.`,
-        });
-      } else if (result.metaLength < 70) {
-        add("meta-short", result, {
-          detail: `${result.metaLength} characters`,
-          detectedValue: result.metaDescription,
-          recommendedValue: suggestMetaDescription(result),
+      if (Number(result.anchorCount) > limits.maxLinksPerPage) {
+        add("too-many-links", result, {
+          detail: `${Number(result.anchorCount).toLocaleString("en-US")} links on the page`,
+          detectedValue: result.anchorCount,
         });
       }
-      // A deliberately noindexed page won't appear in search results, so its
-      // content quality — H1, word count, text-to-HTML ratio, Open Graph tags
-      // — has no SEO consequence. Flagging it here is just noise on top of
-      // the noindex finding itself, which is the one thing worth reviewing.
-      if (!hasNoindex && !result.h1Count) {
-        add("h1-missing", result, { recommendedValue: suggestH1(result) });
-      } else if (result.h1Count > 1) {
-        add("h1-multiple", result, { detectedValue: result.h1Count });
+
+      // The URL itself.
+      let parsedUrl = null;
+      try {
+        parsedUrl = new URL(result.url);
+      } catch {
+        parsedUrl = null;
       }
-      if (!result.viewport) {
-        add("viewport-missing", result);
-      } else if (!/width\s*=\s*device-width/i.test(result.viewport)) {
-        add("viewport-not-responsive", result, { detectedValue: result.viewport });
-      }
-      if (
-        result.h1 &&
-        result.title &&
-        result.h1.split("|")[0].trim().toLowerCase() === result.title.trim().toLowerCase()
-      ) {
-        add("h1-title-duplicate", result, { detectedValue: `Title and H1 both read "${result.title.trim()}"` });
+      if (parsedUrl) {
+        if (result.url.length > limits.urlMaxLength) {
+          add("url-too-long", result, { detail: `${result.url.length} characters`, detectedValue: result.url.length });
+        }
+        if (parsedUrl.pathname.includes("_")) add("url-underscore", result, { detectedValue: parsedUrl.pathname });
+        const parameters = [...parsedUrl.searchParams.keys()].length;
+        if (parameters > URL_MAX_PARAMETERS) {
+          add("url-too-many-parameters", result, { detail: `${parameters} query parameters`, detectedValue: parsedUrl.search });
+        }
       }
       for (const issue of result.headingHierarchyIssues || []) {
         add("heading-hierarchy-skipped", result, {
@@ -1554,14 +2387,14 @@ function buildFindings({
         result.textHtmlRatio > 0 &&
         result.textHtmlRatio <= 0.1 &&
         result.words > 0 &&
-        result.words < 200
+        result.words < limits.minWords
       ) {
         add("low-text-html-ratio", result, {
           detectedValue: Number(result.textHtmlRatio.toFixed(3)),
         });
       }
-      if (!hasNoindex && result.words > 0 && result.words < 200) {
-        add("low-word-count", result, { detectedValue: `${result.words} words` });
+      if (!hasNoindex && result.words > 0 && result.words < limits.minWords) {
+        add("low-word-count", result, { detectedValue: `${result.words} words${limitNote("minWords")}` });
       }
       const openGraphMissing = result.openGraphMissing || [];
       const openGraphInvalidUrls = result.openGraphInvalidUrls || [];
@@ -1622,13 +2455,13 @@ function buildFindings({
           detectedValue: rawOgUrl,
         });
       }
-      for (const schemaError of result.schemaErrors || []) {
-        add("schema-error", result, {
-          detail: schemaError,
-          detectedValue: schemaError,
+      for (const problem of hasNoindex ? [] : structuredDataProblems(result)) {
+        add(SCHEMA_RULES[problem.kind] || "schema-error", result, {
+          detail: problem.message,
+          detectedValue: problem.message,
         });
       }
-      if (result.responseTime > 1000) {
+      if (result.responseTime > limits.slowResponseMs) {
         // No `detail` here on purpose: this rule's own Excel sheet drops the
         // "Target / Related URL" column entirely (report-writer.js) rather
         // than carry a stray value in a column headed for a different kind
@@ -1671,17 +2504,47 @@ function buildFindings({
       }
     }
 
-    const hasSelfReference = result.hreflangs.some((entry) => entry.url === result.url);
+    const hasSelfReference = result.hreflangs.some((entry) => index.same(entry.url, result.url));
     if (!hasSelfReference) add("hreflang-missing-self", result);
 
+    // One language code for two pages: search engines cannot tell which one
+    // it means and may ignore the set.
+    const pagesByLang = new Map();
     for (const entry of result.hreflangs) {
-      if (entry.url === result.url) continue;
-      const target = resultByUrl.get(entry.url);
+      const pages = pagesByLang.get(entry.lang) || new Map();
+      pages.set(index.identity(entry.url) || entry.url, entry.url);
+      pagesByLang.set(entry.lang, pages);
+    }
+    for (const [lang, pages] of pagesByLang) {
+      if (pages.size < 2) continue;
+      add("hreflang-conflict", result, {
+        detail: `hreflang="${lang}" points at ${pages.size} different URLs: ${[...pages.values()].join(", ")}`,
+        detectedValue: lang,
+      });
+    }
+    if (!pagesByLang.has("x-default")) add("hreflang-x-default-missing", result);
+
+    for (const entry of result.hreflangs) {
+      if (index.same(entry.url, result.url)) continue;
+      const target = index.get(entry.url);
       // Can't verify a return tag on a page we never crawled — that's a
       // separate, weaker signal than a confirmed one-way link, so it's left
       // alone rather than guessed at.
       if (!target) continue;
-      const pointsBack = (target.hreflangs || []).some((t) => t.url === result.url);
+      // An alternate has to be a live, indexable, self-canonical page, or the
+      // annotation points search engines at something they will not index.
+      // When it is not, that is the finding — "does not link back" would blame
+      // the page for its target being broken.
+      const targetProblem = hreflangTargetProblem(target, index);
+      if (targetProblem) {
+        add("hreflang-target-invalid", result, {
+          targetUrl: entry.url,
+          detail: `The hreflang="${entry.lang}" alternate ${targetProblem}`,
+          detectedValue: entry.lang,
+        });
+        continue;
+      }
+      const pointsBack = (target.hreflangs || []).some((t) => index.same(t.url, result.url));
       if (!pointsBack) {
         add("hreflang-missing-return", result, {
           targetUrl: entry.url,
@@ -1692,10 +2555,46 @@ function buildFindings({
   }
 
   for (const result of internalResults) {
+    if (result.status !== 200) continue;
+    // Two canonicals that disagree are no canonical: search engines drop both
+    // and choose for themselves. <head> tags and the Link header count alike.
+    if (result.canonicals?.length > 1) {
+      add("multiple-canonical", result, {
+        detail: `${result.canonicals.length} different canonical URLs: ${result.canonicals.join(", ")}`,
+        detectedValue: result.canonicals.join(", "),
+      });
+    }
+    // A canonical in <body> is ignored, so it does nothing — and when it is the
+    // page's only one, whoever put it there believes the page has a canonical.
+    if (result.canonicalsOutsideHead?.length) {
+      add("canonical-outside-head", result, {
+        detail: result.canonicals?.length
+          ? `A canonical tag in <body> is ignored; the one in <head> applies (${result.canonicalsOutsideHead.join(", ")})`
+          : `The page's only canonical tag is in <body>, where search engines ignore it (${result.canonicalsOutsideHead.join(", ")})`,
+        detectedValue: result.canonicalsOutsideHead.join(", "),
+      });
+    }
+  }
+
+  for (const result of internalResults) {
     if (result.status !== 200 || !result.canonical || result.canonical === result.url) {
       continue;
     }
-    const target = resultByUrl.get(result.canonical);
+    // An https page declaring an http:// canonical asks search engines to
+    // prefer the insecure URL. Reported on its own — the crawler fetches
+    // http:// URLs on this host as https, so the lookup below would otherwise
+    // land on the page itself and call it a chain.
+    if (result.url.startsWith("https:") && result.canonical.startsWith("http:")) {
+      add("canonical-to-http", result, {
+        targetUrl: result.canonical,
+        detail: index.same(result.canonical, result.url)
+          ? "The canonical is this page's own URL on http://"
+          : `The canonical points at an http:// URL: ${result.canonical}`,
+        detectedValue: result.canonical,
+      });
+    }
+    if (index.same(result.canonical, result.url)) continue;
+    const target = index.get(result.canonical);
     // Can't verify a canonical pointing at a URL the crawl never reached —
     // same principle as the hreflang return-tag check above.
     if (!target) continue;
@@ -1750,20 +2649,19 @@ function buildFindings({
             : "a meta refresh"
         } to ${targetRedirect}`,
       });
-    } else if ((target.status >= 400 || !target.status) && !isRateLimited(target)) {
+    } else if (target.status >= 400 || !target.status) {
       add("canonical-to-broken", result, {
         targetUrl: result.canonical,
         statusCode: target.status,
         detail: target.statusText,
       });
-    } else if (target.canonical && target.canonical !== target.url) {
+    } else if (target.canonical && !index.same(target.canonical, target.url)) {
       add("canonical-chain", result, {
         targetUrl: result.canonical,
         detail: `${result.canonical} canonicalizes to a different URL (${target.canonical}) instead of itself`,
       });
     } else {
-      const targetRobots = (target.robots || "").toLowerCase();
-      if (targetRobots.includes("noindex") || targetRobots.includes("none")) {
+      if (isNoindex(resultRobotsDirectives(target))) {
         add("canonical-to-noindex", result, { targetUrl: result.canonical });
       }
     }
@@ -1779,9 +2677,9 @@ function buildFindings({
       ["prev", result.paginationPrev],
     ]) {
       if (!url) continue;
-      const target = resultByUrl.get(url);
+      const target = index.get(url);
       if (!target) continue; // uncrawled target — can't verify, don't guess
-      if ((target.status >= 400 || !target.status) && !isRateLimited(target)) {
+      if (target.status >= 400 || !target.status) {
         add("pagination-link-broken", result, {
           targetUrl: url,
           detail: `rel="${direction}" target returns ${target.status || "no response"}`,
@@ -1789,7 +2687,7 @@ function buildFindings({
       }
     }
 
-    if (result.canonical && result.canonical !== result.url) {
+    if (result.canonical && !index.same(result.canonical, result.url)) {
       add("pagination-canonical-conflict", result, { targetUrl: result.canonical });
     }
   }
@@ -1806,7 +2704,12 @@ function buildFindings({
     const groups = new Map();
     for (const result of htmlResults) {
       const value = result[key]?.trim().toLowerCase();
-      if (!value || !isPreferredIndexablePage(result) || !isEligible(result)) {
+      if (
+        !value ||
+        !isPreferredIndexablePage(result, index) ||
+        !isEligible(result) ||
+        softNotFound.has(result.url)
+      ) {
         continue;
       }
       const group = groups.get(value) || [];
@@ -1816,7 +2719,7 @@ function buildFindings({
     for (const unsortedGroup of groups.values()) {
       if (unsortedGroup.length < 2) continue;
       const group = [...unsortedGroup].sort((a, b) => a.url.localeCompare(b.url));
-      if (isReciprocalHreflangGroup(group)) continue;
+      if (isReciprocalHreflangGroup(group, index)) continue;
       for (const result of group) {
         add(ruleId, result, {
           detail: `Shared by ${group.length} independently indexable pages`,
@@ -1829,7 +2732,8 @@ function buildFindings({
   const contentGroups = new Map();
   for (const result of htmlResults) {
     if (
-      !isPreferredIndexablePage(result) ||
+      !isPreferredIndexablePage(result, index) ||
+      softNotFound.has(result.url) ||
       !result.hash ||
       result.words < 50
     ) {
@@ -1844,7 +2748,7 @@ function buildFindings({
     const group = [...unsortedGroup].sort((a, b) => a.url.localeCompare(b.url));
     // Complete reciprocal hreflang sets commonly represent intentional
     // regional variants whose body copy is allowed to be identical.
-    if (isReciprocalHreflangGroup(group)) continue;
+    if (isReciprocalHreflangGroup(group, index)) continue;
 
     for (const result of group) {
       const comparison = group.find((candidate) => candidate.url !== result.url);
@@ -1856,11 +2760,122 @@ function buildFindings({
     }
   }
 
+  // ── Near-duplicate main content ───────────────────────────────────────────
+  // Pages whose main text (crawler mainContentTextOf) is mostly the same: at
+  // least NEAR_DUPLICATE_SIMILARITY of their three-word phrases in common, the
+  // bar Semrush uses. Exact copies are content-duplicate-exact's; they are not
+  // reported again as near each other. Pages with identical fingerprints are
+  // grouped first, so a thousand identical product pages are one group, not
+  // half a million comparisons.
+  const nearPages = htmlResults.filter(
+    (result) =>
+      result.status === 200 &&
+      result.contentSignature &&
+      (Number(result.mainWords) || 0) >= NEAR_DUPLICATE_MIN_WORDS &&
+      isPreferredIndexablePage(result, index) &&
+      !softNotFound.has(result.url),
+  );
+  const byFingerprint = new Map();
+  for (const result of nearPages) {
+    const group = byFingerprint.get(result.contentSignature) || [];
+    group.push(result);
+    byFingerprint.set(result.contentSignature, group);
+  }
+  const fingerprints = [...byFingerprint.keys()];
+  const decoded = fingerprints.map((signature) => decodeSignature(signature));
+  const bandMembers = new Map();
+  decoded.forEach((values, i) => {
+    if (!values) return;
+    for (const band of signatureBands(values)) {
+      const members = bandMembers.get(band) || [];
+      members.push(i);
+      bandMembers.set(band, members);
+    }
+  });
+  // Per fingerprint: how many near pages it has (other fingerprints' pages),
+  // and the closest one. Only a count and the best match are kept, so a site of
+  // thousands of near-identical pages costs comparisons, not memory per pair,
+  // and the comparisons themselves stop at NEAR_DUPLICATE_MAX_COMPARISONS.
+  const groupSizes = fingerprints.map((signature) => byFingerprint.get(signature).length);
+  const nearPageCount = new Array(fingerprints.length).fill(0);
+  const closestFingerprint = new Array(fingerprints.length).fill(-1);
+  const closestSimilarity = new Array(fingerprints.length).fill(0);
+  const comparedPairs = new Set();
+  let comparisons = 0;
+  let comparisonsCapped = false;
+  compare: for (const members of bandMembers.values()) {
+    if (members.length < 2 || members.length > NEAR_DUPLICATE_BAND_MAX) continue;
+    for (let x = 0; x < members.length; x += 1) {
+      for (let y = x + 1; y < members.length; y += 1) {
+        const i = Math.min(members[x], members[y]);
+        const j = Math.max(members[x], members[y]);
+        const pair = i * fingerprints.length + j;
+        if (comparedPairs.has(pair)) continue;
+        if (comparisons >= NEAR_DUPLICATE_MAX_COMPARISONS) {
+          comparisonsCapped = true;
+          break compare;
+        }
+        comparedPairs.add(pair);
+        comparisons += 1;
+        const similarity = signatureSimilarity(decoded[i], decoded[j]);
+        if (similarity < NEAR_DUPLICATE_SIMILARITY) continue;
+        for (const [from, to] of [[i, j], [j, i]]) {
+          nearPageCount[from] += groupSizes[to];
+          if (
+            similarity > closestSimilarity[from] ||
+            (similarity === closestSimilarity[from] && closestFingerprint[from] >= 0 &&
+              byFingerprint.get(fingerprints[to])[0].url < byFingerprint.get(fingerprints[closestFingerprint[from]])[0].url)
+          ) {
+            closestSimilarity[from] = similarity;
+            closestFingerprint[from] = to;
+          }
+        }
+      }
+    }
+  }
+  const hreflangSiblings = (a, b) =>
+    a.hreflangs?.length && b.hreflangs?.length && isReciprocalHreflangGroup([a, b], index);
+  fingerprints.forEach((signature, i) => {
+    const group = [...byFingerprint.get(signature)].sort((a, b) => a.url.localeCompare(b.url));
+    const twins = new Map();
+    for (const result of group) if (result.hash) twins.set(result.hash, (twins.get(result.hash) || 0) + 1);
+    const anyHreflang = group.some((result) => result.hreflangs?.length);
+    for (const result of group) {
+      // Same fingerprint, different text: identical main content, different
+      // template around it. Same text is the exact-duplicate rule's.
+      const sameContent = anyHreflang
+        ? group.filter((other) =>
+          other !== result && !(result.hash && other.hash === result.hash) && !hreflangSiblings(result, other)).length
+        : group.length - (result.hash ? twins.get(result.hash) : 1);
+      const others = sameContent + nearPageCount[i];
+      if (!others) continue;
+      const closestSame = sameContent
+        ? group.find((other) =>
+          other !== result && !(result.hash && other.hash === result.hash) && !hreflangSiblings(result, other))
+        : null;
+      const closest = closestSame
+        ? { url: closestSame.url, similarity: 1 }
+        : { url: byFingerprint.get(fingerprints[closestFingerprint[i]])[0].url, similarity: closestSimilarity[i] };
+      if (!closestSame && hreflangSiblings(result, index.get(closest.url) || {})) continue;
+      const percent = Math.round(closest.similarity * 100);
+      add("content-duplicate-near", result, {
+        targetUrl: closest.url,
+        detail:
+          `Main content ${percent}% the same as ${closest.url}` +
+          (others > 1 ? `, one of ${(others + 1).toLocaleString("en-US")} near-identical pages` : ""),
+        detectedValue: `${percent}% similar`,
+      });
+    }
+  });
+  const nearDuplicatesCapped = comparisonsCapped;
+
   const incomingFollow = new Map();
   const externalNofollowBySource = new Map();
   for (const edge of linkEdges) {
-    const source = resultByUrl.get(edge.sourceUrl);
-    const target = resultByUrl.get(edge.targetUrl);
+    const source = index.get(edge.sourceUrl);
+    // The page the crawler fetched for this link — for an http:// href on an
+    // https site, its https equivalent (the edge keeps the href as written).
+    const target = index.get(edge.targetUrl);
     if (!source) continue;
     const relTokens = linkRelTokens(edge);
     const isNofollow = edge.nofollow || relTokens.has("nofollow");
@@ -1880,23 +2895,21 @@ function buildFindings({
       // shared nav/footer link, inflated one blocked URL into a finding on
       // every single page that links to it.
       const targetRobotsBlocked = target?.statusText === "Blocked by robots.txt";
-      // Same for a target the site rate-limited: not checked, so not broken.
-      if (
-        target &&
-        !targetRobotsBlocked &&
-        !isRateLimited(target) &&
-        (target.status >= 400 || !target.status)
-      ) {
+      if (target && !targetRobotsBlocked && (target.status >= 400 || !target.status)) {
         add("broken-internal-links", source, {
           targetUrl: edge.targetUrl,
           statusCode: target.status,
-          detail: target.statusText,
+          detail: target.status
+            ? `HTTP ${target.status}${target.statusText ? ` ${target.statusText}` : ""}`
+            : `Could not be fetched (${target.statusText || "no response"})`,
+          detectedValue: linkTextEvidence(edge),
         });
       } else if (targetTerminalFailure) {
         add("broken-internal-links", source, {
           targetUrl: edge.targetUrl,
           statusCode: targetTerminalFailure.statusCode,
           detail: `Link target's ${targetTerminalFailure.relationshipDetail}. Path: ${targetTerminalFailure.pathEvidence}`,
+          detectedValue: linkTextEvidence(edge),
         });
       }
       const targetRedirect = redirectDestination(target);
@@ -1957,9 +2970,12 @@ function buildFindings({
           detectedValue: edge.anchorText || `(no visible link text) rel="${[...relTokens].join(" ") || "nofollow"}"`,
         });
       }
-      const statuses = incomingFollow.get(edge.targetUrl) || { nofollowFrom: new Set(), dofollowFrom: new Set() };
+      // Keyed by the page, not the href: http:// and https:// links to one
+      // page are links to the same page.
+      const targetKey = target?.url || index.identity(edge.targetUrl) || edge.targetUrl;
+      const statuses = incomingFollow.get(targetKey) || { nofollowFrom: new Set(), dofollowFrom: new Set() };
       (isNofollow ? statuses.nofollowFrom : statuses.dofollowFrom).add(edge.sourceUrl);
-      incomingFollow.set(edge.targetUrl, statuses);
+      incomingFollow.set(targetKey, statuses);
     } else {
       const policy = externalNofollowBySource.get(edge.sourceUrl) || {
         total: 0,
@@ -1975,15 +2991,17 @@ function buildFindings({
       }
       externalNofollowBySource.set(edge.sourceUrl, policy);
 
-      if (target?.status === 403) {
+      if (REFUSED_EXTERNAL_STATUS[target?.status]) {
+        // Refusal, not absence: bot protection, rate limiting and login walls
+        // answer a crawler this way while the page is live for visitors.
+        const label = REFUSED_EXTERNAL_STATUS[target.status];
         add("external-403", source, {
           targetUrl: edge.targetUrl,
-          statusCode: 403,
-          detail:
-            "The crawler received HTTP 403 (Forbidden); this proves request refusal, not that the destination is missing.",
-          detectedValue: "HTTP 403 (Forbidden)",
+          statusCode: target.status,
+          detail: `The crawler received HTTP ${target.status} (${label}); this proves request refusal, not that the destination is missing.`,
+          detectedValue: `HTTP ${target.status} (${label})`,
         });
-      } else if (target && !isRateLimited(target) && (target.status >= 400 || !target.status)) {
+      } else if (target && (target.status >= 400 || !target.status)) {
         add("broken-external-link", source, {
           targetUrl: edge.targetUrl,
           statusCode: target.status,
@@ -2018,7 +3036,14 @@ function buildFindings({
       }
     }
     if (source.url.startsWith("https:") && edge.targetUrl.startsWith("http:")) {
-      const evidence = httpLinkEvidence(edge, target);
+      // Evidence about the http:// URL itself, when it was fetched as written
+      // (another host); otherwise what the crawl fetched in its place.
+      const exactTarget = index.exact(edge.targetUrl);
+      const evidence = httpLinkEvidence(
+        edge,
+        exactTarget,
+        !exactTarget && target && target.url !== edge.targetUrl ? target : null,
+      );
       if (evidence) {
         add("https-to-http-link", source, {
           targetUrl: edge.targetUrl,
@@ -2051,7 +3076,7 @@ function buildFindings({
     const examples = [
       ...new Set(policy.genericNofollow.map((edge) => edge.targetUrl)),
     ].slice(0, 3);
-    add("external-nofollow", resultByUrl.get(sourceUrl) || { url: sourceUrl }, {
+    add("external-nofollow", index.get(sourceUrl) || { url: sourceUrl }, {
       detail: `${genericCount} of ${policy.total} external links (${percentage}%) use generic rel="nofollow" without sponsored or ugc qualification.`,
       detectedValue: `${genericCount}/${policy.total} external links (${percentage}%); examples: ${examples.join(" | ")}`,
     });
@@ -2061,14 +3086,34 @@ function buildFindings({
     if (statuses.nofollowFrom.size && statuses.dofollowFrom.size) {
       const nofollowExample = [...statuses.nofollowFrom][0];
       const dofollowExample = [...statuses.dofollowFrom][0];
-      add("mixed-incoming-follow", resultByUrl.get(url) || { url }, {
+      add("mixed-incoming-follow", index.get(url) || { url }, {
         detectedValue: `${statuses.nofollowFrom.size} nofollow link(s) (e.g. from ${nofollowExample}), ${statuses.dofollowFrom.size} dofollow link(s) (e.g. from ${dofollowExample})`,
       });
     }
   }
 
   for (const edge of resourceEdges) {
-    const source = resultByUrl.get(edge.sourceUrl) || { url: edge.sourceUrl };
+    const source = index.get(edge.sourceUrl) || { url: edge.sourceUrl };
+    const resource = index.get(edge.targetUrl);
+    const resourceFailure = resource && redirectTerminalFailures.get(resource.url);
+    if (
+      resource &&
+      resource.scope !== "External" &&
+      resource.statusText !== "Blocked by robots.txt" &&
+      (resource.status >= 400 || !resource.status || resourceFailure)
+    ) {
+      const status = resourceFailure ? resourceFailure.statusCode : resource.status;
+      add(BROKEN_RESOURCE_RULE[resourceKind(edge)], source, {
+        targetUrl: edge.targetUrl,
+        statusCode: status,
+        detail: resourceFailure
+          ? `Redirects to a broken destination: ${resourceFailure.pathEvidence}`
+          : status
+            ? `HTTP ${status}${resource.statusText ? ` ${resource.statusText}` : ""}`
+            : `Could not be fetched (${resource.statusText || "no response"})`,
+        detectedValue: edge.elementHint || `${edge.tag || "resource"} via ${edge.sourceAttribute || "URL"}`,
+      });
+    }
     if (
       source.url?.startsWith("https:") &&
       edge.targetUrl?.startsWith("http:")
@@ -2140,9 +3185,51 @@ function buildFindings({
       detectedValue: siteDiagnostics.sitemapErrors.join("; "),
     });
   }
+  if (refusals.refused.size) {
+    const breakdown = [...refusals.statusCounts]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([reason, count]) => `${reason} ×${count}`)
+      .join(", ");
+    const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
+    const what = [
+      refusals.refusedPages ? `${refusals.refusedPages} of ${plural(refusals.pageResponses, "page")}` : "",
+      refusals.refusedFiles ? plural(refusals.refusedFiles, "file") : "",
+    ].filter(Boolean).join(" and ");
+    add("crawl-blocked", { url: startUrl }, {
+      detail:
+        `The site answered the crawler with a refusal instead of the content for ${what} (${breakdown})` +
+        `${refusals.startRefused ? ", including the start page" : ""}. ` +
+        "Those URLs were not audited and are left out of Site Health.",
+      detectedValue: breakdown,
+    });
+  }
+  // A sitemap past the protocol's 50 MB / 50,000-URL limits is rejected by
+  // search engines; one finding per file, on the file.
+  for (const limit of siteDiagnostics.sitemapLimits || []) {
+    add("sitemap-too-large", { url: limit.url }, {
+      detail: `${limit.url} ${limit.detail}.`,
+      detectedValue: limit.detail,
+    });
+  }
+  // Entries on another host (www vs the bare domain, a staging host) are
+  // ignored by search engines and were skipped by the crawl without a word;
+  // the pages they meant to list then read as missing from every sitemap.
+  const offHost = siteDiagnostics.sitemapOffHost;
+  if (offHost?.count) {
+    const hosts = (offHost.hosts || []).map(([host, count]) => `${host} (${count.toLocaleString("en-US")})`).join(", ");
+    add("sitemap-off-host", { url: siteDiagnostics.robotsUrl || startUrl }, {
+      detail:
+        `${offHost.count.toLocaleString("en-US")} sitemap ${offHost.count === 1 ? "entry is" : "entries are"} on ` +
+        `${(offHost.hosts || []).length === 1 ? "another host" : "other hosts"}: ${hosts}. ` +
+        "Search engines ignore them, and the crawl skipped them.",
+      detectedValue: (offHost.samples || []).join(", "),
+    });
+  }
   // Without this the audit of a client-rendered site reads as clean: one page,
-  // no links, nothing broken. The absence of findings WAS the finding.
-  if (siteDiagnostics.renderingIssue) {
+  // no links, nothing broken. The absence of findings WAS the finding. A
+  // refused start page has no links either, but that is the refusal, reported
+  // above, not a client-rendered site.
+  if (siteDiagnostics.renderingIssue && !refusals.startRefused) {
     add("javascript-rendered-site", { url: startUrl }, {
       detail: siteDiagnostics.renderingIssue,
     });
@@ -2151,6 +3238,90 @@ function buildFindings({
     add("crawl-trap", { url: startUrl }, {
       detail: `URLs matching ${template} were generated past the per-pattern limit and were not crawled.`,
       detectedValue: template,
+    });
+  }
+  for (const [url, detail] of softNotFound) {
+    add("soft-404", index.get(url) || { url }, { detail, detectedValue: index.get(url)?.title || "" });
+  }
+  // A probe answered with a bot check says how the firewall treats the crawler,
+  // not how the site treats a missing URL.
+  if (missingPageProbe && missingPageProbe.status && !readsLikeChallenge(missingPageProbe)) {
+    const status = missingPageProbe.status;
+    if (missingPageProbe.redirected) {
+      add("soft-404-site", { url: startUrl }, {
+        targetUrl: missingPageProbe.url,
+        statusCode: status,
+        detail: `A URL that cannot exist (${missingPageProbe.url}) redirected to ${missingPageProbe.finalUrl} instead of returning 404.`,
+        detectedValue: `redirect -> ${missingPageProbe.finalUrl} (HTTP ${status})`,
+      });
+    } else if (status >= 200 && status < 300) {
+      add("soft-404-site", { url: startUrl }, {
+        targetUrl: missingPageProbe.url,
+        statusCode: status,
+        detail: `A URL that cannot exist (${missingPageProbe.url}) returned HTTP ${status}${
+          missingPageProbe.title ? ` with the page "${missingPageProbe.title}"` : ""
+        } instead of 404.`,
+        detectedValue: `HTTP ${status}`,
+      });
+    }
+  }
+  // JavaScript changing what a page shows (render-check.js): one site-wide
+  // finding naming the sampled pages it changed and how.
+  const render = siteDiagnostics.renderCheck;
+  const changedByScript = render?.ran ? (render.pages || []).filter((entry) => entry.differences?.length) : [];
+  if (changedByScript.length) {
+    const clip = (text) => {
+      const value = String(text || "").replace(/\s+/g, " ").trim();
+      return value.length > 60 ? `${value.slice(0, 59)}…` : value;
+    };
+    const describe = (difference) => {
+      switch (difference.kind) {
+        case "links":
+        case "words":
+          return `${difference.kind} ${Number(difference.raw).toLocaleString("en-US")} → ${Number(difference.rendered).toLocaleString("en-US")}`;
+        case "canonical":
+          return `canonical ${difference.raw} → ${difference.rendered}`;
+        default:
+          return `${difference.kind} "${clip(difference.raw) || "none"}" → "${clip(difference.rendered) || "none"}"`;
+      }
+    };
+    const pathOf = (url) => {
+      try {
+        const parsed = new URL(url);
+        return `${parsed.pathname}${parsed.search}`;
+      } catch {
+        return url;
+      }
+    };
+    const examples = changedByScript
+      .slice(0, 3)
+      .map((entry) => `${pathOf(entry.url)}: ${entry.differences.map(describe).join(", ")}`);
+    add("javascript-dependent-content", { url: startUrl }, {
+      detail:
+        `JavaScript changes what ${changedByScript.length} of ${render.sampled} rendered page${render.sampled === 1 ? "" : "s"} ` +
+        `show, compared with the HTML the server sends. ${examples.join("; ")}.`,
+      detectedValue: [...new Set(changedByScript.flatMap((entry) => entry.differences.map((d) => d.kind)))].join(", "),
+    });
+  }
+
+  const www = siteDiagnostics.wwwResolve;
+  if (www?.servesContent) {
+    const home = (() => {
+      try {
+        return new URL("/", startUrl).href;
+      } catch {
+        return startUrl;
+      }
+    })();
+    add("www-resolve", { url: startUrl }, {
+      targetUrl: www.url,
+      statusCode: www.status,
+      detail:
+        `${www.url} answers HTTP ${www.status} instead of redirecting to ${home}.` +
+        (www.canonical && index.same(www.canonical, home)
+          ? " Its canonical points here, which lets search engines merge the two, but visitors and links still split between them."
+          : ""),
+      detectedValue: `HTTP ${www.status}`,
     });
   }
   if (siteDiagnostics.httpHomepageIssue) {
@@ -2204,6 +3375,15 @@ function buildFindings({
   }
   const enrichedResults = results.map((result) => ({
     ...result,
+    ...(result.scope === "External"
+      ? {}
+      : {
+          inlinks: inlinksOf(result.url),
+          followInlinks: followInlinksOf(result.url),
+          clickDepth: clickDepthOf(result.url),
+        }),
+    // Not audited: Site Health leaves it out of the pages it is taken over.
+    ...(refused.has(result.url) ? { crawlRefused: true } : {}),
     pageCategory: categorizePage(result),
     issues: (findingsByUrl.get(result.url) || []).map((finding) => ({
       id: finding.ruleId,
@@ -2217,7 +3397,30 @@ function buildFindings({
     findings,
     results: enrichedResults,
     catalog,
-    notEvaluated: notEvaluatedRules({ results, crawlTruncated, siteDiagnostics }),
+    // Which problem to fix first: one ordering, with a reason per rule, that
+    // the report, the workbook and the email all use (rule-order.js).
+    ruleOrder: ruleOrder(findings, enrichedResults, { startUrl }),
+    // Which checks this crawl could not run, or ran on part of the site, so
+    // "no findings" is not read as "passed".
+    coverage: crawlCoverage({
+      firedRuleIds: new Set(findings.map((finding) => finding.ruleId)),
+      crawlTruncated,
+      sitemapsChecked,
+      externalLinksChecked,
+      robotsRespected,
+      clickDepthFromStart,
+      siteDiagnostics,
+      startUrl,
+      pagesMissingLinkData,
+      googlebotRobotsChecked,
+      nearDuplicatesCapped,
+      scopeLimited,
+      scopeExcluded,
+      closedToCrawlScopeOnly: allInternalResults.filter(
+        (result) => result.statusText === "Blocked by robots.txt" && result.googlebotAllowed === true,
+      ).length,
+      internalResults: allInternalResults,
+    }),
     mediaLibrary: buildMediaLibrary(results, resourceEdges),
     // Internal HTML pages only — the same universe every other page-level
     // metric in this build uses (see healthMetrics's own htmlResults filter
@@ -2233,7 +3436,8 @@ function buildFindings({
 
 module.exports = {
   buildFindings,
-  notEvaluatedRules,
+  findingFor,
+  issueKeyOf,
   catalog,
   evidenceSignature,
   groupFixType,

@@ -17,6 +17,9 @@ const overview = require('./overview');
 const moduleEvidence = require('./moduleEvidence');
 const moduleRunners = require('./moduleRunners');
 const { isDatabaseConfigured } = require('../../services/db');
+const crawlCatalog = require('../crawlScope/issue-catalog.json');
+
+const CRAWL_RULES = new Map(crawlCatalog.map((rule) => [rule.id, rule]));
 
 // Enough history to see a trend without turning the panel into a log.
 const HISTORY_LIMIT = 10;
@@ -141,6 +144,27 @@ async function evidenceBackedDetail({ module, projectId, competitorCount }) {
 }
 
 /**
+ * One crawl_run_findings rollup row in the shared finding shape.
+ *
+ * The rollup stores a rule's title and nothing else, so "Detail" and "What to
+ * do" came through as null and rendered "—" on every technical finding. The
+ * text is the rule's own, from the catalog the crawl ran against — which also
+ * describes every crawl stored before this, with no backfill.
+ */
+function technicalFindingRow(f) {
+  const rule = CRAWL_RULES.get(f.rule_id);
+  return {
+    ruleId: f.rule_id,
+    title: f.detail?.title || rule?.title || f.rule_id,
+    severity: f.severity,
+    category: f.category || null,
+    count: Number(f.count) || 1,
+    detail: f.detail?.description || f.detail?.summary || rule?.description || null,
+    recommendation: f.detail?.recommendation || rule?.recommendation || null,
+  };
+}
+
+/**
  * CrawlScope, whose evidence predates project_module_runs and is richer than it.
  *
  * Reuses the dashboard's own reads so the card matches exactly, including the
@@ -152,13 +176,17 @@ async function technicalDetail({ module, projectId }) {
   const terminal = crawlRuns.find((r) => ['completed', 'stopped'].includes(r.status)) || null;
   const inFlight = crawlRuns.find((r) => ['queued', 'running', 'paused'].includes(r.status)) || null;
 
-  const [findings, internalPages, htmlPages] = await Promise.all([
+  const [findings, internalPages, htmlPages, affectedPageCounts] = await Promise.all([
     terminal ? overview.findingsForRun(terminal.id) : Promise.resolve([]),
     terminal ? overview.internalPageCount(terminal.id) : Promise.resolve(null),
     terminal ? overview.internalHtmlPageCount(terminal.id) : Promise.resolve(null),
+    // Without these the card fell back to run.summary.findings, which no run
+    // has carried since migration 0023 — so any crawl with an error or warning
+    // came back unscored here while the dashboard card beside it had a score.
+    terminal ? overview.healthAffectedPages(terminal.id) : Promise.resolve(null),
   ]);
 
-  const card = overview.technicalCard(crawlRuns, findings, internalPages, htmlPages);
+  const card = overview.technicalCard(crawlRuns, findings, internalPages, htmlPages, [], affectedPageCounts);
   const counts = terminal?.summary?.counts || {};
   const resultCount = Number(terminal?.summary?.resultCount) || 0;
 
@@ -191,15 +219,7 @@ async function technicalDetail({ module, projectId }) {
     } : null,
     // Reshaped into the same finding shape the other five use, so one table
     // renders either source.
-    findings: findings.map((f) => ({
-      ruleId: f.rule_id,
-      title: f.detail?.title || f.rule_id,
-      severity: f.severity,
-      category: f.category || null,
-      count: Number(f.count) || 1,
-      detail: f.detail?.description || f.detail?.summary || null,
-      recommendation: f.detail?.recommendation || null,
-    })),
+    findings: findings.map(technicalFindingRow),
     payload: terminal ? {
       crawlRunId: terminal.id,
       pagesCrawled: internalPages,
@@ -294,4 +314,5 @@ module.exports = {
   runView,
   historyView,
   buildModuleDetail,
+  technicalFindingRow,
 };

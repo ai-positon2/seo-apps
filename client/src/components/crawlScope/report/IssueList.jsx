@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { sevOf, AnalyzingNotice } from './reportPrimitives';
+import { ruleTrend } from '../crawlHelpers';
 
 // ── Every problem found, one row per distinct check ─────────────────────────
 //
@@ -17,7 +18,7 @@ import { sevOf, AnalyzingNotice } from './reportPrimitives';
 // panel the page already has the data for.
 
 export default function IssueList({
-  groups, catalogById, onOpen, provisional = false, crawled = null,
+  groups, catalogById, onOpen, provisional = false, crawled = null, comparison = null,
 }) {
   // While the crawl runs, no issues at all — not a shortened list, not a
   // labelled one. The only rules that have run are the crawler's dozen live
@@ -42,6 +43,7 @@ export default function IssueList({
           key={g.id}
           group={g}
           entry={catalogById.get(g.id)}
+          trend={ruleTrend(comparison, g.id)}
           onOpen={() => onOpen(g.id)}
         />
       ))}
@@ -49,7 +51,7 @@ export default function IssueList({
   );
 }
 
-function IssueRow({ group, entry, onOpen }) {
+function IssueRow({ group, entry, trend = null, onOpen }) {
   const [hover, setHover] = useState(false);
   const s = sevOf(group.severity);
   const priority = entry?.priority || null;
@@ -78,12 +80,18 @@ function IssueRow({ group, entry, onOpen }) {
             {entry?.title || group.label || group.id}
           </span>
           {/* The design carries a plain-language restatement of the title here.
-              The catalog has no such field for its 96 rules, so this is the
+              The catalog has no such field for its rules, so this is the
               category instead — the honest version of "what kind of problem is
               this" until those names are written. */}
           <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
             {entry?.category || 'Uncategorised'}
+            {/* How this rule moved against the previous crawl of the site. */}
+            {trend && <span style={{ color: 'var(--text-2)' }}>{` · ${trend}`}</span>}
           </span>
+          {/* Why it is where it is in the list (the run's ordering). */}
+          {group.reason && (
+            <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{group.reason}</span>
+          )}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
           <span className="num" style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>

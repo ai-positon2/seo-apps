@@ -13,7 +13,7 @@ to run one audit and produce evidence about whether the crawler's **detections**
 - RUN_STATUS_CMD: `{{RUN_STATUS_CMD}}` — poll for `run.status` until terminal.
 - FINDINGS_CMD: `{{FINDINGS_CMD}}` — every finding for the run, each carrying `ruleId`.
 - RESULTS_CMD: `{{RESULTS_CMD}}` — every fetched URL. Paginated; page with `offset`.
-- RULE_MAP: `{{RULE_MAP}}` (all 96 rules with severity, eval class, expected rarity)
+- RULE_MAP: `{{RULE_MAP}}` (every rule in the catalog, with severity, eval class, expected rarity)
 
 All three read-back commands need `{{RUN_ID}}`, which does not exist until step 2 has run.
 
@@ -40,8 +40,9 @@ All three read-back commands need `{{RUN_ID}}`, which does not exist until step 
 
 - Record the current git commit SHA and confirm the working tree is clean. If it is dirty,
   record the diff summary in `preflight.json` and continue.
-- Load `issue-catalog.json` from the repo. Confirm it contains exactly 96 rules and that the
-  severity split is 27 error / 54 warning / 15 notice. Any mismatch between the catalog and
+- Load `issue-catalog.json` from the repo. Confirm its rule count and severity split match
+  `_meta.total` and `_meta.severity_counts` in `{{RULE_MAP}}` (regenerated from the catalog by
+  `audit-loop/rules/sync-rule-classes.js`). Any mismatch between the catalog and
   `{{RULE_MAP}}` is itself a defect — record it as `catalog_drift`.
 - Confirm every rule id in the catalog has a corresponding implementation reachable by the
   rule engine (registry lookup, not a filename guess). Rules present in the catalog but not
@@ -133,9 +134,9 @@ If you only need per-rule counts for the ledger, `?grain=rule` returns them dire
 instead of 6,147, and it reconciles against the instance total.
 
 Group the findings by `ruleId`. That endpoint is the only per-rule source there is: `run.summary.counts` breaks down by severity alone and cannot tell
-you which of the 96 rules fired.
+you which rules fired.
 
-Produce a row for all 96 rules: `rule_id, category, severity, fired (bool), instance_count`.
+Produce a row for every rule in {{RULE_MAP}}: `rule_id, category, severity, fired (bool), instance_count`.
 Write it to `{{RUN_DIR}}/ledger.csv`. Every rule in the catalog appears, including the ones
 that fired zero times — those zero rows are the entire input to step 5, so a ledger listing
 only what fired is useless for the half of this phase that matters most.
@@ -280,7 +281,8 @@ make that visible rather than hide it behind repetition.
   and the site has more URLs than you saw, so the proof covers the crawled subset and has to
   say so rather than reading as a statement about the whole site.
 - `STRUCTURALLY_SILENT` — the rule's eval class in {{RULE_MAP}} is `external_gsc`,
-  `external_analytics`, `delta`, `model` or `action`, and that data source is not connected.
+  `external_analytics`, `external_pagespeed`, `delta`, `model` or `action`, and that data source
+  is not connected.
   Correct behaviour. But confirm the rule reports "no data source" rather than "0 issues" —
   silently passing a check you never ran is a reporting defect, and a client will read it as
   a clean bill of health.
@@ -349,7 +351,7 @@ Then write `{{RUN_DIR}}/findings.json` with exactly this shape:
     "exit_code": 0,
     "persistence": "signals-only"
   },
-  "ledger": { "fired": 0, "not_fired": 0, "total": 96 },
+  "ledger": { "fired": 0, "not_fired": 0, "total": 128 },
   "defects": [
     {
       "id": "D1",

@@ -389,6 +389,25 @@ test('the bar measures progress against the ceiling, not against discovery', () 
   assert.strictEqual(st.discovered, 41);
 });
 
+test('the ceiling is the internal page cap, not crawler.js\'s inflated internal+external total', () => {
+  // crawler.js's _progress() reports maxUrls as options.maxUrls +
+  // options.maxExternalUrls (300 + 150 = 450 here) because that is its own
+  // internal stopping budget — but `crawled` only ever counts internal pages,
+  // so dividing by 450 could never reach 100% for a run that asked for 300.
+  // The run's own stored options carry the real, uninflated cap.
+  const st = overview.crawlStatus(running(
+    { crawled: 150, discovered: 200, maxUrls: 450 },
+    { options: { maxUrls: 300, maxExternalUrls: 150 } },
+  ));
+  assert.strictEqual(st.ceiling, 300);
+  assert.strictEqual(st.percent, 50); // 150/300, not 150/450
+});
+
+test('a run with no stored options falls back to the live progress ceiling', () => {
+  const st = overview.crawlStatus(running({ crawled: 30, maxUrls: 300 }));
+  assert.strictEqual(st.ceiling, 300);
+});
+
 test('finding more pages never moves the bar backwards', () => {
   const before = overview.crawlStatus(running({ crawled: 27, discovered: 41, maxUrls: 60 }));
   const after = overview.crawlStatus(running({ crawled: 27, discovered: 205, maxUrls: 60 }));
