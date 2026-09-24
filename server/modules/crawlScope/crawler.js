@@ -91,6 +91,14 @@ function cleanText(value = "") {
 // explicit 0 into the fallback, and `Number(x) ?? fallback` never falls back at
 // all (Number() never returns null), so neither is safe for options where 0 is
 // meaningful or where the option is usually absent.
+// Candidate keys (SeoCrawler#_candidateKey) compare element by element.
+function compareKeys(a, b) {
+  for (let at = 0; at < a.length; at += 1) {
+    if (a[at] !== b[at]) return a[at] < b[at] ? -1 : 1;
+  }
+  return 0;
+}
+
 // A list option: its strings, or nothing.
 function stringList(value) {
   return Array.isArray(value) ? value.filter((entry) => typeof entry === "string" && entry.trim()) : [];
@@ -1281,6 +1289,12 @@ class SeoCrawler extends EventEmitter {
     // 50k-URL frontier costs O(n²) element moves just to drain the queue.
     this.queue = [];
     this._queueHead = 0;
+    // URLs found but not yet admitted to the queue: each round's are admitted
+    // together, in a fixed order, once the round's pages are all done
+    // (_admitRound). `_admissions` numbers admitted jobs in that order.
+    this._candidates = new Map();
+    this._externalCandidates = new Map();
+    this._admissions = 0;
     this.seen = new Set();
     this.externalSeen = new Set();
     // Distinct external URLs found after maxExternalUrls was reached.
@@ -1416,7 +1430,7 @@ class SeoCrawler extends EventEmitter {
   snapshot({ unstoredResults = [] } = {}) {
     if (this.mode === "list") return null;
     const requeue = new Map();
-    for (const job of this._inFlight) requeue.set(job.url, { ...job, seed: false, seedHop: 0 });
+    for (const job of this._inFlight) requeue.set(job.url, { ...job, seed: false, seedHop: 0, linkCount: 0 });
     for (const result of unstoredResults) {
       if (!result?.url || requeue.has(result.url)) continue;
       const discovery = this.discovery.get(result.url) || {};
@@ -1442,6 +1456,10 @@ class SeoCrawler extends EventEmitter {
       seen: [...this.seen],
       externalSeen: [...this.externalSeen],
       queue: [...requeue.values(), ...pending],
+      // Found and waiting for their round (_admitRound), with their ranks.
+      candidates: [...this._candidates.values()],
+      externalCandidates: [...this._externalCandidates.values()],
+      admissions: this._admissions,
       inlinkCounts: [...this.inlinkCounts],
       discovery: [...this.discovery],
       templateCounts: [...this._templateCounts],
@@ -1490,6 +1508,9 @@ class SeoCrawler extends EventEmitter {
     this.externalSeen = new Set(checkpoint.externalSeen || []);
     this.queue = (checkpoint.queue || []).filter((job) => job && !storedUrls?.has(job.url));
     this._queueHead = 0;
+    this._candidates = new Map((checkpoint.candidates || []).map((candidate) => [candidate.url, candidate]));
+    this._externalCandidates = new Map((checkpoint.externalCandidates || []).map((candidate) => [candidate.url, candidate]));
+    this._admissions = Number(checkpoint.admissions) || this.queue.length;
     this.inlinkCounts = new Map(checkpoint.inlinkCounts || []);
     this.discovery = new Map(checkpoint.discovery || []);
     this._templateCounts = new Map(checkpoint.templateCounts || []);
@@ -1575,6 +1596,7 @@ class SeoCrawler extends EventEmitter {
           external: false,
           seed: true,
           seedHop: hops + 1,
+          order: this._admissions++,
         });
         return;
       }
@@ -1588,29 +1610,21 @@ class SeoCrawler extends EventEmitter {
     this._seedSitemapUrls();
   }
 
-  // Sitemap URLs are seeded before a single link has been discovered, so without
-  // a reserved share a sitemap larger than maxUrls spent the entire budget and
-  // no link-discovered page was ever fetched.
+  // Sitemap URLs become candidates of the round after the start page, ranked
+  // after the pages its links found (_candidateKey), and _admitRound gives
+  // them at most sitemapBudgetRatio of the page budget: without a reserved
+  // share, a sitemap larger than maxUrls spent the entire budget and no
+  // link-discovered page was ever fetched.
   //
-  // Entries the budget never reached are kept, to count at the end the ones
-  // no link reached either. They used to be counted here as everything not
-  // queued — which included every entry a link had already found, and on a
-  // two-page site read "Only 0 of 2 sitemap URLs fitted within the crawl
-  // budget", reported as a sitemap configuration issue.
+  // Entries the budget kept out are remembered (_admitRound), to count at the
+  // end the ones no link reached either. They used to be counted here as
+  // everything not queued — which included every entry a link had already
+  // found, and on a two-page site read "Only 0 of 2 sitemap URLs fitted within
+  // the crawl budget", reported as a sitemap configuration issue.
   _seedSitemapUrls() {
-    const sitemapBudget = Math.max(
-      1,
-      Math.floor(this.options.maxUrls * this.options.sitemapBudgetRatio),
-    );
-    const entries = [...this.sitemapMembership.keys()];
-    for (let at = 0; at < entries.length; at += 1) {
-      if (this.seen.size >= sitemapBudget) {
-        this.truncated = true;
-        this.budgetReached = true;
-        this._sitemapUnqueued = entries.slice(at);
-        break;
-      }
-      this._enqueueInternal(entries[at], 1, "", { fromSitemap: true });
+    let index = 0;
+    for (const entry of this.sitemapMembership.keys()) {
+      this._enqueueInternal(entry, 1, "", { fromSitemap: true, index: index++ });
     }
   }
 
@@ -1668,6 +1682,8 @@ class SeoCrawler extends EventEmitter {
     this.stopped = true;
     this.queue = [];
     this._queueHead = 0;
+    this._candidates.clear();
+    this._externalCandidates.clear();
     this.rootController.abort();
     this.emit("state", { state: "stopping" });
     this._schedule();
@@ -1792,59 +1808,145 @@ class SeoCrawler extends EventEmitter {
       isAsset: existing.isAsset || isAsset,
     });
 
-    if (this.seen.has(normalized)) {
-      if (sourceUrl) {
-        this.inlinkCounts.set(normalized, (this.inlinkCounts.get(normalized) || 0) + 1);
-      }
-      return false;
-    }
-    if (this.seen.size >= this.options.maxUrls) {
-      // A genuinely new, in-scope URL was dropped purely because the URL
-      // limit was hit — inlink/depth counts from here on are a partial-crawl
-      // sample, not the real site, and checks that depend on them (e.g.
-      // single-inlink, orphan-page) would otherwise report false confidence.
-      this.truncated = true;
-      this.budgetReached = true;
-      return false;
-    }
-    if (depth > this.options.maxDepth) {
-      // Depth had no ceiling at all: deep-page only REPORTED depth > 3 after
-      // the fact, and nothing stopped the descent.
-      this.depthLimited = true;
-      this.truncated = true;
-      return false;
-    }
-    if (!metadata.fromSitemap && this._hasRepeatingPath(normalized)) {
-      this._noteTrap(this._urlTemplate(normalized));
-      return false;
-    }
-    if (!metadata.fromSitemap) {
-      const template = this._urlTemplate(normalized);
-      const count = (this._templateCounts.get(template) || 0) + 1;
-      this._templateCounts.set(template, count);
-      if (count > this.options.maxUrlsPerTemplate) {
-        this._noteTrap(template);
-        return false;
-      }
-    }
-    if (!this.options.crawlAssets && isAsset && !metadata.fromSitemap) return false;
-
-    this.seen.add(normalized);
     if (sourceUrl) {
       this.inlinkCounts.set(normalized, (this.inlinkCounts.get(normalized) || 0) + 1);
     }
-    this.queue.push({
-      url: normalized,
-      depth,
-      sourceUrl,
-      isAsset,
-      fromSitemap: Boolean(metadata.fromSitemap),
-      external: false,
-      seed: Boolean(metadata.seed),
-      seedHop: 0,
-    });
+    if (this.seen.has(normalized)) return false;
+
+    // A candidate for the next round, ranked the way a one-at-a-time crawl
+    // would reach it (candidateKey). Found again before then, it keeps the
+    // better rank.
+    const key = this._candidateKey(depth, metadata);
+    const candidate = this._candidates.get(normalized);
+    if (!candidate) {
+      this._candidates.set(normalized, {
+        url: normalized,
+        depth,
+        sourceUrl,
+        isAsset,
+        fromSitemap: Boolean(metadata.fromSitemap),
+        seed: Boolean(metadata.seed),
+        key,
+      });
+      this._emitProgressSoon();
+      return true;
+    }
+    candidate.isAsset = candidate.isAsset || isAsset;
+    candidate.fromSitemap = candidate.fromSitemap || Boolean(metadata.fromSitemap);
+    candidate.depth = Math.min(candidate.depth, depth);
+    if (compareKeys(key, candidate.key) < 0) {
+      candidate.key = key;
+      if (sourceUrl) candidate.sourceUrl = sourceUrl;
+    }
+    return false;
+  }
+
+  // Where a found URL stands in the order URLs are admitted: by depth; then
+  // link-found before only-in-a-sitemap (a sitemap may fill its share of the
+  // budget, not the part kept for pages found by links); then by the admission
+  // order of the page it was found on (`via`), and its place on that page.
+  // Every part is a fact about the site, none a matter of which response came
+  // back first, so the order is the same on every crawl.
+  _candidateKey(depth, metadata = {}) {
+    const via = metadata.via;
+    if (via) {
+      via.linkCount = (via.linkCount || 0) + 1;
+      return [depth, 0, via.order ?? 0, via.linkCount];
+    }
+    return [depth, metadata.fromSitemap ? 1 : 0, 0, metadata.index ?? 0];
+  }
+
+  // A round is over when nothing is queued or in flight. Its candidates are
+  // then admitted in key order, and the page budget, depth limit and trap
+  // limits are applied in that order, so which pages a capped crawl covers no
+  // longer depends on which of four parallel requests finished first.
+  _admitRound() {
+    const byKey = (a, b) => compareKeys(a.key, b.key) || (a.url < b.url ? -1 : a.url > b.url ? 1 : 0);
+    const candidates = [...this._candidates.values()].sort(byKey);
+    this._candidates.clear();
+    const sitemapBudget = Math.max(1, Math.floor(this.options.maxUrls * this.options.sitemapBudgetRatio));
+    for (const candidate of candidates) {
+      const { url } = candidate;
+      if (this.seen.has(url)) continue;
+      const sitemapOnly = candidate.key[1] === 1;
+      if (this.seen.size >= this.options.maxUrls || (sitemapOnly && this.seen.size >= sitemapBudget)) {
+        // A genuinely new, in-scope URL was dropped purely because the URL
+        // limit was hit — inlink/depth counts from here on are a partial-crawl
+        // sample, not the real site, and checks that depend on them (e.g.
+        // single-inlink, orphan-page) would otherwise report false confidence.
+        this.truncated = true;
+        this.budgetReached = true;
+        if (sitemapOnly) (this._sitemapUnqueued = this._sitemapUnqueued || []).push(url);
+        continue;
+      }
+      if (candidate.depth > this.options.maxDepth) {
+        // Depth had no ceiling at all: deep-page only REPORTED depth > 3 after
+        // the fact, and nothing stopped the descent.
+        this.depthLimited = true;
+        this.truncated = true;
+        continue;
+      }
+      if (!candidate.fromSitemap && this._hasRepeatingPath(url)) {
+        this._noteTrap(this._urlTemplate(url));
+        continue;
+      }
+      if (!candidate.fromSitemap) {
+        const template = this._urlTemplate(url);
+        const count = (this._templateCounts.get(template) || 0) + 1;
+        this._templateCounts.set(template, count);
+        if (count > this.options.maxUrlsPerTemplate) {
+          this._noteTrap(template);
+          continue;
+        }
+      }
+      if (!this.options.crawlAssets && candidate.isAsset && !candidate.fromSitemap) continue;
+
+      this.seen.add(url);
+      this.queue.push({
+        url,
+        depth: candidate.depth,
+        sourceUrl: candidate.sourceUrl,
+        isAsset: candidate.isAsset,
+        fromSitemap: candidate.fromSitemap,
+        external: false,
+        seed: candidate.seed,
+        seedHop: 0,
+        order: this._admissions++,
+      });
+    }
+
+    const externals = [...this._externalCandidates.values()].sort(byKey);
+    this._externalCandidates.clear();
+    for (const candidate of externals) {
+      const { url } = candidate;
+      if (this.externalSeen.has(url)) continue;
+      if (this.externalSeen.size >= this.options.maxExternalUrls) {
+        // Counted, not dropped silently: every external link past the limit goes
+        // unchecked, and "no broken external links" must not be read as a clean
+        // bill for links nobody looked at.
+        if (!this._externalUnchecked.has(url)) {
+          if (this._externalUnchecked.size < 100_000) this._externalUnchecked.add(url);
+          this.siteDiagnostics.externalLinksUnchecked = (this.siteDiagnostics.externalLinksUnchecked || 0) + 1;
+        }
+        continue;
+      }
+      this.externalSeen.add(url);
+      this.queue.push({
+        url,
+        depth: 0,
+        sourceUrl: candidate.sourceUrl,
+        isAsset: ASSET_EXTENSIONS.test(url),
+        fromSitemap: false,
+        external: true,
+        order: this._admissions++,
+      });
+    }
     this._emitProgressSoon();
-    return true;
+  }
+
+  // Everything found and not yet fetched: queued, or waiting for its round.
+  _pendingCount() {
+    return this._queueLength() + this._candidates.size + this._externalCandidates.size;
   }
 
   // A suppressed template is reported rather than silently dropped: the pages
@@ -1861,31 +1963,23 @@ class SeoCrawler extends EventEmitter {
     });
   }
 
-  _enqueueExternal(url, sourceUrl) {
+  _enqueueExternal(url, sourceUrl, via = null) {
     const normalized = normalizeUrl(url);
     if (!normalized || this.externalSeen.has(normalized)) return false;
-    if (this.externalSeen.size >= this.options.maxExternalUrls) {
-      // Counted, not dropped silently: every external link past the limit goes
-      // unchecked, and "no broken external links" must not be read as a clean
-      // bill for links nobody looked at.
-      if (!this._externalUnchecked.has(normalized)) {
-        if (this._externalUnchecked.size < 100_000) this._externalUnchecked.add(normalized);
-        this.siteDiagnostics.externalLinksUnchecked =
-          (this.siteDiagnostics.externalLinksUnchecked || 0) + 1;
-      }
-      return false;
+    // Admitted with the round's other candidates (_admitRound), where the
+    // external-link limit is applied in a fixed order.
+    const key = this._candidateKey(0, { via });
+    const candidate = this._externalCandidates.get(normalized);
+    if (!candidate) {
+      this._externalCandidates.set(normalized, { url: normalized, sourceUrl, key });
+      this._emitProgressSoon();
+      return true;
     }
-    this.externalSeen.add(normalized);
-    this.queue.push({
-      url: normalized,
-      depth: 0,
-      sourceUrl,
-      isAsset: ASSET_EXTENSIONS.test(normalized),
-      fromSitemap: false,
-      external: true,
-    });
-    this._emitProgressSoon();
-    return true;
+    if (compareKeys(key, candidate.key) < 0) {
+      candidate.key = key;
+      candidate.sourceUrl = sourceUrl;
+    }
+    return false;
   }
 
   async _loadRobots() {
@@ -2321,7 +2415,7 @@ class SeoCrawler extends EventEmitter {
       // progress bar continues rather than restarting at zero.
       crawled: this.results.length + this._resumedCompleted,
       discovered: this.seen.size + this.externalSeen.size,
-      queued: this._queueLength(),
+      queued: this._pendingCount(),
       active: this.active,
       maxUrls: this.options.maxUrls + this.options.maxExternalUrls,
       elapsed: Date.now() - this.startedAt,
@@ -2376,6 +2470,11 @@ class SeoCrawler extends EventEmitter {
     // "Pause to think, then stop" is an ordinary flow in the UI (both buttons
     // render for any non-terminal run), not an edge case.
     if (this.paused && !this.stopped) return;
+    // The round is over: admit the next one's URLs, in order.
+    if (!this.stopped && this.active === 0 && this._queueLength() === 0 &&
+        (this._candidates.size || this._externalCandidates.size)) {
+      this._admitRound();
+    }
     while (
       !this.stopped &&
       this.active < this.options.concurrency &&
@@ -2597,7 +2696,7 @@ class SeoCrawler extends EventEmitter {
       }).length;
     }
     assertGraphReady({
-      queueLength: this._queueLength(),
+      queueLength: this._pendingCount(),
       active: this.active,
       stopped: this.stopped,
     });
@@ -3200,7 +3299,7 @@ class SeoCrawler extends EventEmitter {
           crawlTarget !== job.url &&
           this._inScope(crawlTarget, job)
         ) {
-          this._enqueueInternal(crawlTarget, job.depth + 1, job.url);
+          this._enqueueInternal(crawlTarget, job.depth + 1, job.url, { via: job });
         }
       }
 
@@ -3218,7 +3317,7 @@ class SeoCrawler extends EventEmitter {
         // Redirect hops share the SOURCE's depth rather than descending. A hop
         // is the same page at a different address, so charging it a level pushed
         // real pages past the depth ceiling and inflated every deep-page report.
-        this._enqueueInternal(redirectUrl, job.depth, job.url);
+        this._enqueueInternal(redirectUrl, job.depth, job.url, { via: job });
       }
 
       // The chain the crawler actually walked, recorded on the row that started
@@ -3404,6 +3503,7 @@ class SeoCrawler extends EventEmitter {
       ) {
         this._enqueueInternal(edge.targetUrl, job.depth + 1, job.url, {
           isAsset: true,
+          via: job,
         });
       }
     };
@@ -3618,12 +3718,12 @@ class SeoCrawler extends EventEmitter {
       for (const discovered of [paginationNext, paginationPrev, canonical]) {
         if (!discovered || discovered === job.url) continue;
         if (!this._inScope(discovered, job)) continue;
-        this._enqueueInternal(discovered, job.depth + 1, "");
+        this._enqueueInternal(discovered, job.depth + 1, "", { via: job });
       }
       for (const entry of hreflangs) {
         if (entry.url === job.url) continue;
         if (!this._inScope(entry.url, job)) continue;
-        this._enqueueInternal(entry.url, job.depth + 1, "");
+        this._enqueueInternal(entry.url, job.depth + 1, "", { via: job });
       }
     }
 
@@ -3779,12 +3879,13 @@ class SeoCrawler extends EventEmitter {
         if (this.mode !== "list") {
           this._enqueueInternal(normalized, job.depth + 1, job.url, {
             isAsset: ASSET_EXTENSIONS.test(normalized),
+            via: job,
           });
         }
       } else {
         externalLinks += 1;
         if (this.mode !== "list" && this.options.checkExternalLinks) {
-          this._enqueueExternal(normalized, job.url);
+          this._enqueueExternal(normalized, job.url, job);
         }
       }
     });

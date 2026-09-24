@@ -62,7 +62,10 @@ test("a checkpoint keeps in-flight and unstored pages, and a resume analyses the
   const checkpoint = first.snapshot({ unstoredResults: [emitted.get("/b").result] });
   const queued = checkpoint.queue.map((job) => new URL(job.url).pathname);
   assert.deepEqual(queued.slice(0, 2).sort(), ["/b", "/c"], "the in-flight and the unstored page go back first");
-  assert.ok(queued.includes("/gone"));
+  // /gone was found in the round still running, so it waits with that round's
+  // other finds for admission (crawler.js _admitRound), and is kept with them.
+  const waiting = checkpoint.candidates.map((candidate) => new URL(candidate.url).pathname);
+  assert.ok(waiting.includes("/gone"));
   first.stop();
   release();
   await firstRun;
