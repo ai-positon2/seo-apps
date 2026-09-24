@@ -7,6 +7,7 @@
 // too; these are the (usually stricter) hosted policy on top.
 
 const { z } = require("zod");
+const { resolveThresholds } = require("../thresholds");
 
 function intCeiling(name, fallback) {
   const raw = Number(process.env[name]);
@@ -229,6 +230,9 @@ function parseCrawlRequest(body = {}, overrides = {}) {
     removeParameters: parameterList(raw.removeParameters),
     // Sitemaps to read besides the ones robots.txt names (or /sitemap.xml).
     sitemapUrls: sitemapList(raw.sitemapUrls),
+    // The limits pages are judged by (thresholds.js): title and description
+    // lengths, thin content, slow responses, click depth, URL length, links.
+    thresholds: resolveThresholds(raw.thresholds),
   };
   if (listUrls) options.urls = listUrls;
 

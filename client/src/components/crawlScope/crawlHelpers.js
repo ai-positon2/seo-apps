@@ -1330,6 +1330,20 @@ export const WORKER_EXECUTED_TRIGGERS = ['schedule', 'initial'];
 // Mirrors parseCrawlRequest in server/modules/crawlScope/shared/options.js. The
 // server clamps against operator ceilings regardless of what is sent, so these
 // are starting points for the form, not limits.
+// The limits the audit judges pages by, at their defaults. Mirrors
+// server/modules/crawlScope/thresholds.js.
+export const DEFAULT_THRESHOLDS = {
+  titleMinLength: 30,
+  titleMaxLength: 60,
+  metaMinLength: 70,
+  metaMaxLength: 160,
+  minWords: 200,
+  slowResponseMs: 1000,
+  maxClickDepth: 3,
+  urlMaxLength: 200,
+  maxLinksPerPage: 3000,
+};
+
 export const DEFAULT_OPTIONS = {
   maxUrls: 500,
   maxExternalUrls: 500,
@@ -1351,6 +1365,7 @@ export const DEFAULT_OPTIONS = {
   scopeToFolder: false,
   removeParameters: [],
   sitemapUrls: [],
+  thresholds: { ...DEFAULT_THRESHOLDS },
 };
 
 // A list option as the text a textarea edits: one entry per line, whether it

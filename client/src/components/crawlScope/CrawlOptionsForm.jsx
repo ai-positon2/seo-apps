@@ -3,7 +3,7 @@
 // clamps anyway, so these only stop the UI offering something it can't have.
 
 import { Field } from '../../ui';
-import { listOptionText } from './crawlHelpers';
+import { DEFAULT_THRESHOLDS, listOptionText } from './crawlHelpers';
 
 const NUMBERS = [
   { key: 'maxUrls', label: 'Max URLs', min: 1, max: 10000, step: 1,
@@ -54,6 +54,20 @@ const SCOPE_LISTS = [
     helper: 'Full sitemap URLs, one per line, for sitemaps robots.txt does not name.' },
 ];
 
+// The limits the audit judges pages by (server thresholds.js), each with the
+// server's bounds.
+const THRESHOLD_FIELDS = [
+  { key: 'titleMinLength', label: 'Title too short under (characters)', min: 1, max: 200 },
+  { key: 'titleMaxLength', label: 'Title too long over (characters)', min: 10, max: 300 },
+  { key: 'metaMinLength', label: 'Description too short under (characters)', min: 1, max: 300 },
+  { key: 'metaMaxLength', label: 'Description too long over (characters)', min: 50, max: 1000 },
+  { key: 'minWords', label: 'Thin page under (words)', min: 1, max: 10000 },
+  { key: 'slowResponseMs', label: 'Slow response over (ms)', min: 100, max: 60000 },
+  { key: 'maxClickDepth', label: 'Deep page over (clicks from the start page)', min: 1, max: 50 },
+  { key: 'urlMaxLength', label: 'URL too long over (characters)', min: 50, max: 2000 },
+  { key: 'maxLinksPerPage', label: 'Too many links on a page over', min: 10, max: 100000 },
+];
+
 // Settings the crawler ignores in list mode, and why.
 //
 // A control that silently does nothing is worse than one that is absent: it
@@ -75,6 +89,8 @@ export default function CrawlOptionsForm({
   options, onChange, disabled = false, mode = 'spider',
 }) {
   const set = (key, value) => onChange({ ...options, [key]: value });
+  const thresholds = { ...DEFAULT_THRESHOLDS, ...(options.thresholds || {}) };
+  const setThreshold = (key, value) => onChange({ ...options, thresholds: { ...thresholds, [key]: value } });
   const inert = (key) => (mode === 'list' ? INERT_IN_LIST_MODE[key] : null);
 
   return (
@@ -152,6 +168,31 @@ export default function CrawlOptionsForm({
           />
         ))}
       </div>
+
+      <details>
+        <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>
+          Audit thresholds
+        </summary>
+        <p style={{ fontSize: 11, color: 'var(--text-3)', margin: '6px 0 12px' }}>
+          The limits pages are judged by. A finding measured against a changed limit says which limit it used.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+          {THRESHOLD_FIELDS.map((f) => (
+            <Field
+              key={f.key}
+              label={f.label}
+              helper={`Default ${DEFAULT_THRESHOLDS[f.key].toLocaleString()}.`}
+              type="number"
+              min={f.min}
+              max={f.max}
+              step={1}
+              disabled={disabled}
+              value={thresholds[f.key]}
+              onChange={(e) => setThreshold(f.key, e.target.value === '' ? '' : Number(e.target.value))}
+            />
+          ))}
+        </div>
+      </details>
     </div>
   );
 }

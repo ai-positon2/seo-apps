@@ -11,6 +11,7 @@ const {
   resultRobotsDirectives,
 } = require("./robots-directives");
 const { createUrlIdentity } = require("./url-identity");
+const { resolveThresholds, DEFAULT_THRESHOLDS } = require("./thresholds");
 const { ruleOrder } = require("./rule-order");
 const { decodeSignature, signatureBands, signatureSimilarity } = require("./text-fingerprint");
 
@@ -69,14 +70,11 @@ const NOT_FOUND_WORDING = [
 ];
 const readsLikeNotFound = (text) => NOT_FOUND_WORDING.some((pattern) => pattern.test(String(text || "")));
 const SOFT_404_MAX_WORDS = 300;
-// Page and URL hygiene thresholds, at the values Semrush's Site Audit uses
-// (title length: the common 30-character floor).
-const TITLE_MIN_LENGTH = 30;
+// Page and URL hygiene thresholds that are not a crawl's to set (thresholds.js
+// holds the ones that are).
 const HTML_TOO_LARGE_BYTES = 2 * 1024 * 1024;
 // Below about one packet, compression saves nothing worth a finding.
 const HTML_COMPRESSION_MIN_BYTES = 1_400;
-const TOO_MANY_LINKS = 3_000;
-const URL_MAX_LENGTH = 200;
 const URL_MAX_PARAMETERS = 2;
 // Near-duplicate main content: the share of three-word phrases two pages have
 // in common (Semrush's bar is 85%), and the page size below which there is
@@ -1529,6 +1527,8 @@ function buildFindings({
   // the links from what was left out are unknown.
   scopeLimited = false,
   scopeExcluded = 0,
+  // The crawl's own limits (thresholds.js), or the defaults.
+  thresholds = null,
   // False for a URL-list crawl: there is no start page whose links the list's
   // pages are "clicks" from, so no click depth and no deep-page.
   clickDepthFromStart = true,
@@ -1557,6 +1557,11 @@ function buildFindings({
   // The crawl's own URL identity: parameters it was told to remove are not
   // part of what makes a page.
   const identityOptions = { removeParameters, includeSubdomains };
+  // The limits pages are judged by. A finding measured against one the crawl
+  // set itself says so, so its number is read against the right line.
+  const limits = resolveThresholds(thresholds);
+  const limitNote = (key) =>
+    limits[key] === DEFAULT_THRESHOLDS[key] ? "" : ` (this crawl's limit: ${limits[key].toLocaleString("en-US")})`;
   const refusals = crawlRefusals(allInternalResults, startUrl, identityOptions);
   const { refused } = refusals;
   const index = createResultIndex(results.filter((result) => !refused.has(result.url)), startUrl, identityOptions);
@@ -1978,24 +1983,24 @@ function buildFindings({
       });
     }
     const clickDepth = clickDepthOf(result.url);
-    if (isHtml && result.status >= 200 && result.status < 300 && clickDepth > 3) {
-      // A link from a page two clicks or fewer from the start page brings it
-      // within three.
-      const candidates = linkCandidates(result.url, { maxDepth: 2 });
+    if (isHtml && result.status >= 200 && result.status < 300 && clickDepth > limits.maxClickDepth) {
+      // A link from a page one click short of the limit brings it within it.
+      const candidates = linkCandidates(result.url, { maxDepth: limits.maxClickDepth - 1 });
       const depthLabel = (url, at) => {
         const depth = clickDepthOf(url);
         const clicks = `${depth} click${depth === 1 ? "" : "s"}`;
         return `${shortUrl(url)} (${at === 0 ? `${clicks} from the start page` : clicks})`;
       };
       add("deep-page", result, {
-        detail: `${clickDepth} clicks from the start page`,
+        detail: `${clickDepth} clicks from the start page${limitNote("maxClickDepth")}`,
         // The shortest route in, which is where a shortcut link would go.
         detectedValue: clickPath(result.url).join(" -> "),
         recommendation: candidates.length
           ? `Add a link to this page from ${orList(candidates.map(depthLabel))}, in the same section, ` +
-            "so it is 3 clicks or fewer from the start page."
+            `so it is ${limits.maxClickDepth} clicks or fewer from the start page.`
           : "Add a link to this page from the page its section starts on, from the navigation, or from a " +
-            "page 2 clicks or fewer from the start page, so it is 3 clicks or fewer away.",
+            `page ${limits.maxClickDepth - 1} click${limits.maxClickDepth - 1 === 1 ? "" : "s"} or fewer from the start page, ` +
+            `so it is ${limits.maxClickDepth} clicks or fewer away.`,
       });
     }
 
@@ -2112,15 +2117,15 @@ function buildFindings({
         if (result.titleCount > 1) {
           add("title-multiple", result, { detectedValue: result.titleCount });
         }
-        if (result.title && result.titleLength < TITLE_MIN_LENGTH) {
+        if (result.title && result.titleLength < limits.titleMinLength) {
           add("title-short", result, {
-            detail: `${result.titleLength} characters`,
+            detail: `${result.titleLength} characters${limitNote("titleMinLength")}`,
             detectedValue: result.title,
           });
         }
-        if (result.titleLength > 60) {
+        if (result.titleLength > limits.titleMaxLength) {
           add("title-long", result, {
-            detail: `${result.titleLength} characters`,
+            detail: `${result.titleLength} characters${limitNote("titleMaxLength")}`,
             detectedValue: result.title,
             recommendedValue: suggestTitle(result.title),
           });
@@ -2134,15 +2139,15 @@ function buildFindings({
             detectedValue: "(absent)",
             recommendedValue: suggestMetaDescription(result),
           });
-        } else if (result.metaLength > 160) {
+        } else if (result.metaLength > limits.metaMaxLength) {
           add("meta-long", result, {
-            detail: `${result.metaLength} characters`,
+            detail: `${result.metaLength} characters${limitNote("metaMaxLength")}`,
             detectedValue: result.metaDescription,
             recommendedValue: `Needs a manual rewrite — current description is ${result.metaLength} characters (target 150-160). Trim to the most important sentence rather than cutting mid-sentence.`,
           });
-        } else if (result.metaLength < 70) {
+        } else if (result.metaLength < limits.metaMinLength) {
           add("meta-short", result, {
-            detail: `${result.metaLength} characters`,
+            detail: `${result.metaLength} characters${limitNote("metaMinLength")}`,
             detectedValue: result.metaDescription,
             recommendedValue: suggestMetaDescription(result),
           });
@@ -2189,7 +2194,7 @@ function buildFindings({
           detectedValue: `${(htmlBytes / 1024).toFixed(1)} KB sent with no Content-Encoding`,
         });
       }
-      if (Number(result.anchorCount) > TOO_MANY_LINKS) {
+      if (Number(result.anchorCount) > limits.maxLinksPerPage) {
         add("too-many-links", result, {
           detail: `${Number(result.anchorCount).toLocaleString("en-US")} links on the page`,
           detectedValue: result.anchorCount,
@@ -2204,7 +2209,7 @@ function buildFindings({
         parsedUrl = null;
       }
       if (parsedUrl) {
-        if (result.url.length > URL_MAX_LENGTH) {
+        if (result.url.length > limits.urlMaxLength) {
           add("url-too-long", result, { detail: `${result.url.length} characters`, detectedValue: result.url.length });
         }
         if (parsedUrl.pathname.includes("_")) add("url-underscore", result, { detectedValue: parsedUrl.pathname });
@@ -2229,14 +2234,14 @@ function buildFindings({
         result.textHtmlRatio > 0 &&
         result.textHtmlRatio <= 0.1 &&
         result.words > 0 &&
-        result.words < 200
+        result.words < limits.minWords
       ) {
         add("low-text-html-ratio", result, {
           detectedValue: Number(result.textHtmlRatio.toFixed(3)),
         });
       }
-      if (!hasNoindex && result.words > 0 && result.words < 200) {
-        add("low-word-count", result, { detectedValue: `${result.words} words` });
+      if (!hasNoindex && result.words > 0 && result.words < limits.minWords) {
+        add("low-word-count", result, { detectedValue: `${result.words} words${limitNote("minWords")}` });
       }
       const openGraphMissing = result.openGraphMissing || [];
       const openGraphInvalidUrls = result.openGraphInvalidUrls || [];
@@ -2291,7 +2296,7 @@ function buildFindings({
           detectedValue: problem.message,
         });
       }
-      if (result.responseTime > 1000) {
+      if (result.responseTime > limits.slowResponseMs) {
         // No `detail` here on purpose: this rule's own Excel sheet drops the
         // "Target / Related URL" column entirely (report-writer.js) rather
         // than carry a stray value in a column headed for a different kind

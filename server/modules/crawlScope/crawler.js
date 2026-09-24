@@ -20,6 +20,7 @@ const {
 const { parseMetaRefresh } = require("./meta-refresh");
 const { createUrlIdentity, normalizeUrl, parameterRemover } = require("./url-identity");
 const { createScopeRules, folderOf } = require("./url-scope");
+const { resolveThresholds } = require("./thresholds");
 const {
   auditAgents,
   isNoindex,
@@ -1269,6 +1270,8 @@ class SeoCrawler extends EventEmitter {
       scopeToFolder: options.scopeToFolder === true,
       removeParameters: stringList(options.removeParameters),
       sitemapUrls: stringList(options.sitemapUrls).map((url) => normalizeUrl(url)).filter(Boolean),
+      // The limits the analysis judges pages by (thresholds.js).
+      thresholds: resolveThresholds(options.thresholds),
     };
     this._removeParameters = parameterRemover(this.options.removeParameters);
     // Distinct URLs the scope rules left out, for the report.
@@ -2716,6 +2719,7 @@ class SeoCrawler extends EventEmitter {
       // Part of the site left out on purpose: links from it are unknown, and
       // the report says how many URLs the rules kept out.
       scopeLimited: this.mode !== "list" && this._scopeRules().active,
+      thresholds: this.options.thresholds,
       scopeExcluded: this.siteDiagnostics.scopeRules?.excluded || 0,
       externalLinksChecked: Boolean(this.options.checkExternalLinks),
       robotsRespected: Boolean(this.options.respectRobots),
