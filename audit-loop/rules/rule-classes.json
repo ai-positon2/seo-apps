@@ -141,14 +141,14 @@
   },
 
   "links": {
-    "broken-external-link":   { "sev": "warning", "class": "crawl", "rarity": "common" },
-    "https-to-http-link":     { "sev": "warning", "class": "crawl", "rarity": "occasional" },
-    "anchor-missing":         { "sev": "notice",  "class": "crawl", "rarity": "common" },
-    "anchor-nondescriptive":  { "sev": "notice",  "class": "crawl", "rarity": "common" },
-    "resource-as-link":       { "sev": "notice",  "class": "crawl", "rarity": "occasional" },
-    "external-403":           { "sev": "notice",  "class": "crawl", "rarity": "common" },
-    "external-nofollow":      { "sev": "notice",  "class": "crawl", "rarity": "occasional" },
-    "too-many-links":         { "sev": "notice",  "class": "crawl", "rarity": "rare" }
+    "broken-external-link":  { "sev": "warning", "class": "crawl", "rarity": "common" },
+    "https-to-http-link":    { "sev": "warning", "class": "crawl", "rarity": "occasional" },
+    "anchor-missing":        { "sev": "notice",  "class": "crawl", "rarity": "common" },
+    "anchor-nondescriptive": { "sev": "notice",  "class": "crawl", "rarity": "common" },
+    "resource-as-link":      { "sev": "notice",  "class": "crawl", "rarity": "occasional" },
+    "external-403":          { "sev": "notice",  "class": "crawl", "rarity": "common" },
+    "external-nofollow":     { "sev": "notice",  "class": "crawl", "rarity": "occasional" },
+    "too-many-links":        { "sev": "notice",  "class": "crawl", "rarity": "rare" }
   },
 
   "performance": {
