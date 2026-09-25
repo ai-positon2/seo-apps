@@ -16,6 +16,7 @@ from flask import Flask, make_response, redirect, request, url_for
 
 from .config import load_profiles
 from .inbound import InboundPayloadError, parse_cloudmailin_payload
+from .mailparser_inbound import MailparserPayloadError, parse_mailparser_payload
 from .pipeline import PipelineConfig, load_dotenv, parse_as_of, run_pipeline, run_single_email
 from .state import MAX_INBOX_LOG_ENTRIES, StateStore
 
@@ -201,28 +202,11 @@ def create_app() -> Flask:
         result = run_pipeline(config)
         return redirect(url_for("dashboard", ran="1", report=result.report_path.name))
 
-    @app.route("/webhook/inbound-email", methods=["POST"])
-    def inbound_email_webhook():
-        if not _basic_auth_ok("WEBHOOK_AUTH_USER", "WEBHOOK_AUTH_PASS"):
-            # Fails closed: an unconfigured or wrong-credential webhook is refused
-            # outright, rather than silently accepting unauthenticated POSTs from
-            # the public internet onto an endpoint that spends LLM/Slack calls.
-            return _unauthorized("HARO inbound webhook")
-
-        data = request.get_json(silent=True)
-        try:
-            raw_email = parse_cloudmailin_payload(data)
-        except InboundPayloadError as exc:
-            # 200 on purpose: CloudMailin retries (and eventually disables) a
-            # webhook that keeps erroring, so a malformed payload should be logged
-            # and acknowledged, not treated as a delivery failure to retry forever.
-            print(f"[webhook] payload parse failed: {exc}", file=sys.stderr)
-            return {"status": "ignored", "reason": str(exc)}, 200
-
+    def _process_inbound_email(raw_email):
         # Log the raw email regardless of digest status - the /inbox page (behind
         # the same dashboard auth as everything else) is how a human reads content
-        # CloudMailin delivered but doesn't itself display, e.g. a Gmail
-        # forwarding-confirmation code.
+        # a mail-forwarding provider delivered but doesn't itself display, e.g. a
+        # Gmail forwarding-confirmation code.
         inbox_state = StateStore(DEFAULT_STATE_DIR)
         inbox_state.record_inbox_email(
             message_id=raw_email.message_id,
@@ -250,6 +234,50 @@ def create_app() -> Flask:
             "matches": len(result.summary.matches),
             "report": result.report_path.name,
         }, 200
+
+    @app.route("/webhook/inbound-email", methods=["POST"])
+    def inbound_email_webhook():
+        if not _basic_auth_ok("WEBHOOK_AUTH_USER", "WEBHOOK_AUTH_PASS"):
+            # Fails closed: an unconfigured or wrong-credential webhook is refused
+            # outright, rather than silently accepting unauthenticated POSTs from
+            # the public internet onto an endpoint that spends LLM/Slack calls.
+            return _unauthorized("HARO inbound webhook")
+
+        data = request.get_json(silent=True)
+        try:
+            raw_email = parse_cloudmailin_payload(data)
+        except InboundPayloadError as exc:
+            # 200 on purpose: CloudMailin retries (and eventually disables) a
+            # webhook that keeps erroring, so a malformed payload should be logged
+            # and acknowledged, not treated as a delivery failure to retry forever.
+            print(f"[webhook] payload parse failed: {exc}", file=sys.stderr)
+            return {"status": "ignored", "reason": str(exc)}, 200
+
+        return _process_inbound_email(raw_email)
+
+    @app.route("/webhook/inbound-email-mailparser", methods=["POST"])
+    def inbound_email_webhook_mailparser():
+        """Mailparser.io alternative to /webhook/inbound-email. Mailparser has no
+        raw-body system field, so the body/subject come from custom parsing rules
+        flattened into the JSON payload ("mail_body", "subject"); Mailparser's own
+        {{id}}/{{received_at_iso8601}} tokens are passed as query params on the
+        configured Target URL instead, since they aren't reliably in the JSON body
+        across "Include Fields" settings (see README)."""
+        if not _basic_auth_ok("WEBHOOK_AUTH_USER", "WEBHOOK_AUTH_PASS"):
+            return _unauthorized("HARO inbound webhook")
+
+        data = request.get_json(silent=True)
+        try:
+            raw_email = parse_mailparser_payload(
+                data,
+                message_id=request.args.get("message_id"),
+                received_at=request.args.get("received_at"),
+            )
+        except MailparserPayloadError as exc:
+            print(f"[webhook] mailparser payload parse failed: {exc}", file=sys.stderr)
+            return {"status": "ignored", "reason": str(exc)}, 200
+
+        return _process_inbound_email(raw_email)
 
     @app.route("/reports")
     def list_reports():

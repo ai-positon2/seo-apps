@@ -144,6 +144,39 @@ def test_webhook_priority_match_triggers_console_notification(client, monkeypatc
     assert "[notify:console]" in capsys.readouterr().out
 
 
+def test_mailparser_webhook_accepts_valid_payload_and_records_state(client):
+    subject = f"HARO Queries for {_DIGEST_DATE} - Evening Edition"
+    body = f"From: HARO <replies@helpareporter.com>\n\n{_DIGEST_BODY}"
+    resp = client.post(
+        "/webhook/inbound-email-mailparser",
+        json={"mail_body": body, "subject": subject},
+        query_string={"message_id": "mailparser-test-1", "received_at": _NOW.isoformat()},
+        headers=_basic_auth_header("wuser", "wpass"),
+    )
+    assert resp.status_code == 200
+    body_json = resp.get_json()
+    assert body_json["status"] == "ok"
+    assert body_json["message_id"] == "mailparser-test-1"
+
+
+def test_mailparser_webhook_rejects_missing_auth(client):
+    resp = client.post(
+        "/webhook/inbound-email-mailparser",
+        json={"mail_body": "1) Summary: test", "subject": "s"},
+    )
+    assert resp.status_code == 401
+
+
+def test_mailparser_webhook_handles_missing_body_gracefully(client):
+    resp = client.post(
+        "/webhook/inbound-email-mailparser",
+        json={"subject": "no mail_body field"},
+        headers=_basic_auth_header("wuser", "wpass"),
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["status"] == "ignored"
+
+
 def test_inbox_page_shows_raw_email_regardless_of_digest_status(client):
     """The /inbox page must log every inbound email (not just recognized HARO
     digests), since its whole purpose is reading content CloudMailin delivered
