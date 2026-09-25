@@ -144,6 +144,31 @@ def test_webhook_priority_match_triggers_console_notification(client, monkeypatc
     assert "[notify:console]" in capsys.readouterr().out
 
 
+def test_inbox_page_shows_raw_email_regardless_of_digest_status(client):
+    """The /inbox page must log every inbound email (not just recognized HARO
+    digests), since its whole purpose is reading content CloudMailin delivered
+    that isn't a digest at all - e.g. a Gmail forwarding-confirmation email."""
+    non_digest_payload = _cloudmailin_payload(
+        headers={
+            "from": "forwarding-noreply@google.com",
+            "to": "abc123@cloudmailin.net",
+            "subject": "Confirm forwarding for your Gmail account",
+            "message_id": "<confirmation-test@google.com>",
+        },
+        plain="Your confirmation code is 123456",
+    )
+    resp = client.post(
+        "/webhook/inbound-email", json=non_digest_payload, headers=_basic_auth_header("wuser", "wpass")
+    )
+    assert resp.status_code == 200
+
+    inbox = client.get("/inbox")
+    assert inbox.status_code == 200
+    page = inbox.get_data(as_text=True)
+    assert "Confirm forwarding for your Gmail account" in page
+    assert "confirmation code is 123456" in page
+
+
 def test_dashboard_open_when_auth_env_vars_unset(client):
     resp = client.get("/")
     assert resp.status_code == 200

@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import List, Optional, Set, Tuple
 
+MAX_INBOX_LOG_ENTRIES = 20
+
 
 class StateStore:
     def __init__(self, state_dir: str | Path):
@@ -15,11 +17,13 @@ class StateStore:
         self._reported_matches_path = self.state_dir / "reported_matches.json"
         self._parse_failures_path = self.state_dir / "parse_failures.json"
         self._pitch_log_path = self.state_dir / "pitch_log.json"
+        self._inbox_log_path = self.state_dir / "inbox_log.json"
 
         self.processed_emails: dict = self._load(self._processed_emails_path, {})
         self.reported_matches: List[dict] = self._load(self._reported_matches_path, [])
         self.parse_failures: List[dict] = self._load(self._parse_failures_path, [])
         self.pitch_log: List[dict] = self._load(self._pitch_log_path, [])
+        self.inbox_log: List[dict] = self._load(self._inbox_log_path, [])
 
     @staticmethod
     def _load(path: Path, default):
@@ -82,8 +86,28 @@ class StateStore:
             }
         )
 
+    def record_inbox_email(
+        self, message_id: str, sender: str, subject: str, received_at: str, body: str
+    ) -> None:
+        """Keeps the last MAX_INBOX_LOG_ENTRIES raw inbound emails (subject/sender/
+        body) so the password-protected dashboard's /inbox page can show real
+        content CloudMailin delivered - e.g. to read a code out of a Gmail
+        forwarding-confirmation email, since CloudMailin's own dashboard only
+        shows delivery status, never message content."""
+        self.inbox_log.append(
+            {
+                "message_id": message_id,
+                "sender": sender,
+                "subject": subject,
+                "received_at": received_at,
+                "body": body,
+            }
+        )
+        self.inbox_log = self.inbox_log[-MAX_INBOX_LOG_ENTRIES:]
+
     def save(self) -> None:
         self._dump(self._processed_emails_path, self.processed_emails)
         self._dump(self._reported_matches_path, self.reported_matches)
         self._dump(self._parse_failures_path, self.parse_failures)
         self._dump(self._pitch_log_path, self.pitch_log)
+        self._dump(self._inbox_log_path, self.inbox_log)

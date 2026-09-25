@@ -17,7 +17,7 @@ from flask import Flask, make_response, redirect, request, url_for
 from .config import load_profiles
 from .inbound import InboundPayloadError, parse_cloudmailin_payload
 from .pipeline import PipelineConfig, load_dotenv, parse_as_of, run_pipeline, run_single_email
-from .state import StateStore
+from .state import MAX_INBOX_LOG_ENTRIES, StateStore
 
 load_dotenv()
 
@@ -59,6 +59,7 @@ PAGE_SHELL = """<!doctype html>
   <a href="{home}">Dashboard</a>
   <a href="{reports}">Reports</a>
   <a href="{state}">State</a>
+  <a href="{inbox}">Inbox</a>
   <a href="{profiles}">Profiles</a>
 </nav>
 {body}
@@ -72,6 +73,7 @@ def _shell(title: str, body: str) -> str:
         home=url_for("dashboard"),
         reports=url_for("list_reports"),
         state=url_for("view_state"),
+        inbox=url_for("view_inbox"),
         profiles=url_for("view_profiles"),
     )
 
@@ -217,6 +219,20 @@ def create_app() -> Flask:
             print(f"[webhook] payload parse failed: {exc}", file=sys.stderr)
             return {"status": "ignored", "reason": str(exc)}, 200
 
+        # Log the raw email regardless of digest status - the /inbox page (behind
+        # the same dashboard auth as everything else) is how a human reads content
+        # CloudMailin delivered but doesn't itself display, e.g. a Gmail
+        # forwarding-confirmation code.
+        inbox_state = StateStore(DEFAULT_STATE_DIR)
+        inbox_state.record_inbox_email(
+            message_id=raw_email.message_id,
+            sender=f"{raw_email.sender_name} <{raw_email.sender}>" if raw_email.sender_name else raw_email.sender,
+            subject=raw_email.subject,
+            received_at=raw_email.received_at.isoformat(),
+            body=raw_email.body,
+        )
+        inbox_state.save()
+
         config = PipelineConfig(
             profiles_path=DEFAULT_PROFILES_PATH,
             settings_path=DEFAULT_SETTINGS_PATH,
@@ -298,6 +314,35 @@ def create_app() -> Flask:
 <p class="muted">Showing the most recent 25 rows per section. Full detail is in the {DEFAULT_STATE_DIR}/*.json files.</p>
 """
         return _shell("State", body)
+
+    @app.route("/inbox")
+    def view_inbox():
+        try:
+            state = StateStore(DEFAULT_STATE_DIR)
+        except Exception as exc:
+            return _shell("Inbox", f"<h1>Inbox</h1><p>Could not load state: {html.escape(str(exc))}</p>")
+
+        if not state.inbox_log:
+            body = "<h1>Inbox</h1><p class='muted'>No inbound emails logged yet.</p>"
+            return _shell("Inbox", body)
+
+        cards = ""
+        for entry in reversed(state.inbox_log):
+            cards += f"""
+<div class="card">
+  <p><b>Subject:</b> {html.escape(entry.get('subject', ''))}<br>
+  <b>From:</b> {html.escape(entry.get('sender', ''))}<br>
+  <b>Received:</b> {html.escape(entry.get('received_at', ''))}<br>
+  <b>Message ID:</b> {html.escape(entry.get('message_id', ''))}</p>
+  <pre>{html.escape(entry.get('body', ''))}</pre>
+</div>
+"""
+        body = f"""<h1>Inbox</h1>
+<p class="muted">The last {MAX_INBOX_LOG_ENTRIES} raw emails CloudMailin delivered to the webhook, regardless of whether they
+were recognized as a HARO digest - e.g. to read a Gmail forwarding-confirmation
+code, since CloudMailin's own dashboard never shows message content.</p>
+{cards}"""
+        return _shell("Inbox", body)
 
     @app.route("/profiles")
     def view_profiles():
