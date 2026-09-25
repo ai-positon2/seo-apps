@@ -3,7 +3,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { saveAs } from 'file-saver';
 import { Button } from '../ui';
 import { projectsApi } from '../lib/projectsApi';
-import { readActiveProjectId, setActiveProjectId } from '../lib/activeProject';
+import { readActiveProjectId, setActiveProjectId, useActiveProjectId } from '../lib/activeProject';
+import { matchClientSlug } from '../lib/clientMatch';
 import { contentWriterApi as api } from '../lib/contentWriterApi';
 import BriefEditor from '../components/contentWriter/BriefEditor';
 import DraftEditor from '../components/contentWriter/DraftEditor';
@@ -24,6 +25,12 @@ export default function ContentWriterPage() {
   const [busy, setBusy] = useState(''), [saving, setSaving] = useState(false), [loading, setLoading] = useState(true);
   const [error, setError] = useState(''), [progress, setProgress] = useState(''), [warnings, setWarnings] = useState([]);
   const [conflict, setConflict] = useState(false);
+  // The header decides the client (docs/design-audit/02-plan-one-client.md).
+  // A link naming another project's article is offered, not obeyed: opening it
+  // used to rewrite the header's client without a word.
+  const [headerProjectId] = useActiveProjectId();
+  const [linkedElsewhere, setLinkedElsewhere] = useState(null); // { projectId, articleId, name }
+  const openAfterSwitch = useRef(null);
   const [settingsOpen, setSettingsOpen] = useState(true), [exporting, setExporting] = useState(false), [stale, setStale] = useState(false);
   const current = useRef({ doc, record, projectId }), pendingSave = useRef(null), controller = useRef(null), mounted = useRef(true);
   current.current = { doc, record, projectId, savedSignature };
@@ -44,9 +51,14 @@ export default function ContentWriterPage() {
         const result = await projectsApi.list();
         if (!alive) return;
         const list = result.projects.filter(p => p.lifecycleStatus !== 'deleted'); setProjects(list);
-        const requested = params.get('project') || readActiveProjectId();
-        const id = list.find(p => p.id === requested)?.id || list[0]?.id || '';
-        setProjectId(id); if (id) setActiveProjectId(id);
+        const header = readActiveProjectId();
+        const requested = params.get('project');
+        const id = list.find(p => p.id === header)?.id || list[0]?.id || '';
+        setProjectId(id);
+        // Only seed the header when it has nothing valid to say (first visit).
+        if (id && id !== header) setActiveProjectId(id);
+        const other = requested && requested !== id && list.find(p => p.id === requested);
+        if (other) setLinkedElsewhere({ projectId: other.id, articleId: params.get('article'), name: other.name });
         if (id) {
           const data = await api.list(id); if (!alive) return; setArticles(data.articles);
           // A handoff from Keyword Research or Hub & Spoke: always a fresh,
@@ -55,9 +67,10 @@ export default function ContentWriterPage() {
           const handoff = params.get('keyword');
           if (handoff) {
             const incoming = params.get('client') || '';
+            const project = list.find(p => p.id === id);
             setDoc({ ...blank(), keyword: handoff, options: { ...options(),
               secondaryKeywords: params.get('secondary') || '',
-              client: CLIENTS.includes(incoming) ? incoming : '' } });
+              client: CLIENTS.includes(incoming) ? incoming : (matchClientSlug(project, CLIENTS) || '') } });
             setSettingsOpen(true);
             // Drop the handoff params so a reload does not resurrect them.
             setParams({ project: id }, { replace: true });
@@ -131,14 +144,30 @@ export default function ContentWriterPage() {
     return () => { alive = false; };
   }, [doc.brief, doc.draftBriefHash]);
 
+  // Follow the header: when its client changes, this page moves with it
+  // (saving anything open first), instead of keeping a second picker.
+  useEffect(() => {
+    if (loading || !headerProjectId || headerProjectId === projectId) return;
+    if (!projects.some(p => p.id === headerProjectId)) return;
+    setLinkedElsewhere(null);
+    switchProject(headerProjectId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [headerProjectId]);
+
   async function switchProject(id) {
     if (busy) return;
     setLoading(true); setError('');
     try {
       if (dirty) await save();
       const data = await api.list(id);
-      setProjectId(id); setActiveProjectId(id); setArticles(data.articles); setRecord(null); setDoc(blank()); setSavedSignature(''); setTab('brief');
+      const project = projects.find(p => p.id === id);
+      setProjectId(id); setArticles(data.articles); setRecord(null);
+      setDoc({ ...blank(), options: { ...options(), client: matchClientSlug(project, CLIENTS) || '' } });
+      setSavedSignature(''); setTab('brief');
       setParams({ project: id }, { replace: true }); setSettingsOpen(true); setWarnings([]); setProgress('');
+      const queued = openAfterSwitch.current;
+      openAfterSwitch.current = null;
+      if (queued) { const row = await api.get(id, queued); install(row); setSettingsOpen(false); }
     } catch (e) { setError(e.message); } finally { setLoading(false); }
   }
   async function openArticle(id) {
@@ -192,10 +221,33 @@ export default function ContentWriterPage() {
   const wordCount = plain ? plain.split(/\s+/).length : 0;
   const links = (doc.draftHtml.match(/<a\s/gi) || []).length;
   return <div className="cw-page">
-    <header className="cw-page-heading"><div><span className="cw-eyebrow">CONTENT STUDIO</span><h1>Content Writer</h1><p>Research the brief. Shape the story. Make it yours.</p></div>
-      <label>Project<select aria-label="Project" value={projectId} disabled={disabled || saving} onChange={e => switchProject(e.target.value)}>
-        {!projects.length && <option value="">No projects available</option>}{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-      </select></label></header>
+    {/* No second client picker: the header's client is the one this page
+        writes for, and changing it there moves this page too. */}
+    <header className="cw-page-heading"><div><h1>Content Writer</h1><p>Build a brief from a keyword, then write the article from it. Articles are saved to the client you are working on.</p></div>
+      <p className="cw-for-client" aria-live="polite">
+        {projects.length
+          ? <>For <strong>{projects.find(p => p.id === projectId)?.name || '—'}</strong> · change the client in the header</>
+          : 'No client projects yet'}
+      </p></header>
+    {linkedElsewhere && (
+      <div className="cw-notice" role="status">
+        This link opens an article for <strong>{linkedElsewhere.name}</strong>, but you are working on{' '}
+        <strong>{projects.find(p => p.id === projectId)?.name}</strong>.
+        <Button size="sm" variant="secondary" style={{ marginLeft: 10 }} onClick={() => {
+          const target = linkedElsewhere;
+          setLinkedElsewhere(null);
+          // An explicit choice: switch the header. The header-follow effect
+          // loads that client, then opens the queued article (so the load
+          // cannot overwrite it).
+          openAfterSwitch.current = target.articleId || null;
+          setActiveProjectId(target.projectId);
+        }}
+        >
+          Switch to {linkedElsewhere.name}
+        </Button>
+        <button aria-label="Dismiss" style={{ marginLeft: 8 }} onClick={() => setLinkedElsewhere(null)}>×</button>
+      </div>
+    )}
     {error && <div className="cw-notice cw-error" role="alert">{error}<button aria-label="Dismiss error" onClick={() => setError('')}>×</button></div>}
     {conflict && <div className="cw-notice">Another session saved this article. Export JSON to keep your local edits before reloading.
       <Button size="sm" variant="secondary" onClick={async () => { try { install(await api.get(projectId, record.id)); setError(''); } catch (e) { setError(e.message); } }}>Discard local edits & reload saved article</Button></div>}

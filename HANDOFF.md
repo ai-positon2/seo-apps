@@ -129,8 +129,15 @@ it points at one of two things:
 
 Also worth confirming: the crawler's own hard floor is
 `Math.min(options.maxUrls || 10_000, 50_000)` (`crawler.js` ~1264), and
-`parseCrawlRequest` re-clamps to `MAX_URLS_CEILING` (env, default 10,000). None
-of those produce 150.
+`parseCrawlRequest` clamps to the workspace's effective
+`admin_limit_policies.maxUrlsPerCrawl` (default 500; `MAX_URLS_CEILING` is now
+only the fallback when that table is unreachable). None of those produce 150.
+
+*(Updated: at the time this was written `parseCrawlRequest` clamped to
+`MAX_URLS_CEILING` instead, and a bug meant the admin policy did not bind a
+spider crawl at all — so a project could indeed be stuck at a number nobody
+could find in Admin. See `supabase/migrations/0037_crawl_runs_budget.sql`; a run
+now records the budget it used and where the number came from.)*
 
 **I got one command into this investigation before the disk error stopped me.
 Treat everything above as hypotheses, not findings.**

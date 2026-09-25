@@ -37,12 +37,13 @@ const { streamRun } = require("./sse");
 const { RunManager, CONTROL_POLL_MS } = require("../run/manager");
 const { serviceClient, isDatabaseConfigured } = require("../db/client");
 const { resolveIdentity } = require("../../../services/workspaceContext");
+const adminLimits = require("../../../services/adminLimits");
 const projectAccess = require("../../../services/projectAccess");
 // The single writer for the project aggregate. CrawlScope used to insert
 // crawl_projects directly through repo.createProject, which wrote no
 // project_domains row and no country — see the POST /projects handler.
 const projectStore = require("../../projects/store");
-const { parseCrawlRequest, ValidationError } = require("../shared/options");
+const { parseCrawlRequest, resolveLimits, ValidationError } = require("../shared/options");
 const {
   isValidCron,
   isValidTimezone,
@@ -131,11 +132,39 @@ router.get("/catalog", (_req, res) => res.json(catalog));
 
 router.use(crawlScopeContext);
 
+// ---- limits ----
+//
+// The caps this workspace's crawls actually run under, so the crawl form can
+// state the real number instead of a hardcoded range. It advertised a maximum of
+// 10,000 URLs to every workspace, including ones capped at 500 — the one control
+// whose whole job is choosing a page budget was the one control lying about it.
+//
+// Read-only and non-admin: these are the limits you are subject to, not the
+// policies that set them (that is /api/admin/limits, which is admin-gated).
+router.get(
+  "/limits",
+  asyncRoute(async (req, res) => {
+    const { limits, sources } = await resolveLimits(req.crawlWorkspaceId);
+    res.json({
+      limits: limits || adminLimits.DEFAULT_LIMITS,
+      sources: sources || {},
+    });
+  }),
+);
+
 // ---- runs ----
 router.post(
   "/runs",
   asyncRoute(async (req, res) => {
-    const { url, options, listInfo, budgetClamped } = parseCrawlRequest(req.body || {});
+    // Resolved here as well as in manager.execute(), because the 201 below
+    // reports the budget and it must be the same number the run will use. The
+    // manager resolves again at execute time — deliberately: a policy can change
+    // between a run being created and being picked up, and the executing value
+    // is the one that counts.
+    const { url, options, listInfo, budgetClamped } = parseCrawlRequest(
+      req.body || {},
+      await resolveLimits(req.crawlWorkspaceId),
+    );
     const run = await repo.createRun(req.db, {
       owner: req.user.id,
       workspace_id: req.crawlWorkspaceId,
@@ -640,7 +669,10 @@ router.post(
   "/projects",
   asyncRoute(async (req, res) => {
     const body = req.body || {};
-    const { url, options } = parseCrawlRequest(body);
+    // storing: this is a project's saved preference, not a run. The budget is
+    // resolved against the admin limit when a crawl actually starts, so freezing
+    // today's ceiling into the row would stop a later raise reaching it.
+    const { url, options } = parseCrawlRequest(body, { storing: true });
     const timezone = resolveTimezone(body.timezone);
     const cron = resolveCron(body, `${req.user.id}:${url}`);
     if (!cron) throw new ValidationError("A schedule is required.");
@@ -739,7 +771,7 @@ router.patch(
         url: body.url || existing.url,
         urls: body.urls,
         options: body.options,
-      });
+      }, { storing: true });
       patch.url = url;
       patch.options = options;
     }

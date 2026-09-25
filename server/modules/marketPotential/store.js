@@ -1,197 +1,200 @@
-// ── File-based persistence (Section 7 schema) ─────────────────────────────────
-// This app has no Postgres, so the Section 7 relational schema is mapped onto the
-// same atomic-JSON store pattern used by the robotsMonitor / hubSpoke modules.
+// ── Persistence (Section 7 schema) — backed by Postgres ──────────────────────
+// This module's store opened with "This app has no Postgres, so the Section 7
+// relational schema is mapped onto the same atomic-JSON store pattern used by
+// the robotsMonitor / hubSpoke modules". It has one now, and the schema is
+// where it was designed to go — see
+// supabase/migrations/0036_market_potential_to_postgres.sql.
 //
-//   services.json     [{ id, name, status, createdAt }]
-//   baskets.json      [{ id, serviceId, version, status, frozenAt, terms[] }]
-//                     status: 'draft' (proposed, editable) | 'active' (frozen v_n)
-//                     terms:  [{ id, term, intentTag, isGeoTemplate }]
-//   volumeCache.json  { "<geoId>__<yearMonth>": { fetchedAt, source, terms: {
-//                         "<term>": { searchVolume, cpc, competition, monthlySearches[] } } } }
-//                     One row per (geo, month) — a single DataForSEO call covers the
-//                     whole basket (Section 5), so the cache key is per region+month.
-//   scenarios.json    [{ id, userId, name, serviceId, basketVersion,
-//                         homeGeoIds[], comparedGeoIds[], createdAt }]
+//   market_potential_services       was services.json
+//   market_potential_baskets        was baskets.json
+//   market_potential_volume_cache   was volumeCache.json  (one row per geo+month)
+//   market_potential_scenarios      was scenarios.json
+//   market_potential_summaries      was summaries.json
 //
-// geo_constants live in geoData.js (static seed), not here.
+// geo_constants still live in geoData.js (static seed), not here.
+//
+// Every exported name, argument, return shape and thrown message is unchanged.
+// The in-process write lock (withWriteLock) is gone: it existed to stop
+// overlapping read-modify-write cycles losing each other's updates within ONE
+// process, which is not the same as preventing it. Each mutator is now a single
+// statement, and the two invariants the module states in prose — one draft
+// basket per service, one active version per number — are unique indexes.
 
-const fs = require('fs').promises;
-const path = require('path');
 const crypto = require('crypto');
-
-const { resolveDataRoot } = require('../../services/dataRoot');
-
-// Ephemeral inside the image on a container platform; see services/dataRoot.js.
-const DATA_DIR = resolveDataRoot(
-  'market-potential', path.join(__dirname, 'data'), 'MARKET_POTENTIAL_DATA_ROOT',
-);
-const SERVICES_PATH = path.join(DATA_DIR, 'services.json');
-const BASKETS_PATH = path.join(DATA_DIR, 'baskets.json');
-const CACHE_PATH = path.join(DATA_DIR, 'volumeCache.json');
-const SCENARIOS_PATH = path.join(DATA_DIR, 'scenarios.json');
-const SUMMARIES_PATH = path.join(DATA_DIR, 'summaries.json');
+const db = require('../../services/db');
 
 function genId(prefix = 'id') {
   return `${prefix}_${Date.now().toString(36)}${crypto.randomBytes(4).toString('hex')}`;
 }
 
-async function readJson(filePath, fallback) {
-  try {
-    return JSON.parse(await fs.readFile(filePath, 'utf8'));
-  } catch {
-    return fallback;
-  }
-}
+// Tables are created by the migration runner; nothing to make on boot.
+async function init() {}
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-async function writeAtomic(filePath, data) {
-  // Unique temp name so overlapping writes never collide on the same .tmp file.
-  const tmp = `${filePath}.${process.pid}.${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 8)}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(data, null, 2), 'utf8');
-  // Windows: renaming over an existing file transiently fails with EPERM/EBUSY
-  // when AV / the search indexer briefly holds a handle on it — common under the
-  // rapid successive writes the compare loop makes. Retry with short backoff.
-  for (let attempt = 0; ; attempt++) {
-    try {
-      await fs.rename(tmp, filePath);
-      return;
-    } catch (err) {
-      if (['EPERM', 'EBUSY', 'EACCES'].includes(err.code) && attempt < 10) {
-        await sleep(20 * (attempt + 1));
-        continue;
-      }
-      try { await fs.unlink(tmp); } catch { /* best effort */ }
-      throw err;
-    }
-  }
-}
-
-// Serialize read-modify-write mutators so concurrent requests can't lose updates
-// (and can't overlap renames on the same file).
-let _writeChain = Promise.resolve();
-function withWriteLock(fn) {
-  const next = _writeChain.then(fn, fn);
-  _writeChain = next.then(() => {}, () => {});
-  return next;
-}
-
-async function init() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  for (const [p, init] of [
-    [SERVICES_PATH, '[]'],
-    [BASKETS_PATH, '[]'],
-    [CACHE_PATH, '{}'],
-    [SCENARIOS_PATH, '[]'],
-    [SUMMARIES_PATH, '{}'],
-  ]) {
-    try { await fs.access(p); } catch { await fs.writeFile(p, init, 'utf8'); }
-  }
-}
+const nameKey = (name) => (name || '').trim().toLowerCase();
 
 // ── Services ───────────────────────────────────────────────────────────────────
 
 async function getServices() {
-  return readJson(SERVICES_PATH, []);
+  const found = await db.rows(
+    `select data from market_potential_services order by created_at asc, id asc`
+  );
+  return found.map((r) => r.data);
 }
 
 async function getService(id) {
-  return (await getServices()).find((s) => s.id === id) || null;
+  const row = await db.maybeOne(
+    `select data from market_potential_services where id = $1`, [id]
+  );
+  return row ? row.data : null;
 }
 
 async function findServiceByName(name) {
-  const norm = (name || '').trim().toLowerCase();
-  return (await getServices()).find((s) => s.name.trim().toLowerCase() === norm) || null;
+  const row = await db.maybeOne(
+    `select data from market_potential_services where name_key = $1`, [nameKey(name)]
+  );
+  return row ? row.data : null;
 }
 
 async function createService(name, ownDomain) {
-  const services = await getServices();
-  const norm = (name || '').trim().toLowerCase();
-  const existing = services.find((s) => s.name.trim().toLowerCase() === norm);
-  if (existing) {
-    // Update the stored own-domain when the caller supplies one (Phase 2).
-    if (ownDomain !== undefined) {
-      const next = ownDomain ? String(ownDomain).trim() : null;
-      if (next !== (existing.ownDomain ?? null)) {
-        existing.ownDomain = next;
-        await writeAtomic(SERVICES_PATH, services);
-      }
-    }
-    return existing;
-  }
+  const key = nameKey(name);
+  const next = ownDomain !== undefined && ownDomain ? String(ownDomain).trim() : null;
+
   const service = {
-    id: genId('svc'), name: name.trim(),
-    ownDomain: ownDomain ? String(ownDomain).trim() : null,
-    status: 'active', createdAt: new Date().toISOString(),
+    id: genId('svc'),
+    name: (name || '').trim(),
+    ownDomain: next,
+    status: 'active',
+    createdAt: new Date().toISOString(),
   };
-  services.push(service);
-  await writeAtomic(SERVICES_PATH, services);
-  return service;
+
+  // Insert-or-return-existing in one statement, on the unique name key. The
+  // own-domain update keeps its Phase 2 rule: only when the caller supplied one.
+  //
+  // `do update` rather than `do nothing` because `do nothing` returns no row,
+  // which would mean a second query to find out what is already there.
+  const row = await db.one(
+    `insert into market_potential_services (id, data, name_key, created_at, updated_at)
+     values ($1, $2, $3, $4, $4)
+     on conflict (name_key) do update set
+       data = case
+                when $5::boolean
+                 and market_potential_services.data->>'ownDomain' is distinct from $6
+                then jsonb_set(market_potential_services.data, '{ownDomain}', to_jsonb($6::text))
+                else market_potential_services.data
+              end,
+       updated_at = now()
+     returning data`,
+    [
+      service.id, db.json(service), key, service.createdAt,
+      ownDomain !== undefined, next,
+    ]
+  );
+  return row.data;
 }
 
 // ── Keyword baskets ──────────────────────────────────────────────────────────
 // Exactly one active (frozen) version per service. Drafts are editable.
 
 async function getBaskets() {
-  return readJson(BASKETS_PATH, []);
+  const found = await db.rows(
+    `select data from market_potential_baskets order by created_at asc, id asc`
+  );
+  return found.map((r) => r.data);
 }
 
 async function getBasket(id) {
-  return (await getBaskets()).find((b) => b.id === id) || null;
+  const row = await db.maybeOne(
+    `select data from market_potential_baskets where id = $1`, [id]
+  );
+  return row ? row.data : null;
 }
 
 async function getActiveBasket(serviceId) {
-  const baskets = await getBaskets();
-  return baskets
-    .filter((b) => b.serviceId === serviceId && b.status === 'active')
-    .sort((a, b) => b.version - a.version)[0] || null;
+  const row = await db.maybeOne(
+    `select data from market_potential_baskets
+      where service_id = $1 and status = 'active'
+      order by version desc nulls last
+      limit 1`,
+    [serviceId]
+  );
+  return row ? row.data : null;
 }
 
 async function getDraftBasket(serviceId) {
-  return (await getBaskets()).find((b) => b.serviceId === serviceId && b.status === 'draft') || null;
+  const row = await db.maybeOne(
+    `select data from market_potential_baskets
+      where service_id = $1 and status = 'draft'`,
+    [serviceId]
+  );
+  return row ? row.data : null;
 }
 
 // Create / replace the draft for a service from a list of proposed terms.
 async function saveDraftBasket(serviceId, terms) {
-  const baskets = await getBaskets();
-  const idx = baskets.findIndex((b) => b.serviceId === serviceId && b.status === 'draft');
   const normTerms = terms.map((t) => ({
     id: genId('term'),
     term: t.term,
     intentTag: t.intentTag || 'commercial-general',
     isGeoTemplate: !!t.isGeoTemplate,
   }));
+
+  const existing = await getDraftBasket(serviceId);
   const draft = {
-    id: idx >= 0 ? baskets[idx].id : genId('basket'),
+    id: existing ? existing.id : genId('basket'),
     serviceId,
     version: null,        // assigned on freeze
     status: 'draft',
     frozenAt: null,
     terms: normTerms,
-    createdAt: idx >= 0 ? baskets[idx].createdAt : new Date().toISOString(),
+    createdAt: existing ? existing.createdAt : new Date().toISOString(),
   };
-  if (idx >= 0) baskets[idx] = draft; else baskets.push(draft);
-  await writeAtomic(BASKETS_PATH, baskets);
-  return draft;
+
+  // Keyed on the draft's own id, so replacing a draft replaces that row rather
+  // than racing the partial unique index on (service_id) where status='draft'.
+  const row = await db.one(
+    `insert into market_potential_baskets
+       (id, service_id, status, version, data, created_at, updated_at)
+     values ($1, $2, 'draft', null, $3, $4, now())
+     on conflict (id) do update set
+       data = excluded.data, updated_at = now()
+     returning data`,
+    [draft.id, serviceId, db.json(draft), draft.createdAt]
+  );
+  return row.data;
 }
 
 // Freeze the draft → next version number; becomes the sole active basket.
 async function freezeBasket(serviceId) {
-  const baskets = await getBaskets();
-  const draft = baskets.find((b) => b.serviceId === serviceId && b.status === 'draft');
+  const draft = await getDraftBasket(serviceId);
   if (!draft) throw new Error('No draft basket to freeze for this service.');
   if (!draft.terms.length) throw new Error('Cannot freeze an empty basket.');
 
-  const maxVersion = baskets
-    .filter((b) => b.serviceId === serviceId && b.status === 'active')
-    .reduce((m, b) => Math.max(m, b.version || 0), 0);
-
-  draft.status = 'active';
-  draft.version = maxVersion + 1;
-  draft.frozenAt = new Date().toISOString();
-
-  await writeAtomic(BASKETS_PATH, baskets);
-  return draft;
+  // max(version)+1 and the write are ONE statement. Two freezes arriving
+  // together used to be able to read the same maximum and both claim it; now
+  // the second either sees the first's row in its subquery or collides with
+  // uq_market_potential_baskets_version.
+  const frozenAt = new Date().toISOString();
+  const row = await db.one(
+    `update market_potential_baskets
+        set status = 'active',
+            version = (
+              select coalesce(max(version), 0) + 1
+                from market_potential_baskets
+               where service_id = $1 and status = 'active'
+            ),
+            data = data
+                   || jsonb_build_object('status', 'active', 'frozenAt', $2::text)
+                   || jsonb_build_object('version', (
+                        select coalesce(max(version), 0) + 1
+                          from market_potential_baskets
+                         where service_id = $1 and status = 'active'
+                      )),
+            updated_at = now()
+      where id = $3 and status = 'draft'
+    returning data`,
+    [serviceId, frozenAt, draft.id]
+  );
+  return row.data;
 }
 
 // ── Volume cache ────────────────────────────────────────────────────────────
@@ -201,53 +204,67 @@ function cacheKey(geoId, yearMonth) {
 }
 
 async function getCachedRegion(geoId, yearMonth) {
-  const cache = await readJson(CACHE_PATH, {});
-  return cache[cacheKey(geoId, yearMonth)] || null;
+  const row = await db.maybeOne(
+    `select data from market_potential_volume_cache where id = $1`,
+    [cacheKey(geoId, yearMonth)]
+  );
+  return row ? row.data : null;
 }
 
 async function setCachedRegion(geoId, yearMonth, source, terms) {
-  return withWriteLock(async () => {
-    const cache = await readJson(CACHE_PATH, {});
-    cache[cacheKey(geoId, yearMonth)] = { fetchedAt: new Date().toISOString(), source, terms };
-    await writeAtomic(CACHE_PATH, cache);
-  });
+  const entry = { fetchedAt: new Date().toISOString(), source, terms };
+  await db.query(
+    `insert into market_potential_volume_cache (id, data, fetched_at)
+     values ($1, $2, now())
+     on conflict (id) do update set data = excluded.data, fetched_at = now()`,
+    [cacheKey(geoId, yearMonth), db.json(entry)]
+  );
 }
 
 // Merge a partial patch (e.g. competitor density) into an existing cache entry
 // without clobbering the volume payload. Used when density is fetched separately.
 async function mergeCachedRegion(geoId, yearMonth, patch) {
-  return withWriteLock(async () => {
-    const cache = await readJson(CACHE_PATH, {});
-    const key = cacheKey(geoId, yearMonth);
-    cache[key] = { ...(cache[key] || {}), ...patch, fetchedAt: new Date().toISOString() };
-    await writeAtomic(CACHE_PATH, cache);
-  });
+  const merged = { ...patch, fetchedAt: new Date().toISOString() };
+  await db.query(
+    `insert into market_potential_volume_cache (id, data, fetched_at)
+     values ($1, $2, now())
+     on conflict (id) do update set
+       data = market_potential_volume_cache.data || $2::jsonb,
+       fetched_at = now()`,
+    [cacheKey(geoId, yearMonth), db.json(merged)]
+  );
 }
 
 // Drop cached rows for a (geo, month) — used by the monthly refresh job.
 // TODO (V2 §5.5): wire a monthly refresh scheduler that invalidates last month's
 // cache on the 1st, following the robotsMonitor scheduler pattern. Not built here.
 async function invalidateRegion(geoId, yearMonth) {
-  return withWriteLock(async () => {
-    const cache = await readJson(CACHE_PATH, {});
-    delete cache[cacheKey(geoId, yearMonth)];
-    await writeAtomic(CACHE_PATH, cache);
-  });
+  await db.query(
+    `delete from market_potential_volume_cache where id = $1`,
+    [cacheKey(geoId, yearMonth)]
+  );
 }
 
 // ── Scenarios ────────────────────────────────────────────────────────────────
 
 async function getScenarios(userId) {
-  const all = await readJson(SCENARIOS_PATH, []);
-  return userId ? all.filter((s) => s.userId === userId) : all;
+  const found = userId
+    ? await db.rows(
+      `select data from market_potential_scenarios
+        where user_id = $1 order by created_at asc, id asc`, [userId])
+    : await db.rows(
+      `select data from market_potential_scenarios order by created_at asc, id asc`);
+  return found.map((r) => r.data);
 }
 
 async function getScenario(id) {
-  return (await readJson(SCENARIOS_PATH, [])).find((s) => s.id === id) || null;
+  const row = await db.maybeOne(
+    `select data from market_potential_scenarios where id = $1`, [id]
+  );
+  return row ? row.data : null;
 }
 
 async function saveScenario({ userId, name, serviceId, serviceName, basketVersion, homeGeoIds, comparedGeoIds, weightsUsed, assumptions, yearMonth }) {
-  const scenarios = await readJson(SCENARIOS_PATH, []);
   const scenario = {
     id: genId('scn'),
     userId: userId || 'anon',
@@ -262,35 +279,50 @@ async function saveScenario({ userId, name, serviceId, serviceName, basketVersio
     yearMonth: yearMonth || null,       // month the run was saved in → cold-fetch guard
     createdAt: new Date().toISOString(),
   };
-  scenarios.push(scenario);
-  await writeAtomic(SCENARIOS_PATH, scenarios);
+  await db.query(
+    `insert into market_potential_scenarios (id, user_id, data, created_at)
+     values ($1, $2, $3, $4)`,
+    [scenario.id, scenario.userId, db.json(scenario), scenario.createdAt]
+  );
   return scenario;
 }
 
 async function deleteScenario(id) {
-  const scenarios = await readJson(SCENARIOS_PATH, []);
-  const next = scenarios.filter((s) => s.id !== id);
-  await writeAtomic(SCENARIOS_PATH, next);
-  return next.length !== scenarios.length;
+  const result = await db.query(
+    `delete from market_potential_scenarios where id = $1`, [id]
+  );
+  return result.rowCount > 0;
 }
 
 // ── Executive-summary cache (Phase 3) ─────────────────────────────────────────
 // Keyed by a hash of (service, basket version, region set, month, weights) so a
-// repeat view of the same run is free. Bounded to keep the file small.
+// repeat view of the same run is free. Bounded to keep the table small.
 
 async function getCachedSummary(key) {
-  const all = await readJson(SUMMARIES_PATH, {});
-  return all[key] || null;
+  const row = await db.maybeOne(
+    `select data from market_potential_summaries where key = $1`, [key]
+  );
+  return row ? row.data : null;
 }
 
 async function setCachedSummary(key, value) {
-  return withWriteLock(async () => {
-    const all = await readJson(SUMMARIES_PATH, {});
-    all[key] = { ...value, at: new Date().toISOString() };
-    const keys = Object.keys(all);
-    if (keys.length > 500) delete all[keys[0]]; // FIFO bound
-    await writeAtomic(SUMMARIES_PATH, all);
-  });
+  const entry = { ...value, at: new Date().toISOString() };
+  await db.query(
+    `insert into market_potential_summaries (key, data)
+     values ($1, $2)
+     on conflict (key) do update set data = excluded.data, created_at = now()`,
+    [key, db.json(entry)]
+  );
+  // Same 500-entry bound as the file version, but it evicts the OLDEST rather
+  // than whichever key happened to come first in JSON object order.
+  await db.query(
+    `delete from market_potential_summaries
+      where key in (
+        select key from market_potential_summaries
+         order by created_at desc, key desc
+         offset 500
+      )`
+  );
 }
 
 module.exports = {

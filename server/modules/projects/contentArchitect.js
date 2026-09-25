@@ -78,7 +78,14 @@ async function status({ access, domains = [], start = false, retry = false }) {
     state = 'not_started';
     note = !autostart.isEnabled()
       ? 'Automatic Content Architect analysis is disabled on this server.'
-      : 'Content Architect is set up, but its analysis has not started. Retry to queue it.';
+      // Reaching here with an attempt means that attempt finished: a run is on
+      // record for this crawl, but the result it wrote is not. Before 0032 that
+      // result went to a file on whichever machine ran the job, and on a machine
+      // that lost its files the run outlived it. "Has not started" would be
+      // untrue, and it is the wrong reason to give for pressing Retry.
+      : attempted
+        ? 'The last analysis finished, but its result is no longer stored. Retry to run it again.'
+        : 'Content Architect is set up, but its analysis has not started. Retry to queue it.';
   }
   return { project, state, note, ready, canStartRun: access.can('startRun') === true && autostart.isEnabled() };
 }

@@ -1,13 +1,17 @@
 // Status tags shown next to a tool's name (sidebar) and on its card (home).
-// Same visual language as the original "Beta" pill, one distinct color each.
 // A tool with no `tag` shows nothing. Single source of truth for both surfaces.
-// `label` is the full text (cards, which have room); `short` is the compact
-// form used in the width-constrained sidebar so tool names aren't over-truncated.
+//
+// What a reader SEES is `badge`: one quiet word, the same for every maturity
+// level. Eleven of sixteen menu items used to carry a coloured "Internal",
+// "Beta" or "Testing" pill, which told a first-time visitor the whole product
+// was unfinished and had stopped telling the team anything. The precise status
+// (`label`) is kept and shown as the pill's tooltip, so nothing is lost.
+const QUIET = { bg: 'color-mix(in srgb, var(--text-3) 16%, transparent)', fg: 'var(--text-2)' };
 export const TAGS = {
-  beta:     { label: 'Beta',             short: 'Beta',     bg: 'rgba(59,130,246,0.20)',  fg: '#60a5fa' },
-  internal: { label: 'Internal Only',    short: 'Internal', bg: 'rgba(245,158,11,0.20)',  fg: '#fbbf24' },
-  testing:  { label: 'Internal Testing', short: 'Testing',  bg: 'rgba(168,85,247,0.22)',  fg: '#c084fc' },
-  soon:     { label: 'Coming Soon',      short: 'Soon',     bg: 'rgba(148,163,184,0.22)', fg: '#cbd5e1' },
+  beta:     { label: 'Beta',             short: 'Beta', badge: 'Beta', ...QUIET },
+  internal: { label: 'Internal Only',    short: 'Beta', badge: 'Beta', ...QUIET },
+  testing:  { label: 'Internal Testing', short: 'Beta', badge: 'Beta', ...QUIET },
+  soon:     { label: 'Coming Soon',      short: 'Soon', badge: 'Soon', ...QUIET },
 };
 
 export const TOOL_GROUPS = [

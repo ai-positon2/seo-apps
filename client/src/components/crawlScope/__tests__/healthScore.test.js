@@ -139,6 +139,26 @@ test('only page-scoped findings count towards the per-page bands', () => {
   assert.strictEqual(healthMetrics(results, findings).affectedErrorPages, 1);
 });
 
+test('pages with any problem are counted once, never more than the pages crawled', () => {
+  // The issues tab read "7,895 findings on 2140 of 1136 pages": it added the
+  // three per-severity page counts, which overlap whenever a page carries more
+  // than one kind of problem.
+  const metrics = healthMetrics(pages(10, { errors: 3, warnings: 8, notices: 10 }), []);
+  assert.strictEqual(
+    metrics.affectedErrorPages + metrics.affectedWarningPages + metrics.affectedNoticePages, 21,
+  );
+  assert.strictEqual(metrics.affectedAnyPages, 10);
+  assert.ok(metrics.affectedAnyPages <= metrics.htmlCount);
+
+  const findings = [
+    { url: 'https://example.com/0', severity: 'error', scope: 'page' },
+    { url: 'https://example.com/0', severity: 'warning', scope: 'page' },
+    { url: 'https://example.com/1', severity: 'notice', scope: 'page' },
+    { url: 'https://example.com/app.css', severity: 'error', scope: 'resource' },
+  ];
+  assert.strictEqual(healthMetrics(pages(10), findings).affectedAnyPages, 2);
+});
+
 test('pages that refused the crawler are neither clean nor broken: they are not counted', () => {
   // Bot protection answered 3 of 4 pages with a 403. Counted, the 403s scored
   // the site 66 for a firewall setting; left in the denominator but not the

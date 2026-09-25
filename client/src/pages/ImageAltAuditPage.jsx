@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import ModuleRuns from '../components/ModuleRuns';
+import { PageFrame } from '../ui/PageFrame';
 
 const STEPS = [
   { id: 'scrape', label: 'Scraping Pages',      icon: '🔍' },
@@ -232,7 +233,12 @@ export default function ImageAltAuditPage() {
   return (
     <>
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
-      <main style={{ maxWidth: 960, margin: '0 auto', padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <PageFrame
+      title="Image Alt Tag Audit"
+      purpose="Paste the page addresses to check. It finds the images on each page, writes alt text and file names, and gives you a colour-coded spreadsheet."
+      width="narrow"
+    >
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
         {/* ── Input Card ──────────────────────────────────────────────── */}
         <div style={{
@@ -629,7 +635,8 @@ export default function ImageAltAuditPage() {
         )}
 
         <ModuleRuns toolId="image-alt-audit" />
-      </main>
+      </div>
+    </PageFrame>
     </>
   );
 }

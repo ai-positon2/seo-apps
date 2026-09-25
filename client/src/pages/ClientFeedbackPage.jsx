@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import MDEditor from '@uiw/react-md-editor';
+import { useTheme } from '../components/ThemeContext';
 
 const CLIENTS = [
   { value: 'gentle-dental', label: 'Gentle Dental' },
@@ -44,6 +45,7 @@ const selectStyle = {
 
 export default function ClientFeedbackPage() {
   const navigate = useNavigate();
+  const { theme } = useTheme();
   const [client, setClient] = useState('gentle-dental');
   const [period, setPeriod] = useState(currentQuarter());
   const [body, setBody] = useState('');
@@ -154,7 +156,7 @@ export default function ClientFeedbackPage() {
           <div style={{ fontSize: '0.875rem', fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text)', marginTop: '0.125rem' }}>{client}-feedback-{period}</div>
         </div>
 
-        <div data-color-mode="light">
+        <div data-color-mode={theme}>
           <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text)', marginBottom: '0.375rem' }}>
             Feedback Notes <span style={{ fontWeight: 400, color: 'var(--text-2)' }}>(Markdown)</span>
           </label>

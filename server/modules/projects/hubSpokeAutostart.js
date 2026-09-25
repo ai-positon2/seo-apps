@@ -18,9 +18,12 @@
 // manager.js, beside the page-inventory sync, for the same reason — it is the
 // moment the run becomes readable).
 //
-// Cheap, unlike competitorAutostart: this bills no third-party API and fetches
-// nothing. Re-analysing after every crawl is the correct default rather than a
-// budget decision, so the only gate is HUB_SPOKE_AUTOSTART=off.
+// Cheap, unlike competitorAutostart: it fetches nothing, and its model calls
+// (page selection, cluster naming, relevance) cost cents per run, with page-
+// selection verdicts cached between runs so a re-crawl of an unchanged site asks
+// the model almost nothing. Re-analysing after every crawl is the correct
+// default rather than a budget decision, so the only gate is
+// HUB_SPOKE_AUTOSTART=off.
 //
 // It goes on the module queue (0019) rather than running inside the crawl worker.
 // Clustering a large site is CPU- and LLM-bound and the crawl worker's job is

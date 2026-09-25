@@ -18,6 +18,7 @@ import CrawlOptionsForm from './CrawlOptionsForm';
 import {
   DAY_NAMES, TIMEZONES, hour12Label, parseWeeklyCron, DEFAULT_OPTIONS, dayAndHourInTimezone,
 } from './crawlHelpers';
+import { cs } from '../../lib/crawlScopeApi';
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 const DEFAULT_TIMEZONE = 'America/Chicago';
@@ -35,6 +36,20 @@ export default function ProjectForm({ open, project, initialUrl, initialAt, onCl
   const [options, setOptions] = useState(DEFAULT_OPTIONS);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // The workspace's real caps, so the settings panel offers the budget this
+  // workspace can actually have rather than a hardcoded range. Fetched when the
+  // modal opens; a failure leaves the static ranges in place rather than
+  // blocking the form.
+  const [limits, setLimits] = useState(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    let cancelled = false;
+    cs.limits()
+      .then((r) => { if (!cancelled) setLimits(r.limits || null); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -244,7 +259,7 @@ export default function ProjectForm({ open, project, initialUrl, initialAt, onCl
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 8 }}>
             Crawl settings
           </div>
-          <CrawlOptionsForm options={options} onChange={setOptions} mode={mode} />
+          <CrawlOptionsForm options={options} onChange={setOptions} mode={mode} limits={limits} />
         </div>
       </div>
     </Modal>

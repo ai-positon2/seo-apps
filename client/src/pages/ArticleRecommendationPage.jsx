@@ -2,6 +2,7 @@ import { useState, useRef, useMemo } from 'react';
 import { saveAs } from 'file-saver';
 import { notifyAgentRunStarted, notifyAgentRunFinished } from '../lib/agentRunSignal';
 import ModuleRuns from '../components/ModuleRuns';
+import { PageFrame } from '../ui/PageFrame';
 
 const STEPS = [
   { id: 'search',   label: 'Searching Google US',  icon: '🔍' },
@@ -357,7 +358,12 @@ export default function ArticleRecommendationPage() {
   const canStart = keyword.trim() && !running;
 
   return (
-    <main style={{ maxWidth: 960, margin: '0 auto', padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <PageFrame
+      title="Article Recommendation"
+      purpose="Enter a keyword. It studies the top 10 Google results and writes an article brief (headings, questions to answer and FAQs) that you can download as a Word file."
+      width="narrow"
+    >
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
       {/* ── Input Card ───────────────────────────────────────────────── */}
       <div style={{
@@ -714,6 +720,7 @@ export default function ArticleRecommendationPage() {
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
       `}</style>
       <ModuleRuns toolId="article-recommendation" />
-    </main>
+    </div>
+    </PageFrame>
   );
 }

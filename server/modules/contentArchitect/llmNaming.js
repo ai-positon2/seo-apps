@@ -3,7 +3,7 @@
 // names/describes clusters and suggests a hub candidate. The pipeline must
 // complete successfully even if every LLM call fails, so every cluster gets
 // a mechanical fallback name regardless of what the model returns.
-const { createLlmClient } = require('../../services/llmProviders');
+const { createLlmClient, structuredTaskParams, assertNotTruncated } = require('../../services/llmProviders');
 const { topTermsForCluster, mechanicalName, titleCase } = require('./clusterEngine');
 const { deriveBrandTokens } = require('./termProfile');
 
@@ -11,6 +11,7 @@ const LLM_NAMING_TERM_COUNT = 15;
 const H2_SAMPLE_COUNT = 5;
 const BATCH_SIZE = 15;
 const MAX_RETRIES = 2;
+const CALL_TIMEOUT_MS = 60000;
 // Claude Sonnet, through the shared provider factory in
 // services/llmProviders.js. That factory already handles the one behavioural
 // difference that matters here: Anthropic's OpenAI-compatible endpoint ignores
@@ -82,13 +83,17 @@ async function callBatch(payload) {
       const completion = await client().chat.completions.create({
         model: MODEL,
         temperature: 0.3,
-        max_tokens: 2048,
+        max_tokens: 4096,
+        ...structuredTaskParams(client()),
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: `${RESPONSE_FORMAT_INSTRUCTION}\n\n${JSON.stringify({ clusters: payload })}` },
         ],
-      });
+      // This loop already retries; the SDK's own retries on top of it, at the
+      // SDK's ten-minute default, let one hung call outlast the whole run.
+      }, { timeout: CALL_TIMEOUT_MS, maxRetries: 0 });
+      assertNotTruncated(completion);
       const raw = completion.choices[0]?.message?.content || '{}';
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed.clusters)) throw new Error('response missing "clusters" array');

@@ -19,11 +19,12 @@ import {
 // Keys mirror services/adminLimits.js DEFAULT_LIMITS. A key with no entry here
 // still renders — the table is driven by what the server sent, not by this map.
 const LIMIT_HELP = {
-  maxUrlsPerCrawl: 'Hard ceiling on URLs fetched in one crawl.',
+  maxUrlsPerCrawl: 'URLs one crawl may fetch. This is the cap for every crawl in the app — manual, scheduled and automatic alike.',
   maxCrawlDepth: 'How many links from the start URL a crawl may follow.',
   scheduleMinIntervalHours: 'Shortest gap allowed between scheduled crawls.',
   perProjectConcurrency: 'Crawls one project may run at the same time.',
   globalCrawlConcurrency: 'Crawls this deployment runs at the same time.',
+  maxCrawlConcurrency: 'Parallel requests within a single crawl.',
   requestTimeoutMs: 'Per-request fetch timeout.',
   renderTimeoutMs: 'Timeout for a page rendered in a browser.',
   renderBudgetPerRun: 'Pages one run may render rather than fetch.',
@@ -36,6 +37,15 @@ const LIMIT_HELP = {
   rawHtmlRetentionMonths: 'Months stored raw HTML is kept.',
   exportRetentionMonths: 'Months generated exports are kept.',
   workspacePurgeGraceDays: 'Days a deleted workspace stays restorable before purge.',
+};
+
+// What a `sources` value means, for the two that are not a policy scope. Without
+// these the column shows a bare word and the operator has to know the codebase
+// to read it — which is the same opacity this screen exists to remove.
+const SOURCE_NOTE = {
+  env_fallback: 'from a server environment variable, because no policy sets this key',
+  hard_max: 'reduced to the platform hard maximum — a policy asked for more',
+  default: 'the built-in default; no policy sets this key',
 };
 
 const DIRECTION_NOTE = { min: 'lower wins', max: 'higher wins', specific: 'most specific scope wins' };
@@ -237,7 +247,16 @@ export default function AdminPage() {
                     {String(effective[key])}
                   </td>
                   <td style={{ padding: 8 }}>
-                    <Tag tone={sources[key] === 'default' ? 'muted' : 'outline'}>{sources[key] || 'default'}</Tag>
+                    <Tag
+                      tone={
+                        sources[key] === 'hard_max' ? 'warn'
+                          : sources[key] === 'default' || sources[key] === 'env_fallback' ? 'muted'
+                            : 'outline'
+                      }
+                    >
+                      {sources[key] || 'default'}
+                    </Tag>
+                    {SOURCE_NOTE[sources[key]] && <Muted>{SOURCE_NOTE[sources[key]]}</Muted>}
                   </td>
                   <td style={{ padding: 8, color: 'var(--text-3)', fontSize: 12 }}>
                     {DIRECTION_NOTE[direction[key]] || '—'}
@@ -346,7 +365,11 @@ function DatabaseCapacityCard() {
   const tone = usage.level === 'critical' ? 'var(--viz-neg)'
     : usage.level === 'warning' ? 'var(--viz-warn)'
       : 'var(--primary)';
-  const pct = usage.percent == null ? null : Math.min(100, usage.percent);
+  // The bar is capped at a full width; the number is not. "100% used" beside
+  // "594 MB of 512 MB" read as a rounding mistake — say how far over it is.
+  const rawPct = usage.percent == null ? null : Math.round(usage.percent);
+  const pct = rawPct == null ? null : Math.min(100, rawPct);
+  const over = rawPct != null && rawPct > 100;
 
   return (
     <Card style={{ padding: 18 }}>
@@ -359,7 +382,9 @@ function DatabaseCapacityCard() {
         <span style={{ fontSize: 22, fontWeight: 500, color: tone }}>{usage.pretty}</span>
         <Muted size={13}>
           of {usage.limitPretty}
-          {pct != null && ` — ${pct}% used, ${usage.freePretty} free`}
+          {rawPct != null && (over
+            ? ` — ${rawPct}% of the limit, ${rawPct - 100}% over`
+            : ` — ${rawPct}% used, ${usage.freePretty} free`)}
         </Muted>
         {usage.level !== 'ok' && (
           <Tag tone={usage.level === 'critical' ? 'neg' : 'warn'}>

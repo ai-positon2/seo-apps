@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, memo } from 'react';
+import { useActiveProject } from '../lib/useActiveProject';
+import { matchClientSlug } from '../lib/clientMatch';
 
 const CLIENTS = [
   { value: '', label: 'No client (generic)' },
@@ -23,8 +25,20 @@ const CheckIcon = () => (
   </svg>
 );
 
+const BRAND_SLUGS = CLIENTS.map((c) => c.value).filter(Boolean);
+
 function KBContextSelector({ module: moduleId, onChange, disabled }) {
-  const [client, setClient] = useState('');
+  // The brand follows the header's client (docs/design-audit/02-plan-one-client.md).
+  // It used to default to "No client (generic)" whatever the header said, so the
+  // client had to be picked a second time. A hand-picked brand still works, for
+  // brands not yet attached to a project, but it is an override, not the norm.
+  const { project, loaded } = useActiveProject();
+  const headerBrand = matchClientSlug(project, BRAND_SLUGS) || '';
+  const [override, setOverride] = useState(null); // null = follow the header
+  const [choosing, setChoosing] = useState(false);
+  const client = override ?? headerBrand;
+  const setClient = (value) => setOverride(value);
+  useEffect(() => { setOverride(null); setChoosing(false); }, [project?.id]);
   const [feedbackKbIds, setFeedbackKbIds] = useState([]);
   const [kbData, setKbData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -104,16 +118,35 @@ function KBContextSelector({ module: moduleId, onChange, disabled }) {
         {/* Brand */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', whiteSpace: 'nowrap' }}>Brand</label>
-          <select
-            value={client}
-            onChange={e => setClient(e.target.value)}
-            disabled={disabled}
-            style={{ ...selectStyle, opacity: disabled ? 0.5 : 1 }}
-          >
-            {CLIENTS.map(c => (
-              <option key={c.value} value={c.value}>{c.label}</option>
-            ))}
-          </select>
+          {choosing ? (
+            <select
+              value={client}
+              onChange={e => setClient(e.target.value)}
+              disabled={disabled}
+              style={{ ...selectStyle, opacity: disabled ? 0.5 : 1 }}
+              aria-label="Brand notes to use"
+            >
+              {CLIENTS.map(c => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
+            </select>
+          ) : (
+            <span style={{ fontSize: 12, color: 'var(--text)' }}>
+              {!loaded ? 'Loading…'
+                : client ? (CLIENTS.find((c) => c.value === client)?.label || client)
+                  : `No brand notes for ${project?.name || 'this client'} yet`}
+              {override === null && client && <span style={{ color: 'var(--text-3)' }}> · from the header</span>}
+            </span>
+          )}
+          {!disabled && (
+            <button
+              type="button"
+              onClick={() => setChoosing((v) => !v)}
+              style={{ fontSize: 12, color: 'var(--primary-text)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+            >
+              {choosing ? 'Done' : 'Use a different brand'}
+            </button>
+          )}
         </div>
 
         {client && (

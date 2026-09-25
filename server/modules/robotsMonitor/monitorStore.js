@@ -1,91 +1,99 @@
-const fs = require('fs').promises;
-const path = require('path');
+// ── Persistence — backed by Postgres ─────────────────────────────────────────
+// Was clients.json, slackConfig.json and one file per run under history/. Now
+// robots_monitor_clients, robots_monitor_runs and one row in the shared
+// `settings` table; see supabase/migrations/0035_robots_monitor_to_postgres.sql.
+//
+// Every exported name, argument, return shape and thrown message is unchanged.
+//
+// Two things behave better than they read:
+//
+//   * The nested edits (addDomain, updateDomain, deleteDomain, updateClient)
+//     were read-whole-file, mutate, write-whole-file. Two requests overlapping
+//     meant the second write dropped whatever the first had just done — adding
+//     a domain to two clients at once could lose one of them. Each is a single
+//     statement now, touching one row.
+//   * pruneHistory deletes by the run's recorded start time instead of parsing
+//     it out of a filename, so a run whose id did not match the expected
+//     `run_YYYYMMDD_HHmm` shape is now pruned rather than kept for ever.
 
-const { resolveDataRoot } = require('../../services/dataRoot');
+const db = require('../../services/db');
+const recordStore = require('../../services/recordStore');
 
-// Ephemeral inside the image on a container platform; see services/dataRoot.js.
-const DATA_DIR    = resolveDataRoot(
-  'robots-monitor', path.join(__dirname, 'data'), 'ROBOTS_MONITOR_DATA_ROOT',
-);
-const CLIENTS_PATH = path.join(DATA_DIR, 'clients.json');
-const SLACK_PATH   = path.join(DATA_DIR, 'slackConfig.json');
-const HISTORY_DIR  = path.join(DATA_DIR, 'history');
+const SLACK_SETTING_KEY = 'robots_monitor.slack';
 
 function genId(prefix) {
   return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
-async function ensureDir(dir) {
-  await fs.mkdir(dir, { recursive: true });
-}
-
-async function readJson(filePath, fallback) {
-  try {
-    return JSON.parse(await fs.readFile(filePath, 'utf8'));
-  } catch {
-    return fallback;
-  }
-}
-
-async function writeAtomic(filePath, data) {
-  const tmp = filePath + '.tmp';
-  await fs.writeFile(tmp, JSON.stringify(data, null, 2), 'utf8');
-  await fs.rename(tmp, filePath);
-}
-
 // ── Startup init ─────────────────────────────────────────────────────────────
-
-async function init() {
-  await ensureDir(DATA_DIR);
-  await ensureDir(HISTORY_DIR);
-  try { await fs.access(CLIENTS_PATH); } catch { await fs.writeFile(CLIENTS_PATH, '[]', 'utf8'); }
-  try { await fs.access(SLACK_PATH); }  catch { await fs.writeFile(SLACK_PATH,  '{}', 'utf8'); }
-}
+// The tables are created by the migration runner, and "no clients yet" is an
+// empty result rather than a file that has to exist. Kept because the module's
+// boot path calls it.
+async function init() {}
 
 // ── Clients ───────────────────────────────────────────────────────────────────
 
 async function getClients() {
-  return readJson(CLIENTS_PATH, []);
+  const found = await db.rows(
+    `select data from robots_monitor_clients order by created_at asc, id asc`
+  );
+  return found.map((r) => r.data);
 }
 
+// Replace the whole list. Kept because it is exported and callers use it, but
+// it is the one operation here that still overwrites everything: in a
+// transaction, so a failure part-way cannot leave the monitor with a half list
+// and nothing to check.
 async function saveClients(clientsArray) {
-  await writeAtomic(CLIENTS_PATH, clientsArray);
+  await db.tx(async (t) => {
+    await t.query(`delete from robots_monitor_clients`);
+    for (const client of clientsArray) {
+      await t.query(
+        `insert into robots_monitor_clients (id, data, created_at, updated_at)
+         values ($1, $2, coalesce($3::timestamptz, now()), now())`,
+        [client.id, db.json(client), client.createdAt || null]
+      );
+    }
+  });
 }
 
 async function addClient({ name }) {
-  const clients = await getClients();
   const client = {
     id: genId('client'),
     name,
     createdAt: new Date().toISOString(),
     domains: [],
   };
-  clients.push(client);
-  await saveClients(clients);
+  await db.query(
+    `insert into robots_monitor_clients (id, data, created_at, updated_at)
+     values ($1, $2, $3, $3)`,
+    [client.id, db.json(client), client.createdAt]
+  );
   return client;
 }
 
 async function updateClient(clientId, { name }) {
-  const clients = await getClients();
-  const idx = clients.findIndex(c => c.id === clientId);
-  if (idx === -1) throw new Error(`Client "${clientId}" not found`);
-  clients[idx].name = name;
-  await saveClients(clients);
-  return clients[idx];
+  const row = await db.maybeOne(
+    `update robots_monitor_clients
+        set data = jsonb_set(data, '{name}', to_jsonb($2::text)), updated_at = now()
+      where id = $1
+    returning data`,
+    [clientId, name]
+  );
+  if (!row) throw new Error(`Client "${clientId}" not found`);
+  return row.data;
 }
 
 async function deleteClient(clientId) {
-  const clients = await getClients();
-  const idx = clients.findIndex(c => c.id === clientId);
-  if (idx === -1) throw new Error(`Client "${clientId}" not found`);
-  clients.splice(idx, 1);
-  await saveClients(clients);
+  const result = await db.query(
+    `delete from robots_monitor_clients where id = $1`, [clientId]
+  );
+  if (!result.rowCount) throw new Error(`Client "${clientId}" not found`);
 }
 
+// ── Domains ───────────────────────────────────────────────────────────────────
+
 async function addDomain(clientId, { url, env, auth = null }) {
-  const clients = await getClients();
-  const client = clients.find(c => c.id === clientId);
-  if (!client) throw new Error(`Client "${clientId}" not found`);
   const domain = {
     id: genId('dom'),
     url,
@@ -94,108 +102,150 @@ async function addDomain(clientId, { url, env, auth = null }) {
     enabled: true,
     addedAt: new Date().toISOString(),
   };
-  client.domains.push(domain);
-  await saveClients(clients);
+  const row = await db.maybeOne(
+    `update robots_monitor_clients
+        set data = jsonb_set(
+              data, '{domains}',
+              coalesce(data->'domains', '[]'::jsonb) || jsonb_build_array($2::jsonb)
+            ),
+            updated_at = now()
+      where id = $1
+    returning data`,
+    [clientId, db.json(domain)]
+  );
+  if (!row) throw new Error(`Client "${clientId}" not found`);
   return domain;
 }
 
 async function updateDomain(clientId, domainId, fields) {
-  const clients = await getClients();
-  const client = clients.find(c => c.id === clientId);
-  if (!client) throw new Error(`Client "${clientId}" not found`);
-  const dom = client.domains.find(d => d.id === domainId);
-  if (!dom) throw new Error(`Domain "${domainId}" not found`);
-  Object.assign(dom, fields);
-  await saveClients(clients);
-  return dom;
+  // Rebuilt rather than indexed into: the array position of a domain is not
+  // stable across concurrent edits, and `jsonb_set(… '{domains,2}' …)` would
+  // write over whichever domain happened to be third by the time it ran.
+  const row = await db.maybeOne(
+    `update robots_monitor_clients
+        set data = jsonb_set(
+              data, '{domains}',
+              coalesce(
+                (select jsonb_agg(
+                          case when entry->>'id' = $2 then entry || $3::jsonb else entry end
+                          order by ordinality)
+                   from jsonb_array_elements(coalesce(data->'domains', '[]'::jsonb))
+                        with ordinality as t(entry, ordinality)),
+                '[]'::jsonb
+              )
+            ),
+            updated_at = now()
+      where id = $1
+        and exists (
+          select 1 from jsonb_array_elements(coalesce(data->'domains', '[]'::jsonb)) entry
+           where entry->>'id' = $2
+        )
+    returning data`,
+    [clientId, domainId, db.json(fields)]
+  );
+
+  // No row means no such client or no such domain, and those are different
+  // messages. Only asked when the update did not land.
+  if (!row) {
+    const client = await getClientRecord(clientId);
+    if (!client) throw new Error(`Client "${clientId}" not found`);
+    throw new Error(`Domain "${domainId}" not found`);
+  }
+  return (row.data.domains || []).find((d) => d.id === domainId);
 }
 
 async function deleteDomain(clientId, domainId) {
-  const clients = await getClients();
-  const client = clients.find(c => c.id === clientId);
-  if (!client) throw new Error(`Client "${clientId}" not found`);
-  const idx = client.domains.findIndex(d => d.id === domainId);
-  if (idx === -1) throw new Error(`Domain "${domainId}" not found`);
-  client.domains.splice(idx, 1);
-  await saveClients(clients);
+  const row = await db.maybeOne(
+    `update robots_monitor_clients
+        set data = jsonb_set(
+              data, '{domains}',
+              coalesce(
+                (select jsonb_agg(entry order by ordinality)
+                   from jsonb_array_elements(coalesce(data->'domains', '[]'::jsonb))
+                        with ordinality as t(entry, ordinality)
+                  where entry->>'id' is distinct from $2),
+                '[]'::jsonb
+              )
+            ),
+            updated_at = now()
+      where id = $1
+        and exists (
+          select 1 from jsonb_array_elements(coalesce(data->'domains', '[]'::jsonb)) entry
+           where entry->>'id' = $2
+        )
+    returning data`,
+    [clientId, domainId]
+  );
+  if (!row) {
+    const client = await getClientRecord(clientId);
+    if (!client) throw new Error(`Client "${clientId}" not found`);
+    throw new Error(`Domain "${domainId}" not found`);
+  }
+}
+
+async function getClientRecord(clientId) {
+  const row = await db.maybeOne(
+    `select data from robots_monitor_clients where id = $1`, [clientId]
+  );
+  return row ? row.data : null;
 }
 
 // ── Slack config ──────────────────────────────────────────────────────────────
 
 async function getSlackConfig() {
-  return readJson(SLACK_PATH, {});
+  return (await recordStore.getSetting(SLACK_SETTING_KEY, {})) || {};
 }
 
 async function saveSlackConfig(config) {
-  await writeAtomic(SLACK_PATH, config);
+  await recordStore.setSetting(SLACK_SETTING_KEY, config);
 }
 
 // ── History ───────────────────────────────────────────────────────────────────
 
 async function saveRunHistory(runObject) {
-  await ensureDir(HISTORY_DIR);
-  const filePath = path.join(HISTORY_DIR, `${runObject.runId}.json`);
-  await fs.writeFile(filePath, JSON.stringify(runObject, null, 2), 'utf8');
+  await db.query(
+    `insert into robots_monitor_runs (run_id, data, started_at)
+     values ($1, $2, $3::timestamptz)
+     on conflict (run_id) do update set data = excluded.data, started_at = excluded.started_at`,
+    [runObject.runId, db.json(runObject), runObject.startedAt || null]
+  );
 }
 
 async function getRunHistory({ limit = 30 } = {}) {
-  await ensureDir(HISTORY_DIR);
-  let files;
-  try {
-    files = await fs.readdir(HISTORY_DIR);
-  } catch {
-    return [];
-  }
-  const jsonFiles = files.filter(f => f.endsWith('.json')).sort().reverse();
-  const sliced = jsonFiles.slice(0, limit);
-
-  const results = [];
-  for (const file of sliced) {
-    try {
-      const raw = JSON.parse(await fs.readFile(path.join(HISTORY_DIR, file), 'utf8'));
-      results.push({
-        runId: raw.runId,
-        triggeredBy: raw.triggeredBy,
-        startedAt: raw.startedAt,
-        completedAt: raw.completedAt,
-        durationMs: raw.durationMs,
-        summary: raw.summary,
-      });
-    } catch {
-      // skip corrupt files
-    }
-  }
-  return results;
+  const found = await db.rows(
+    `select data from robots_monitor_runs
+      order by started_at desc nulls last, run_id desc
+      limit $1`,
+    [limit]
+  );
+  // The same summary the file version built. The full run record is available
+  // through getRunById; the list does not need it.
+  return found.map(({ data }) => ({
+    runId: data.runId,
+    triggeredBy: data.triggeredBy,
+    startedAt: data.startedAt,
+    completedAt: data.completedAt,
+    durationMs: data.durationMs,
+    summary: data.summary,
+  }));
 }
 
 async function getRunById(runId) {
-  const filePath = path.join(HISTORY_DIR, `${runId}.json`);
-  try {
-    return JSON.parse(await fs.readFile(filePath, 'utf8'));
-  } catch {
-    return null;
-  }
+  const row = await db.maybeOne(
+    `select data from robots_monitor_runs where run_id = $1`, [runId]
+  );
+  return row ? row.data : null;
 }
 
 async function pruneHistory(daysToKeep = 90) {
-  await ensureDir(HISTORY_DIR);
-  let files;
-  try {
-    files = await fs.readdir(HISTORY_DIR);
-  } catch {
-    return;
-  }
-  const cutoff = Date.now() - daysToKeep * 24 * 60 * 60 * 1000;
-  for (const file of files) {
-    if (!file.endsWith('.json')) continue;
-    // filename: run_YYYYMMDD_HHmm.json
-    const m = file.match(/run_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})/);
-    if (!m) continue;
-    const fileDate = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00Z`).getTime();
-    if (fileDate < cutoff) {
-      try { await fs.unlink(path.join(HISTORY_DIR, file)); } catch { /* ignore */ }
-    }
-  }
+  const cutoff = new Date(Date.now() - daysToKeep * 24 * 60 * 60 * 1000).toISOString();
+  // started_at null means the record never carried a start time. Those are kept
+  // rather than deleted: the file version could not date them either, and
+  // deleting what you cannot date is the wrong way round.
+  await db.query(
+    `delete from robots_monitor_runs where started_at is not null and started_at < $1`,
+    [cutoff]
+  );
 }
 
 module.exports = {

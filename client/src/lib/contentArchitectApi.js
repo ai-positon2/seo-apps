@@ -9,7 +9,9 @@ async function req(path, options = {}) {
   if (!res.ok) {
     let msg = `Request failed (${res.status})`;
     try { msg = (await res.json()).error || msg; } catch { /* ignore */ }
-    throw new Error(msg);
+    // The status rides along so a page can tell "this record does not exist"
+    // from "the request failed", which want different answers.
+    throw Object.assign(new Error(msg), { status: res.status });
   }
   return res.json();
 }

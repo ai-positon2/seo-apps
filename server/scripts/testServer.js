@@ -45,6 +45,13 @@ const SUITES = [
   'services/__tests__/appendOnlySchema.test.js',
   'modules/projects/__tests__/moduleEvidence.test.js',
   'modules/projects/__tests__/hubSpoke.test.js',
+  // Hub and spoke clusters informational pages only: which pages, how the model
+  // is asked, and the crawl facts that still come from every page.
+  'modules/contentArchitect/__tests__/informationalSelection.test.js',
+  'modules/contentArchitect/__tests__/informationalClassifier.test.js',
+  'modules/contentArchitect/__tests__/informationalDiscovery.test.js',
+  'modules/projects/__tests__/crawlToArchitect.test.js',
+  'services/__tests__/llmProviders.test.js',
   'modules/projects/__tests__/moduleDetail.test.js',
   'modules/projects/__tests__/moduleReportRoute.test.js',
   'modules/projects/__tests__/perPageAudits.test.js',
@@ -87,6 +94,10 @@ const SUITES = [
   'modules/aiVisibility/__tests__/provenance.test.js',
   'modules/aiVisibility/__tests__/budgetRetention.test.js',
   'services/__tests__/moduleQueue.test.js',
+  // Needs TEST_DATABASE_URL, like the two suites either side of it: the rules it
+  // checks (spend caps, competitor caps, basket versions, cascades) are
+  // constraints and single statements, which only a real database can answer.
+  'services/__tests__/portedStores.test.js',
   'services/__tests__/moduleScheduler.test.js',
   'modules/projects/__tests__/recommendations.test.js',
   'modules/projects/__tests__/report.test.js',

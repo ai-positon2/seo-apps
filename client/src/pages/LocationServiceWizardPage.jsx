@@ -986,8 +986,12 @@ export default function LocationServiceWizardPage() {
 
       {loadError && (
         <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--r-lg)', background: 'var(--danger-soft,#FEF2F2)', color: 'var(--danger,#EF4444)', fontSize: '0.8125rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
-          <span>{loadError}</span>
-          <button style={btnStyle(true)} disabled={seeding} onClick={seedGentleDental}>{seeding ? 'Seeding…' : 'Seed Gentle Dental data'}</button>
+          <span>
+            {/client not found/i.test(loadError)
+              ? 'Gentle Dental hasn’t been set up in the page builder yet. Set it up to load its services and locations; it takes a few seconds.'
+              : loadError}
+          </span>
+          <button style={btnStyle(true)} disabled={seeding} onClick={seedGentleDental}>{seeding ? 'Setting up…' : 'Set up Gentle Dental'}</button>
         </div>
       )}
 

@@ -7,7 +7,6 @@ import { Drawer } from '../ui/Drawer';
 import { EmptyState } from '../ui/EmptyState';
 import { useToast } from '../ui/Toast';
 import { ct } from '../lib/competitorTrackerApi';
-import { hasUsablePageSpeed } from '../components/competitorAnalysisDashboard/utils';
 import OverviewTab from '../components/competitorAnalysisDashboard/OverviewTab';
 import PageSpeedTab from '../components/competitorAnalysisDashboard/PageSpeedTab';
 import BacklinkTab from '../components/competitorAnalysisDashboard/BacklinkTab';
@@ -129,6 +128,10 @@ export default function CompetitorAnalysisDashboardPage() {
 
   const [meta, setMeta] = useState(null);
   const [clients, setClients] = useState([]);
+  // Until the first client read answers, every empty state below would be a
+  // guess — and the page used to guess "No client selected", then "No data
+  // yet", before the real dashboard arrived.
+  const [clientsLoaded, setClientsLoaded] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState('');
 
   // The client the header is pointing at, and the projects it resolves against.
@@ -182,7 +185,6 @@ export default function CompetitorAnalysisDashboardPage() {
   const pollRef = useRef(null);
   const pageSpeedPollRef = useRef(null);
   const contentAnalysisPollRef = useRef(null);
-  const autoPageSpeedFiredRef = useRef(new Set()); // clientIds already self-healed this session
 
   const TABS = useMemo(() => [
     { key: 'overview', label: 'Overview' },
@@ -356,7 +358,9 @@ export default function CompetitorAnalysisDashboardPage() {
     ct.meta().then(setMeta).catch(() => {});
     // A requested client is honoured only if it exists; a stale id falls back to
     // the normal first-client behaviour rather than showing an empty dashboard.
-    refreshClients(requestedClientId || undefined);
+    refreshClients(requestedClientId || undefined)
+      .catch(() => {})
+      .finally(() => setClientsLoaded(true));
     return () => {
       clearInterval(pollRef.current);
       clearInterval(pageSpeedPollRef.current);
@@ -370,22 +374,10 @@ export default function CompetitorAnalysisDashboardPage() {
     loadContentAnalysis(selectedClientId);
   }, [selectedClientId, loadDashboard, loadContentAnalysis]);
 
-  // Self-heal for snapshots saved before Page Speed became a background job
-  // (or where every domain genuinely failed last time) — fires the
-  // cache-respecting background refresh at most once per client per page
-  // session, not on every render.
-  useEffect(() => {
-    if (!snapshot || !selectedClientId || !meta?.pageSpeedEnabled) return;
-    if (running && runningClientId === selectedClientId) return;
-    if (pageSpeedRunning && pageSpeedRunningClientId === selectedClientId) return;
-    if (autoPageSpeedFiredRef.current.has(selectedClientId)) return;
-    const domains = snapshot.domains || [];
-    if (domains.length && !hasUsablePageSpeed(domains)) {
-      autoPageSpeedFiredRef.current.add(selectedClientId);
-      triggerBackgroundPageSpeed(selectedClientId);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [snapshot, selectedClientId, meta]);
+  // There used to be a "self-heal" effect here that started a PageSpeed refresh
+  // whenever a client was opened without usable Page Speed data. Opening a
+  // report must not start work: the Page Speed tab's Refresh button does it on
+  // request, and a completed "Run Analysis" still refreshes it (see below).
 
   function startPolling(clientId) {
     clearInterval(pollRef.current);
@@ -467,10 +459,10 @@ export default function CompetitorAnalysisDashboardPage() {
   }
 
   // Fires automatically after a successful "Run Analysis" (cache-respecting
-  // — does NOT force-refetch domains whose Page Speed is already fresh) and
-  // once per session if an existing snapshot has no usable Page Speed at all
-  // (see the self-heal effect below). Deliberately does not toast on failure
-  // to start — the main run already succeeded and its own toast already fired.
+  // — does NOT force-refetch domains whose Page Speed is already fresh), and
+  // only then: opening a client never starts it. Deliberately does not toast
+  // on failure to start — the main run already succeeded and its own toast
+  // already fired.
   async function triggerBackgroundPageSpeed(clientId) {
     if (!meta?.pageSpeedEnabled) return;
     if (pageSpeedRunning && pageSpeedRunningClientId === clientId) return;
@@ -700,6 +692,47 @@ export default function CompetitorAnalysisDashboardPage() {
     .map((c) => c.host)
     .filter(Boolean);
 
+  // Does this tool's competitor list differ from the project's? Compared as
+  // bare hosts, and only up to this tool's own limit.
+  const [syncingCompetitors, setSyncingCompetitors] = useState(false);
+  const bareHost = (d) => hostKey(d).replace(/^www\./, '');
+  const wantedHosts = projectCompetitors.slice(0, maxCompetitors).map(bareHost);
+  const haveHosts = (client?.competitors || []).map((c) => bareHost(c.domain));
+  const competitorDrift = wantedHosts.length > 0 && (
+    wantedHosts.some((h) => !haveHosts.includes(h)) || haveHosts.some((h) => !wantedHosts.includes(h))
+  );
+
+  async function syncCompetitorsFromProject() {
+    if (!client || syncingCompetitors) return;
+    setSyncingCompetitors(true);
+    const failed = [];
+    try {
+      // Remove first, so adding never trips the per-client limit.
+      for (const comp of client.competitors || []) {
+        if (!wantedHosts.includes(bareHost(comp.domain))) {
+          // eslint-disable-next-line no-await-in-loop
+          try { await ct.removeCompetitor(client.id, comp.id); } catch (e) { failed.push(`${comp.domain} (${e.message})`); }
+        }
+      }
+      for (const host of wantedHosts) {
+        if (!haveHosts.includes(host)) {
+          // eslint-disable-next-line no-await-in-loop
+          try { await ct.addCompetitor(client.id, { domain: host, label: host }); } catch (e) { failed.push(`${host} (${e.message})`); }
+        }
+      }
+      await loadDashboard(client.id);
+      toast.add({
+        title: failed.length ? 'Competitors partly updated' : 'Now using the project’s competitors',
+        description: failed.length
+          ? `Not changed: ${failed.join(', ')}.`
+          : 'Run an analysis to pull fresh data for them.',
+        variant: failed.length ? 'warning' : 'success',
+      });
+    } finally {
+      setSyncingCompetitors(false);
+    }
+  }
+
   async function setUpFromProject() {
     if (!activeProject || settingUpFromProject) return;
     const domain = activeProject.primaryDomain?.host
@@ -750,6 +783,11 @@ export default function CompetitorAnalysisDashboardPage() {
   // Nothing on screen yet: no stored snapshot, no content analysis, and not
   // mid-load. The same condition the "No analysis yet" branch below uses.
   const nothingToShow = !snapshot && !contentAnalysis && !loadingDashboard;
+  // Still working out what to show: the client list or the project list has
+  // not answered, or the selected client's dashboard is loading for the first
+  // time (a reload of an already-shown dashboard keeps it on screen).
+  const resolving = !clientsLoaded || projects === null
+    || (Boolean(selectedClientId) && loadingDashboard && !snapshot);
 
   return (
     <div className="ca-report">
@@ -861,7 +899,9 @@ export default function CompetitorAnalysisDashboardPage() {
             value={selectedClientId}
             onChange={(e) => setSelectedClientId(e.target.value)}
           >
-            {!linkedClient && <option value="" disabled>No analysis for this project</option>}
+            {!linkedClient && (
+              <option value="" disabled>{resolving ? 'Loading…' : 'No analysis for this project'}</option>
+            )}
             {linkedClient && (
               <option value={linkedClient.id}>
                 {activeProject?.name || linkedClient.name}
@@ -882,6 +922,29 @@ export default function CompetitorAnalysisDashboardPage() {
           </div>
         )}
       </div>
+
+      {/* One competitor list per client (docs/design-audit/02-plan-one-client.md).
+          This tool keeps its own list, and it had drifted from the project's —
+          Home named three competitors while this page compared a fourth. Say so,
+          and offer the project's list; nothing is fetched until the next run. */}
+      {client && linkedClient && client.id === linkedClient.id && competitorDrift && (
+        <div
+          role="status"
+          style={{
+            margin: '12px 0 4px', padding: '10px 14px', borderRadius: 'var(--r-md)',
+            border: '1px solid var(--border)', background: 'var(--surface)',
+            display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 13,
+          }}
+        >
+          <span style={{ flex: '1 1 320px', color: 'var(--text-2)' }}>
+            These competitors differ from {activeProject?.name}’s own list
+            ({projectCompetitors.slice(0, maxCompetitors).join(', ')}), which the dashboard and other tools use.
+          </span>
+          <Button size="sm" variant="secondary" loading={syncingCompetitors} onClick={syncCompetitorsFromProject}>
+            Use the project’s competitors
+          </Button>
+        </div>
+      )}
 
       {snapshot && (
         <div className="ca-runstats">
@@ -911,7 +974,9 @@ export default function CompetitorAnalysisDashboardPage() {
         </div>
       )}
 
-      {nothingToShow && activeProject && projectRunInFlight ? (
+      {resolving ? (
+        <EmptyState title="Loading competitor analysis…" description="Reading this client’s latest comparison." />
+      ) : nothingToShow && activeProject && projectRunInFlight ? (
         // A comparison is already on the queue or executing for this project, so
         // this is a wait, not a setup step. Naming the state beats an empty page
         // that reads as "nothing has ever happened here", and it withholds the

@@ -404,6 +404,18 @@ async function latestByModule(projectId, { limit = 120 } = {}) {
   //
   // That sentence is the whole point of the state — "Content Architect has no
   // project for this domain yet" is actionable where "insufficient data" is not.
+  //
+  // A Content Architect ref is kept only if its analysis still exists. Before
+  // 0032 the analysis was a file on whichever machine ran the job, while the run
+  // row went to the shared database, so a run done elsewhere names an analysis
+  // that was never imported, and "View report" went to a 404. In that case the
+  // ref becomes the analysis linked to this project now, the one the tool page's
+  // "Open analysis" opens, so the card still goes straight to a report. With
+  // neither, it is null and the card opens the tool page. Both lookups are in
+  // this query rather than a second one, since the dashboard runs it on every
+  // poll: a primary-key probe and a unique-index probe per hub_spoke row.
+  // Competitor refs are left alone: that page already ignores an id it cannot
+  // resolve.
   let data;
   try {
     data = await db.rows(
@@ -413,8 +425,16 @@ async function latestByModule(projectId, { limit = 120 } = {}) {
               payload->>'note' as "note",
               payload->>'cardNote' as "cardNote",
               payload->>'interrupted' as "interrupted",
-              payload->>'reportRef' as "reportRef"
-         from project_module_runs
+              case
+                when module_key = 'hub_spoke' then coalesce(
+                  (select ca.id from content_architect_projects ca
+                    where ca.id = runs.payload->>'reportRef'),
+                  (select ca.id from content_architect_projects ca
+                    where ca.platform_project_id = runs.project_id)
+                )
+                else payload->>'reportRef'
+              end as "reportRef"
+         from project_module_runs runs
         where project_id = $1
         order by created_at desc
         limit $2`,
@@ -499,7 +519,11 @@ const MINUTES_PER_PAGE = { seo_geo: 3, agent_readiness: 2 };
 // sweeper killing it would destroy captures already paid for and then report
 // the client as unmeasured — the exact failure this module is built to avoid.
 const FLAT_MINUTES = {
-  hub_spoke: 5, competitor: 15, ai_visibility: 45, ai_visibility_prompts: 10,
+  // hub_spoke was 5. It now reads the site's sitemaps and walks its
+  // informational listings, spends up to three minutes choosing pages
+  // (SELECTION_AI_BUDGET_MS in contentArchitect/config.js), and fetches up to
+  // DISCOVERY_MAX_FETCH of them before naming and relevance even start.
+  hub_spoke: 15, competitor: 15, ai_visibility: 45, ai_visibility_prompts: 10,
   // The API module is the fast one, and that is its whole reason for existing.
   // 20 prompts x 3 providers, three providers answering in parallel per prompt,
   // a few seconds each: a full run lands around 3-5 minutes. 12 leaves room for

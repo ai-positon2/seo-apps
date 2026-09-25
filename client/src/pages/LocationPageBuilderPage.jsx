@@ -66,8 +66,8 @@ function NewPageWizard({ onClose, onCreated, onStartDentalWizard }) {
     lpb.clients().then(async (clients) => {
       if (!clients.some(c => c.id === clientId)) {
         setError(isDental
-          ? 'Gentle Dental reference data not found. Seed it from the Gentle Dental Wizard first.'
-          : 'Neuro Wellness Spa not found. Click "Seed Neuro Wellness Spa" first.');
+          ? 'Gentle Dental hasn’t been set up in the page builder yet. Set it up from the Gentle Dental Wizard.'
+          : 'Neuro Wellness Spa hasn’t been set up in the page builder yet. Use “Set up Neuro Wellness Spa” above; it takes a few seconds.');
         return;
       }
       const full = await lpb.client(clientId);
@@ -227,7 +227,7 @@ export default function LocationPageBuilderPage() {
               disabled={seeding}
               style={{ padding: '0.5rem 0.75rem', fontSize: '0.875rem', border: '1px solid var(--border)', background: 'var(--card)', borderRadius: 'var(--r-md,6px)', color: 'var(--text-2)', cursor: seeding ? 'not-allowed' : 'pointer', opacity: seeding ? 0.5 : 1 }}
             >
-              {seeding ? 'Seeding…' : 'Seed Neuro Wellness Spa'}
+              {seeding ? 'Setting up…' : 'Set up Neuro Wellness Spa'}
             </button>
             <button
               onClick={() => navigate('/location-page-builder/gentle-dental-pages')}

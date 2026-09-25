@@ -263,12 +263,15 @@ export default function SeoGeoAuditPage() {
   // the input form used to render on mount and be replaced a moment later.
   const [reportState, setReportState] = useState('loading');
   const [view, setView] = useState('summary');
+  // Set only when someone runs an audit on this screen. Opening a stored report
+  // (restored, or read from the project) must not start paid work on its own.
+  const [freshRun, setFreshRun] = useState(false);
 
   // Inputs, the SSE run and run persistence live in the shared hook so the
   // Snapshot page provably sends the same request body and restores the same way.
   const ctl = useSeoGeoAudit('seo-geo-audit', {
-    onRestored: () => setView('summary'),
-    onResult: () => setView('summary'),
+    onRestored: () => { setFreshRun(false); setView('summary'); },
+    onResult: () => { setFreshRun(true); setView('summary'); },
   });
   const { findings, ai } = ctl;
 
@@ -281,19 +284,24 @@ export default function SeoGeoAuditPage() {
   const auditedUrl = findings?.meta?.input_type === 'url' ? findings?.meta?.url : null;
   const onPage = useOnPageTab(auditedUrl);
 
-  // The On-Page audit starts on its own as soon as a URL-based run lands, so the
-  // panel is already populated (or filling) by the time anyone opens it. It stays
-  // a separate job rather than part of the SSE run: PageSpeed Insights takes
-  // 30-60s for mobile + desktop, and blocking the main result on it would triple
-  // the wait for the scores people came for.
+  // The On-Page audit follows on from a run someone just started here, so the
+  // panel is already filling by the time they open it. It stays a separate job
+  // rather than part of the SSE run: PageSpeed Insights takes 30-60s for mobile +
+  // desktop, and blocking the main result on it would triple the wait.
+  //
+  // It does NOT start when a stored report is merely opened: reading a report
+  // used to launch a PageSpeed job (and another for every page picked), which
+  // spent quota and filled run history for people who were only looking. The
+  // On-Page tab offers its own "Run On-Page Audit" button in that case.
   useEffect(() => {
-    if (auditedUrl) onPage.autoStart(findings?.meta?.keywords || []);
-  }, [auditedUrl, onPage.autoStart, findings?.meta?.keywords]);
+    if (auditedUrl && freshRun) onPage.autoStart(findings?.meta?.keywords || []);
+  }, [auditedUrl, freshRun, onPage.autoStart, findings?.meta?.keywords]);
 
   // Clears the On-Page result explicitly rather than relying on the hook's
   // url-change effect, which would not fire when the next audit targets the same
   // URL.
   function handleNewAudit() {
+    setFreshRun(false);
     onPage.reset();
     ctl.reset();
     setView('summary');

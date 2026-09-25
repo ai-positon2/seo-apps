@@ -57,7 +57,8 @@
   /* Text */
   --text:         #1C1E24;
   --text-2:       #4A4A50;
-  --text-3:       #6E6E73;
+  /* Was #6E6E73, 4.2:1 on --surface; now >= 4.97:1 on every light ground. */
+  --text-3:       #636368;
   --text-on-primary: #FFFFFF;
 
   /* Brand — one deep teal, used for every affirmative state */
@@ -115,6 +116,17 @@
   --font-sans: 'Poppins', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 
+  /* Type scale. The audit counted 32 distinct font sizes in use (9px-64px).
+     New and migrated UI uses these six; see docs/design-audit/03-plan-one-kit.md.
+       xs   captions, table meta, badges
+       sm   secondary text, dense tables
+       base body text, controls
+       lg   card and section titles
+       xl   page titles
+       2xl  headline figures */
+  --fs-xs: 11px;  --fs-sm: 12.5px;  --fs-base: 14px;
+  --fs-lg: 17px;  --fs-xl: 22px;    --fs-2xl: 32px;
+
   /* Radius */
   --r-sm: 6px;  --r-md: 8px;  --r-lg: 12px;  --r-xl: 16px;  --r-pill: 999px;
 
@@ -124,9 +136,13 @@
   --shadow-lg: 0 12px 32px rgba(28,30,36,0.14);
   --shadow-focus: 0 0 0 3px var(--focus-ring);
 
-  /* Motion */
+  /* Motion. --ease kept for existing callers; --ease-out is the stronger
+     entrance curve for new motion (review-animations standards). --dur-std is
+     an alias: components/ProgressSteps.jsx referenced it while it did not
+     exist, so its transitions never ran. */
   --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
-  --dur-fast: 120ms;  --dur: 160ms;  --dur-slow: 240ms;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --dur-fast: 120ms;  --dur: 160ms;  --dur-slow: 240ms;  --dur-std: var(--dur);
 
   /* Legacy aliases — keep older inline-style references working */
   --wallpaper:    var(--bg);
@@ -166,7 +182,10 @@
 
   --text:         #EDEAE3;
   --text-2:       #ABB1AD;
-  --text-3:       #6E7679;
+  /* Was #6E7679: 3.58:1 on --card, the single biggest source of contrast
+     failures in the 25 Sep 2026 design audit (avg 12.6 per screen). Now
+     4.84:1 on --card and 5.25:1 on --bg (WCAG AA for small text). */
+  --text-3:       #848C8F;
   /* Teal is light enough here that white-on-teal fails; ink-on-teal passes. */
   --text-on-primary: #0F1416;
 
@@ -313,6 +332,69 @@
 .module-card-link:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
+}
+
+/* ── Keyboard focus, everywhere ───────────────────────────────────────────
+   Many controls set `outline: none` inline (ui/Button among them), which left
+   keyboard users with no visible position. :focus-visible only matches
+   keyboard focus, so mouse users see no change. !important because the
+   inline `outline: none` would otherwise win. */
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+[role="tab"]:focus-visible,
+summary:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--primary) !important;
+  outline-offset: 2px;
+}
+
+/* ── ui/Modal (base-ui Dialog) ────────────────────────────────────────────
+   base-ui marks the entering and leaving frames with data-starting-style /
+   data-ending-style, so both directions animate with plain transitions
+   (interruptible, unlike keyframes). Exit is faster than entrance. */
+.ui-modal-backdrop {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(8, 10, 12, 0.55);
+  transition: opacity 200ms var(--ease-out);
+}
+.ui-modal-backdrop[data-starting-style],
+.ui-modal-backdrop[data-ending-style] { opacity: 0; }
+.ui-modal-popup {
+  position: fixed; top: 50%; left: 50%; z-index: 1001;
+  transform: translate(-50%, -50%);
+  width: calc(100% - 48px);
+  max-height: calc(100vh - 48px);
+  display: flex; flex-direction: column;
+  background: var(--card); color: var(--text);
+  border-radius: var(--r-xl); box-shadow: var(--shadow-lg);
+  outline: none;
+  transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out);
+}
+.ui-modal-popup[data-starting-style],
+.ui-modal-popup[data-ending-style] {
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.97);
+}
+.ui-modal-popup[data-ending-style] { transition-duration: 150ms; }
+
+/* One spinner rotation for the whole app. About twenty components inject their
+   own copy of the same keyframes; they keep working, and new code uses this. */
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Reduced motion: stop loops and slides, keep colour and opacity changes.
+   Before this only the body's theme cross-fade honoured the setting. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+  *:not(body) {
+    transition-property: color, background-color, border-color, opacity, box-shadow !important;
+  }
 }
 
 /* ── The Tech Audit report ────────────────────────────────────────────────

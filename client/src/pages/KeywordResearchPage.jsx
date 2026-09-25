@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { refreshSemrushBalance } from '../lib/semrushBalanceStore';
 import { notifyAgentRunStarted, notifyAgentRunFinished } from '../lib/agentRunSignal';
 import ModuleRuns from '../components/ModuleRuns';
+import { PageFrame } from '../ui/PageFrame';
 
 const STEP_CONFIG = [
   { id: 'variants',    label: 'Query Variants',   desc: 'Expanding across intent variants' },
@@ -296,7 +297,12 @@ export default function KeywordResearchPage() {
   const availableKeywords = [...sourcePoolMap.values()].filter(k => !selectedKeys.has(keyOf(k)));
 
   return (
-    <main style={{ maxWidth: 900, margin: '0 auto', padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <PageFrame
+      title="Keyword Research"
+      purpose="Enter a topic and pick the kind of page. It finds who ranks for that topic, pulls their keywords from Semrush, and recommends 2 primary and 10 secondary keywords."
+      width="narrow"
+    >
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
       {/* ── Input Card ───────────────────────────────────────────────── */}
       <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', padding: 24, boxShadow: cardShadow }}>
@@ -1061,6 +1067,7 @@ export default function KeywordResearchPage() {
         }
       `}</style>
       <ModuleRuns toolId="keyword-research" />
-    </main>
+    </div>
+    </PageFrame>
   );
 }

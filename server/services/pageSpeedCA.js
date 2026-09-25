@@ -157,6 +157,10 @@ async function runPageSpeedOnce(url, strategy) {
     fcp: audits['first-contentful-paint']?.displayValue || 'N/A',
     inp: audits['interaction-to-next-paint']?.displayValue || 'N/A',
     coreWebVitalsPassed: res.data.loadingExperience?.overall_category === 'FAST',
+    // FAST / AVERAGE / SLOW from Chrome's real-user data, or null when Google has
+    // none for this URL. Kept so the UI can tell "failed" from "no data" — the
+    // boolean above is false for both.
+    coreWebVitalsCategory: res.data.loadingExperience?.overall_category || null,
     fixes: extractFixes(lhr),
     // Additive — existing consumers reading only the fields above are unaffected.
     lcpMs,
@@ -202,6 +206,7 @@ async function getPageSpeedForDomain(domain) {
     mobile: mobile.data || emptyStrategy(),
     desktop: desktop.data || emptyStrategy(),
     coreWebVitalsPassed: mobile.data?.coreWebVitalsPassed || false,
+    coreWebVitalsCategory: mobile.data ? (mobile.data.coreWebVitalsCategory || null) : null,
     dataUnavailable: !mobile.data && !desktop.data,
     fixes: fixesSource ? fixesSource.fixes : [],
     strategyErrors: { mobile: mobile.error, desktop: desktop.error }, // explicit reason, never silently null

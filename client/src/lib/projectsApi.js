@@ -370,8 +370,11 @@ export const MODULE_STATUS_LABEL = {
   running: 'Running',
   queued: 'Queued',
   paused: 'Paused',
-  completed: 'Healthy',
-  completed_with_errors: 'Needs attention',
+  // These describe the RUN, not the result. "Healthy" here used to sit beside a
+  // 3/100 score; a verdict on the score belongs to the score (see
+  // scoreVerdict below), not to whether the run finished.
+  completed: 'Up to date',
+  completed_with_errors: 'Finished with errors',
   cancelled: 'Cancelled',
   failed: 'Failed',
   insufficient_data: 'Insufficient data',
@@ -404,6 +407,8 @@ export const MODULE_STATUS_TONE = {
   cancelled: 'warn',
   failed: 'neg',
 };
+
+export { scoreVerdict } from './scoreVerdict';
 
 /** "4 hours ago" / "in 2 days". Absolute date past a week, where "ago" stops helping. */
 export function relativeTime(input) {

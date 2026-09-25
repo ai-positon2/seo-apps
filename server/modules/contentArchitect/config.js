@@ -77,4 +77,61 @@ module.exports = {
   THIN_WORD_COUNT: 500,
   STALE_MONTHS: 18,
   CLUSTER_HEALTH_WEIGHTS: { hubPresent: 30, hubTermCoverage: 20, spokeCountInRange: 15, linkDensity: 20, clickDepth: 15 },
+
+  // ── Informational page selection (project-linked runs) ────────────────────
+  // Hub and spoke is a map of the site's informational content. Location,
+  // service, people and utility pages share city and brand words rather than a
+  // topic, so letting them in grouped pages by city ("Rock Hill SC Dental
+  // Services") and gave every cluster a gap hub. See informationalSelection.js.
+  //
+  // Bumped whenever the prompt, the categories or the included set change, so a
+  // cached verdict from the old definition is never reused under the new one.
+  // 2: the prompt's news/other definitions and the "mixed" rule for blogs that
+  // carry company news (2026-09-25).
+  INFORMATIONAL_SELECTION_VERSION: 2,
+  // The categories that count as informational. A config flip, not a code
+  // change, if the policy ever widens (e.g. to 'media').
+  SELECTION_INCLUDED_CATEGORIES: ['informational'],
+  // Same floor as the crawl itself: a cluster is three pages, so below five
+  // there is nothing for the pipeline to find.
+  MIN_INFORMATIONAL_PAGES: 5,
+  // A section page needs at least this many informational children before the
+  // parent rule treats it as a listing rather than an article.
+  LISTING_MIN_CHILDREN: 2,
+  SELECTION_TEMPLATE_EXAMPLES: 8,
+  SELECTION_TEMPLATE_BATCH_SIZE: 40,
+  SELECTION_URL_BATCH_SIZE: 100,
+  // Per run, and only uncached URLs count, so coverage of a large root-level
+  // blog fills in across successive crawls rather than stalling at the cap.
+  SELECTION_MAX_URL_CHECKS: 1000,
+  SELECTION_AI_CONCURRENCY: 4,
+  SELECTION_AI_TIMEOUT_MS: 45000,
+  // The SDK's retries cover HTTP failures only. A batch whose reply is not
+  // valid JSON — seen live on a 100-URL batch — is asked once more before its
+  // items fall back to the URL rules.
+  SELECTION_AI_MAX_RETRIES: 1,
+  SELECTION_AI_BATCH_ATTEMPTS: 2,
+  // Whole-selection wall clock. Batches not started by then fall back to the
+  // cache or the URL rules, with a limitation line saying so. The hub_spoke
+  // run allowance (moduleEvidence FLAT_MINUTES) is sized with this in it.
+  SELECTION_AI_BUDGET_MS: 180000,
+  SELECTION_CACHE_TTL_DAYS: 90,
+  // A root bucket ("/{slug}"-first template) this big is asked about as a
+  // template before falling back to per-URL checks. See informationalSelection.
+  SELECTION_ROOT_BUCKET_TEMPLATE_MIN: 50,
+
+  // ── Informational page discovery (project-linked runs) ────────────────────
+  // Hub and spoke finds its own candidate pages rather than taking whatever the
+  // site crawl reached: the site's sitemaps, plus the listing pages that its
+  // header/footer menus label as informational (Blog, Resources, Learn…),
+  // walked through their pagination. See informationalDiscovery.js.
+  DISCOVERY_MAX_LISTINGS: 6,          // informational menu links walked as listings
+  DISCOVERY_MAX_LISTING_PAGES: 40,    // pagination pages walked per listing
+  DISCOVERY_LISTING_DELAY_MS: 150,    // between pagination fetches on one site
+  // Informational pages fetched for analysis per run. Past it, pages are left
+  // out with a limitation line; the verdict cache means later runs do not
+  // re-ask for the ones already judged, but each run fetches afresh.
+  DISCOVERY_MAX_FETCH: 800,
+  DISCOVERY_FETCH_CONCURRENCY: 4,
+  DISCOVERY_FETCH_DELAY_MS: 150,
 };

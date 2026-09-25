@@ -16,7 +16,7 @@
 
 const db = require('../../services/db');
 const repo = require('../crawlScope/db/repo');
-const { parseCrawlRequest } = require('../crawlScope/shared/options');
+const { parseCrawlRequest, resolveLimits } = require('../crawlScope/shared/options');
 const { targetFor } = require('./moduleRunners');
 
 const OFF_VALUES = ['0', 'off', 'false', 'no', 'disabled'];
@@ -58,7 +58,19 @@ async function scheduleInitialCrawl({ project, domains = [], ownerId, crawlOptio
 
   let parsed;
   try {
-    parsed = parseCrawlRequest({ url: target.origin, options: crawlOptions || {} });
+    // The workspace's admin limits, same as every other crawl entry path. The
+    // manager resolves again when it executes the run, so this only decides the
+    // options the row is created with — but a row created above the limit and
+    // corrected later is a row that lies about itself in the meantime.
+    parsed = parseCrawlRequest(
+      { url: target.origin, options: crawlOptions || {} },
+      await resolveLimits(project.workspace_id, (error) => {
+        console.warn(
+          `[crawlAutostart] could not resolve admin limits (${error.message}); `
+          + 'falling back to the platform defaults.',
+        );
+      }),
+    );
   } catch (e) {
     console.error('[crawlAutostart] could not build a crawl request:', e.message);
     return answer({ reason: 'invalid_crawl_request' });

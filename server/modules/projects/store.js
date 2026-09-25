@@ -396,12 +396,21 @@ async function createProject({ access, name, primaryDomain, country, competitors
     if (!cronExpr) throw invalid('That schedule day/hour is not valid.');
   }
 
-  const { limits } = await adminLimits.effectiveLimits({ workspaceId: access.workspaceId });
+  // The project's stored options record what it ASKED for. They are no longer
+  // rewritten to the limit in force today.
+  //
+  // The old line here was `if (maxUrls > limit || !maxUrls) maxUrls = limit`,
+  // which froze the day's ceiling into the row. Two consequences, both bad: a
+  // project created while the limit was 150 crawled 150 forever, because raising
+  // the workspace limit later never reached a row that now held the smaller
+  // number; and a project created while the limit was high kept that budget
+  // after the limit was lowered, because nothing re-read the policy at run time.
+  //
+  // crawlScope/run/manager.js resolves the budget per run against the policy as
+  // it stands when the crawl starts, which is the only moment the question has a
+  // correct answer. An absent maxUrls stays absent and means "whatever the
+  // policy allows".
   const options = { ...crawlOptions };
-  if (Number(options.maxUrls) > limits.maxUrlsPerCrawl || !options.maxUrls) {
-    options.maxUrls = limits.maxUrlsPerCrawl;
-  }
-  if (Number(options.maxDepth) > limits.maxCrawlDepth) options.maxDepth = limits.maxCrawlDepth;
 
   let project;
   try {
@@ -545,17 +554,19 @@ async function updateProject({ access, patch }) {
   // pages, re-crawling 150 pages a week, while every score on the dashboard
   // described that fraction of the site without saying so.
   //
-  // Clamped to the effective admin limit on the way in — the same ceiling
-  // createProject() applies — so this cannot exceed the operator's policy, and
-  // a clamp is audited as its own field rather than silently becoming the
-  // ceiling.
+  // Stored as asked, bounded only by the platform hard maximum. It is NOT
+  // clamped to today's admin limit any more, because a clamp here is permanent:
+  // once the row holds the smaller number, raising the workspace limit later
+  // never reaches it, and the fix was to delete the project and make a new one.
   //
-  // The number stored here is still a REQUEST rather than a guarantee: the
-  // run-time path clamps again, to MAX_URLS_CEILING and to the workspace's
-  // admin limit as it stands when the run starts (crawlScope/run/manager.js).
-  // That second clamp is what covers a project created before the limit was
-  // lowered — this one only ever saw the limit in force on the day it was
-  // written.
+  // The admin limit is applied where it can be re-applied — at run time, against
+  // the policy as it stands when the crawl starts (crawlScope/run/manager.js).
+  // That covers both directions: a project created before the limit was lowered
+  // is brought down, and one created before it was raised is let up.
+  //
+  // A request above today's policy is still audited, as `crawlBudgetAbovePolicy`
+  // — it will not crawl that many today, and the trail has to show that rather
+  // than imply the number was granted.
   if (patch.crawlOptions !== undefined) {
     if (!patch.crawlOptions || typeof patch.crawlOptions !== 'object') {
       throw invalid('crawlOptions must be an object.');
@@ -563,21 +574,19 @@ async function updateProject({ access, patch }) {
     const { limits } = await adminLimits.effectiveLimits({ workspaceId: access.workspaceId });
     const next = { ...(project.options || {}) };
 
-    let clamped = null;
+    let abovePolicy = null;
     if (patch.crawlOptions.maxUrls !== undefined) {
       const asked = Math.floor(Number(patch.crawlOptions.maxUrls));
       if (!Number.isFinite(asked) || asked < 1) {
         throw invalid('maxUrls must be a whole number of at least 1.');
       }
-      next.maxUrls = Math.min(asked, limits.maxUrlsPerCrawl);
-      // Clamped rather than rejected — but recorded as its own audited field
-      // when it happens, because the audit writer below keeps only `from` and
-      // `to` from each entry. Hanging `requested` and `ceilings` off the
-      // crawlOptions entry looked like it recorded them and did not: they were
-      // dropped on the way into oldState/newState. A request above policy has
-      // to be visible as such, or the trail shows the ceiling being chosen
-      // deliberately.
-      if (next.maxUrls !== asked) clamped = { from: asked, to: next.maxUrls };
+      next.maxUrls = Math.min(asked, adminLimits.HARD_MAX.maxUrlsPerCrawl);
+      // Recorded as its own audited field, because the audit writer below keeps
+      // only `from` and `to` from each entry. Hanging `requested` and `ceilings`
+      // off the crawlOptions entry looked like it recorded them and did not.
+      if (next.maxUrls > limits.maxUrlsPerCrawl) {
+        abovePolicy = { from: next.maxUrls, to: limits.maxUrlsPerCrawl };
+      }
     }
 
     if (patch.crawlOptions.maxDepth !== undefined) {
@@ -585,12 +594,12 @@ async function updateProject({ access, patch }) {
       if (!Number.isFinite(asked) || asked < 1) {
         throw invalid('maxDepth must be a whole number of at least 1.');
       }
-      next.maxDepth = Math.min(asked, limits.maxCrawlDepth);
+      next.maxDepth = Math.min(asked, adminLimits.HARD_MAX.maxCrawlDepth);
     }
 
     update.options = next;
     changed.crawlOptions = { from: project.options || {}, to: next };
-    if (clamped) changed.crawlBudgetClampedByPolicy = clamped;
+    if (abovePolicy) changed.crawlBudgetAbovePolicy = abovePolicy;
   }
 
   if (patch.pages !== undefined) {

@@ -6,6 +6,7 @@ import ResultsTable from '../components/ResultsTable';
 import ExportButtons from '../components/ExportButtons';
 import KBContextSelector from '../components/KBContextSelector';
 import ModuleRuns from '../components/ModuleRuns';
+import { PageFrame } from '../ui/PageFrame';
 
 const CONFIDENCE_STYLES = {
   HIGH:   { bg: 'var(--success-soft)', text: 'var(--success)', label: 'KB: HIGH' },
@@ -84,7 +85,12 @@ export default function ContentResearchPage() {
   }
 
   return (
-    <main style={{ maxWidth: 1280, margin: '0 auto', padding: '28px 32px' }}>
+    <PageFrame
+      title="Content Research"
+      purpose="Enter a keyword. It reads the top 10 US Google results for it and turns them into a content brief you can export."
+      width="wide"
+    >
+    <div>
       <KBContextSelector
         module="content-research"
         onChange={({ client: c, feedbackKbIds: fb }) => { setClient(c); setFeedbackKbIds(fb || []); }}
@@ -167,6 +173,7 @@ export default function ContentResearchPage() {
         </div>
       )}
       <ModuleRuns toolId="content-research" />
-    </main>
+    </div>
+    </PageFrame>
   );
 }

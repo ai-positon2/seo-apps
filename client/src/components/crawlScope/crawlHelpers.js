@@ -291,15 +291,14 @@ export function healthMetrics(results, findings = []) {
   // Counted over the same pages as the denominator. A finding on an image,
   // script or unreachable URL is real, but that URL is not one of the HTML
   // pages the share is taken over, so it cannot be one of the pages "with" it.
-  const affectedPages = (severity) =>
-    new Set(
-      (useFindings
-        ? activeFindings.filter((f) => f.severity === severity).map((f) => f.url)
-        : internalResults
-            .filter((item) => (item.issues || []).some((i) => i.severity === severity))
-            .map((item) => item.url)
-      ).filter((url) => htmlUrls.has(url)),
-    ).size;
+  const affectedUrls = (severity) =>
+    (useFindings
+      ? activeFindings.filter((f) => !severity || f.severity === severity).map((f) => f.url)
+      : internalResults
+          .filter((item) => (item.issues || []).some((i) => !severity || i.severity === severity))
+          .map((item) => item.url)
+    ).filter((url) => htmlUrls.has(url));
+  const affectedPages = (severity) => new Set(affectedUrls(severity)).size;
 
   const errors = countBySeverity('error');
   const warnings = countBySeverity('warning');
@@ -307,6 +306,10 @@ export function healthMetrics(results, findings = []) {
   const affectedErrorPages = affectedPages('error');
   const affectedWarningPages = affectedPages('warning');
   const affectedNoticePages = affectedPages('notice');
+  // Pages with at least one problem of any severity. The three per-severity
+  // counts overlap (a page can carry an error and a warning), so adding them
+  // up double-counts and can exceed the number of pages crawled.
+  const affectedAnyPages = affectedPages(null);
 
   // Internal HTML pages alone. The old `Math.max(htmlResults.length,
   // results.length)` put every external result back into the divisor.
@@ -334,6 +337,7 @@ export function healthMetrics(results, findings = []) {
     affectedErrorPages,
     affectedWarningPages,
     affectedNoticePages,
+    affectedAnyPages,
   };
 }
 
@@ -632,7 +636,13 @@ export function findingFix(finding, entry) {
 // sentence naming its two link checks, not two sentences.
 export function crawlCoverageNotice(run, catalogById = new Map()) {
   const sum = run?.summary || {};
-  const limit = Number(run?.options?.maxUrls);
+  // run.budget is the budget the run ACTUALLY executed with, resolved against
+  // the admin limit at the moment it started (crawlScope/run/manager.js).
+  // run.options is what the row was created with, which is the same number
+  // only when nothing clamped it — so a run cut from 5,000 to 500 used to
+  // report "budget 5,000 pages", the one figure nobody got. Falls back to
+  // options for runs that predate the column.
+  const limit = Number(run?.budget?.granted ?? run?.options?.maxUrls);
   const depthCap = Number(run?.options?.maxDepth);
   const budgetReached = sum.budgetReached !== undefined
     ? Boolean(sum.budgetReached)
@@ -675,6 +685,16 @@ export function crawlCoverageNotice(run, catalogById = new Map()) {
     partial: reasons.length > 0,
     reasons,
     budgetReached,
+    // Set only when the run asked for more pages than it was allowed, so the
+    // page can name the limit that cut it instead of leaving "why is this
+    // number smaller than the one I typed" to be guessed at.
+    clamped: run?.budget?.clamped
+      ? {
+        requested: Number(run.budget.requested),
+        granted: Number(run.budget.granted),
+        source: run.budget.source,
+      }
+      : null,
     notEvaluated: byReason(sum.coverage?.notEvaluated),
     partlyChecked: byReason(sum.coverage?.partial),
     // Pages reached but not audited (robots.txt closing them to CrawlScope
@@ -1343,6 +1363,25 @@ export const DEFAULT_THRESHOLDS = {
   urlMaxLength: 200,
   maxLinksPerPage: 3000,
 };
+
+// Plain-language names for a run's budget `source`, mirroring
+// BUDGET_SOURCE_LABELS in server/modules/crawlScope/shared/options.js so a
+// toast, a run page and a server log all describe the same reduction the same
+// way. "the operator ceiling" used to be the wording for every case, including
+// the ones that were nothing of the kind.
+const BUDGET_SOURCE_LABELS = {
+  platform: 'the platform admin limit',
+  workspace: "your workspace's admin limit",
+  tier: "this project's tier limit",
+  hard_max: 'the platform hard maximum',
+  env_fallback: 'the server fallback limit',
+  run_override: 'a per-run tightening',
+  default: 'the built-in default limit',
+};
+
+export function describeBudgetSource(source) {
+  return BUDGET_SOURCE_LABELS[source] || 'the limit in force';
+}
 
 export const DEFAULT_OPTIONS = {
   maxUrls: 500,

@@ -25,6 +25,9 @@ export const cs = {
   // Static reference data: the rule catalog (id, title, category, severity,
   // detection, recommendation) every screen needs to name a finding.
   catalog: () => req('/catalog'),
+  // The caps this workspace's crawls run under, so a form can state the real
+  // ceiling rather than a hardcoded one.
+  limits: () => req('/limits'),
 
   // ── Runs ──────────────────────────────────────────────────────────────────
   // A manual crawl executes in the web process, so it starts immediately and is
@@ -71,6 +74,13 @@ export const cs = {
    * simply return them.
    */
   findings: (id) => req(`/runs/${id}/findings`),
+  /**
+   * Persists review decisions — one row or a bulk batch, same endpoint.
+   * `reviews` is [{ findingId, reviewStatus, reviewerNotes }]; the server
+   * rejects ids this run did not produce and caps a request at 5,000 rows.
+   */
+  saveReviews: (id, reviews) =>
+    req(`/runs/${id}/findings`, { method: 'PATCH', body: JSON.stringify({ reviews }) }),
 
   // ── Projects (scheduled crawls) ───────────────────────────────────────────
   projects: () => req('/projects'),

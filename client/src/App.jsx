@@ -49,6 +49,7 @@ const LocationPageBuilderPage = lazy(() => import('./pages/LocationPageBuilderPa
 const LocationPageDetailPage = lazy(() => import('./pages/LocationPageDetailPage'));
 const LocationServiceWizardPage = lazy(() => import('./pages/LocationServiceWizardPage'));
 const GentleDentalPagesPage = lazy(() => import('./pages/GentleDentalPagesPage'));
+const LocationPagesHomePage = lazy(() => import('./pages/LocationPagesHomePage'));
 const ClearBehavioralHealthPage = lazy(() => import('./pages/ClearBehavioralHealthPage'));
 const RobotsMonitorPage = lazy(() => import('./pages/RobotsMonitorPage'));
 const MarketPotentialPage = lazy(() => import('./pages/MarketPotentialPage'));
@@ -79,8 +80,15 @@ function CrawlScopeReviewRedirect() {
 export default function App() {
   const { authState, hasProfile } = useAuth();
 
+  // Same markup as the splash in index.html, so the hand-over from "JavaScript
+  // still downloading" to "checking your session" does not blink.
   if (authState === 'loading') {
-    return <div style={{ height: '100vh', background: 'var(--bg)' }} />;
+    return (
+      <div className="app-splash app-splash--shown" role="status" aria-live="polite">
+        <span className="app-splash-name">SEO Studio</span>
+        <span className="app-splash-note">Loading…</span>
+      </div>
+    );
   }
 
   if (authState === 'unauthenticated') {
@@ -132,7 +140,7 @@ export default function App() {
               list is the front door. The Neuro Wellness pipeline keeps its own
               dashboard at /neuro rather than being removed — it is a separate
               page_object shape with its own detail view and approval flow. */}
-          <Route path="/location-page-builder" element={<GentleDentalPagesPage />} />
+          <Route path="/location-page-builder" element={<LocationPagesHomePage />} />
           <Route path="/location-page-builder/wizard" element={<LocationServiceWizardPage />} />
           {/* Kept so existing links and bookmarks still resolve. */}
           <Route path="/location-page-builder/gentle-dental-pages" element={<GentleDentalPagesPage />} />

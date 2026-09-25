@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { Badge, STATUS } from '../../ui/Badge';
+import { Button } from '../../ui/Button';
+import { Spinner as UiSpinner } from '../../ui/Spinner';
 
 // ── SEO Studio primitives ───────────────────────────────────────────────────
 // The small, repeated pieces of the SEO Studio design language, kept in one
@@ -38,7 +40,12 @@ export const Kicker = ({ children, tone = 'accent', style }) => (
       letterSpacing: '0.1em',
       textTransform: 'uppercase',
       fontWeight: 600,
-      color: tone === 'muted' ? 'var(--text-3)' : 'var(--primary-text)',
+      // 'warn' and 'neg' were passed by callers ("Setup did not finish") but only
+      // 'muted' was understood, so warnings rendered in the affirmative accent.
+      color: tone === 'muted' ? 'var(--text-3)'
+        : tone === 'warn' ? 'var(--viz-warn)'
+          : tone === 'neg' ? 'var(--viz-neg)'
+            : 'var(--primary-text)',
       ...style,
     }}
   >
@@ -50,104 +57,45 @@ export const Muted = ({ children, size = 11, style }) => (
   <span style={{ fontSize: size, color: 'var(--text-3)', ...style }}>{children}</span>
 );
 
-// Tone → token. 'accent' affirmative, 'warn' needs attention, 'neg' failed,
-// 'muted' nothing to say yet, 'outline' a neutral identifier.
+// ── Folded into the shared kit (docs/design-audit/03-plan-one-kit.md) ──────
+// Tag, Btn and Spinner used to be a second, differently styled set of the same
+// parts ui/ already had, so Home, Projects, Admin and AI Visibility looked like
+// a different product from the tools. They keep their names and props here, so
+// no caller changes, but they now render the ui/ parts.
+
+// Tone → ui/Badge status. 'accent' affirmative, 'warn' needs attention, 'neg'
+// failed, 'muted' nothing to say yet, 'outline' a neutral identifier.
 // Exported because the module card tints its icon tile with the same pair its
 // status tag uses, so the mark and the tag cannot disagree about state.
+const TONE_TO_STATUS = { accent: 'brand', warn: 'warning', neg: 'danger', muted: 'neutral' };
 export const TAG_TONES = {
-  accent:  { bg: 'var(--accent-800)',  fg: 'var(--accent-100)',  border: 'transparent' },
-  warn:    { bg: 'color-mix(in srgb, var(--viz-warn) 20%, transparent)', fg: 'var(--viz-warn)', border: 'transparent' },
-  neg:     { bg: 'color-mix(in srgb, var(--viz-neg) 20%, transparent)',  fg: 'var(--viz-neg)',  border: 'transparent' },
-  muted:   { bg: 'var(--neutral-800)', fg: 'var(--neutral-200)', border: 'transparent' },
-  outline: { bg: 'transparent',        fg: 'var(--primary-text)', border: 'var(--primary)' },
+  accent:  { bg: STATUS.brand.bg,   fg: STATUS.brand.fg,   border: 'transparent' },
+  warn:    { bg: STATUS.warning.bg, fg: STATUS.warning.fg, border: 'transparent' },
+  neg:     { bg: STATUS.danger.bg,  fg: STATUS.danger.fg,  border: 'transparent' },
+  muted:   { bg: STATUS.neutral.bg, fg: STATUS.neutral.fg, border: 'transparent' },
+  outline: { bg: 'transparent',     fg: 'var(--primary-text)', border: 'var(--primary)' },
 };
 
 export const Tag = ({ children, tone = 'muted', style }) => {
-  const t = TAG_TONES[tone] || TAG_TONES.muted;
-  return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 4,
-        fontSize: 11,
-        letterSpacing: '0.02em',
-        padding: '3px 10px',
-        borderRadius: 6,
-        whiteSpace: 'nowrap',
-        background: t.bg,
-        color: t.fg,
-        border: `1px solid ${t.border}`,
-        ...style,
-      }}
-    >
-      {children}
-    </span>
-  );
+  if (tone === 'outline') {
+    return (
+      <Badge variant="neutral" style={{ background: 'transparent', color: 'var(--primary-text)', border: '1px solid var(--primary)', ...style }}>
+        {children}
+      </Badge>
+    );
+  }
+  return <Badge variant={TONE_TO_STATUS[tone] || 'neutral'} style={style}>{children}</Badge>;
 };
 
 /**
- * Buttons. `primary` is an outlined accent button, not a filled one — that is
- * the design's own primary treatment, and it keeps a page that is mostly cards
- * from acquiring a single loud rectangle.
+ * Buttons — the ui/ Button, with the studio kit's default of `secondary`.
+ * (Studio's own `primary` was outlined; the product now has one primary look.)
  */
-export const Btn = ({ variant = 'secondary', children, style, disabled, ...rest }) => {
-  const [hover, setHover] = useState(false);
-
-  const palette = {
-    primary: {
-      color: 'var(--primary-text)',
-      border: 'var(--primary)',
-      bg: hover ? 'color-mix(in srgb, var(--primary) 14%, transparent)' : 'transparent',
-    },
-    secondary: {
-      color: 'var(--text)',
-      border: 'var(--border)',
-      bg: hover ? 'color-mix(in srgb, var(--text) 7%, transparent)' : 'transparent',
-    },
-    ghost: {
-      color: 'var(--primary-text)',
-      border: 'transparent',
-      bg: hover ? 'color-mix(in srgb, var(--primary) 10%, transparent)' : 'transparent',
-    },
-    danger: {
-      color: 'var(--viz-neg)',
-      border: 'color-mix(in srgb, var(--viz-neg) 45%, transparent)',
-      bg: hover ? 'color-mix(in srgb, var(--viz-neg) 12%, transparent)' : 'transparent',
-    },
-  }[variant] || {};
-
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 6,
-        fontFamily: 'var(--font-sans)',
-        fontWeight: 500,
-        fontSize: 14,
-        lineHeight: 1.2,
-        padding: '8px 14px',
-        borderRadius: 'var(--r-md)',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.45 : 1,
-        color: palette.color,
-        background: disabled ? 'transparent' : palette.bg,
-        border: `1px solid ${palette.border}`,
-        transition: 'background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease)',
-        ...style,
-      }}
-      {...rest}
-    >
-      {children}
-    </button>
-  );
-};
+export const Btn = ({ variant = 'secondary', children, style, disabled, ...rest }) => (
+  <Button variant={variant} disabled={disabled} style={style} {...rest}>
+    {children}
+  </Button>
+);
 
 /**
  * A 0–100 score ring. Renders ONLY when there is a score: `value` of null draws
@@ -404,8 +352,5 @@ export const AlertRow = ({ severity, title, detail, at }) => {
   );
 };
 
-export const Spinner = ({ label = 'Loading…' }) => (
-  <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
-    {label}
-  </div>
-);
+// Was the bare word "Loading…"; now the shared spinner with its label.
+export const Spinner = ({ label = 'Loading…' }) => <UiSpinner label={label} style={{ padding: '40px 0' }} />;

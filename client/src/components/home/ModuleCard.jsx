@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Muted, Tag, TAG_TONES } from '../studio/primitives';
 import ModuleIcon from './moduleIcons';
-import { MODULE_STATUS_LABEL, MODULE_STATUS_TONE, relativeTime, isModuleInFlight } from '../../lib/projectsApi';
+import { MODULE_STATUS_LABEL, MODULE_STATUS_TONE, relativeTime, isModuleInFlight, scoreVerdict } from '../../lib/projectsApi';
 import { moduleReportRoute } from '../../lib/moduleReportRoute';
 // Same dictionary the sidebar reads (toolsMeta.js) — one source of truth for
 // a tag shown on both surfaces, per that file's own header comment.
@@ -98,8 +98,14 @@ export default function ModuleCard({ module, onRun }) {
   const [busy, setBusy] = useState(false);
   const [runError, setRunError] = useState(null);
 
-  const tone = MODULE_STATUS_TONE[module.status] || 'muted';
-  const statusLabel = MODULE_STATUS_LABEL[module.status] || module.status;
+  // A finished, scored module is labelled by its score, on the same bands as its
+  // colour — the badge used to report the run ("Healthy" = it completed) and so
+  // read "Healthy" above a red 3/100. Running, queued, failed and unscored
+  // modules still show their run status; an interrupted run keeps its "Partial".
+  const finished = module.status === 'completed' || module.status === 'completed_with_errors';
+  const verdict = finished && module.scored ? scoreVerdict(module.score) : null;
+  const tone = verdict ? verdict.tone : (MODULE_STATUS_TONE[module.status] || 'muted');
+  const statusLabel = verdict ? verdict.label : (MODULE_STATUS_LABEL[module.status] || module.status);
   const tint = TAG_TONES[tone] || TAG_TONES.muted;
   const number = headlineNumber(module);
   const blurb = blurbLines(module);
@@ -189,10 +195,14 @@ export default function ModuleCard({ module, onRun }) {
           >
             <ModuleIcon moduleKey={module.key} />
           </span>
+          {/* Wraps to a second line instead of truncating: at a normal laptop
+              width the badges left room for "SEO &…" and "Agent …", so the
+              reader could not tell which module a card was. */}
           <span
             style={{
-              fontSize: 13.5, fontWeight: 500, color: 'var(--text)',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              fontSize: 13.5, fontWeight: 500, color: 'var(--text)', lineHeight: 1.25,
+              overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+              overflowWrap: 'anywhere',
             }}
           >
             {module.label}
@@ -203,7 +213,7 @@ export default function ModuleCard({ module, onRun }) {
               nav entry — so "this is new/still settling" reads the same way
               wherever a reader meets it. */}
           {module.tag && TAGS[module.tag] && (
-            <span style={{
+            <span title={TAGS[module.tag].label} style={{
               fontSize: 9,
               fontWeight: 700,
               letterSpacing: '.04em',
@@ -215,7 +225,7 @@ export default function ModuleCard({ module, onRun }) {
               color: TAGS[module.tag].fg,
             }}
             >
-              {TAGS[module.tag].short || TAGS[module.tag].label}
+              {TAGS[module.tag].badge || TAGS[module.tag].short}
             </span>
           )}
           {/* An interrupted run is a real caveat, but it is one word, not a

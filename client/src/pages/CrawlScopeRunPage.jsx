@@ -48,7 +48,7 @@ import {
   healthMetrics, issueGroups, siteScopedGroups, healthScoreBreakdown, pageIssueCards, crawlCoverageNotice,
   crawlComparison, reviewBatches, orderIssueGroups,
   runStatusVariant, formatDuration, TERMINAL_STATUSES, withEffectiveIssues,
-  buildCountHierarchy, isHtmlPage,
+  buildCountHierarchy, isHtmlPage, describeBudgetSource,
 } from '../components/crawlScope/crawlHelpers';
 import { cs, saveBlob } from '../lib/crawlScopeApi';
 
@@ -65,6 +65,11 @@ const STALE_AFTER_MS = 120_000;
 // progress, so the dependency never changed, the memo never recomputed, and the
 // page could never notice. It has to be time that drives this, not data.
 const STALE_CHECK_MS = 15_000;
+
+// How long a pause/resume/stop may go unconfirmed before the page says so. A
+// crawl in this process confirms within a second; one on the worker within its
+// control poll (3s by default) plus a stream tick.
+const CONTROL_CONFIRM_MS = 20_000;
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -116,8 +121,8 @@ export default function CrawlScopeRunPage() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
   const [downloading, setDownloading] = useState(false);
-  // A pause/stop the worker has not picked up yet. Held so the button does not
-  // look ignored during the gap — the whole complaint about the old behaviour.
+  // { action, at }: a pause/resume/stop the crawl has not confirmed yet. Held
+  // so the button reacts the moment it is pressed rather than looking ignored.
   const [pendingControl, setPendingControl] = useState(null);
   // Static reference data (id -> {title, category, description, recommendation,
   // priority, detection}), fetched once and never scoped to this run. It is what
@@ -225,7 +230,7 @@ export default function CrawlScopeRunPage() {
         setRun((prev) => (prev
           ? { ...prev, status: payload.status, summary: payload.summary, error: payload.error }
           : prev));
-        if (payload.error) toast.error(payload.error);
+        if (payload.error) toast.add({ title: payload.error, variant: 'danger' });
       } catch { /* ignore */ }
       // Findings only exist once the crawl has written its summary.
       //
@@ -369,12 +374,15 @@ export default function CrawlScopeRunPage() {
   // same lie as reporting a failed run as healthy.
   // A clock that ticks only while a crawl is in flight, so the check below has
   // something that changes even when the data does not.
+  // Faster while a pause/resume/stop awaits confirmation, so an unconfirmed one
+  // is reported close to CONTROL_CONFIRM_MS rather than up to a tick later.
   const [now, setNow] = useState(() => Date.now());
+  const awaitingControl = Boolean(pendingControl);
   useEffect(() => {
     if (!running) return undefined;
-    const timer = setInterval(() => setNow(Date.now()), STALE_CHECK_MS);
+    const timer = setInterval(() => setNow(Date.now()), awaitingControl ? 5_000 : STALE_CHECK_MS);
     return () => clearInterval(timer);
-  }, [running]);
+  }, [running, awaitingControl]);
 
   const stalled = useMemo(() => {
     if (!running || status === 'paused' || status === 'queued') return null;
@@ -407,6 +415,14 @@ export default function CrawlScopeRunPage() {
   // matters to a reader — a crawl still going and a crawl whose findings failed
   // to load are indistinguishable in what the page is entitled to claim.
   const provisional = running || findingsState !== 'ready';
+  // A FINISHED crawl whose findings are still on their way. It is provisional
+  // in the sense above, but the words that go with provisional ("the full audit
+  // runs when the crawl finishes", "not scored yet") are false about it: the
+  // crawl finished yesterday. For that moment the page just says it is loading.
+  // Limited to terminal statuses: a paused or queued run is not running either,
+  // but its findings are never fetched, so "loading" would never end for it.
+  const loadingAudit = TERMINAL_STATUSES.includes(status)
+    && (findingsState === 'loading' || findingsState === 'idle');
   // What the "analysing" notices report as progress. The stream's own figure
   // where it has one, falling back to the rows actually received.
   const crawledSoFar = Number.isFinite(Number(progress.crawled))
@@ -429,22 +445,35 @@ export default function CrawlScopeRunPage() {
     ? `receiving — ${results.length.toLocaleString()} of ${crawledSoFar.toLocaleString()} fetched URLs so far`
     : null;
 
-  // A pending pause/stop is resolved by the status it was asking for.
+  // A pending pause/resume/stop is resolved by the crawl confirming it.
   //
-  // Driven off `status` rather than handled inside an event listener: the
-  // status now arrives on three different paths — the one-shot `state` event,
-  // every `progress` tick, and `complete` — and clearing this in only one of
-  // them left the notice on screen indefinitely, which is precisely the
-  // "nothing happened when I pressed Stop" this feature exists to end.
+  // Driven off the streamed run rather than the request's response: the status
+  // arrives on three paths — the one-shot `state` event, every `progress` tick,
+  // and `complete` — and the crawl may be executing in another process, where
+  // the request is only recorded and applied a few seconds later. A stop is
+  // confirmed by `progress.phase` (crawler.js _progress): the status stays
+  // 'running' until the partial audit is written, which can take minutes.
   useEffect(() => {
     setPendingControl((p) => {
       if (!p) return p;
-      if (p.action === 'stop' && ['stopped', 'completed', 'failed'].includes(status)) return null;
+      if (!running) return null;
+      if (p.action === 'stop' && progress.phase) return null;
       if (p.action === 'pause' && status === 'paused') return null;
       if (p.action === 'resume' && status === 'running') return null;
       return p;
     });
-  }, [status]);
+  }, [status, running, progress.phase]);
+
+  // What the crawl is doing, as the controls and the live panel describe it.
+  // A stalled run is described as stalled whatever its last phase said.
+  const phase = running && !stalled ? progress.phase || null : null;
+  const stopping = !stalled && (phase === 'stopping' || pendingControl?.action === 'stop');
+  const analysing = !stopping && phase === 'analysing';
+  // A request nothing has confirmed after a while. Usually the process running
+  // the crawl is busy; if it is gone, `stalled` says so instead.
+  const unconfirmed = pendingControl && !stalled && now - pendingControl.at > CONTROL_CONFIRM_MS
+    ? pendingControl.action
+    : null;
 
   // ── Did the crawl reach the whole site? ──────────────────────────────────
   //
@@ -460,7 +489,7 @@ export default function CrawlScopeRunPage() {
   const comparison = useMemo(() => crawlComparison(run), [run?.summary]);
   const coverage = useMemo(
     () => crawlCoverageNotice(run, catalogById),
-    [run?.summary, run?.status, run?.options?.maxUrls, run?.options?.maxDepth, catalogById],
+    [run?.summary, run?.status, run?.options?.maxUrls, run?.options?.maxDepth, run?.budget, catalogById],
   );
 
   // ── Does this page show everything the analyser found? ───────────────────
@@ -523,32 +552,24 @@ export default function CrawlScopeRunPage() {
   /**
    * Pause, resume or stop.
    *
-   * Two outcomes, and the difference matters to the person pressing the button.
-   * A manual crawl runs in the web process and stops at once. A PROJECT crawl —
-   * everything "Run Full Audit" queues — runs on the worker, which notices the
-   * request on its next heartbeat. That used to be a 409 reading "This run is
-   * not being executed by this instance" while the crawl carried on.
+   * The button reacts at once ("Pausing…", "Stopping…") and the crawl's own
+   * confirmation, arriving on the stream, settles it — see the effect on
+   * pendingControl above. The request's response is deliberately not treated
+   * as the outcome: a manual crawl applies it immediately, but a project or
+   * scheduled crawl runs on the worker, which only picks the request up on its
+   * next control poll. Either way the page shows the same thing.
    *
-   * The server says which happened and how long the second one takes; this
-   * repeats it rather than guessing, because the interval is an operator
-   * setting.
+   * These used to call toast.success / toast.error, which the toast context
+   * does not have. The request went out, the next line threw, and the page
+   * showed nothing at all — which is how Stop came to look broken.
    */
   async function control(action) {
-    setBusy(action);
+    setPendingControl({ action, at: Date.now() });
     try {
-      const result = await cs[action](id);
-      const done = action === 'stop' ? 'stopping' : `${action}d`;
-      if (result?.applied === 'requested') {
-        setPendingControl({ action, at: Date.now(), note: result.note });
-        toast.success(result.note || `Crawl ${done} shortly.`);
-      } else {
-        setPendingControl(null);
-        toast.success(`Crawl ${done}.`);
-      }
+      await cs[action](id);
     } catch (e) {
-      toast.error(e.message);
-    } finally {
-      setBusy('');
+      setPendingControl(null);
+      toast.add({ title: `Could not ${action} the crawl`, description: e.message, variant: 'danger' });
     }
   }
 
@@ -558,7 +579,7 @@ export default function CrawlScopeRunPage() {
       const { blob, filename } = await cs.downloadReport(id);
       saveBlob(blob, filename);
     } catch (e) {
-      toast.error(e.message);
+      toast.add({ title: 'Could not build the Excel audit', description: e.message, variant: 'danger' });
     } finally {
       setDownloading(false);
     }
@@ -578,10 +599,10 @@ export default function CrawlScopeRunPage() {
             ? { urls: run.options.urls, options: run.options }
             : { url: run.url, options: run.options },
         );
-      toast.success('Crawl started.');
+      toast.add({ title: 'Crawl started.' });
       navigate(`/crawl-scope/runs/${started.id}`);
     } catch (e) {
-      toast.error(e.message);
+      toast.add({ title: 'Could not start the crawl', description: e.message, variant: 'danger' });
     } finally {
       setBusy('');
     }
@@ -603,7 +624,7 @@ export default function CrawlScopeRunPage() {
     } catch (e) {
       setFindings((prev) => prev.map((f) => (
         f.id === findingId ? { ...f, reviewStatus: previous } : f)));
-      toast.error(`Could not save that decision: ${e.message}`);
+      toast.add({ title: 'Could not save that decision', description: e.message, variant: 'danger' });
     }
   }, [findings, id, toast]);
 
@@ -627,7 +648,11 @@ export default function CrawlScopeRunPage() {
       const unsaved = new Set(findingIds.slice(saved));
       setFindings((prev) => prev.map((f) => (
         unsaved.has(f.id) ? { ...f, reviewStatus: previous.get(f.id) } : f)));
-      toast.error(`Saved ${saved.toLocaleString()} of ${findingIds.length.toLocaleString()} decisions: ${e.message}`);
+      toast.add({
+        title: `Saved ${saved.toLocaleString()} of ${findingIds.length.toLocaleString()} decisions`,
+        description: e.message,
+        variant: 'danger',
+      });
     }
   }, [findings, id, toast]);
 
@@ -683,7 +708,20 @@ export default function CrawlScopeRunPage() {
   const finishedWord = status === 'completed' ? 'finished'
     : status === 'stopped' ? 'was stopped'
       : status === 'failed' ? 'failed'
-        : 'is running';
+        : stopping ? 'is stopping'
+          : analysing ? 'is being analysed'
+            : status === 'paused' ? 'is paused'
+              : status === 'queued' ? 'is queued'
+                : 'is running';
+
+  // The live crawl's state as one word, for the panel's pill. An action the
+  // crawl has not confirmed yet shows as in progress, not as the old state.
+  const liveLabel = stalled ? 'stopped responding'
+    : stopping ? 'stopping'
+      : analysing ? 'analysing'
+        : pendingControl?.action === 'pause' ? 'pausing'
+          : pendingControl?.action === 'resume' ? 'resuming'
+            : status;
 
   // ── Which view ────────────────────────────────────────────────────────────
   const openGroup = openIssueId ? groups.find((g) => g.id === openIssueId) || null : null;
@@ -698,10 +736,11 @@ export default function CrawlScopeRunPage() {
 
   const issuesNote = `${groups.length} distinct problem${groups.length === 1 ? '' : 's'} · `
     + `${counts.occurrences.toLocaleString()} finding${counts.occurrences === 1 ? '' : 's'} on `
-    + `${metrics.affectedErrorPages + metrics.affectedWarningPages + metrics.affectedNoticePages} `
-    + `of ${metrics.htmlCount} pages`;
+    + `${metrics.affectedAnyPages.toLocaleString()} of ${metrics.htmlCount.toLocaleString()} pages`;
 
-  const note = provisional && tab !== 'urls'
+  const note = loadingAudit && tab !== 'urls'
+    ? 'Loading the audit results…'
+    : provisional && tab !== 'urls'
     ? 'Provisional — the full audit runs when the crawl finishes'
     : tab === 'overview'
       ? 'Site health, key metrics and what to fix first'
@@ -728,7 +767,11 @@ export default function CrawlScopeRunPage() {
             Crawl of {host} {stalled ? 'stopped responding' : finishedWord}
             {run?.finished_at ? ` ${new Date(run.finished_at).toLocaleString()}` : ''}
             {elapsed ? ` · ${formatDuration(elapsed)} elapsed` : ''}
-            {coverage.limit ? ` · budget ${coverage.limit.toLocaleString('en-US')} pages` : ''}
+            {coverage.limit ? ` · page limit ${coverage.limit.toLocaleString('en-US')}` : ''}
+            {coverage.clamped
+              ? ` (reduced from ${coverage.clamped.requested.toLocaleString('en-US')} by `
+                + `${describeBudgetSource(coverage.clamped.source)})`
+              : ''}
             {run?.summary?.robotsStatus ? ` · robots.txt: ${run.summary.robotsStatus}` : ''}
           </span>
         </div>
@@ -741,18 +784,39 @@ export default function CrawlScopeRunPage() {
           {!run?.project_id && (
             <OutlineButton onClick={() => navigate('/crawl-scope')}>All crawls</OutlineButton>
           )}
+          {/* Only the controls that mean something now: Pause while crawling,
+              Resume while paused, Stop until the crawl is stopping. None once
+              every page is fetched — what is left is building the audit, and
+              stopping that would label a complete crawl "stopped". */}
           {running ? (
-            <>
-              <OutlineButton disabled={busy === 'pause'} onClick={() => control('pause')}>
-                {busy === 'pause' ? 'Pausing…' : 'Pause'}
-              </OutlineButton>
-              <OutlineButton disabled={busy === 'resume'} onClick={() => control('resume')}>
-                {busy === 'resume' ? 'Resuming…' : 'Resume'}
-              </OutlineButton>
-              <OutlineButton disabled={busy === 'stop'} onClick={() => control('stop')}>
-                {busy === 'stop' ? 'Stopping…' : 'Stop'}
-              </OutlineButton>
-            </>
+            !analysing && (
+              <>
+                {status === 'running' && !stopping && (
+                  <OutlineButton disabled={Boolean(pendingControl)} onClick={() => control('pause')}>
+                    {pendingControl?.action === 'pause' ? 'Pausing…' : 'Pause'}
+                  </OutlineButton>
+                )}
+                {status === 'paused' && !stopping && (
+                  <OutlineButton
+                    tone="accent"
+                    disabled={Boolean(pendingControl)}
+                    onClick={() => control('resume')}
+                  >
+                    {pendingControl?.action === 'resume' ? 'Resuming…' : 'Resume'}
+                  </OutlineButton>
+                )}
+                <OutlineButton
+                  disabled={stopping}
+                  onClick={() => control('stop')}
+                  style={stopping ? undefined : {
+                    color: 'var(--viz-neg)',
+                    borderColor: 'color-mix(in srgb, var(--viz-neg) 45%, var(--border))',
+                  }}
+                >
+                  {stopping ? 'Stopping…' : 'Stop crawl'}
+                </OutlineButton>
+              </>
+            )
           ) : (
             <>
               <OutlineButton disabled={busy === 'recrawl'} onClick={recrawl}>
@@ -806,7 +870,7 @@ export default function CrawlScopeRunPage() {
                   ? 'var(--viz-neg)' : 'var(--accent-100)',
               }}
             >
-              {stalled ? 'stopped responding' : status}
+              {liveLabel}
             </span>
             <span style={{ fontSize: 12.5, color: 'var(--text-2)' }}>
               {progress.crawled ?? results.length} crawled
@@ -819,32 +883,22 @@ export default function CrawlScopeRunPage() {
               style={{
                 height: '100%',
                 width: `${Math.min(100, Math.round(((progress.crawled || 0) / Math.max(1, (progress.crawled || 0) + (progress.queued || 0))) * 100))}%`,
-                background: 'var(--primary)',
-                transition: 'width 300ms ease',
+                background: stopping ? 'var(--viz-neg)' : 'var(--primary)',
+                opacity: status === 'paused' && !stopping ? 0.45 : 1,
+                transition: 'width 300ms ease, opacity 300ms ease, background 300ms ease',
               }}
             />
           </div>
-          {pendingControl && (
-            <span
-              style={{
-                fontSize: 12, color: 'var(--viz-warn)', lineHeight: 1.5,
-                display: 'flex', alignItems: 'center', gap: 8,
-              }}
-            >
-              <span
-                aria-hidden="true"
-                style={{
-                  width: 7, height: 7, borderRadius: '50%', background: 'var(--viz-warn)',
-                  flexShrink: 0,
-                }}
-              />
-              {pendingControl.action === 'stop' ? 'Stop' : pendingControl.action === 'pause' ? 'Pause' : 'Resume'}
-              {' '}requested. {pendingControl.note || 'Waiting for the worker to pick it up.'}
+          {unconfirmed && (
+            <span style={{ fontSize: 12, color: 'var(--viz-warn)', lineHeight: 1.5 }}>
+              The crawl has not confirmed the {unconfirmed} yet. The request is saved and is
+              applied as soon as the process running it checks in.
             </span>
           )}
-          {/* A stalled crawl will never write findings on its own, so the
-              sentence about "when the crawl reaches a terminal state" is a
-              promise it cannot keep. This says what actually happens next. */}
+          {/* One sentence for what is happening now. A stalled crawl will never
+              write findings on its own, so the sentence about "when the crawl
+              reaches a terminal state" is a promise it cannot keep; that case
+              says what actually happens next. */}
           {stalled ? (
             <span style={{ fontSize: 12, color: 'var(--viz-neg)', lineHeight: 1.55 }}>
               No heartbeat for {stalled.silentMinutes} minute
@@ -852,6 +906,22 @@ export default function CrawlScopeRunPage() {
               stopped. It never reached a terminal state, which is why there are no findings and
               no score — those are written once, at the end. It is reclaimed automatically within
               ten minutes and resumes from its last checkpoint, or you can re-run it now.
+            </span>
+          ) : stopping ? (
+            <span style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.55 }}>
+              {phase === 'stopping'
+                ? <>No new pages are being fetched. The audit is being built from the{' '}
+                  <span className="num">{crawledSoFar.toLocaleString()}</span> pages already
+                  crawled and appears here when it is ready.</>
+                : 'Stopping the crawl…'}
+            </span>
+          ) : analysing ? (
+            <span style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.55 }}>
+              Every page is fetched. The audit is being built and appears here when it is ready.
+            </span>
+          ) : status === 'paused' ? (
+            <span style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.55 }}>
+              Paused. Nothing is being fetched until you resume; the pages crawled so far are kept.
             </span>
           ) : (
             <span style={{ fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.5 }}>
@@ -998,7 +1068,20 @@ export default function CrawlScopeRunPage() {
             ))}
           </div>
 
-          {tab === 'overview' && (
+          {loadingAudit && tab !== 'urls' && (
+            <div
+              role="status"
+              aria-live="polite"
+              style={{
+                padding: '28px 20px', borderRadius: 'var(--r-md)', border: '1px solid var(--border)',
+                background: 'var(--card)', color: 'var(--text-2)', fontSize: 13.5, textAlign: 'center',
+              }}
+            >
+              Loading the audit results for this crawl…
+            </div>
+          )}
+
+          {!loadingAudit && tab === 'overview' && (
             <OverviewPanel
               reconciliation={reconciliation}
               metrics={metrics}
@@ -1013,7 +1096,7 @@ export default function CrawlScopeRunPage() {
             />
           )}
 
-          {['all', 'error', 'warning', 'notice'].includes(tab) && (
+          {!loadingAudit && ['all', 'error', 'warning', 'notice'].includes(tab) && (
             <IssueList
               groups={shownGroups}
               catalogById={catalogById}

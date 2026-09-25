@@ -12,7 +12,7 @@
 // stage is required to run alone — refineWithAI degrades to the rules' own
 // guess whenever there's no API key, a batch fails, or the model's answer
 // isn't one of the known categories.
-const { createLlmClient } = require('../../services/llmProviders');
+const { createLlmClient, structuredTaskParams, assertNotTruncated } = require('../../services/llmProviders');
 const SIBLING_CARDINALITY_THRESHOLD = 8;
 // A value recurring at least this many times at a position is treated as its
 // own literal branch, never swept into the generic {slug} bucket just
@@ -97,7 +97,24 @@ function extractTemplates(urls) {
 // (technical/taxonomy URLs) and win even when a content keyword is also
 // present — e.g. "/blog/tag/{slug}" is excluded, not classified as article,
 // despite containing "blog".
-const EXCLUDE_TERMS = ['tag', 'category', 'author', 'page', 'feed', 'search', 'wp-', 'amp', 'print'];
+// Plurals are listed because matching is by whole segment: "/authors/{slug}" is
+// an author archive exactly as much as "/author/{slug}" is.
+const EXCLUDE_TERMS = ['tag', 'tags', 'category', 'categories', 'author', 'authors', 'page', 'feed', 'search', 'wp-', 'amp', 'print'];
+// Sections that are content-shaped but not editorial: collateral, company news,
+// events, people-facing proof. Matched as WHOLE path segments and checked before
+// the article terms, because a parent segment like "resources" otherwise made
+// every child confident "article" — acalvio's /resources/events/{slug},
+// /resources/webinars/{slug} and /resources/white-papers/{slug} all were.
+// "news" itself is deliberately absent: a /news/ section is editorial for the
+// standalone tool's article default; the project flow decides news separately.
+const NON_EDITORIAL_SEGMENTS = new Set([
+  'events', 'event', 'webinars', 'webinar', 'case-studies', 'case-study', 'customer-stories',
+  'success-stories', 'testimonials', 'reviews', 'press', 'press-releases', 'press-release',
+  'newsroom', 'in-the-news', 'datasheets', 'data-sheets', 'techbriefs', 'tech-briefs',
+  'solution-briefs', 'analyst-reports', 'white-papers', 'whitepapers', 'ebooks', 'e-books',
+  'brochures', 'downloads', 'careers', 'jobs', 'gallery', 'before-and-after', 'podcasts',
+  'podcast', 'videos', 'video',
+]);
 const SERVICE_TERMS = ['service', 'services', 'treatment', 'procedure', 'solution'];
 // Deliberately NOT 'find-a-' or 'store'/'stores' — both are too ambiguous for a
 // blanket keyword match: "find-a-pediatrician" is a provider directory, not a
@@ -105,7 +122,14 @@ const SERVICE_TERMS = ['service', 'services', 'treatment', 'procedure', 'solutio
 // (see VERTICAL_KEYWORDS.ecommerce below). Left for refineWithAI to judge from
 // the actual example URLs rather than asserted here with false confidence.
 const LOCATION_TERMS = ['location', 'locations', 'city', 'office', 'branch', 'dealer', 'near-me'];
-const ARTICLE_TERMS = ['blog', 'articles', 'resources', 'insights', 'guides', 'learn', 'news', 'post'];
+// Prefix-matched per path token, so the singular also catches the plural
+// ("article" covers "/article/" and "/articles/"; the plural alone missed
+// "/guide/{slug}" and "/article/{slug}").
+const ARTICLE_TERMS = ['blog', 'article', 'resource', 'insight', 'guide', 'learn'];
+// Whole-token only. As prefixes these matched "newsletter" and "postal"; a slug
+// word such as "the-post-human-breach" still matches, which is why the project
+// flow judges one-off URLs by their folders rather than their slug.
+const ARTICLE_EXACT_TERMS = ['news', 'post', 'posts'];
 // A team/staff bio or directory — its own category rather than folding into
 // "article", which is what a bare {slug} pattern with no other signal used to
 // default to (see the "meet-our-dentists" example below). Structural phrases
@@ -135,6 +159,17 @@ function hasTerm(pattern, terms) {
   const lower = pattern.toLowerCase();
   const tokens = lower.split(/[/_-]+/).filter(Boolean);
   return terms.some((t) => (t.includes('-') ? lower.includes(t) : tokens.some((tok) => tok.startsWith(t))));
+}
+
+// Whole-token equality, for words whose prefixes are other words ("news" and
+// "newsletter").
+function hasExactToken(pattern, terms) {
+  const tokens = pattern.toLowerCase().split(/[/_-]+/).filter(Boolean);
+  return tokens.some((tok) => terms.includes(tok));
+}
+
+function matchesNonEditorialSection(pattern) {
+  return pattern.toLowerCase().split('/').filter(Boolean).some((s) => NON_EDITORIAL_SEGMENTS.has(s));
 }
 
 // Exclude terms are CMS taxonomy/system markers (WordPress tag/category/
@@ -198,10 +233,15 @@ function ruleVerdict(entry) {
   const { pattern, count, examples } = entry;
 
   if (matchesExcludeTerm(pattern) || hasQueryString(examples)) return { classification: 'exclude', confident: true };
+  // Ahead of the keyword rules, not just the article one: a press release whose
+  // slug says "top-dentist" is still a press release, not a people page.
+  if (matchesNonEditorialSection(pattern)) return { classification: 'static', confident: true };
   if (hasTerm(pattern, SERVICE_TERMS)) return { classification: 'service', confident: true };
   if (hasTerm(pattern, LOCATION_TERMS) || matchesCityList(pattern)) return { classification: 'location', confident: true };
   if (hasTerm(pattern, PEOPLE_TERMS)) return { classification: 'people', confident: true };
-  if (hasTerm(pattern, ARTICLE_TERMS) || pattern.includes('{date}')) return { classification: 'article', confident: true };
+  if (hasTerm(pattern, ARTICLE_TERMS) || hasExactToken(pattern, ARTICLE_EXACT_TERMS) || pattern.includes('{date}')) {
+    return { classification: 'article', confident: true };
+  }
   // Company-info section (about/about-us/company) with no more specific
   // signal above it — see isCompanySection. Confident and static regardless
   // of count: a whole section of the site being off-topic for the content
@@ -307,13 +347,15 @@ async function classifyBatchWithAI(batch) {
   const completion = await client().chat.completions.create({
     model: client().model,
     temperature: 0,
-    max_tokens: 2048,
+    max_tokens: 4096,
+    ...structuredTaskParams(client()),
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: CLASSIFY_SYSTEM_PROMPT },
       { role: 'user', content: JSON.stringify({ patterns: payload }) },
     ],
   });
+  assertNotTruncated(completion);
   const raw = completion.choices[0]?.message?.content || '{}';
   const parsed = JSON.parse(raw);
   if (!Array.isArray(parsed.patterns)) throw new Error('response missing "patterns" array');
@@ -401,5 +443,6 @@ function detectVertical(urls) {
 }
 
 module.exports = {
-  extractTemplates, buildPatternTable, classifyPattern, refineWithAI, detectVertical, LOCATION_TERMS, CITY_LIST,
+  extractTemplates, buildPatternTable, classifyPattern, ruleVerdict, refineWithAI, detectVertical,
+  LOCATION_TERMS, CITY_LIST,
 };

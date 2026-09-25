@@ -25,7 +25,9 @@ const { json } = require("../../../services/db");
 // is written down per table rather than guessed from the value.
 const JSONB_COLUMNS = {
   crawl_projects: new Set(["options", "settings"]),
-  crawl_runs: new Set(["options", "progress", "summary", "checkpoint", "site_diagnostics"]),
+  crawl_runs: new Set([
+    "options", "progress", "summary", "checkpoint", "site_diagnostics", "budget",
+  ]),
   crawl_run_results: new Set(["data", "edges"]),
   crawl_run_findings: new Set(["detail"]),
   crawl_run_finding_instances: new Set(["data"]),

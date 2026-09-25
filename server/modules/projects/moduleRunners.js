@@ -631,15 +631,19 @@ function sameSite(a, b) {
 //
 // It runs the SAME pipeline the standalone tool runs — the analysis half was
 // extracted for exactly this, so both paths cluster identically. Nothing is
-// re-crawled (§32), and the URL-pattern review step is unnecessary because the
-// crawl already decided what is internal, reachable and not an asset.
+// re-crawled (§32). Where the standalone tool has a person confirm which URL
+// patterns are articles, this run selects the informational pages itself
+// (contentArchitect/informationalSelection.js): URL templates first, then a
+// model judges each template from its URLs, with URL rules as the fallback.
+// Location, service, people and utility pages are left out and listed.
 //
 // The result is saved back into Content Architect's own store, so /content-
 // architect shows the same analysis rather than a parallel one.
 //
-// Naming and content-relevance judgements run on Claude Sonnet, through the
-// shared provider factory. Both are optional: every cluster has a mechanical
-// name if the model is unavailable, and the pipeline completes regardless.
+// Page selection, naming and content-relevance judgements run on Claude Sonnet,
+// through the shared provider factory. All three are optional: selection falls
+// back to URL rules, every cluster has a mechanical name if the model is
+// unavailable, and the pipeline completes regardless.
 async function runHubSpoke({ project, domains }) {
   const crawlToArchitect = require('./crawlToArchitect');
   const { analyzeCrawledPages } = require('../contentArchitect/fullAnalysis');
@@ -667,8 +671,25 @@ async function runHubSpoke({ project, domains }) {
     };
   }
 
-  const input = await crawlToArchitect.buildFromCrawl(crawl.id, {
+  // Content Architect's project record for this domain, created if this is the
+  // first time. Read BEFORE the crawl, because the previous analysis carries the
+  // page-selection verdicts this run reuses — so the same site structure picks
+  // the same pages and the clusters do not reshuffle run to run. ensureProject
+  // is idempotent. Its `vertical` (detected in that tool) is passed through when
+  // known, because term profiling strips practice-type words per vertical.
+  const caProject = await require('./contentArchitect').ensureProject(project, domains);
+  const previous = await caStore.getFullAnalysis(caProject.id).catch(() => null);
+
+  // Candidate pages come from the site's sitemaps and the informational
+  // listings its menus link to, not from the crawl's reach; only the
+  // informational ones are read and clustered. The crawl supplies the link
+  // graph (crawlToArchitect.buildFromDiscovery).
+  const input = await crawlToArchitect.buildFromDiscovery(crawl.id, {
+    origin,
     maxUrls: crawl.options?.maxUrls || null,
+    crawlSummary: crawl.summary || null,
+    crawlStatus: crawl.status || null,
+    selectionCache: previous?.selection?.verdicts || null,
   });
   if (input.tooSmall) {
     return {
@@ -683,17 +704,69 @@ async function runHubSpoke({ project, domains }) {
     };
   }
 
-  // Content Architect's project record for this domain, created if this is the
-  // first time. Its `vertical` (detected in that tool) is passed through when
-  // known, because term profiling strips practice-type words per vertical.
-  const caProject = await require('./contentArchitect').ensureProject(project, domains);
+  if (input.tooFewInformational) {
+    const summary = input.selection?.summary || {};
+    const topReasons = (summary.excludedByReason || []).slice(0, 3)
+      .map((r) => `${r.label.toLowerCase()} (${r.count})`).join(', ');
+    // Only when there was something for it to judge: with no candidates at all
+    // the method reads 'rules' without the model ever having been needed.
+    const aiMissing = (summary.crawledPageCount || 0) > 0
+      && (summary.method === 'rules' || summary.aiChecks?.failed > 0 || summary.aiChecks?.outOfTime > 0);
+
+    // An analysis built from EVERY crawled page, from before informational-only
+    // selection, would otherwise stay on offer in Content Architect — location
+    // clusters next to a verdict that says there is too little informational
+    // content to cluster. A previous informational analysis is kept: it is older,
+    // not wrong, and this crawl may simply have seen less of the site.
+    if (previous && !previous.selection) {
+      await caStore.deleteFullAnalysis(caProject.id)
+        .catch((e) => console.error('[hub_spoke] could not clear the all-pages analysis:', e.message));
+    }
+
+    return {
+      status: 'insufficient_data',
+      score: null,
+      findings: [],
+      payload: {
+        reason: 'too_few_informational_pages',
+        // status() in ./contentArchitect.js counts this crawl as attempted by it.
+        crawlRunId: crawl.id,
+        pagesCrawled: input.crawledPageCount,
+        informationalPageCount: input.pageCount,
+        minimum: input.minimum,
+        excludedByReason: summary.excludedByReason || [],
+        selectionMethod: summary.method || null,
+        selectionVersion: summary.version ?? null,
+        crawlCapped: Boolean(input.meta?.capped),
+        urlCap: input.meta?.urlCap ?? null,
+        limitations: summary.limitations || [],
+        cardNote: `Only ${input.pageCount} informational page(s) among ${input.crawledPageCount} found — `
+          + 'too few to cluster.',
+      },
+      note:
+        `Only ${input.pageCount} informational page(s) (articles, guides, FAQs) among the `
+        + `${input.crawledPageCount} found in the site's sitemaps and informational listings; `
+        + `clustering needs ${input.minimum}. `
+        + (topReasons ? `The rest were left out as: ${topReasons}. ` : '')
+        + (input.meta?.noSitemap
+          ? 'The site has no usable sitemap, and its menus led to too few articles — publishing a sitemap, '
+            + 'or linking the blog from the main menu, would let hub and spoke find them. '
+          : 'Hub and spoke organises a site\'s articles and guides, and this site has too few to group yet. ')
+        + (aiMissing
+          ? 'The AI page check was not fully available, so pages the URL rules could not judge were left out.'
+          : ''),
+    };
+  }
+
   await caStore.updateProject(caProject.id, { workflowState: 'analyzing' });
   let analysis;
   try {
     analysis = await analyzeCrawledPages(
       input.crawlResult,
       { domain: origin, vertical: caProject.vertical || null },
-      { linkGraph: input.linkGraph },
+      // On an incomplete crawl no page is flagged an orphan at all, so the
+      // Content Architect screen and its export cannot contradict this card.
+      { linkGraph: input.linkGraph, orphanDetection: !input.meta.capped },
     );
   } catch (e) {
     await caStore.updateProject(caProject.id, { workflowState: 'failed' }).catch(() => {});
@@ -711,10 +784,10 @@ async function runHubSpoke({ project, domains }) {
       crawlMode: 'crawlscope',
       sitemapSource: 'crawlscope',
       stats: {
-        urlsFound: input.meta.pageCount,
+        urlsFound: input.meta.crawledPageCount ?? input.meta.pageCount,
         urlsSelected: input.meta.pageCount,
         urlsAnalyzed: (analysis.pages || []).length,
-        urlsExcluded: 0,
+        urlsExcluded: (analysis.excludedUrls || []).length,
         clusterCount: (analysis.clusters || []).length,
         gapHubCount: (analysis.clusters || []).filter((c) => c.isGap).length,
         orphanCount: 0,
@@ -748,6 +821,19 @@ async function runHubSpoke({ project, domains }) {
   const meanHealth = clusters.length
     ? Math.round(clusters.reduce((sum, c) => sum + (c.health || 0), 0) / clusters.length)
     : null;
+
+  // How the clustered pages were chosen from the crawl. Present whenever the
+  // informational selection ran; every field below tolerates its absence.
+  const selectionSummary = input.selection?.summary || null;
+  const crawledCount = input.meta.crawledPageCount ?? null;
+  const incompleteSentence = {
+    url_cap: input.meta.urlCap
+      ? `That crawl stopped at its ${input.meta.urlCap}-URL cap`
+      : 'That crawl stopped at its URL budget',
+    stopped: 'That crawl was stopped before it finished',
+    depth_limit: 'That crawl reached its depth limit',
+    links_truncated: 'That crawl stored only part of its link graph',
+  }[input.meta.incompleteReason || 'url_cap'];
 
   const findings = [];
 
@@ -877,11 +963,28 @@ async function runHubSpoke({ project, domains }) {
       // none, and the truth is that it could not be determined.
       orphanCount: input.meta.capped ? null : orphans.length,
       orphanDetectionWithheld: input.meta.capped,
-      pagesWithNoInboundLink: orphans.length,
+      // Counted from inbound links rather than the orphan flag, which an
+      // incomplete crawl never sets: insights still reports what the crawl saw.
+      pagesWithNoInboundLink: pages.filter((p) => hasFlag(p, 'orphan') || p.inboundLinkCount === 0).length,
       unassignedCount: unassigned.length,
       meanHealth,
       crawlCapped: input.meta.capped,
+      incompleteReason: input.meta.incompleteReason ?? null,
       urlCap: input.meta.urlCap,
+      // What the clusters are drawn from. `scope` is what lets a reader of this
+      // payload (insights, the report) say "informational pages" rather than
+      // "the site" — and tells two runs apart that were built on different
+      // definitions, so a comparison between them is not presented as change.
+      ...(selectionSummary ? {
+        scope: selectionSummary.scope,
+        selectionVersion: selectionSummary.version,
+        selectionMethod: selectionSummary.method,
+        pagesCrawled: crawledCount,
+        pagesExcluded: (analysis.excludedUrls || []).length,
+        excludedByReason: selectionSummary.excludedByReason || [],
+        cardNote: `${pages.length} informational page(s) of ${crawledCount} found · `
+          + `${clusters.length} cluster(s), ${gapClusters.length} without a hub`,
+      } : {}),
       // Named so a reader can tell what was not checked from what was checked
       // and found clean.
       limitations: input.limitations,
@@ -894,14 +997,23 @@ async function runHubSpoke({ project, domains }) {
       })),
     },
     note:
-      `Generated from the crawl of ${input.meta.pageCount} page(s) on `
+      (selectionSummary
+        ? `Clustered ${input.meta.pageCount} informational page(s) (articles, guides, FAQs) of the `
+          + `${crawledCount} found in the site's sitemaps and informational listings, with link data `
+          + 'from the crawl of '
+        : `Generated from the crawl of ${input.meta.pageCount} page(s) on `)
       + `${(crawl.finished_at || crawl.created_at || '').slice(0, 10)} — `
       + `${clusters.length} cluster(s), ${gapClusters.length} with no hub. `
       + (input.meta.capped
-        ? `That crawl stopped at its ${input.meta.urlCap}-URL cap, so orphan detection is withheld `
+        ? `${incompleteSentence}, so orphan detection is withheld `
           + 'and cluster health covers only the pages crawled. '
         : '')
-      + 'Nothing was re-fetched; the analysis also appears in Content Architect.',
+      + (selectionSummary
+        ? 'Location, service, people and utility pages are left out of hub and spoke by design. '
+        : '')
+      + (selectionSummary
+        ? 'The analysis also appears in Content Architect.'
+        : 'Nothing was re-fetched; the analysis also appears in Content Architect.'),
   };
 }
 

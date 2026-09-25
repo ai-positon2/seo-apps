@@ -68,6 +68,11 @@ async function runFullAnalysis(urls, project, { onProgress } = {}) {
  * @param {object}  project      { domain, vertical }
  * @param {object} [opts]
  * @param {Function}[opts.onProgress]
+ * @param {boolean} [opts.orphanDetection=true]  false when the pages came from a
+ *                                   crawl that did not cover the whole site: a page
+ *                                   with no inbound link there may just be linked
+ *                                   from a page never fetched, so no page is
+ *                                   flagged an orphan and the analysis says so.
  * @param {object} [opts.linkGraph]  { graph, inboundCounts, depths } when the
  *                                   caller already knows them. Supplying this
  *                                   skips buildLinkGraphAndDepths, whose only
@@ -75,7 +80,7 @@ async function runFullAnalysis(urls, project, { onProgress } = {}) {
  *                                   its depth BFS — a caller that already has
  *                                   crawl depths should not repeat it.
  */
-async function analyzeCrawledPages(crawlResult, project, { onProgress, linkGraph } = {}) {
+async function analyzeCrawledPages(crawlResult, project, { onProgress, linkGraph, orphanDetection = true } = {}) {
   const notify = (stage, detail) => onProgress && onProgress(stage, detail);
   const pages = crawlResult.pages;
 
@@ -145,7 +150,8 @@ async function analyzeCrawledPages(crawlResult, project, { onProgress, linkGraph
     assignmentReason: clusterIdOfPage[i]
       ? assignmentReason(i, clusters.find((c) => c.id === clusterIdOfPage[i]), hubResults.get(clusterIdOfPage[i]), pages, profiles, idf)
       : null,
-    flags: (diag.flagsByPage.get(i) || []).map((f) => f.type),
+    flags: (diag.flagsByPage.get(i) || []).map((f) => f.type)
+      .filter((type) => orphanDetection || type !== 'orphan'),
     contentAction: null,
     contentActionReason: null,
   }));
@@ -205,13 +211,24 @@ async function analyzeCrawledPages(crawlResult, project, { onProgress, linkGraph
     nearestCluster: clusters.length ? nearestClusterFor(i) : null,
   }));
 
-  const excludedUrls = crawlResult.excluded.map((e) => ({ url: e.url, reason: e.reason, detail: e.detail || null }));
+  // `code` and `source` are carried when the caller supplies them — the
+  // project-linked run's informational selection does, so the report can group
+  // exclusions by kind and say how each was decided.
+  const excludedUrls = (crawlResult.excluded || []).map((e) => ({
+    url: e.url,
+    reason: e.reason,
+    detail: e.detail || null,
+    ...(e.code ? { code: e.code } : {}),
+    ...(e.source ? { source: e.source } : {}),
+  }));
 
   return {
     pages: finalPages,
     clusters: finalClusters,
     unassignedPages,
     excludedUrls,
+    // Stated rather than left as zero orphan flags, which would read as "none".
+    ...(orphanDetection ? {} : { orphanDetectionWithheld: true }),
     cannibalization: diag.cannibalization,
     crawlMeta: {
       sampled: crawlResult.sampled,
@@ -220,6 +237,10 @@ async function analyzeCrawledPages(crawlResult, project, { onProgress, linkGraph
       abortedForFailureRate: crawlResult.abortedForFailureRate,
       crawlMode: crawlResult.crawlMode,
     },
+    // How the analysed pages were chosen from the crawl, when a caller chose
+    // them (projects/crawlToArchitect.js). Absent for the standalone flow, whose
+    // pages are the URL patterns a person confirmed.
+    ...(crawlResult.selection ? { selection: crawlResult.selection } : {}),
   };
 }
 

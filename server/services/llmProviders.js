@@ -74,7 +74,11 @@ function createLlmClient(modelId) {
 
   if (provider !== 'openai') {
     const rawCreate = client.chat.completions.create.bind(client.chat.completions);
-    client.chat.completions.create = async (params) => {
+    // `options` is the SDK's per-request second argument ({ timeout, maxRetries,
+    // signal }). The wrapper used to take `params` alone, so a caller's timeout
+    // was dropped without a word and every Claude call ran on the SDK default of
+    // ten minutes with two retries.
+    client.chat.completions.create = async (params, options) => {
       const {
         max_completion_tokens, max_tokens, response_format, messages, temperature, ...rest
       } = params;
@@ -99,7 +103,7 @@ function createLlmClient(modelId) {
         ...sampling,
         max_completion_tokens: max_completion_tokens || max_tokens || DEFAULT_MAX_OUTPUT_TOKENS,
         messages: finalMessages,
-      });
+      }, options);
       if (wantsJson && res.choices?.[0]?.message) {
         res.choices[0].message.content = stripJsonFence(res.choices[0].message.content);
       }
@@ -110,4 +114,33 @@ function createLlmClient(modelId) {
   return client;
 }
 
-module.exports = { MODEL_OPTIONS, DEFAULT_MODEL_ID, WRITER_MODEL_ID, resolveModelId, resolveModelIds, providerForModel, createLlmClient };
+/**
+ * Extra request params for a short, structured JSON task (classify, name,
+ * judge) on a client from createLlmClient.
+ *
+ * Claude Sonnet 5 thinks adaptively unless told not to, and those thinking
+ * tokens are drawn from the same max_tokens as the visible reply. On a
+ * 2,048-token cluster-naming call the thinking grew until the JSON was cut off
+ * mid-string — measured: the same 3,700-character answer cost 1,389 tokens one
+ * time and 3,146 the next — so whole batches fell back to stemmed mechanical
+ * names ("Keyword Analysi & Keyword Research Strategi"). These tasks gain
+ * nothing from thinking; turning it off makes the output budget the reply's
+ * alone, and the call about twice as fast.
+ *
+ * Only Anthropic accepts the parameter; the other providers get nothing extra.
+ */
+function structuredTaskParams(client) {
+  return client && client.provider === 'anthropic' ? { thinking: { type: 'disabled' } } : {};
+}
+
+/**
+ * Throws when a reply stopped at its output limit, so a caller reports "cut
+ * off" rather than a baffling JSON parse error on half an answer.
+ */
+function assertNotTruncated(completion) {
+  if (completion?.choices?.[0]?.finish_reason === 'length') {
+    throw new Error('the reply was cut off at its output limit');
+  }
+}
+
+module.exports = { structuredTaskParams, assertNotTruncated, MODEL_OPTIONS, DEFAULT_MODEL_ID, WRITER_MODEL_ID, resolveModelId, resolveModelIds, providerForModel, createLlmClient };

@@ -1,18 +1,26 @@
 // Crawl settings panel, shared by the "new crawl" form and the project editor.
 // Field ranges mirror the ceilings in server/.../shared/options.js; the server
 // clamps anyway, so these only stop the UI offering something it can't have.
+//
+// `limits` is the workspace's effective admin limits, which every project API
+// response already carries. The Max URLs field used to advertise a hardcoded
+// 10,000 whatever the workspace was actually allowed, so the one control whose
+// whole job is to choose a page budget was the one control lying about it.
 
 import { Field } from '../../ui';
 import { DEFAULT_THRESHOLDS, listOptionText } from './crawlHelpers';
 
 const NUMBERS = [
   { key: 'maxUrls', label: 'Max URLs', min: 1, max: 10000, step: 1,
+    limitKey: 'maxUrlsPerCrawl',
     helper: 'Stop after this many URLs.' },
   { key: 'maxExternalUrls', label: 'Max external URLs', min: 0, max: 500, step: 1,
     helper: 'External links checked for a status code. 0 to skip.' },
   { key: 'concurrency', label: 'Concurrency', min: 1, max: 8, step: 1,
+    limitKey: 'maxCrawlConcurrency',
     helper: 'Requests in flight at once.' },
   { key: 'timeout', label: 'Request timeout (ms)', min: 3000, max: 30000, step: 500,
+    limitKey: 'requestTimeoutMs',
     helper: 'Give up on a single response after this long.' },
   { key: 'perHostDelay', label: 'Per-host delay (ms)', min: 0, max: 60000, step: 50,
     helper: 'Politeness gap between requests to the same host.' },
@@ -86,12 +94,24 @@ const INERT_IN_LIST_MODE = {
 };
 
 export default function CrawlOptionsForm({
-  options, onChange, disabled = false, mode = 'spider',
+  options, onChange, disabled = false, mode = 'spider', limits = null,
 }) {
   const set = (key, value) => onChange({ ...options, [key]: value });
   const thresholds = { ...DEFAULT_THRESHOLDS, ...(options.thresholds || {}) };
   const setThreshold = (key, value) => onChange({ ...options, thresholds: { ...thresholds, [key]: value } });
   const inert = (key) => (mode === 'list' ? INERT_IN_LIST_MODE[key] : null);
+
+  // The admin's number when we know it, the static range otherwise — a form
+  // rendered before the limits arrive must not advertise 1 as the maximum.
+  const ceilingFor = (f) => {
+    const value = Number(limits?.[f.limitKey]);
+    return Number.isFinite(value) && value > 0 ? Math.min(value, f.max) : f.max;
+  };
+  const ceilingNote = (f) => {
+    const value = Number(limits?.[f.limitKey]);
+    if (!Number.isFinite(value) || value <= 0 || value >= f.max) return null;
+    return `${f.helper} Your workspace allows up to ${value.toLocaleString('en-US')}.`;
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -100,10 +120,10 @@ export default function CrawlOptionsForm({
           <Field
             key={f.key}
             label={f.label}
-            helper={inert(f.key) || f.helper}
+            helper={inert(f.key) || ceilingNote(f) || f.helper}
             type="number"
             min={f.min}
-            max={f.max}
+            max={ceilingFor(f)}
             step={f.step}
             disabled={disabled || Boolean(inert(f.key))}
             value={options[f.key]}

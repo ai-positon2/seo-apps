@@ -231,7 +231,10 @@ function addStructureSheet(book, evidenceByModule) {
   );
 
   if (run.status === 'insufficient_data') {
-    note(sheet, payload.note || 'No completed crawl with a stored link graph for this project yet.');
+    // The evidence rows come from latestByModule, which projects the note out
+    // of the payload rather than loading the payload itself — so `run.note` is
+    // where the run's own explanation (e.g. too few informational pages) is.
+    note(sheet, payload.note || run.note || 'No completed crawl with a stored link graph for this project yet.');
     return sheet;
   }
 
@@ -533,7 +536,7 @@ function buildMarkdownReport({ project, profile, evidenceByModule, recos, genera
     const payload = structRun.payload || {};
     const structure = payload.structure || {};
     if (structRun.status === 'insufficient_data') {
-      lines.push(payload.note || 'No completed crawl with a stored link graph for this project yet.');
+      lines.push(payload.note || structRun.note || 'No completed crawl with a stored link graph for this project yet.');
       lines.push('');
     } else {
       lines.push(`${structure.pagesAnalyzed || 0} pages · ${structure.edgeCount || 0} internal links`);
@@ -900,7 +903,7 @@ function buildReportHtml({ project, profile, evidenceByModule, recos, executiveS
     const payload = structRun.payload || {};
     const structure = payload.structure || {};
     if (structRun.status === 'insufficient_data') {
-      sections.push(`<p class="muted">${escapeHtml(payload.note || 'No completed crawl with a stored link graph for this project yet.')}</p></section>`);
+      sections.push(`<p class="muted">${escapeHtml(payload.note || structRun.note || 'No completed crawl with a stored link graph for this project yet.')}</p></section>`);
     } else {
       sections.push(`<p class="lead-sub">${structure.pagesAnalyzed || 0} pages · ${structure.edgeCount || 0} internal links</p>`);
       sections.push(`<div class="module-grid">

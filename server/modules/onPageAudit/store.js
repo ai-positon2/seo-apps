@@ -1,74 +1,72 @@
-const fs = require('fs').promises;
-// Traversal guard: `${id}.json` from req.params would otherwise resolve outside DATA_ROOT.
-const { assertSafeFileId } = require('../../services/safeFileId');
-const path = require('path');
+// ── Persistence — backed by Postgres ─────────────────────────────────────────
+// Was one JSON file per audit under a data root. Now the on_page_audits table;
+// see supabase/migrations/0034_on_page_audit_to_postgres.sql for why.
+//
+// Every exported name, argument and return shape is unchanged.
+//
+// listAudits() is the one that changed underneath: it used to read every file in
+// the directory, JSON.parse each one, sort them all and keep the newest 50. The
+// ordering and the cap are the database's now, so the cost is fifty rows rather
+// than every audit ever saved. The summary shape it returns is identical.
+
 const crypto = require('crypto');
-
-const { resolveDataRoot } = require('../../services/dataRoot');
-
-// Ephemeral inside the image on a container platform; see services/dataRoot.js.
-const DATA_ROOT = resolveDataRoot(
-  'on-page-audit', path.join(__dirname, 'data'), 'ON_PAGE_AUDIT_DATA_ROOT',
-);
+const db = require('../../services/db');
 
 function genId() {
   return `audit_${Date.now().toString(36)}${crypto.randomBytes(4).toString('hex')}`;
 }
 
-async function ensureDir() {
-  await fs.mkdir(DATA_ROOT, { recursive: true });
-}
+// The table is created by the migration runner; nothing to make on boot.
+async function init() {}
 
 async function saveAudit(audit) {
-  await ensureDir();
-  // Strip raw HTML from saved file to keep size manageable
+  // Raw HTML is still stripped before storing. It was dropped to keep the file
+  // manageable; the same reasoning applies to a jsonb column, and nothing reads
+  // it back.
   const { _html, ...saveData } = audit;
-  await fs.writeFile(
-    path.join(DATA_ROOT, `${assertSafeFileId(audit.id, 'auditId')}.json`),
-    JSON.stringify(saveData, null, 2)
+  await db.query(
+    `insert into on_page_audits (id, data, audit_date)
+     values ($1, $2, $3::timestamptz)
+     on conflict (id) do update set
+       data = excluded.data, audit_date = excluded.audit_date, updated_at = now()`,
+    [saveData.id, db.json(saveData), saveData.auditDate || null]
   );
 }
 
 async function getAudit(id) {
-  try {
-    const raw = await fs.readFile(path.join(DATA_ROOT, `${assertSafeFileId(id, 'auditId')}.json`), 'utf8');
-    return JSON.parse(raw);
-  } catch { return null; }
+  const row = await db.maybeOne(`select data from on_page_audits where id = $1`, [id]);
+  return row ? row.data : null;
+}
+
+// The list screen's summary row. Derived here rather than stored, because it is
+// a projection of the audit and would otherwise be a second copy to keep in step.
+function summarize(audit) {
+  const sections = audit.sections || [];
+  return {
+    id: audit.id,
+    url: audit.url,
+    primaryKeywords: audit.primaryKeywords,
+    pageType: audit.pageType,
+    isYMYL: audit.isYMYL,
+    status: audit.status,
+    auditDate: audit.auditDate,
+    passCount: sections.filter((s) => s.status === 'pass').length,
+    totalSections: sections.length,
+    failCount: sections.filter((s) => s.status === 'fail').length,
+  };
 }
 
 async function listAudits() {
-  await ensureDir();
-  try {
-    const files = await fs.readdir(DATA_ROOT);
-    const results = [];
-    for (const f of files.filter(f => f.endsWith('.json'))) {
-      try {
-        const raw = await fs.readFile(path.join(DATA_ROOT, f), 'utf8');
-        const a = JSON.parse(raw);
-        results.push({
-          id: a.id,
-          url: a.url,
-          primaryKeywords: a.primaryKeywords,
-          pageType: a.pageType,
-          isYMYL: a.isYMYL,
-          status: a.status,
-          auditDate: a.auditDate,
-          passCount: (a.sections || []).filter(s => s.status === 'pass').length,
-          totalSections: (a.sections || []).length,
-          failCount: (a.sections || []).filter(s => s.status === 'fail').length,
-        });
-      } catch { /* skip corrupt files */ }
-    }
-    return results.sort((a, b) => b.auditDate.localeCompare(a.auditDate)).slice(0, 50);
-  } catch { return []; }
+  const found = await db.rows(
+    `select data from on_page_audits
+      order by audit_date desc nulls last, id desc
+      limit 50`
+  );
+  return found.map((r) => summarize(r.data));
 }
 
 async function deleteAudit(id) {
-  await fs.unlink(path.join(DATA_ROOT, `${assertSafeFileId(id, 'auditId')}.json`)).catch(() => {});
-}
-
-async function init() {
-  await ensureDir();
+  await db.query(`delete from on_page_audits where id = $1`, [id]);
 }
 
 module.exports = { genId, saveAudit, getAudit, listAudits, deleteAudit, init };

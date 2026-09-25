@@ -1,33 +1,52 @@
 // ── Where the file-backed modules keep their data ───────────────────────────
 //
-// Six modules predate Supabase and still store their state as JSON on disk:
+// Almost nothing, now. This file used to resolve the data directory for six
+// modules that predated Postgres and still stored their state as JSON on disk:
 // competitorAnalysis, contentArchitect, marketPotential (twice), onPageAudit and
-// robotsMonitor. Each computed its own root as `path.join(__dirname, 'data')` —
-// a path INSIDE the deployed code tree, with no way to point it anywhere else.
+// robotsMonitor. All six moved into the database in migrations 0032-0036; see
+// scripts/importFileStores.js for the one-time move of the files themselves.
 //
-// That is invisible on a laptop and destroys data on a container platform. The
-// image is rebuilt on every deploy and `data` is in .dockerignore, so the
-// directory ships empty and every restart is a factory reset. The symptom is not
-// an error, which is what makes it expensive to diagnose: a module runs, reports
-// success, writes its result — and its screen says "nothing here yet" after the
-// next deploy, because the run's evidence row survived in Postgres and the JSON
-// beside it did not.
+// ── Why they moved ──────────────────────────────────────────────────────────
+// Each computed its own root as `path.join(__dirname, 'data')` — a path INSIDE
+// the deployed code tree, with no way to point it anywhere else. That is
+// invisible on a laptop and destroys data on a container platform: the image is
+// rebuilt on every deploy and `data` is in .dockerignore, so the directory
+// shipped empty and every restart was a factory reset.
 //
-// So the root is resolved through here instead:
+// The first fix was this file: APP_DATA_ROOT relocated all six to a mounted
+// volume. That stopped the deploy-time loss, but not the deeper problem, which
+// was never really about deploys — a per-machine filesystem cannot hold state
+// that a shared database refers to:
 //
-//   APP_DATA_ROOT unset  ->  the historical in-tree path, unchanged. Local
-//                            development and existing checkouts behave exactly
-//                            as before, including data already on disk.
-//   APP_DATA_ROOT set    ->  <APP_DATA_ROOT>/<slug>, which on a container
-//                            platform is a mounted volume that survives deploys.
+//   * project_module_runs.payload->>'reportRef' held a Content Architect project
+//     id and a Competitor Research client id. The dashboard card linked to them.
+//     Resolve that id against the local disk and, on any machine that did not
+//     run the job, the card showed a score whose report answered "Project not
+//     found" / "Client not found".
+//   * marketPotential's SEMrush unit ledger enforced a daily spend cap from a
+//     file, with an in-process mutex its own header admitted was not enough for
+//     a multi-process deployment. This app runs a web process and a worker.
+//   * robotsMonitor's clients.json WAS the list of what to monitor, so an empty
+//     data root did not show an empty screen — it monitored nothing, quietly.
 //
-// The per-module override (LPB_DATA_ROOT, and the others named below) still wins
-// over both, because a deployment that has already pinned one must not have it
-// moved by adding APP_DATA_ROOT.
+// None of that is fixed by moving the directory. It is fixed by the state
+// living where the references to it live.
 //
-// This does NOT migrate anything. Pointing an existing deployment at a new root
-// gives it an empty one; the modules all treat "no file" as "nothing stored yet"
-// rather than as an error, so they start clean rather than failing.
+// ── What still uses this ────────────────────────────────────────────────────
+// Two things, both deliberate:
+//
+//   * modules/crawlScope/run/report.js — the generated .xlsx audit workbooks.
+//     These are large binaries, they are derived data, and the download route
+//     REBUILDS one that has gone missing. Losing them costs time, not data, so
+//     they stay on disk. APP_DATA_ROOT / REPORT_STORAGE_ROOT should still point
+//     at a mounted volume on a container platform, to avoid paying the rebuild.
+//   * locationPageBuilder/config.js — vestigial. That module's store moved to
+//     Postgres in 0026 and the value is kept only for backward-compatible
+//     exports; it does no IO.
+//
+// services/kbStore.js reads markdown from KB_ROOT / MODULES_ROOT and does NOT
+// come through here. That is repo content rather than application state, so it
+// is versioned with the code.
 
 const path = require('path');
 

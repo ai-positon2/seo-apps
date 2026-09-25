@@ -617,25 +617,36 @@ function crawlStatus(runs, followers = 0) {
 
   const paused = inFlight.status === 'paused';
   const state = paused ? 'paused' : health.state;
+  // Past fetching, still 'running' until the audit is written (crawler.js
+  // _progress). A stalled run reports as stalled whatever its last phase said.
+  const phase = state === 'stalled' ? null : p.phase || null;
 
   const headline = state === 'pending'
     ? 'Crawl queued'
     : state === 'stalled'
       ? 'Crawl stopped responding'
-      : paused
-        ? 'Crawl paused'
-        : crawled
-          ? `Crawling · ${crawled} page${crawled === 1 ? '' : 's'} so far`
-          : 'Crawl starting';
+      : phase === 'stopping'
+        ? `Crawl stopping · ${crawled ?? 0} page${crawled === 1 ? '' : 's'} crawled`
+        : phase === 'analysing'
+          ? `Crawl finished · analysing ${crawled ?? 0} page${crawled === 1 ? '' : 's'}`
+          : paused
+            ? 'Crawl paused'
+            : crawled
+              ? `Crawling · ${crawled} page${crawled === 1 ? '' : 's'} so far`
+              : 'Crawl starting';
 
   const detail = state === 'pending'
     ? 'Waiting for a worker to pick it up. This is queue time, not a fault.'
     : state === 'stalled'
       ? `No heartbeat for ${health.silentMinutes} minute(s). It is reclaimed automatically `
         + 'within ten minutes, or you can re-run it now.'
-      : paused
-        ? 'Paused. Nothing is being fetched until it is resumed.'
-        : followers
+      : phase === 'stopping'
+        ? 'No new pages are being fetched. The audit is being built from the pages already crawled.'
+        : phase === 'analysing'
+          ? 'Every page is fetched. The audit is being built.'
+          : paused
+            ? 'Paused. Nothing is being fetched until it is resumed.'
+            : followers
           ? `${followers} page audit${followers === 1 ? '' : 's'} running behind it, `
             + 'scoring each page as the crawl finds it.'
           : 'Findings appear as soon as the crawl reaches a terminal state.';

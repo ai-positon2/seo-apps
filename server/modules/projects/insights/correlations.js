@@ -98,6 +98,12 @@ function templateDefects({ backlog, crawl }) {
  * That withholding is respected here — the weaker signal it does publish,
  * `pagesWithNoInboundLink`, is reported as what it is.
  */
+// Hub and Spoke clusters only a site's informational pages once its payload
+// carries `scope: 'informational'`. Its counts are then counts of articles and
+// guides, and a headline that said "the site" or "crawled pages" would overstate
+// what was measured. Older payloads have no scope and keep the old wording.
+const isInformationalScope = (structure) => structure?.scope === 'informational';
+
 function unlinkedPages({ structure, crawl }) {
   if (!structure) {
     return {
@@ -117,7 +123,7 @@ function unlinkedPages({ structure, crawl }) {
         insights: [],
         withheld: [withheld('unlinked_pages', ['hub_spoke'],
           structure.orphanDetectionWithheld
-            ? 'Orphan detection was withheld: the crawl stopped at its URL cap, so a page '
+            ? 'Orphan detection was withheld: the crawl did not cover the whole site, so a page '
               + 'with no inbound link may simply not have been reached.'
             : 'No unlinked pages were recorded.',
           structure.orphanDetectionWithheld ? 'Raise the crawl URL limit and re-crawl.' : null)],
@@ -129,9 +135,10 @@ function unlinkedPages({ structure, crawl }) {
       insights: [insight({
         id: 'unlinked_pages',
         severity: 'warning',
-        headline: `${noInbound} of ${structure.pagesAnalyzed} crawled pages have no inbound `
+        headline: `${noInbound} of ${structure.pagesAnalyzed} `
+          + `${isInformationalScope(structure) ? 'informational' : 'crawled'} pages have no inbound `
           + 'internal link',
-        detail: 'Orphan detection itself was withheld because the crawl stopped at its URL cap, '
+        detail: 'Orphan detection itself was withheld because the crawl did not cover the whole site, '
           + 'so some of these may simply not have been reached rather than being genuinely '
           + 'unlinked. The count is what the crawl saw, not a verdict.',
         action: 'Raise the crawl limit and re-crawl to separate genuinely orphaned pages from '
@@ -157,7 +164,8 @@ function unlinkedPages({ structure, crawl }) {
     insights: [insight({
       id: 'unlinked_pages',
       severity: 'error',
-      headline: `${orphans} pages earn nothing because nothing links to them`,
+      headline: `${orphans} ${isInformationalScope(structure) ? 'informational pages' : 'pages'} earn `
+        + 'nothing because nothing links to them',
       action: 'Link each from its topic hub, or retire it.',
       modules: ['hub_spoke'],
       readFrom: ['project_module_runs.payload.orphanCount'],
@@ -198,7 +206,9 @@ function unclusteredMass({ structure }) {
     insights: [insight({
       id: 'unclustered_mass',
       severity: share >= 50 ? 'warning' : 'notice',
-      headline: `${share}% of the site (${unassigned} of ${analyzed} pages) belongs to no topic cluster`,
+      headline: isInformationalScope(structure)
+        ? `${share}% of the informational pages (${unassigned} of ${analyzed} pages) belong to no topic cluster`
+        : `${share}% of the site (${unassigned} of ${analyzed} pages) belongs to no topic cluster`,
       detail: `${structure.clusterCount} cluster(s) were identified, covering `
         + `${analyzed - unassigned} pages.`,
       action: 'Decide for each page whether it joins an existing cluster, starts one, or comes '
@@ -382,7 +392,13 @@ function keywordGapsInExistingClusters({ keywords, structure, keywordRecovery })
             + 'from stored evidence'
           : ''),
       action: 'Add a spoke to the existing cluster and link it from that hub. Cheaper and faster '
-        + `than the ${unmatched.length} gap(s) that need a new topic area.`,
+        + `than the ${unmatched.length} gap(s) that need a new topic area.`
+        // The clusters are built from articles and guides only, so a commercial
+        // term with no match may still have a service page on the site.
+        + (isInformationalScope(structure)
+          ? ' Clusters cover informational pages only, so an unmatched commercial term may '
+            + 'already have a service page.'
+          : ''),
       modules: ['competitor', 'hub_spoke'],
       readFrom: ['project_module_runs.findings[competitor-missing-keywords].detail',
         'project_module_runs.payload.clusters[].name'],

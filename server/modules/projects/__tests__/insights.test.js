@@ -1041,5 +1041,55 @@ test('a client with genuinely no traffic scores 0', () => {
   assert.strictEqual(scored.score, 0, '0 is a measurement here, unlike a missing figure');
 });
 
+// ── Hub and Spoke clusters informational pages only ─────────────────────────
+
+section('hub and spoke — informational scope');
+
+test('an informational-scope orphan count says what it counted', () => {
+  const result = correlations.unlinkedPages({
+    structure: { orphanCount: 7, pagesAnalyzed: 50, scope: 'informational' },
+    crawl: { internalPages: 590 },
+  });
+  assert.match(result.insights[0].headline, /7 informational pages/);
+});
+
+test('unclustered share is of the informational pages, not "the site"', () => {
+  const scoped = correlations.unclusteredMass({
+    structure: { unassignedCount: 20, pagesAnalyzed: 100, clusterCount: 9, scope: 'informational' },
+  });
+  assert.match(scoped.insights[0].headline, /of the informational pages/);
+  assert.doesNotMatch(scoped.insights[0].headline, /of the site/);
+
+  // A payload from before the scope existed keeps its original wording.
+  const legacy = correlations.unclusteredMass({
+    structure: { unassignedCount: 20, pagesAnalyzed: 100, clusterCount: 9 },
+  });
+  assert.match(legacy.insights[0].headline, /of the site/);
+});
+
+test('a keyword gap note warns that informational clusters are not the whole site', () => {
+  const result = correlations.keywordGapsInExistingClusters({
+    keywords: [
+      { kind: 'missing', keyword: 'teeth whitening cost', volume: 500 },
+      { kind: 'missing', keyword: 'dental implants near me', volume: 900 },
+    ],
+    structure: { scope: 'informational', clusters: [{ name: 'Teeth Whitening Options', health: 65, spokes: 3 }] },
+  });
+  assert.match(result.insights[0].action, /informational pages only/);
+});
+
+test('hub and spoke runs from before and after the scope change are not diffed', () => {
+  // Diffing them would report every old location-cluster finding as "fixed".
+  const before = { status: 'completed', payload: {} };
+  const after = { status: 'completed', payload: { selectionVersion: 1 } };
+  assert.match(changes.hubSpokeComparability(after, before), /different page sets/);
+
+  const tooFew = { status: 'insufficient_data', payload: { selectionVersion: 1 } };
+  assert.match(changes.hubSpokeComparability(tooFew, after), /too little to analyse/);
+
+  const again = { status: 'completed', payload: { selectionVersion: 1 } };
+  assert.strictEqual(changes.hubSpokeComparability(again, after), null);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

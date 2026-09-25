@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { SectionHeader } from '../ui/SectionHeader';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
@@ -41,6 +41,20 @@ const STATE_VARIANTS = {
   not_started: 'warning',
 };
 
+// Only these states change without anyone pressing anything, so only these
+// are worth re-checking on a timer.
+const IN_FLIGHT = new Set(['queued', 'analyzing', 'discovering']);
+
+// "Failed to fetch" is the browser's wording for "no response", and it told
+// the reader nothing about what to do.
+function friendlyError(e) {
+  const msg = String(e?.message || '');
+  if (!msg || /failed to fetch|networkerror|load failed/i.test(msg)) {
+    return 'Could not reach the server to check this project. Check your connection and reload the page.';
+  }
+  return msg;
+}
+
 function CreateProjectCard({ onCreate, creating }) {
   const [domain, setDomain] = useState('');
   const [error, setError] = useState(null);
@@ -80,6 +94,9 @@ function CreateProjectCard({ onCreate, creating }) {
 export default function ContentArchitectPage() {
   const toast = useToast();
   const navigate = useNavigate();
+  // Set by ContentArchitectProjectPage when the analysis a link named does not
+  // exist, so arriving here reads as an answer rather than a silent redirect.
+  const missingAnalysis = useLocation().state?.missingAnalysis === true;
   const [activeProjectId] = useActiveProjectId();
   const [connectionResult, setConnection] = useState(null);
   const connection = connectionResult?.project.platformProjectId === activeProjectId ? connectionResult : null;
@@ -107,26 +124,30 @@ export default function ContentArchitectPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProjectId]);
 
+  // Reads status only. Opening this screen used to POST a "connect" that could
+  // queue a Hub & Spoke analysis as a catch-up — work, and spend, started by
+  // looking. Analysis now starts after a crawl (server autostart) or from the
+  // Start/Retry button below. Re-checks only while something is in flight,
+  // instead of every 5 seconds for as long as the tab stays open.
   useEffect(() => {
     if (!activeProjectId) return undefined;
     let cancelled = false;
     let timer;
-    let connected = false;
     setConnection(null);
     setConnectionError(null);
     async function refresh() {
+      let result = null;
       try {
-        const result = connected
-          ? await projectsApi.contentArchitect(activeProjectId)
-          : await projectsApi.connectContentArchitect(activeProjectId);
+        result = await projectsApi.contentArchitect(activeProjectId);
         if (cancelled) return;
-        connected = true;
         setConnection(result);
         setConnectionError(null);
       } catch (e) {
-        if (!cancelled) setConnectionError(e.message);
+        if (!cancelled) setConnectionError(friendlyError(e));
       }
-      if (!cancelled) timer = setTimeout(() => refresh(), 5000);
+      if (!cancelled && result && IN_FLIGHT.has(result.state)) {
+        timer = setTimeout(() => refresh(), 5000);
+      }
     }
     refresh();
     return () => { cancelled = true; clearTimeout(timer); };
@@ -171,9 +192,18 @@ export default function ContentArchitectPage() {
         eyebrow="Build"
         title="Content Architect"
         subtitle={activeProjectId
-          ? 'Automatically organizes your project’s crawled pages into topic clusters and shows what’s missing.'
+          ? 'Automatically organizes your project’s articles, guides and FAQs into topic clusters and shows what’s missing.'
           : "Point it at a domain — it reads your sitemap, organizes your existing articles into topic clusters, and shows you what's missing."}
       />
+
+      {missingAnalysis && (
+        <Card style={{ marginBottom: 20 }}>
+          <div role="status" style={{ fontSize: 13 }}>
+            The analysis that link pointed to no longer exists.
+            {activeProjectId ? ' This project’s current Content Architect status is below.' : ''}
+          </div>
+        </Card>
+      )}
 
       {activeProjectId ? (
         <Card title={connection?.project.name || 'Content Architect for your project'}>
@@ -190,12 +220,14 @@ export default function ContentArchitectPage() {
               <div style={{ display: 'flex', gap: 8 }}>
                 {connection.ready && <Button onClick={() => navigate(`/content-architect/${connection.project.id}`)}>Open analysis</Button>}
                 {connection.canStartRun && ['failed', 'cancelled', 'insufficient_data', 'not_started'].includes(connection.state) && (
-                  <Button variant="secondary" onClick={retryAnalysis} loading={creating}>Retry analysis</Button>
+                  <Button variant={connection.state === 'not_started' ? 'primary' : 'secondary'} onClick={retryAnalysis} loading={creating}>
+                    {connection.state === 'not_started' ? 'Start analysis' : 'Retry analysis'}
+                  </Button>
                 )}
                 <Button variant="secondary" onClick={() => navigate('/')}>View project</Button>
               </div>
             </div>
-          ) : <EmptyState title={connectionError ? 'Could not connect this project' : 'Setting up Content Architect…'} />}
+          ) : <EmptyState title={connectionError ? 'Could not load this project’s analysis' : 'Checking this project…'} />}
         </Card>
       ) : <>
       <div style={{ marginBottom: 24, maxWidth: 480 }}>

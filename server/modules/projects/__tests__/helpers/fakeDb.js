@@ -28,10 +28,19 @@ function unsupported(sql) {
   throw new Error(`[fakeDb] unsupported statement:\n${sql.trim()}`);
 }
 
+// `$2::jsonb`, `$4::uuid`, `'x'::text` — the cast tells Postgres what to do
+// with a value this fake already holds as a JavaScript one, so it is noise here.
+// Only stripped from the END of a slot, never from inside a string literal.
+function stripCasts(text) {
+  let out = text.trim();
+  while (/::[a-z_]+(\[\])?$/i.test(out)) out = out.replace(/::[a-z_]+(\[\])?$/i, '').trim();
+  return out;
+}
+
 // A value slot: a bound parameter, or a literal written straight into the SQL
 // (`'queued'`, `0`, `true`, `null`) — statements here mix the two freely.
 function readValue(slot, params, sql) {
-  const text = slot.trim();
+  const text = stripCasts(slot);
 
   const idx = /^\$(\d+)$/.exec(text);
   if (idx) {
@@ -141,6 +150,91 @@ function parseWhere(clause, params, sql) {
   return preds;
 }
 
+// Splits a SET list on commas that are not inside parentheses. `case when …
+// else … end` contains no commas today, but `coalesce(a, b)` would, and a naive
+// split on "," would quietly truncate it into two broken assignments.
+function splitTopLevel(text) {
+  const parts = [];
+  let depth = 0;
+  let current = '';
+  for (const ch of text) {
+    if (ch === '(') depth += 1;
+    else if (ch === ')') depth -= 1;
+    if (ch === ',' && depth === 0) { parts.push(current); current = ''; continue; }
+    current += ch;
+  }
+  if (current.trim()) parts.push(current);
+  return parts;
+}
+
+// The right-hand side of one `col = <expr>` in a SET list, as a function of the
+// row being updated. Beyond plain values, two forms the stores emit:
+//
+//   data || $2::jsonb      a shallow jsonb merge — `{ ...existing, ...patch }`,
+//                          which is how a store patches a record in ONE
+//                          statement instead of read-modify-write.
+//   case when $3 then $4 else col end
+//                          a column that is only rewritten when the patch
+//                          actually carried a new value for it.
+function readSetValue(expr, params, sql) {
+  const text = expr.trim();
+
+  // `excluded.<col>` inside an ON CONFLICT DO UPDATE is the row that was being
+  // inserted, not the row already stored. applySet stashes it on __excluded.
+  let m = /^excluded\.([a-z_]+)$/i.exec(stripCasts(text));
+  if (m) {
+    const col = m[1];
+    return (row) => (row.__excluded || {})[col];
+  }
+
+  m = new RegExp(`^${IDENT}\\s*\\|\\|\\s*(.+)$`, 'i').exec(text);
+  if (m) {
+    const [, col, operand] = m;
+    return (row) => {
+      const base = row[col];
+      const patch = readValue(operand, params, sql);
+      if (base === null || base === undefined) return patch;
+      if (typeof base !== 'object' || typeof patch !== 'object') return unsupported(sql);
+      return { ...base, ...patch };
+    };
+  }
+
+  m = /^case\s+when\s+(.+?)\s+then\s+(.+?)\s+else\s+(.+?)\s+end$/i.exec(text);
+  if (m) {
+    const [, when, then, otherwise] = m;
+    return (row) => {
+      const condition = readValue(when, params, sql);
+      if (condition === true) return readValue(then, params, sql);
+      if (condition === false || condition === null || condition === undefined) {
+        const keep = new RegExp(`^${IDENT}$`, 'i').exec(stripCasts(otherwise));
+        return keep ? row[keep[1]] : readValue(otherwise, params, sql);
+      }
+      return unsupported(sql);
+    };
+  }
+
+  const value = readValue(text, params, sql);
+  return () => value;
+}
+
+function parseSet(setPart, params, sql) {
+  const assignments = [];
+  for (const piece of splitTopLevel(setPart)) {
+    const s = new RegExp(`^${IDENT}\\s*=\\s*(.+)$`, 'is').exec(piece.trim());
+    if (!s) unsupported(sql);
+    assignments.push({ col: s[1], value: readSetValue(s[2], params, sql) });
+  }
+  return assignments;
+}
+
+function applySet(row, assignments) {
+  // Every right-hand side reads the row as it was BEFORE this statement, which
+  // is what Postgres does: `set a = b, b = a` swaps rather than chaining.
+  const before = { ...row };
+  for (const { col, value } of assignments) row[col] = value(before);
+  return row;
+}
+
 function applyOrder(rows, clause, sql) {
   if (!clause) return rows;
   const keys = clause.split(',').map((part) => {
@@ -172,6 +266,12 @@ function applyOrder(rows, clause, sql) {
  * @param {Function} [hooks.beforeInsert] (table, row) => void, may throw to
  *   simulate a write failure.
  * @param {Function} [hooks.onQuery]      (table, sql) => void
+ * @param {object} [hooks.unique]  { table: [{ columns, where? }] } — unique
+ *   indexes to enforce, raising the same unique_violation (23505) Postgres
+ *   would. Without these a test about concurrent writers converging on one row
+ *   would pass against a fake that simply let both of them through, which is
+ *   the opposite of what it is asserting. `where` models a PARTIAL index: it is
+ *   given the row and returns whether the index covers it.
  */
 function createFakeDb(tables, hooks = {}) {
   let sequence = 0;
@@ -182,13 +282,56 @@ function createFakeDb(tables, hooks = {}) {
     return tables[name];
   }
 
+  // Raised with the same shape services/db surfaces, so store code that
+  // recovers from a lost race by catching code '23505' is exercised here rather
+  // than only in production.
+  function uniqueViolation(table, columns) {
+    const error = new Error(
+      `duplicate key value violates unique constraint on ${table} (${columns.join(', ')})`
+    );
+    error.code = '23505';
+    return error;
+  }
+
+  function enforceUnique(name, row, sql) {
+    for (const index of (hooks.unique || {})[name] || []) {
+      if (index.where && !index.where(row)) continue;
+      const store = tableFor(name, sql);
+      const clash = store.some((other) => other !== row
+        && (!index.where || index.where(other))
+        && index.columns.every((c) => other[c] === row[c]));
+      if (clash) throw uniqueViolation(name, index.columns);
+    }
+  }
+
   function run(sql, params = []) {
     const text = sql.replace(/--[^\n]*/g, ' ').replace(/\s+/g, ' ').trim();
 
     // ── insert ──
-    let m = /^insert into "?([a-z_]+)"? \(([^)]+)\) values (.+?)(?: returning (.+))?$/i.exec(text);
+    // `on conflict` is split off BEFORE the values are parsed: its own
+    // parenthesised column list sits directly after them, and the tuple scanner
+    // below would otherwise read `(project_id, kind)` as another row to insert.
+    let conflict = null;
+    let body = text;
+    const onConflict = /\bon conflict\b/i.exec(body);
+    if (onConflict && /^insert /i.test(body)) {
+      const tail = body.slice(onConflict.index);
+      body = body.slice(0, onConflict.index).trim();
+      const parsed =
+        /^on conflict \(([^)]*)\) do (?:nothing|update set (.+?))(?: returning (.+))?$/i.exec(tail);
+      if (!parsed) unsupported(sql);
+      conflict = {
+        columns: parsed[1].split(',').map((c) => c.trim().replace(/"/g, '')),
+        // `do nothing` leaves assignments null; the existing row is kept as is.
+        assignments: parsed[2] ? parseSet(parsed[2], params, sql) : null,
+        returning: parsed[3],
+      };
+    }
+
+    let m = /^insert into "?([a-z_]+)"? \(([^)]+)\) values (.+?)(?: returning (.+))?$/i.exec(body);
     if (m) {
-      const [, name, colList, valuesPart, returning] = m;
+      const [, name, colList, valuesPart, ownReturning] = m;
+      const returning = ownReturning || conflict?.returning;
       const store = tableFor(name, sql);
       const cols = colList.split(',').map((c) => c.trim().replace(/"/g, ''));
 
@@ -196,18 +339,35 @@ function createFakeDb(tables, hooks = {}) {
       const tuples = [...valuesPart.matchAll(/\(([^)]*)\)/g)].map((t) => t[1]);
       if (!tuples.length) unsupported(sql);
 
-      const inserted = [];
+      const written = [];
       for (const tuple of tuples) {
         const slots = tuple.split(',').map((s) => s.trim());
-        const row = { id: nextId(), created_at: new Date().toISOString() };
+        const incoming = {};
         slots.forEach((slot, i) => {
-          row[cols[i]] = readValue(slot, params, sql);
+          incoming[cols[i]] = readValue(slot, params, sql);
         });
+
+        if (conflict) {
+          const clash = store.find((r) => conflict.columns.every((c) => r[c] === incoming[c]));
+          if (clash) {
+            // `excluded.<col>` in the update refers to the row that was being
+            // inserted, so it is resolved against `incoming`, not the stored row.
+            if (conflict.assignments) {
+              applySet(Object.assign(clash, { __excluded: incoming }), conflict.assignments);
+              delete clash.__excluded;
+            }
+            written.push(clash);
+            continue;
+          }
+        }
+
+        const row = { id: nextId(), created_at: new Date().toISOString(), ...incoming };
         if (hooks.beforeInsert) hooks.beforeInsert(name, row);
+        enforceUnique(name, row, sql);
         store.push(row);
-        inserted.push(row);
+        written.push(row);
       }
-      return { rows: returning ? inserted : [], rowCount: inserted.length };
+      return { rows: returning ? written : [], rowCount: written.length };
     }
 
     // ── update ──
@@ -215,15 +375,11 @@ function createFakeDb(tables, hooks = {}) {
     if (m) {
       const [, name, setPart, wherePart, returning] = m;
       const store = tableFor(name, sql);
-      const patch = {};
-      for (const piece of setPart.split(',')) {
-        const s = new RegExp(`^${IDENT}\\s*=\\s*(.+)$`, 'i').exec(piece.trim());
-        if (!s) unsupported(sql);
-        patch[s[1]] = readValue(s[2], params, sql);
-      }
+      const assignments = parseSet(setPart, params, sql);
       const preds = parseWhere(wherePart, params, sql);
       const hit = store.filter((r) => preds.every((p) => p(r)));
-      for (const row of hit) Object.assign(row, patch);
+      for (const row of hit) applySet(row, assignments);
+      for (const row of hit) enforceUnique(name, row, sql);
       return { rows: returning ? hit : [], rowCount: hit.length };
     }
 

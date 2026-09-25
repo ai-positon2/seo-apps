@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { rm } from '../lib/robotsMonitorApi';
 import ModuleRuns from '../components/ModuleRuns';
+import { useToast } from '../ui/Toast';
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 
@@ -191,35 +192,22 @@ function Header() {
 
 // ── Toast banner ──────────────────────────────────────────────────────────────
 
+// This page used to draw its own toast (top right, its own colours) while the
+// rest of the app used another (bottom right). It now hands the message to the
+// app's shared toaster and clears its own state straight away, so the call
+// sites below are unchanged.
 function Toast({ message, type = 'error', onClose }) {
+  const toaster = useToast();
   useEffect(() => {
-    const t = setTimeout(onClose, 4000);
-    return () => clearTimeout(t);
-  }, [onClose]);
-
-  const styles = {
-    error:   { background: 'var(--danger-soft, #FEF2F2)',   border: '1px solid var(--danger-border, #FECACA)',   color: 'var(--danger)' },
-    success: { background: 'var(--success-soft, #D1FAE5)',  border: '1px solid var(--success-border, #6EE7B7)',  color: 'var(--success, #065F46)' },
-    info:    { background: 'var(--primary-soft)',            border: '1px solid var(--primary)',                  color: 'var(--primary-text)' },
-  };
-  const s = styles[type] || styles.error;
-
-  return (
-    <div style={{
-      position: 'fixed', top: '1rem', right: '1rem', zIndex: 50,
-      ...s,
-      borderRadius: 'var(--r-lg)',
-      padding: '0.75rem 1rem',
-      fontSize: '0.875rem',
-      maxWidth: '28rem',
-      boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
-        <span style={{ flex: 1 }}>{message}</span>
-        <button onClick={onClose} style={{ flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', opacity: 0.6, fontSize: '1rem', lineHeight: 1 }}>✕</button>
-      </div>
-    </div>
-  );
+    toaster.add({
+      title: message,
+      variant: type === 'error' ? 'danger' : type === 'info' ? 'info' : 'success',
+    });
+    onClose();
+    // Once per message: the parent unmounts this as soon as onClose runs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return null;
 }
 
 // ── Nav tabs ──────────────────────────────────────────────────────────────────
@@ -1147,24 +1135,13 @@ function SettingsTab({ showToast }) {
         flexDirection: 'column',
         gap: '0.25rem',
       }}>
-        <p style={{ fontWeight: 600, margin: 0 }}>History retention note</p>
-        <p style={{ margin: 0 }}>Run history is retained for 90 days. Older files are automatically pruned after each run.</p>
+        <p style={{ fontWeight: 600, margin: 0 }}>History retention</p>
+        <p style={{ margin: 0 }}>Run history is kept for 90 days. Older runs are removed automatically.</p>
       </div>
-
-      <div style={{
-        background: 'var(--danger-soft, #FEF2F2)',
-        border: '1px solid var(--danger-border, #FECACA)',
-        borderRadius: 'var(--r-lg)',
-        padding: '1rem',
-        fontSize: '0.75rem',
-        color: 'var(--danger)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '0.25rem',
-      }}>
-        <p style={{ fontWeight: 600, margin: 0 }}>Security notice</p>
-        <p style={{ margin: 0 }}>Client credentials and the Slack webhook URL are stored in plaintext on disk. Ensure <code style={{ background: 'rgba(0,0,0,0.08)', padding: '0.1rem 0.25rem', borderRadius: '3px' }}>modules/robotsMonitor/data/</code> is excluded from version control.</p>
-      </div>
+      {/* A "Security notice" here told users their credentials were "stored in
+          plaintext on disk" under modules/robotsMonitor/data/. The monitor's
+          clients, settings and history moved to the database, so the warning
+          was both alarming and untrue; it was removed rather than reworded. */}
     </div>
   );
 }

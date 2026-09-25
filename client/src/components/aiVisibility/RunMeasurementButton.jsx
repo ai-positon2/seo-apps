@@ -40,7 +40,7 @@ export function RunMeasurementButton({
   project, approvedCount, draftCount = 0, budget, onFinished,
 }) {
   const toast = useToast();
-  const [state, setState] = useState('idle'); // idle | starting | running
+  const [state, setState] = useState('idle'); // idle | starting | running | stale
   const [elapsed, setElapsed] = useState(0); // whole minutes since the click
   const cancelled = useRef(false);
 
@@ -65,6 +65,61 @@ export function RunMeasurementButton({
   const geminiRests = Math.floor(measured / 5) * 2;
   const minutes = Math.max(1, Math.round((measured * 26 + geminiRests * 60) / 60));
 
+  // Follows a run until the module stops reporting queued/running. Shared by a
+  // click and by arriving on the screen while a run is already going.
+  async function follow(startedAt) {
+    setState('running');
+    setElapsed(Math.max(0, Math.round((Date.now() - startedAt) / 60000)));
+    const deadline = startedAt + DEADLINE_MS;
+    while (Date.now() < deadline && !cancelled.current) {
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => { setTimeout(r, POLL_MS); });
+      if (cancelled.current) return;
+      // The only render between the click and the finish. Without it the line
+      // beside the button reads “just started” for the whole run.
+      setElapsed(Math.round((Date.now() - startedAt) / 60000));
+      let overview;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        overview = await projectsApi.overview(project.id);
+      } catch {
+        continue; // a dropped poll is not a failed run
+      }
+      const still = (overview.modules || [])
+        .some((m) => m.key === 'ai_visibility' && IN_FLIGHT.includes(m.status));
+      if (!still) {
+        if (!cancelled.current) {
+          toast.add({ title: 'Measuring finished', variant: 'success' });
+          setState('idle');
+          await onFinished?.();
+        }
+        return;
+      }
+    }
+    // Past the deadline the run is still reported in flight: say so rather than
+    // silently offering "Measure" again as if nothing were running.
+    if (!cancelled.current) setState('stale');
+  }
+
+  // The run lives on the server, not in this button. Leaving the screen and
+  // coming back used to show "Measure" again while a run of up to 40 minutes
+  // was still going — inviting a second, paid run. Ask the server on arrival.
+  useEffect(() => {
+    if (!project?.id) return;
+    let alive = true;
+    (async () => {
+      try {
+        const overview = await projectsApi.overview(project.id);
+        const mod = (overview.modules || []).find((m) => m.key === 'ai_visibility');
+        if (!alive || cancelled.current || !mod || !IN_FLIGHT.includes(mod.status)) return;
+        const since = Date.parse(mod.lastRun?.startedAt || mod.lastRun?.createdAt || mod.updatedAt || '');
+        follow(Number.isFinite(since) ? since : Date.now());
+      } catch { /* the button still works; it just cannot say a run is going */ }
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id]);
+
   async function run() {
     setState('starting');
     try {
@@ -75,43 +130,12 @@ export function RunMeasurementButton({
         await onFinished?.();
         return;
       }
-
-      setState('running');
-      const startedAt = Date.now();
-      setElapsed(0);
       toast.add({
         title: `Measuring ${measured} question${measured === 1 ? '' : 's'}`,
         description: `About ${minutes} minute(s). You can leave this screen — it keeps going.`,
         variant: 'success',
       });
-
-      const deadline = Date.now() + DEADLINE_MS;
-      while (Date.now() < deadline && !cancelled.current) {
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise((r) => { setTimeout(r, POLL_MS); });
-        if (cancelled.current) return;
-        // The only render between the click and the finish. Without it the line
-        // beside the button reads “just started” for the whole run.
-        setElapsed(Math.round((Date.now() - startedAt) / 60000));
-        let overview;
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          overview = await projectsApi.overview(project.id);
-        } catch {
-          continue; // a dropped poll is not a failed run
-        }
-        const still = (overview.modules || [])
-          .some((m) => m.key === 'ai_visibility' && IN_FLIGHT.includes(m.status));
-        if (!still) {
-          if (!cancelled.current) {
-            toast.add({ title: 'Measuring finished', variant: 'success' });
-            setState('idle');
-            await onFinished?.();
-          }
-          return;
-        }
-      }
-      if (!cancelled.current) setState('idle');
+      await follow(Date.now());
     } catch (e) {
       toast.add({ title: 'Could not start measuring', description: e.message, variant: 'danger' });
       setState('idle');
@@ -134,7 +158,9 @@ export function RunMeasurementButton({
         <span style={muted}>
           {state === 'running'
             ? `Measuring… ${elapsed ? `${elapsed} min so far` : 'just started'}`
-            : `${captures} captures across ChatGPT and Gemini · about ${minutes} min`}
+            : state === 'stale'
+              ? 'The last measurement is taking longer than expected. Check Run history before starting another.'
+              : `${captures} captures across ChatGPT and Gemini · about ${minutes} min`}
         </span>
 {/* The commonest confusion on this screen: questions awaiting approval sit
             right above a button that measures only the approved ones, and the
@@ -149,8 +175,8 @@ export function RunMeasurementButton({
       </span>
       <Button
         size="sm"
-        loading={state !== 'idle'}
-        disabled={state !== 'idle'}
+        loading={state === 'starting' || state === 'running'}
+        disabled={state === 'starting' || state === 'running'}
         onClick={run}
       >
         {state === 'running' ? 'Measuring…' : `Measure ${measured} question${measured === 1 ? '' : 's'}`}

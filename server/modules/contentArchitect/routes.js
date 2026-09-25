@@ -9,11 +9,12 @@ const crypto = require('crypto');
 // middleware of its own, so any throw in them was a hung request rather than a
 // 500.
 //
-// That is reachable, not theoretical. store.writeAtomic() rethrows whatever the
-// filesystem gave it, and the data root is resolved from
-// CONTENT_ARCHITECT_DATA_ROOT — which services/dataRoot.js warns is ephemeral
-// inside a container image. Pointed at a path that is not writable, every
-// mutation here hung instead of reporting a failure.
+// That is reachable, not theoretical. The store rethrows whatever it was given,
+// and every call in it is now a database round trip: a dropped connection, a
+// statement timeout or a constraint violation all arrive here as a rejected
+// promise. Unwrapped, each one hung the request instead of reporting a failure.
+// (Before 0032 the same hole was reached through the filesystem, when the JSON
+// data root turned out not to be writable.)
 //
 // Same shape as the wrappers already used in routes/lsPages.js,
 // routes/locationPageBuilder.js and modules/crawlScope/api/routes.js.
@@ -40,14 +41,26 @@ const { topTermsForCluster } = require('./clusterEngine');
 const analyzeSessions = new Map();
 const projectAccess = require('../../services/projectAccess');
 
-// Automatically linked entries inherit the platform project's workspace access.
+// Access follows the record's link. Linked to a platform project: that
+// project's workspace access. Unlinked but still in a workspace: that
+// workspace's members — the importer leaves records like this when it can
+// resolve a workspace but not the project inside it. Neither: a standalone
+// analysis, open to anyone signed in, as the standalone tool always was.
+async function authorize(req, project, capability) {
+  if (project.platformProjectId) {
+    await projectAccess.requireProject(req, project.platformProjectId, capability);
+  } else if (project.workspaceId) {
+    await projectAccess.requireWorkspace(req, project.workspaceId, capability);
+  }
+}
+
 router.param('id', async (req, res, next, id) => {
   try {
     const project = await store.getProject(id);
-    if (project?.platformProjectId) {
+    if (project) {
       const capability = req.method === 'GET' ? 'view'
         : req.method === 'DELETE' ? 'editProjectSettings' : 'startRun';
-      await projectAccess.requireProject(req, project.platformProjectId, capability);
+      await authorize(req, project, capability);
     }
     next();
   } catch (e) {
@@ -69,9 +82,8 @@ router.get('/projects', async (req, res) => {
   try {
     const projects = await store.listProjects();
     const visible = await Promise.all(projects.map(async (project) => {
-      if (!project.platformProjectId) return project;
       try {
-        await projectAccess.requireProject(req, project.platformProjectId, 'view');
+        await authorize(req, project, 'view');
         return project;
       } catch (e) {
         if (e.status === 403 || e.status === 404) return null;
@@ -96,11 +108,13 @@ router.post('/projects', async (req, res) => {
       return res.status(400).json({ error: err.message });
     }
     // The two cases above are the caller's problem and say so. Anything else is
-    // ours, and its message is not the caller's to read: createProject() writes
-    // through store.writeAtomic(), whose errors are raw filesystem ones
-    // ("EACCES: permission denied, open '/data/content-architect/projects.json'"),
-    // which disclose the deployment's paths. Matches the sibling handler on
-    // router.param('id') just above, which already generalises its 500.
+    // ours, and its message is not the caller's to read: createProject()'s
+    // errors are raw database ones, which name tables, columns and constraints
+    // ("duplicate key value violates unique constraint
+    // \"uq_content_architect_projects_platform\""). That is internal structure,
+    // the same way the filesystem paths this used to leak were. Matches the
+    // sibling handler on router.param('id') just above, which already
+    // generalises its 500.
     console.error('[contentArchitect] POST /projects failed:', err.stack || err.message);
     res.status(500).json({ error: 'Could not create that project.' });
   }
@@ -255,11 +269,16 @@ router.put('/projects/:id/patterns', wrap(async (req, res) => {
   await store.savePatterns(req.params.id, updated);
 
   // Checked for null. The guard above only establishes that the PATTERNS exist,
-  // and patterns live in their own sidecar file (`<id>_patterns.json`) rather
-  // than in projects.json — so "patterns present" does not imply "project
-  // present". deleteProject() removes the project from projects.json first and
-  // unlinks the four sidecars after, and a request landing in that window found
-  // patterns, got null here, and spread `...project.stats` into a TypeError.
+  // and patterns are their own row (content_architect_artifacts) rather than
+  // part of the project — so "patterns present" does not imply "project
+  // present". A project deleted between the two reads used to leave this
+  // spreading `...project.stats` into a TypeError.
+  //
+  // Since 0032 the artifact row carries a foreign key to the project, so a
+  // delete takes both together and savePatterns() above would itself fail
+  // rather than write an orphan. This stays because the read is still a
+  // separate statement from the write, and a 404 is the right answer for a
+  // project that has gone.
   const project = await store.getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
   const urlsSelected = updated.filter((p) => p.included).reduce((sum, p) => sum + p.count, 0);

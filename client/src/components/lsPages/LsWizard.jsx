@@ -744,8 +744,12 @@ export default function LsWizard({
       {loadError && (
         <Banner tone="warning">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
-            <span>{loadError}</span>
-            {seed && <button style={btn(true)} disabled={seeding} onClick={runSeed}>{seeding ? 'Syncing…' : seedLabel}</button>}
+            <span>
+              {/client not found/i.test(loadError)
+                ? 'This client hasn’t been set up in the page builder yet. Set it up to load its services and locations; it takes a few seconds.'
+                : loadError}
+            </span>
+            {seed && <button style={btn(true)} disabled={seeding} onClick={runSeed}>{seeding ? 'Setting up…' : seedLabel}</button>}
           </div>
         </Banner>
       )}

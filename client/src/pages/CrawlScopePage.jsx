@@ -14,7 +14,7 @@ import CrawlOptionsForm from '../components/crawlScope/CrawlOptionsForm';
 import ProjectForm from '../components/crawlScope/ProjectForm';
 import {
   DEFAULT_OPTIONS, describeSchedule, formatInTimezone, runStatusVariant,
-  TERMINAL_STATUSES, WORKER_EXECUTED_TRIGGERS, formatDuration,
+  TERMINAL_STATUSES, WORKER_EXECUTED_TRIGGERS, formatDuration, describeBudgetSource,
 } from '../components/crawlScope/crawlHelpers';
 import { cs } from '../lib/crawlScopeApi';
 
@@ -35,6 +35,18 @@ function NewCrawl({ onStarted, onScheduleInstead }) {
   const [options, setOptions] = useState(DEFAULT_OPTIONS);
   const [starting, setStarting] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  // The workspace's real caps. Until they arrive the form falls back to its
+  // static ranges, which is why a failed fetch is ignored rather than surfaced:
+  // not knowing the ceiling must not block starting a crawl.
+  const [limits, setLimits] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    cs.limits()
+      .then((r) => { if (!cancelled) setLimits(r.limits || null); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const listUrls = useMemo(
     () => urlList.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean),
@@ -49,10 +61,22 @@ function NewCrawl({ onStarted, onScheduleInstead }) {
       const body = mode === 'spider'
         ? { url: url.trim(), options }
         : { urls: listUrls, options };
-      const { run } = await cs.startRun(body);
+      const { run, budgetClamped } = await cs.startRun(body);
+      // The server reduced the budget rather than refusing the request. It has
+      // always said so in the 201 and nothing has ever read it, so the only
+      // number on screen was the reduced one — indistinguishable from a site
+      // that simply has fewer pages.
+      if (budgetClamped) {
+        toast.add({
+          variant: 'info',
+          title: `Crawling ${budgetClamped.granted.toLocaleString()} of ${budgetClamped.requested.toLocaleString()} URLs`,
+          description: `Reduced by ${describeBudgetSource(budgetClamped.source)}.`,
+          duration: 9000,
+        });
+      }
       onStarted(run);
     } catch (e) {
-      toast.error(e.message);
+      toast.add({ variant: 'error', title: e.message });
     } finally {
       setStarting(false);
     }
@@ -85,7 +109,7 @@ function NewCrawl({ onStarted, onScheduleInstead }) {
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && canStart && !starting) start(); }}
-          helper="Only crawl sites you are authorised to audit. Requests identify as CrawlScope."
+          helper="Only crawl sites you are authorised to audit. The crawler identifies itself to sites as “CrawlScope”."
         />
       ) : (
         <Field
@@ -148,7 +172,7 @@ function NewCrawl({ onStarted, onScheduleInstead }) {
               politeness, timeout, robots and asset crawling all still apply, and
               a list spanning many hosts is exactly when someone wants to reach
               for the per-host delay. */}
-          <CrawlOptionsForm options={options} onChange={setOptions} mode={mode} />
+          <CrawlOptionsForm options={options} onChange={setOptions} mode={mode} limits={limits} />
           {mode === 'list' && (
             <p style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 10 }}>
               In list mode the crawl visits exactly the URLs above, so the discovery limits don't apply.
@@ -176,7 +200,7 @@ function Projects({
     if (editing) await cs.updateProject(editing.id, body);
     else await cs.createProject(body);
     await reload();
-    toast.success(editing ? 'Schedule updated.' : 'Project created — first crawl queued.');
+    toast.add({ title: editing ? 'Schedule updated.' : 'Project created — first crawl queued.' });
   }
 
   async function act(project, fn, message) {
@@ -184,9 +208,9 @@ function Projects({
     try {
       await fn();
       await reload();
-      toast.success(message);
+      toast.add({ title: message });
     } catch (e) {
-      toast.error(e.message);
+      toast.add({ variant: 'error', title: e.message });
     } finally {
       setBusy('');
     }
@@ -402,7 +426,7 @@ export default function CrawlScopePage() {
   return (
     <main style={{ padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
       <SectionHeader
-        title="CrawlScope"
+        title="Site Crawler"
         subtitle="Crawl a site, audit every URL against 100+ technical SEO checks, and schedule the whole thing to re-run and email itself."
       />
 
@@ -432,7 +456,7 @@ export default function CrawlScopePage() {
 
       {tab === 'crawl' && (
         <NewCrawl
-          onStarted={(run) => { toast.success('Crawl started.'); openRun(run.id); }}
+          onStarted={(run) => { toast.add({ title: 'Crawl started.' }); openRun(run.id); }}
           onScheduleInstead={openScheduleForm}
         />
       )}

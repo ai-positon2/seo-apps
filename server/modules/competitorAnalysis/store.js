@@ -1,136 +1,179 @@
-const fs = require('fs').promises;
-const path = require('path');
+// ── Persistence — backed by Postgres ─────────────────────────────────────────
+// Was clients.json plus a snapshot and a content-analysis file per client. Now
+// competitor_analysis_clients and competitor_analysis_artifacts; see
+// supabase/migrations/0033_competitor_analysis_to_postgres.sql for why.
+//
+// Every exported name, argument, return shape and thrown message is unchanged,
+// so routes.js and the client need no changes.
+//
+// What the move fixed beyond durability: addCompetitor()'s four-competitor cap
+// and removeCompetitor() were read-modify-write over a whole JSON file, so two
+// requests arriving together could both read three competitors and both append
+// — a fifth competitor past a cap that had just been checked, or one request's
+// removal undone by the other's write. Both are single statements now, and the
+// cap is enforced inside the one that does the appending.
+
+const db = require('../../services/db');
 const crypto = require('crypto');
 
-const { resolveDataRoot } = require('../../services/dataRoot');
-// Traversal guard: clientId reaches these paths from req.params.
-const { assertSafeFileId } = require('../../services/safeFileId');
-
-// Ephemeral inside the image on a container platform; see services/dataRoot.js.
-const DATA_ROOT = resolveDataRoot(
-  'competitor-analysis', path.join(__dirname, 'data'), 'COMPETITOR_ANALYSIS_DATA_ROOT',
-);
-const SNAPSHOTS_DIR = path.join(DATA_ROOT, 'snapshots');
-const CONTENT_ANALYSIS_DIR = path.join(DATA_ROOT, 'content-analysis');
-const CLIENTS_FILE = path.join(DATA_ROOT, 'clients.json');
 const MAX_COMPETITORS = 4;
 
 function genId(prefix) {
   return `${prefix}_${Date.now().toString(36)}${crypto.randomBytes(4).toString('hex')}`;
 }
 
-async function writeAtomic(filePath, data) {
-  const tmp = filePath + '.tmp';
-  await fs.writeFile(tmp, JSON.stringify(data, null, 2), 'utf8');
-  await fs.rename(tmp, filePath);
-}
+// The tables are created by the migration runner (scripts/migrate.js), so there
+// is nothing to make on boot. Kept because server.js and the routes call it,
+// and because "this module needs no setup" is worth saying once rather than
+// leaving callers to discover a missing export.
+async function init() {}
 
-async function readJson(filePath, fallback) {
-  try {
-    return JSON.parse(await fs.readFile(filePath, 'utf8'));
-  } catch {
-    return fallback;
-  }
-}
-
-async function init() {
-  await fs.mkdir(SNAPSHOTS_DIR, { recursive: true });
-  await fs.mkdir(CONTENT_ANALYSIS_DIR, { recursive: true });
-  try { await fs.access(CLIENTS_FILE); } catch { await writeAtomic(CLIENTS_FILE, []); }
-}
+const stripScheme = (domain) => String(domain).replace(/^https?:\/\//, '').replace(/\/$/, '');
 
 // ── Clients ──────────────────────────────────────────────────────────────────
 
 async function getClients() {
-  return readJson(CLIENTS_FILE, []);
+  const found = await db.rows(
+    `select data from competitor_analysis_clients order by created_at asc, id asc`
+  );
+  return found.map((r) => r.data);
 }
 
 async function getClient(clientId) {
-  const list = await getClients();
-  return list.find((c) => c.id === clientId) || null;
+  const row = await db.maybeOne(
+    `select data from competitor_analysis_clients where id = $1`, [clientId]
+  );
+  return row ? row.data : null;
 }
 
 async function createClient({ name, domain, country, brandName }) {
   if (!name || !domain) throw new Error('name and domain are required');
-  const list = await getClients();
   const client = {
     id: genId('client'),
     name,
-    domain: domain.replace(/^https?:\/\//, '').replace(/\/$/, ''),
+    domain: stripScheme(domain),
     country: country || 'United States',
     brandName: brandName || name,
     competitors: [],
     createdAt: new Date().toISOString(),
   };
-  list.push(client);
-  await writeAtomic(CLIENTS_FILE, list);
+  await db.query(
+    `insert into competitor_analysis_clients (id, data, created_at, updated_at)
+     values ($1, $2, $3, $3)`,
+    [client.id, db.json(client), client.createdAt]
+  );
   return client;
 }
 
 async function updateClient(clientId, patch) {
-  const list = await getClients();
-  const idx = list.findIndex((c) => c.id === clientId);
-  if (idx === -1) throw new Error('Client not found');
-  list[idx] = { ...list[idx], ...patch, id: list[idx].id, competitors: list[idx].competitors };
-  await writeAtomic(CLIENTS_FILE, list);
-  return list[idx];
+  // id and competitors are pinned exactly as the file version pinned them: a
+  // patch may not rename the record or edit the competitor list through the
+  // back door (addCompetitor/removeCompetitor own that).
+  const safe = { ...patch };
+  delete safe.id;
+  delete safe.competitors;
+
+  const row = await db.maybeOne(
+    `update competitor_analysis_clients
+        set data = data || $2::jsonb, updated_at = now()
+      where id = $1
+    returning data`,
+    [clientId, db.json(safe)]
+  );
+  if (!row) throw new Error('Client not found');
+  return row.data;
 }
 
 async function deleteClient(clientId) {
-  const list = await getClients();
-  const next = list.filter((c) => c.id !== clientId);
-  await writeAtomic(CLIENTS_FILE, next);
-  await fs.rm(path.join(SNAPSHOTS_DIR, `${assertSafeFileId(clientId, 'clientId')}.json`), { force: true });
-  await fs.rm(path.join(CONTENT_ANALYSIS_DIR, `${assertSafeFileId(clientId, 'clientId')}.json`), { force: true });
+  // The snapshot and the content analysis go with it: ON DELETE CASCADE in
+  // 0033. assertSafeFileId is gone with the paths it was guarding — clientId
+  // arrived here from req.params and was interpolated into two file paths.
+  await db.query(`delete from competitor_analysis_clients where id = $1`, [clientId]);
 }
 
 // ── Competitors ──────────────────────────────────────────────────────────────
 
 async function addCompetitor(clientId, { domain, label }) {
   if (!domain) throw new Error('domain is required');
-  const list = await getClients();
-  const client = list.find((c) => c.id === clientId);
-  if (!client) throw new Error('Client not found');
-  if (client.competitors.length >= MAX_COMPETITORS) throw new Error(`Maximum of ${MAX_COMPETITORS} competitors per client`);
   const competitor = {
     id: genId('comp'),
-    domain: domain.replace(/^https?:\/\//, '').replace(/\/$/, ''),
+    domain: stripScheme(domain),
     label: label || domain,
     addedAt: new Date().toISOString(),
   };
-  client.competitors.push(competitor);
-  await writeAtomic(CLIENTS_FILE, list);
+
+  // The cap is part of the UPDATE, so it is evaluated against the list as it is
+  // at the moment of the append rather than against a copy read earlier.
+  const row = await db.maybeOne(
+    `update competitor_analysis_clients
+        set data = jsonb_set(
+              data, '{competitors}',
+              coalesce(data->'competitors', '[]'::jsonb) || jsonb_build_array($2::jsonb)
+            ),
+            updated_at = now()
+      where id = $1
+        and jsonb_array_length(coalesce(data->'competitors', '[]'::jsonb)) < $3
+    returning data`,
+    [clientId, db.json(competitor), MAX_COMPETITORS]
+  );
+
+  // No row means either no such client or a full list, and the two have
+  // different messages. Only asked when the append did not happen.
+  if (!row) {
+    const client = await getClient(clientId);
+    if (!client) throw new Error('Client not found');
+    throw new Error(`Maximum of ${MAX_COMPETITORS} competitors per client`);
+  }
   return competitor;
 }
 
 async function removeCompetitor(clientId, competitorId) {
-  const list = await getClients();
-  const client = list.find((c) => c.id === clientId);
-  if (!client) throw new Error('Client not found');
-  client.competitors = client.competitors.filter((c) => c.id !== competitorId);
-  await writeAtomic(CLIENTS_FILE, list);
+  const row = await db.maybeOne(
+    `update competitor_analysis_clients
+        set data = jsonb_set(
+              data, '{competitors}',
+              coalesce(
+                (select jsonb_agg(entry)
+                   from jsonb_array_elements(coalesce(data->'competitors', '[]'::jsonb)) entry
+                  where entry->>'id' is distinct from $2),
+                '[]'::jsonb
+              )
+            ),
+            updated_at = now()
+      where id = $1
+    returning data`,
+    [clientId, competitorId]
+  );
+  if (!row) throw new Error('Client not found');
 }
 
-// ── Snapshots ────────────────────────────────────────────────────────────────
+// ── Per-client artifacts ─────────────────────────────────────────────────────
 
-async function getSnapshot(clientId) {
-  return readJson(path.join(SNAPSHOTS_DIR, `${assertSafeFileId(clientId, 'clientId')}.json`), null);
+async function getArtifact(clientId, kind) {
+  const row = await db.maybeOne(
+    `select data from competitor_analysis_artifacts where client_id = $1 and kind = $2`,
+    [clientId, kind]
+  );
+  return row ? row.data : null;
 }
 
-async function saveSnapshot(clientId, snapshot) {
-  await writeAtomic(path.join(SNAPSHOTS_DIR, `${assertSafeFileId(clientId, 'clientId')}.json`), snapshot);
+async function saveArtifact(clientId, kind, payload) {
+  await db.query(
+    `insert into competitor_analysis_artifacts (client_id, kind, data)
+     values ($1, $2, $3)
+     on conflict (client_id, kind)
+       do update set data = excluded.data, updated_at = now()`,
+    [clientId, kind, db.json(payload)]
+  );
 }
 
-// ── Content Analysis (separate file per client — kept apart from the main
-// SEMrush snapshot since it can carry its own sizable page-type data) ───────
+const getSnapshot = (clientId) => getArtifact(clientId, 'snapshot');
+const saveSnapshot = (clientId, snapshot) => saveArtifact(clientId, 'snapshot', snapshot);
 
-async function getContentAnalysis(clientId) {
-  return readJson(path.join(CONTENT_ANALYSIS_DIR, `${assertSafeFileId(clientId, 'clientId')}.json`), null);
-}
-
-async function saveContentAnalysis(clientId, data) {
-  await writeAtomic(path.join(CONTENT_ANALYSIS_DIR, `${assertSafeFileId(clientId, 'clientId')}.json`), data);
-}
+// Kept apart from the main SEMrush snapshot since it can carry its own sizable
+// page-type data.
+const getContentAnalysis = (clientId) => getArtifact(clientId, 'content_analysis');
+const saveContentAnalysis = (clientId, data) => saveArtifact(clientId, 'content_analysis', data);
 
 module.exports = {
   init,

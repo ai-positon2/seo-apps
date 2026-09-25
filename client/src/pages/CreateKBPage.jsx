@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import MDEditor from '@uiw/react-md-editor';
+import { useTheme } from '../components/ThemeContext';
 
 const BRANDS = ['gentle-dental','great-lakes','riccobene','clear-behavioral-health','neuro-wellness-spa','new-life-house'];
 const INDUSTRY_KBS = ['global','dental-service-organizations','mental-health-organizations','b2b-tech'];
@@ -17,6 +18,7 @@ const STEPS_BY_CATEGORY = {
 
 export default function CreateKBPage() {
   const navigate = useNavigate();
+  const { theme } = useTheme();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState({
     id: '', category: 'brand', client: 'gentle-dental', industry: 'dental-service-organizations',
@@ -329,7 +331,7 @@ export default function CreateKBPage() {
                   onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none'; }}
                 />
               </div>
-              <div data-color-mode="light">
+              <div data-color-mode={theme}>
                 <label style={labelStyle}>
                   Content <span style={{ fontWeight: 400, color: 'var(--text-2)' }}>(Markdown)</span>
                 </label>
@@ -367,7 +369,7 @@ export default function CreateKBPage() {
                   onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none'; }}
                 />
               </div>
-              <div data-color-mode="light">
+              <div data-color-mode={theme}>
                 <label style={labelStyle}>
                   Content <span style={{ fontWeight: 400, color: 'var(--text-2)' }}>(Markdown)</span>
                 </label>

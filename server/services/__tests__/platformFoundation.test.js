@@ -259,6 +259,82 @@ test('with no policies at all, the seeded defaults apply', () => {
   assert.strictEqual(sources.maxUrlsPerCrawl, 'default');
 });
 
+// ── Env is a fallback, not a ceiling ───────────────────────────────────────
+//
+// crawlScope/shared/options.js used to read MAX_URLS_CEILING as a SECOND ceiling
+// and combine it with the admin policy via Math.min. The lower won, so an
+// operator's .env silently undercut whatever an administrator had configured —
+// MAX_URLS_CEILING=50 turned a 500-page admin limit into a 50-page crawl with
+// nothing anywhere saying so. Env now sits BENEATH the policy layers: it fills a
+// key no policy sets, which is the server-without-a-database case.
+
+function withEnv(name, value, fn) {
+  const previous = process.env[name];
+  process.env[name] = String(value);
+  try {
+    return fn();
+  } finally {
+    if (previous === undefined) delete process.env[name];
+    else process.env[name] = previous;
+  }
+}
+
+test('an env value fills a key no policy sets, and says where it came from', () => {
+  withEnv('MAX_URLS_CEILING', 2_000, () => {
+    const { limits, sources } = adminLimits.combine([]);
+    assert.strictEqual(limits.maxUrlsPerCrawl, 2000);
+    assert.strictEqual(sources.maxUrlsPerCrawl, 'env_fallback');
+  });
+});
+
+test('a policy beats an env value even when the env value is LOWER', () => {
+  // The inversion that matters. Under the old rule this returned 50.
+  withEnv('MAX_URLS_CEILING', 50, () => {
+    const { limits, sources } = adminLimits.combine([
+      { scope: 'platform', limits: { maxUrlsPerCrawl: 500 } },
+    ]);
+    assert.strictEqual(limits.maxUrlsPerCrawl, 500, 'the admin owns the cap');
+    assert.strictEqual(sources.maxUrlsPerCrawl, 'platform');
+  });
+});
+
+test('an env value never touches a key it is not mapped to', () => {
+  withEnv('MAX_URLS_CEILING', 50, () => {
+    const { sources } = adminLimits.combine([]);
+    assert.strictEqual(sources.maxPagesPerModuleAudit, 'default');
+  });
+});
+
+test('a nonsense env value is ignored rather than becoming the limit', () => {
+  for (const bad of ['lots', '0', '-5', '']) {
+    withEnv('MAX_URLS_CEILING', bad, () => {
+      const { limits, sources } = adminLimits.combine([]);
+      assert.strictEqual(limits.maxUrlsPerCrawl, adminLimits.DEFAULT_LIMITS.maxUrlsPerCrawl);
+      assert.strictEqual(sources.maxUrlsPerCrawl, 'default', `env ${JSON.stringify(bad)}`);
+    });
+  }
+});
+
+test('no policy may exceed the platform hard maximum', () => {
+  // The backstop that replaced the env ceiling. Past this the crawler's own
+  // constructor truncates anyway, so it is declared and attributed rather than
+  // discovered later as a silent cut.
+  const { limits, sources } = adminLimits.combine([
+    { scope: 'platform', limits: { maxUrlsPerCrawl: adminLimits.HARD_MAX.maxUrlsPerCrawl * 4 } },
+  ]);
+  assert.strictEqual(limits.maxUrlsPerCrawl, adminLimits.HARD_MAX.maxUrlsPerCrawl);
+  assert.strictEqual(sources.maxUrlsPerCrawl, 'hard_max');
+});
+
+test('every hard maximum names a real limit key', () => {
+  for (const key of Object.keys(adminLimits.HARD_MAX)) {
+    assert.ok(adminLimits.LIMIT_KEYS.includes(key), `HARD_MAX.${key} is not a limit key`);
+  }
+  for (const key of Object.keys(adminLimits.ENV_FALLBACK)) {
+    assert.ok(adminLimits.LIMIT_KEYS.includes(key), `ENV_FALLBACK.${key} is not a limit key`);
+  }
+});
+
 test('a lower ceiling from a narrower scope wins', () => {
   const { limits, sources } = adminLimits.combine([
     { scope: 'platform',  limits: { maxUrlsPerCrawl: 5000 } },

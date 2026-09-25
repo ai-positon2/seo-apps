@@ -11,13 +11,47 @@ import CrawlStatusBar from './home/CrawlStatusBar';
 import { useCrawlStatus } from '../lib/useCrawlStatus';
 import ChunkErrorBoundary from './ChunkErrorBoundary';
 
+// Sidebar collapse preferences (see the state below for why they are versioned).
+const NAV_COLLAPSED_KEY = 'seoStudio.navCollapsed.v3';
+const HOME_NAV_COLLAPSED_KEY = 'seoStudio.homeNavCollapsed.v2';
+
+// Screens that are not tools in toolsMeta.js still need a name in the header.
+// Without one the breadcrumb read "SEO Studio" on six different pages, so the
+// header could not tell you where you were.
+const PAGE_TITLES = [
+  ['/projects', 'Projects'],
+  ['/workspaces', 'Workspaces'],
+  ['/runs', 'Run history'],
+  ['/admin', 'Administration'],
+  ['/robots-monitor', 'Robots Monitor'],
+  ['/content-enhancement', 'Content Enhancement'],
+  ['/keyword-research-public', 'Keyword Research'],
+];
+function pageTitleFor(pathname) {
+  const hit = PAGE_TITLES.find(([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  return hit ? hit[1] : null;
+}
+
 // Shown while a route's chunk is in flight. Routes are code-split (see App.jsx),
 // so navigating to a tool now fetches it — a few hundred milliseconds on a cold
-// cache, nothing on a warm one. Deliberately near-empty: the sidebar and header
-// are still on screen either side of it, and a spinner that flashes for 200ms
-// reads as a slower app than one that simply holds its ground.
+// cache, nothing on a warm one. Near-empty on purpose: a spinner that flashes
+// for 200ms reads as a slower app than one that holds its ground. But on a slow
+// connection an empty area for seconds reads as broken, so a quiet "Loading…"
+// fades in only once the wait passes ~400ms (keyframes in index.html).
 function RouteFallback() {
-  return <div style={{ minHeight: '60vh' }} aria-busy="true" />;
+  return (
+    <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-busy="true">
+      <span
+        role="status"
+        style={{
+          fontSize: 13, color: 'var(--text-3)', opacity: 0,
+          animation: 'app-splash-in 200ms ease-out 400ms forwards',
+        }}
+      >
+        Loading…
+      </span>
+    </div>
+  );
 }
 
 /* ── Embed mode ──────────────────────────────────────────────────────────────
@@ -223,6 +257,14 @@ const ClientSwitcher = memo(function ClientSwitcher() {
   // repair effect below must not judge `activeProjectId` against an empty
   // `projects` array before that first read ever lands.
   const [refreshing, setRefreshing] = useState(true);
+  // False until the first list read has answered. "Add a client" used to show on
+  // every page load for the moment before it did, telling a user with three
+  // clients that they had none.
+  const [loadedOnce, setLoadedOnce] = useState(false);
+  // Bumped to re-read the list outside the projects-changed signal: when the
+  // menu opens (a teammate or another tab may have added a client since), and
+  // once before judging an unknown selection stale (see the repair below).
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -242,10 +284,14 @@ const ClientSwitcher = memo(function ClientSwitcher() {
         setWorkspaces([]);
       })
       .finally(() => {
-        if (!cancelled) setRefreshing(false);
+        if (!cancelled) { setRefreshing(false); setLoadedOnce(true); }
       });
     return () => { cancelled = true; };
-  }, [projectsVersion]);
+  }, [projectsVersion, reloadKey]);
+
+  // Opening the menu re-reads the list, so a client created since this tab
+  // loaded (another tab, a teammate) is there to pick.
+  useEffect(() => { if (open) setReloadKey((k) => k + 1); }, [open]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -280,10 +326,30 @@ const ClientSwitcher = memo(function ClientSwitcher() {
   // project — not found in the (still stale) `projects` array — and the
   // header "repairs" a brand-new project id back to whatever was first in the
   // old list, fighting the very screen that just created it.
+  //
+  // And re-read once before repairing: an id missing from a list read earlier
+  // may simply be newer than the list (a project created since, whose first
+  // crawl is still running). Repairing that at once bounced the header back to
+  // the first client, so such a project could not be selected.
+  const recheckedFor = useRef(null);
   useEffect(() => {
     if (refreshing) return;
-    if (active && active.id !== activeProjectId) setActiveProjectId(active.id);
+    if (!active || active.id === activeProjectId) return;
+    if (activeProjectId && recheckedFor.current !== activeProjectId) {
+      recheckedFor.current = activeProjectId;
+      setReloadKey((k) => k + 1);
+      return;
+    }
+    setActiveProjectId(active.id);
   }, [active, activeProjectId, setActiveProjectId, refreshing]);
+
+  if (!projects.length && !loadedOnce) {
+    return (
+      <span style={{ fontSize: 12.5, color: 'var(--text-3)', padding: '0 10px' }} aria-live="polite">
+        Loading clients…
+      </span>
+    );
+  }
 
   if (!projects.length) {
     return (
@@ -458,56 +524,55 @@ export default function MacWindow() {
   // because localStorage throws outright in a private window rather than
   // returning null.
   //
-  // COLLAPSED BY DEFAULT. The screens this shell wraps are dashboards and
-  // reports that want the width, and the sidebar is navigation somebody uses
-  // once on arrival — the toggle beside the brand block opens it, and the
-  // choice is then remembered.
+  // OPEN BY DEFAULT (since the 25 Sep 2026 design audit, APP-4). It was
+  // collapsed by default so dashboards got the width, but a first-time visitor
+  // then saw one unlabelled icon and no way to learn what the product does —
+  // the tool list IS the product's table of contents. Anyone who prefers the
+  // width closes it once and the choice is remembered.
   //
-  // The key carries a version suffix, and that is what makes the new default
+  // The key carries a version suffix, and that is what makes a new default
   // actually reach anyone. The effect below writes the preference on first
   // render, so every person who has ever loaded the app already has an explicit
-  // '0' under the old key; reading that key would hand them the old default
-  // forever and the change would only be visible in a fresh browser profile.
-  // A new key resets the default once, while the toggle keeps persisting.
+  // value under the old key; reading that key would hand them the old default
+  // forever. A new key resets the default once, while the toggle keeps
+  // persisting. (v2 carried the collapsed default; v3 carries this one.)
   const [navCollapsed, setNavCollapsed] = useState(() => {
     try {
-      const stored = window.localStorage.getItem('seoStudio.navCollapsed.v2');
-      // Absent means nobody has chosen yet — take the default. '0' is a real
-      // choice to keep it open and must survive reloads.
-      return stored === null ? true : stored === '1';
+      const stored = window.localStorage.getItem(NAV_COLLAPSED_KEY);
+      // Absent means nobody has chosen yet — take the default. '1' is a real
+      // choice to keep it closed and must survive reloads.
+      return stored === null ? false : stored === '1';
     } catch {
-      return true;
+      return false;
     }
   });
 
   useEffect(() => {
     try {
-      window.localStorage.setItem('seoStudio.navCollapsed.v2', navCollapsed ? '1' : '0');
+      window.localStorage.setItem(NAV_COLLAPSED_KEY, navCollapsed ? '1' : '0');
     } catch {
       // A viewer who cannot store the preference still gets to use the toggle;
       // it just does not survive a reload.
     }
   }, [navCollapsed]);
 
-  // Same collapse mechanism, kept as its own preference: the dashboard states
-  // its own six audit modules directly (AuditRadar, ModuleCard grid), so the
-  // tool-browsing sidebar was mostly competing with them for space and starts
-  // collapsed here by default — but it is still a real, working toggle, not a
-  // hard block, so anyone who wants the tool list open on the dashboard too
-  // can have it. Defaults to collapsed (not "false", matching navCollapsed's
-  // default) on a first visit with nothing stored yet.
+  // Same collapse mechanism, kept as its own preference because the dashboard
+  // competes with the sidebar for width more than any tool page does. It also
+  // starts OPEN now: the dashboard is the first screen a new user sees, and the
+  // one place they most need to find the tools. Versioned for the same reason
+  // as NAV_COLLAPSED_KEY (the unversioned key carried the collapsed default).
   const [homeNavCollapsed, setHomeNavCollapsed] = useState(() => {
     try {
-      const stored = window.localStorage.getItem('seoStudio.homeNavCollapsed');
-      return stored === null ? true : stored === '1';
+      const stored = window.localStorage.getItem(HOME_NAV_COLLAPSED_KEY);
+      return stored === null ? false : stored === '1';
     } catch {
-      return true;
+      return false;
     }
   });
 
   useEffect(() => {
     try {
-      window.localStorage.setItem('seoStudio.homeNavCollapsed', homeNavCollapsed ? '1' : '0');
+      window.localStorage.setItem(HOME_NAV_COLLAPSED_KEY, homeNavCollapsed ? '1' : '0');
     } catch {
       // See the navCollapsed effect above — same non-fatal fallback.
     }
@@ -630,9 +695,9 @@ export default function MacWindow() {
             {/* Collapse the tool list. Moved out of the brand block above (a
                 fixed 60px column with no room to make this bigger without
                 overlapping its neighbour) into this row, which always has
-                space. Retractable everywhere, including the dashboard — it
-                just starts collapsed there by default (homeNavCollapsed
-                above), rather than being unavailable. Sized up and tinted
+                space. Retractable everywhere, including the dashboard; open
+                by default, with each person's choice remembered
+                (homeNavCollapsed / navCollapsed above). Sized up and tinted
                 when collapsed specifically, since that state is the only way
                 back into the pane and is worth being obvious about. */}
             <button
@@ -641,28 +706,38 @@ export default function MacWindow() {
               title={sidebarHidden ? 'Show the tool list' : 'Hide the tool list'}
               aria-label={sidebarHidden ? 'Show the tool list' : 'Hide the tool list'}
               aria-expanded={!sidebarHidden}
+              // Collapsed, it says "Tools" in words: a first-time visitor saw
+              // only an unlabelled square and no way to learn what the product
+              // does. Fixed sizes rather than animating width/height, which
+              // reflowed the header on every toggle.
               style={{
-                width: sidebarHidden ? 38 : 30,
                 height: sidebarHidden ? 38 : 30,
+                minWidth: sidebarHidden ? 38 : 30,
                 flexShrink: 0,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                gap: 7,
                 background: sidebarHidden ? 'color-mix(in srgb, var(--primary) 14%, transparent)' : 'none',
                 border: `1px solid ${sidebarHidden ? 'var(--primary)' : 'var(--border)'}`,
                 borderRadius: 9,
                 cursor: 'pointer',
                 color: sidebarHidden ? 'var(--primary)' : 'var(--text-3)',
-                padding: 0,
-                transition: 'width 160ms ease, height 160ms ease, background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease)',
+                padding: sidebarHidden ? '0 12px 0 10px' : 0,
+                font: 'inherit',
+                fontSize: 13,
+                fontWeight: 500,
+                transition: 'background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease)',
               }}
             >
-              <svg width={sidebarHidden ? 19 : 16} height={sidebarHidden ? 19 : 16} viewBox="0 0 24 24" fill="none"
+              <svg width={sidebarHidden ? 18 : 16} height={sidebarHidden ? 18 : 16} viewBox="0 0 24 24" fill="none"
                 stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"
+                aria-hidden="true"
               >
                 <rect x="3" y="3" width="18" height="18" rx="2" />
                 <path d="M9 3v18" />
               </svg>
+              {sidebarHidden && <span>Tools</span>}
             </button>
 
             {/* Return to the dashboard — present on every page except the
@@ -716,7 +791,7 @@ export default function MacWindow() {
               letterSpacing: '-0.01em',
               userSelect: 'none',
             }}>
-              {isHome ? 'Overview' : (currentTool ? currentTool.label : 'SEO Studio')}
+              {isHome ? 'Overview' : (currentTool ? currentTool.label : (pageTitleFor(pathname) || 'SEO Studio'))}
             </span>
 
             {/* Which client the screens below are about (PRD 20.1). */}
@@ -766,8 +841,12 @@ export default function MacWindow() {
           {/* ── Sidebar ──────────────────────────────────────────────────
               Painted from the nav tokens rather than white alphas: the same
               markup has to read on a warm-paper light background and on the
-              near-black dark one, and an alpha tuned for navy does neither. */}
-          <div style={{
+              near-black dark one, and an alpha tuned for navy does neither.
+              `inert` while collapsed: at width 0 its search box and links were
+              still reachable by Tab, so keyboard focus vanished off-screen. */}
+          <div
+            {...(sidebarHidden ? { inert: '', 'aria-hidden': 'true' } : {})}
+            style={{
             width: sidebarHidden ? 0 : 248,
             flexShrink: 0,
             background: 'linear-gradient(180deg, var(--nav-bg-top) 0%, var(--nav-bg-bot) 100%)',
@@ -1039,7 +1118,7 @@ function SidebarItem({ tool, icon, isActive, onClick }) {
         {tool.label}
       </span>
       {tool.tag && TAGS[tool.tag] && (
-        <span style={{
+        <span title={TAGS[tool.tag].label} style={{
           marginLeft: 'auto',
           flexShrink: 0,
           fontSize: 9,
@@ -1052,7 +1131,7 @@ function SidebarItem({ tool, icon, isActive, onClick }) {
           background: TAGS[tool.tag].bg,
           color: TAGS[tool.tag].fg,
         }}>
-          {TAGS[tool.tag].short || TAGS[tool.tag].label}
+          {TAGS[tool.tag].badge || TAGS[tool.tag].short}
         </span>
       )}
     </button>

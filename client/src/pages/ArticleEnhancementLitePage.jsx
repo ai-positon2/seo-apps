@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LLM_MODEL_OPTIONS, DEFAULT_LLM_MODEL } from '../llmModels';
 import ModuleRuns from '../components/ModuleRuns';
+import { PageFrame } from '../ui/PageFrame';
 
 // Verified-only, no-SERP variant of the article enhancer. Pipeline steps mirror
 // the backend (server/routes/articleEnhancementLite.js).
@@ -15,30 +16,6 @@ const STEPS = [
   { id: 'recommend', label: 'Generate Recommendations' },
   { id: 'enhance',   label: 'Enhance Article' },
 ];
-
-function PageHeader({ navigate }) {
-  return (
-    <header style={{ background: 'var(--card)', borderBottom: '1px solid var(--border)', height: '56px', display: 'flex', alignItems: 'center', padding: '0 24px' }}>
-      <div style={{ maxWidth: '1280px', margin: '0 auto', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button
-            onClick={() => navigate('/')}
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-2)', fontSize: '14px', fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer', transition: 'color 0.15s' }}
-            onMouseEnter={e => e.currentTarget.style.color = 'var(--text)'}
-            onMouseLeave={e => e.currentTarget.style.color = 'var(--text-2)'}
-          >
-            <svg style={{ width: '16px', height: '16px' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-            </svg>
-            All tools
-          </button>
-          <span style={{ color: 'var(--border)' }}>/</span>
-          <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>Article Enhancer</span>
-        </div>
-      </div>
-    </header>
-  );
-}
 
 function StepIndicator({ stepStates }) {
   return (
@@ -460,11 +437,11 @@ export default function ArticleEnhancementLitePage() {
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
       `}</style>
-      <PageHeader navigate={navigate} />
-      <main style={{ maxWidth: '1280px', margin: '0 auto', padding: '28px 32px' }}>
-        <div style={{ marginBottom: '24px' }}>
-          <h1 style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text)' }}>Article Enhancer</h1>
-        </div>
+      <PageFrame
+        title="Article Enhancer"
+        purpose="Paste an article's address or text. It improves structure and clarity using only the article's own facts (it never adds statistics or quotes) and highlights every change."
+        width="wide"
+      >
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '24px' }}>
           {/* Left: input + progress */}
@@ -726,7 +703,7 @@ export default function ArticleEnhancementLitePage() {
           </div>
         </div>
         <ModuleRuns toolId="article-enhancement-lite" />
-      </main>
+      </PageFrame>
     </>
   );
 }

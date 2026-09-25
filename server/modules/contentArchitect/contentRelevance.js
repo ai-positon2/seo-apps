@@ -8,10 +8,11 @@
 // same "deterministic default, LLM refines" pattern as cluster naming — if
 // the call fails or there's no API key, callers fall back to the mechanical
 // thin/stale signal rather than losing the tab entirely.
-const { createLlmClient } = require('../../services/llmProviders');
+const { createLlmClient, structuredTaskParams, assertNotTruncated } = require('../../services/llmProviders');
 
 const BATCH_SIZE = 25;
 const MAX_RETRIES = 2;
+const CALL_TIMEOUT_MS = 60000;
 // Claude Sonnet via the shared factory (services/llmProviders.js), which
 // reinforces JSON-only output and strips markdown fences for providers whose
 // compatible endpoint ignores response_format.
@@ -76,13 +77,17 @@ async function callBatch(payload) {
       const completion = await client().chat.completions.create({
         model: MODEL,
         temperature: 0.2,
-        max_tokens: 4096,
+        max_tokens: 8192,
+        ...structuredTaskParams(client()),
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: `${RESPONSE_FORMAT_INSTRUCTION}\n\n${JSON.stringify({ pages: payload })}` },
         ],
-      });
+      // This loop already retries; the SDK's own retries on top of it, at the
+      // SDK's ten-minute default, let one hung call outlast the whole run.
+      }, { timeout: CALL_TIMEOUT_MS, maxRetries: 0 });
+      assertNotTruncated(completion);
       const raw = completion.choices[0]?.message?.content || '{}';
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed.pages)) throw new Error('response missing "pages" array');

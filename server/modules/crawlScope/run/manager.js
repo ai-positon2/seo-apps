@@ -12,11 +12,14 @@ const { compareRuns, carriedReviews } = require("./comparison");
 const { aggregateFindings, severityCounts } = require("./finding-rollup");
 const { refreshPageSpeedFindings, CWV_RULES } = require("./pagespeed-findings");
 const { createFetch } = require("../net/egress");
-const { parseCrawlRequest } = require("../shared/options");
+const {
+  parseCrawlRequest,
+  resolveLimits,
+  describeBudgetSource,
+  budgetRecord,
+} = require("../shared/options");
 const repo = require("../db/repo");
 const { getPageSpeedForAllDomains } = require("../../../services/pageSpeedCA");
-// The workspace's effective crawl policy. Read per run — see _execute.
-const adminLimits = require("../../../services/adminLimits");
 const { createGate } = require("../shared/gate");
 
 // Default is "every eligible page" — PSI runs in the background and doesn't
@@ -297,35 +300,23 @@ class RunManager {
     // would be both stale and wrong for every other workspace.
     //
     // This is the ONLY gate the Admin limit has on an actual crawl. The stored
-    // project options are clamped when they are written (projects/store.js),
-    // which does nothing for a project created before the limit was lowered, or
-    // for a run that sends its own options. Everything funnels through here.
+    // project options record what a project ASKED for (projects/store.js); the
+    // number it gets is decided here, against the policy as it stands right now.
+    // That is what covers a project created before the limit was changed.
     //
     // Failure to resolve is deliberately NOT fatal: an unreachable limits table
-    // must not stop crawls, and the env ceiling still bounds the run.
-    let policyOverrides = {};
-    if (run.workspace_id) {
-      try {
-        const { limits } = await adminLimits.effectiveLimits({ workspaceId: run.workspace_id });
-        if (Number.isFinite(Number(limits?.maxUrlsPerCrawl))) {
-          policyOverrides = { maxUrls: Number(limits.maxUrlsPerCrawl) };
-        }
-      } catch (error) {
-        console.warn(
-          `[crawlScope] run ${run.id}: could not resolve admin limits (${error.message}); `
-          + 'falling back to the operator ceiling.',
-        );
-      }
-    }
+    // must not stop crawls. parseCrawlRequest then falls back to the platform
+    // defaults with the env fallback applied.
+    const resolved = await resolveLimits(run.workspace_id, (error) => {
+      console.warn(
+        `[crawlScope] run ${run.id}: could not resolve admin limits (${error.message}); `
+        + 'falling back to the platform defaults.',
+      );
+    });
 
     const { url, options, budgetClamped } = parseCrawlRequest(requestBody, {
       ...this.optionOverrides,
-      ...policyOverrides,
-      // Both are ceilings and both must hold, so the tighter one wins rather
-      // than whichever spread came last.
-      ...(this.optionOverrides.maxUrls && policyOverrides.maxUrls
-        ? { maxUrls: Math.min(this.optionOverrides.maxUrls, policyOverrides.maxUrls) }
-        : {}),
+      ...resolved,
     });
 
     if (budgetClamped) {
@@ -334,7 +325,7 @@ class RunManager {
       // the log connecting it to a policy.
       console.log(
         `[crawlScope] run ${run.id}: page budget reduced from ${budgetClamped.requested} to `
-        + `${budgetClamped.granted} by ${budgetClamped.source === 'admin_policy' ? 'the workspace admin limit' : 'the operator ceiling'}.`,
+        + `${budgetClamped.granted} by ${describeBudgetSource(budgetClamped.source)}.`,
       );
     }
     const fetchImpl = createFetch({
@@ -393,6 +384,13 @@ class RunManager {
       status: "running",
       started_at: run.started_at || new Date().toISOString(),
       heartbeat_at: new Date().toISOString(),
+      // The options that ACTUALLY ran, not the ones the row was created with.
+      // Without this the run page reads run.options.maxUrls and labels it
+      // "budget", so a run cut from 5,000 to 500 displayed 5,000 — the number
+      // nobody got. Everything downstream that asks "what was this crawl's
+      // budget" now has one honest answer.
+      options,
+      budget: budgetRecord(options, budgetClamped, resolved.sources),
     });
 
     // Liveness on its own timer rather than piggybacking the progress writes above: a
@@ -592,15 +590,26 @@ class RunManager {
       repo.updateRun(db, run.id, { progress }).catch(() => {});
     });
 
-    // The crawler emits "paused", "running", and "stopping". Only the first two are real
-    // statuses; "stopping" is transient on the way to a terminal one, and mapping it back
-    // to "running" as an un-awaited write could land AFTER the terminal write and
-    // resurrect a finished run into a status that nothing will ever claim again.
+    // The crawler emits "paused", "running", "stopping" and "finishing". Only the first
+    // two are real statuses; the others are transient on the way to a terminal one, and
+    // mapping them back to "running" as an un-awaited write could land AFTER the terminal
+    // write and resurrect a finished run into a status that nothing will ever claim again.
+    //
+    // They are written as progress instead — progress.phase, see crawler._progress() —
+    // and at once rather than on the next throttled tick: the page watching this run
+    // learns from it that a Stop has landed, and a stopped crawl emits almost no further
+    // progress to carry it. Chained on flushChain so it is ordered ahead of the terminal
+    // write, which awaits the chain.
     let finalized = false;
     crawler.on("state", (state) => {
       if (finalized) return;
-      if (state.state !== "paused" && state.state !== "running") return;
-      repo.updateRun(db, run.id, { status: state.state }).catch(() => {});
+      if (state.state === "paused" || state.state === "running") {
+        repo.updateRun(db, run.id, { status: state.state }).catch(() => {});
+      } else if (state.state === "stopping" || state.state === "finishing") {
+        lastProgressAt = Date.now();
+        flushChain = flushChain.then(() =>
+          repo.updateRun(db, run.id, { progress: crawler._progress() }).catch(() => {}));
+      }
     });
 
     try {

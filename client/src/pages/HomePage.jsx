@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { projectsApi, relativeTime, countryLabel, isModuleInFlight } from '../lib/projectsApi';
-import { useActiveProjectId } from '../lib/activeProject';
+import { useActiveProjectId, useProjectsChanged } from '../lib/activeProject';
 import { cs } from '../lib/crawlScopeApi';
 import {
   Card, Kicker, Muted, Tag, Btn, FadingRule, SectionHead,
@@ -151,11 +151,33 @@ export default function HomePage() {
 
   // Write the resolved id back, so a stale selection is repaired rather than
   // re-resolved on every load. Guarded, or the write re-enters this effect.
+  //
+  // But a selection missing from THIS page's list is not necessarily stale: the
+  // list is read once on mount, and a project created since — in another tab,
+  // by a teammate, or moments ago with its first crawl still running — is not
+  // in it yet. "Repairing" that straight away bounced the header back to the
+  // first client, so a brand-new, still-crawling project could not be selected.
+  // Re-read the list once for that id first; repair only if it is still absent.
+  const recheckedFor = useRef(null);
   useEffect(() => {
-    if (activeProject && activeProject.id !== activeProjectId) {
-      setActiveProjectId(activeProject.id);
+    if (!activeProject || activeProject.id === activeProjectId) return;
+    if (listState.loading) return;
+    if (activeProjectId && recheckedFor.current !== activeProjectId) {
+      recheckedFor.current = activeProjectId;
+      loadProjects();
+      return;
     }
-  }, [activeProject, activeProjectId, setActiveProjectId]);
+    setActiveProjectId(activeProject.id);
+  }, [activeProject, activeProjectId, setActiveProjectId, listState.loading, loadProjects]);
+
+  // Re-read when the set of projects changes elsewhere in this tab (created,
+  // deleted, restored) — the header's list already does.
+  const projectsVersion = useProjectsChanged();
+  const firstVersion = useRef(true);
+  useEffect(() => {
+    if (firstVersion.current) { firstVersion.current = false; return; }
+    loadProjects();
+  }, [projectsVersion, loadProjects]);
 
   // ── Which project the evidence reads below are for ──────────────────────
   //
@@ -926,9 +948,11 @@ export default function HomePage() {
       {/* ── The answer, after the instrumentation ────────────────────────────
           The per-module scores just above are each agent's own instrument
           reading; this is the conclusion drawn from them, in the reader's own
-          words, with the thing to do next attached. Moved below the module
-          profile on request — the reader wants the individual agent scores
-          in front, the narrative summarizing them after.
+          words, with the thing to do next attached. Kept below the module
+          profile on the product owner's decision — the reader wants the
+          individual agent scores in front, the narrative summarizing them
+          after. (The 25 Sep 2026 design audit briefly moved it to the top,
+          HOME-5; that was reverted at the owner's request.)
           Everything in it is a restatement of a stored figure; the wording is
           composed and tested server-side (insights/executive.js) so the rules
           about what may be claimed live in one place.

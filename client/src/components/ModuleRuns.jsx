@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Badge } from '../ui';
 import RunDetailDrawer from './RunDetailDrawer';
 import { EMBED_MODE } from './MacWindow';
+import { useProjectNames, humanRunLabel } from '../lib/runLabel';
 import {
   fetchRuns, fetchRunStats, runsPageHref, groupRunsByDay,
   formatClock, formatDuration, actionLabel, STATUS_VARIANT,
@@ -93,10 +94,11 @@ function StatsLine({ stats, days }) {
 function RunRow({ run, isMine, scoped, hideActionPill, onOpen }) {
   const [hovered, setHovered] = useState(false);
   const action = actionLabel(run.action);
+  const projectNames = useProjectNames();
   // On a panel already scoped to one thing (a location page, a tracked client)
   // every row carries the same label, so what the run *was* becomes the useful
   // primary text and the label is dropped from the row.
-  const primary = scoped ? (action || 'run') : run.label;
+  const primary = scoped ? (action || 'run') : humanRunLabel(run.label, projectNames);
   const showActionPill = Boolean(action) && !scoped && !hideActionPill;
   return (
     <button

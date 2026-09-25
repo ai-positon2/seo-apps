@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { SectionHeader, DataTable, Badge, EmptyState, Button, MetricCard } from '../ui';
 import RunDetailDrawer from '../components/RunDetailDrawer';
+import { useProjectNames, humanRunLabel } from '../lib/runLabel';
 import {
   fetchRuns, fetchRunStats, toolLabel, formatDuration, formatWhen, STATUS_VARIANT,
 } from '../lib/runsApi';
@@ -86,6 +87,8 @@ export default function RunsPage() {
     return [...ids].filter(Boolean).sort((a, b) => toolLabel(a).localeCompare(toolLabel(b)));
   }, [trackedTools, runs]);
 
+  const projectNames = useProjectNames();
+
   // DataTable calls render(value, row) — the row is the second argument.
   const columns = [
     {
@@ -100,7 +103,9 @@ export default function RunsPage() {
     {
       key: 'label', label: 'Ran on',
       render: (value) => (
-        <span style={{ color: value ? 'var(--text)' : 'var(--text-3)' }}>{value || '—'}</span>
+        <span title={value || undefined} style={{ color: value ? 'var(--text)' : 'var(--text-3)' }}>
+          {humanRunLabel(value, projectNames) || '—'}
+        </span>
       ),
     },
     {

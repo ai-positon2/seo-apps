@@ -94,6 +94,22 @@ const RENDERERS = {
   run: (p) => <RunDetailReport {...p} />,
 };
 
+// The report envelope's period is { from, to } (ISO dates), not text; joined
+// into the basis line as-is it printed "[object Object]".
+function formatPeriod(period) {
+  if (!period) return null;
+  if (typeof period === 'string') return period;
+  const fmt = (iso) => {
+    const d = new Date(`${String(iso).slice(0, 10)}T00:00:00`);
+    return Number.isNaN(d.getTime()) ? null
+      : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+  const from = period.from ? fmt(period.from) : null;
+  const to = period.to ? fmt(period.to) : null;
+  if (from && to) return `${from} – ${to}`;
+  return from || to;
+}
+
 export default function AiVisibilityPage() {
   const [activeProjectId] = useActiveProjectId();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -213,10 +229,11 @@ export default function AiVisibilityPage() {
   // behind it is absent — a sentence that claims a period it does not have is
   // worse than a shorter one.
   const m = envelope.data?.meta;
+  const periodLabel = formatPeriod(m?.period);
   const basisLine = [
     `What answer engines say about ${project?.name || 'this client'}`,
     m?.basis ? `— ${m.basis}` : null,
-    m?.period ? `· ${m.period}` : null,
+    periodLabel ? `· ${periodLabel}` : null,
     m?.coverageLabel ? `· ${m.coverageLabel}` : null,
     m?.rulesetVersion ? `· ruleset ${m.rulesetVersion}` : null,
   ].filter(Boolean).join(' ');

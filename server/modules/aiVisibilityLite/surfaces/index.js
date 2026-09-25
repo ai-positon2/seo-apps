@@ -49,6 +49,11 @@ function surfaceFor(id) {
  * project's 30 and measured nothing — so the caller gets to decide before
  * spending, and the reason is a sentence a person can act on.
  */
+/** "Claude (API · web search)" → "Claude". */
+function assistantName(surface) {
+  return String(surface.LABEL || surface.ENGINE || 'This assistant').split(' (')[0];
+}
+
 function availability() {
   return ALL_SURFACE_IDS.map((id) => {
     const surface = SURFACES[id];
@@ -58,8 +63,11 @@ function availability() {
       engine: surface.ENGINE,
       label: surface.LABEL,
       ready,
+      // Shown on the report, so it says what the reader loses rather than which
+      // environment variable is unset ("ANTHROPIC is not configured on the
+      // server — its API key is missing" read as an engineer's error).
       reason: ready ? null
-        : `${surface.ENGINE.toUpperCase()} is not configured on the server — its API key is missing.`,
+        : `${assistantName(surface)} is not connected, so these results do not include its answers.`,
     };
   });
 }

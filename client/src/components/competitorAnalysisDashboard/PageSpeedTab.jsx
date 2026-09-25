@@ -84,6 +84,32 @@ function fetchedAgo(iso) {
   return `${days} days ago`;
 }
 
+// Core Web Vitals come from Chrome's real-user data over 28 days; the scores
+// above are one lab test. They can disagree (a site can pass for real users and
+// score 31 in the lab), so the badge says which measurement it is. Snapshots
+// taken before `coreWebVitalsCategory` existed only carry the boolean.
+const CWV_LABEL = {
+  FAST: { text: 'Real users: Core Web Vitals passed', variant: 'success' },
+  AVERAGE: { text: 'Real users: Core Web Vitals need work', variant: 'warning' },
+  SLOW: { text: 'Real users: Core Web Vitals failed', variant: 'danger' },
+};
+
+function CwvVerdict({ pageSpeed }) {
+  const hasCategoryField = Object.prototype.hasOwnProperty.call(pageSpeed, 'coreWebVitalsCategory');
+  const known = CWV_LABEL[pageSpeed.coreWebVitalsCategory];
+  const v = known
+    || (hasCategoryField
+      ? { text: 'No real-user data from Google yet', variant: 'neutral' }
+      : pageSpeed.coreWebVitalsPassed
+        ? CWV_LABEL.FAST
+        : { text: 'Real users: Core Web Vitals not passed', variant: 'danger' });
+  return (
+    <span title="From Google's Chrome UX Report: how real visitors experienced the site over the last 28 days. The scores above are a single lab test.">
+      <Badge variant={v.variant}>{v.text}</Badge>
+    </span>
+  );
+}
+
 function RefreshButton({ running, disabled, onRun }) {
   return (
     <button
@@ -185,9 +211,7 @@ export default function PageSpeedTab({ snapshot, running = false, disabled = fal
                     <StrategyRow label="Desktop" data={d.pageSpeed.desktop} />
                   </div>
                   <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-                    <Badge variant={d.pageSpeed.coreWebVitalsPassed ? 'success' : 'danger'}>
-                      {d.pageSpeed.coreWebVitalsPassed ? 'CWV Passed' : 'CWV Failed'}
-                    </Badge>
+                    <CwvVerdict pageSpeed={d.pageSpeed} />
                     {ago && <span style={{ fontSize: 10, color: 'var(--text-3)' }}>Checked {ago}</span>}
                   </div>
                 </>

@@ -137,11 +137,14 @@ export default function OverviewPanel({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
         <div className="crawl-tiles">
           <Tile
-            label="Pages crawled"
+            // "Pages crawled" here counted every URL (images, scripts, files)
+            // while the dashboard's "Pages crawled" counts HTML pages — two
+            // different numbers under one name. This tile is the URL count.
+            label="URLs fetched"
             value={counts.urlsFetched.toLocaleString()}
             sub={coverage?.limit
-              ? `Every URL the crawler fetched · budget ${coverage.limit.toLocaleString('en-US')} pages`
-              : 'Every URL the crawler fetched'}
+              ? `Pages, images and files · page limit ${coverage.limit.toLocaleString('en-US')}`
+              : 'Pages, images and files'}
           />
           <Tile
             label="HTML pages"
@@ -163,7 +166,7 @@ export default function OverviewPanel({
             value={provisional ? '—' : metrics.affectedErrorPages.toLocaleString()}
             sub={provisional
               ? 'Not measured until the crawl finishes'
-              : `${bySeverity('error').length} distinct cause${bySeverity('error').length === 1 ? '' : 's'} · ${occurrences('error')} findings`}
+              : `${bySeverity('error').length} type${bySeverity('error').length === 1 ? '' : 's'} of problem · ${occurrences('error')} instances`}
             color={provisional ? 'var(--text-3)' : 'var(--viz-neg)'}
           />
           <Tile
@@ -171,7 +174,7 @@ export default function OverviewPanel({
             value={provisional ? '—' : metrics.affectedWarningPages.toLocaleString()}
             sub={provisional
               ? 'Not measured until the crawl finishes'
-              : `${bySeverity('warning').length} distinct cause${bySeverity('warning').length === 1 ? '' : 's'} · ${occurrences('warning')} findings`}
+              : `${bySeverity('warning').length} type${bySeverity('warning').length === 1 ? '' : 's'} of problem · ${occurrences('warning')} instances`}
             color={provisional ? 'var(--text-3)' : 'var(--viz-warn)'}
           />
           <Tile
@@ -203,7 +206,7 @@ export default function OverviewPanel({
             <span style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>
               {coverage.reasons.join('; ')}.
               {coverage.limit && coverage.budgetReached
-                ? ` Raise the page budget in the client’s settings — it is ${coverage.limit.toLocaleString('en-US')} — and crawl again.`
+                ? ` Raise the page limit in the client’s settings — it is ${coverage.limit.toLocaleString('en-US')} — and crawl again.`
                 : ''}
             </span>
           </div>

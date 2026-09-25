@@ -221,7 +221,9 @@ Map to this repo's crawl options (`server/modules/crawlScope/shared/options.js`)
 | Pages crawled: n/limit | `run.progress.crawled` / `options.maxUrls` |
 | Excluded checks: n | new — see §11 |
 
-⚠️ **Live crawl cap is 50 URLs** (`MAX_URLS_CEILING` in `.env`, and `admin_limit_policies` v2). Every screen must render honestly at n=50. Do not design a dashboard that only reads well at n=4,000.
+⚠️ **The live crawl cap is whatever `admin_limit_policies.maxUrlsPerCrawl` is set to** for the workspace — read it from Admin → Limits, or `GET /api/crawlscope/limits`, rather than from this document or from `.env`. It has been as low as 50 and the built-in default is 500. `MAX_URLS_CEILING` is only a fallback for a server that cannot reach the limits table; it no longer caps a crawl.
+
+Design for the low end: every screen must render honestly at n=50. Do not design a dashboard that only reads well at n=4,000.
 
 ### Body layout
 

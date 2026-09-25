@@ -593,12 +593,6 @@ export default function AiVisibilityLitePage() {
         </Card>
       ) : null}
 
-      {unavailable.length ? (
-        <Card style={{ padding: 12, marginBottom: 14 }}>
-          <Muted size={12}>{unavailable.map((s) => s.reason).join(' ')}</Muted>
-        </Card>
-      ) : null}
-
       {setupRunning ? (
         <Card style={{ padding: 16, marginBottom: 14 }}>
           <Spinner label="Reading the site and writing the questions…" />
@@ -619,13 +613,25 @@ export default function AiVisibilityLitePage() {
         </Card>
       ) : null}
 
-      {report && active !== 'run' ? (
-        <ReportWarnings warnings={report.warnings} meta={report.meta} />
-      ) : null}
-
       <div ref={paneRef}>
         {reportState.loading && !report ? <Spinner label="Building the report…" /> : body()}
       </div>
+
+      {/* Caveats about the figures sit AFTER them. Stacked above the report they
+          were the first three things a reader saw — a missing-assistant notice,
+          "the question set changed", "no earlier period" — before the answer. */}
+      {(unavailable.length || (report && active !== 'run')) ? (
+        <div style={{ marginTop: 18 }}>
+          {unavailable.length ? (
+            <Card style={{ padding: 12, marginBottom: 14 }}>
+              <Muted size={12}>{unavailable.map((s) => s.reason).join(' ')}</Muted>
+            </Card>
+          ) : null}
+          {report && active !== 'run' ? (
+            <ReportWarnings warnings={report.warnings} meta={report.meta} />
+          ) : null}
+        </div>
+      ) : null}
     </main>
   );
 }

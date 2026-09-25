@@ -8,7 +8,25 @@
          dark → light for someone who chose light, never a white flash for
          everyone else. -->
     <meta name="color-scheme" content="dark light" />
-    <style>html, body { background: #14171A; }</style>
+    <style>
+      html, body { background: #14171A; margin: 0; }
+      /* First-load screen. Rendered before any JavaScript arrives (and reused by
+         App while the session is checked), so a slow connection sees the
+         product's name instead of a blank dark page. Fades in after 300ms so a
+         fast load never flashes it. */
+      .app-splash {
+        height: 100vh; display: flex; flex-direction: column; align-items: center;
+        justify-content: center; gap: 10px; font-family: Poppins, system-ui, sans-serif;
+        color: #EDEAE3; opacity: 0; animation: app-splash-in 200ms ease-out 300ms forwards;
+      }
+      /* App's copy takes over from this one without re-running the fade. */
+      .app-splash.app-splash--shown { opacity: 1; animation: none; }
+      .app-splash-name { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+      .app-splash-note { font-size: 13px; color: #9AA3A6; }
+      html[data-theme="light"] .app-splash { color: #1B1F22; }
+      @keyframes app-splash-in { to { opacity: 1; } }
+      @media (prefers-reduced-motion: reduce) { .app-splash { animation-duration: 0s; } }
+    </style>
     <title>SEO Studio</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -18,7 +36,12 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="app-splash" role="status" aria-live="polite">
+        <span class="app-splash-name">SEO Studio</span>
+        <span class="app-splash-note">Loading…</span>
+      </div>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

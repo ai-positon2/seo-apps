@@ -160,6 +160,24 @@ async function main() {
     assert.ok(cells.some((c) => /no internal link graph/.test(c)));
   });
 
+  await test('the structure sheet gives the run\'s own reason when only its note was loaded', async () => {
+    // The dashboard's evidence rows carry `note` projected out of the payload,
+    // not the payload itself — so a "too few informational pages" run arrives
+    // with run.note and no payload.note.
+    const book = new ExcelJS.Workbook();
+    const evidence = new Map([['hub_spoke', {
+      terminal: {
+        status: 'insufficient_data',
+        note: 'Only 2 informational page(s) (articles, guides, FAQs) among the 590 the crawl read.',
+      },
+      inFlight: null,
+    }]]);
+    report.addStructureSheet(book, evidence);
+    const cells = cellsOf(book.getWorksheet('Site structure'));
+    assert.ok(cells.some((c) => /Only 2 informational page/.test(c)));
+    assert.ok(!cells.some((c) => /No completed crawl with a stored link graph/.test(c)));
+  });
+
   await test('an empty recommendation board is explained rather than blank', async () => {
     const book = new ExcelJS.Workbook();
     report.addRecommendationsSheet(book, []);

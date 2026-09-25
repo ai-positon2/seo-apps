@@ -443,7 +443,7 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
         <Group>
           <Eyebrow>Coverage</Eyebrow>
           <Text title={payload.pageSelection ? `Pages chosen: ${payload.pageSelection}` : undefined}>
-            {homepageOnly ? 'Homepage only' : `${payload.pagesAudited} of ${payload.pagesCrawled} crawled`}
+            {homepageOnly ? 'Homepage only' : coverageText(payload)}
             {payload.pagesSkipped
               ? (
                 <Dim>
@@ -798,6 +798,18 @@ function ScoreChip({ score, status, band }) {
 const linkStyle = {
   color: 'var(--primary-text)', fontSize: 12.5, textDecoration: 'none', whiteSpace: 'nowrap',
 };
+
+// Single-page runs record pagesAudited but no pagesCrawled, which printed
+// "1 of undefined crawled". Say only what the payload actually knows.
+function coverageText(payload) {
+  const audited = Number(payload.pagesAudited);
+  const crawled = Number(payload.pagesCrawled);
+  if (Number.isFinite(audited) && Number.isFinite(crawled) && crawled > 0) {
+    return `${audited.toLocaleString()} of ${crawled.toLocaleString()} crawled pages`;
+  }
+  if (Number.isFinite(audited)) return `${audited.toLocaleString()} page${audited === 1 ? '' : 's'} audited`;
+  return 'Coverage not recorded';
+}
 
 function Bar({ children }) {
   return (

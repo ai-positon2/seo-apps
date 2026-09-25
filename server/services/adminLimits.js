@@ -23,18 +23,21 @@ const auditEvents = require('./auditEvents');
 // the fallback for a server running without Supabase, and as the schema of what
 // a policy may contain — an unknown key in a submitted policy is rejected.
 const DEFAULT_LIMITS = {
-  // Brought back down to 500, matching shared/options.js's MAX_URLS_CEILING
-  // default — this key doesn't actually gate a CrawlScope run today (the
-  // crawler resolves its own ceiling straight from MAX_URLS_CEILING; see that
-  // file's header), but it does clamp a new project's stored options at
-  // creation time (projects/store.js) and is read elsewhere, so a mismatched
-  // default here silently reintroduces a higher cap for anything that DOES
-  // look at it.
+  // THE cap on how many URLs one crawl fetches, for every path that starts one:
+  // manual, scheduled, worker, autostart and list mode all resolve it from here
+  // (crawlScope/shared/options.js takes this value as its ceiling rather than
+  // reading an env var of its own). MAX_URLS_CEILING is now only a fallback for
+  // a server that cannot reach the limits table — see ENV_FALLBACK below.
   maxUrlsPerCrawl:          500,
   maxCrawlDepth:            10,
   scheduleMinIntervalHours: 24,     // weekly is the initial recurrence (§3.1.3)
   perProjectConcurrency:    1,
   globalCrawlConcurrency:   3,
+  // Parallel requests WITHIN one crawl — distinct from the two above, which
+  // count whole crawls. This was the one crawl knob with no admin key, so it
+  // was reachable only through MAX_CONCURRENCY_CEILING; it is a limit like any
+  // other and belongs on the same resolver.
+  maxCrawlConcurrency:      8,
   requestTimeoutMs:         30000,
   renderTimeoutMs:          45000,
   renderBudgetPerRun:       150,
@@ -75,6 +78,7 @@ const DIRECTION = {
   scheduleMinIntervalHours: 'max',
   perProjectConcurrency:    'min',
   globalCrawlConcurrency:   'min',
+  maxCrawlConcurrency:      'min',
   requestTimeoutMs:         'min',
   renderTimeoutMs:          'min',
   renderBudgetPerRun:       'min',
@@ -96,8 +100,56 @@ const DIRECTION = {
 
 const LIMIT_KEYS = Object.keys(DEFAULT_LIMITS);
 
+// ── Env is a FALLBACK, never a ceiling ──────────────────────────────────────
+//
+// These used to be read in crawlScope/shared/options.js as a SECOND ceiling on
+// top of the admin policy, with the lower of the two winning. That let an
+// operator's .env quietly undercut what an admin had configured:
+// MAX_URLS_CEILING=50 turned a 500-page admin limit into a 50-page crawl, and
+// nothing in the request, the response or the run said so. It cost an afternoon
+// of debugging once and left three documents in this repo each quoting a
+// different "live" cap.
+//
+// The admin policy is now the cap. These fill in a key only when NO policy
+// layer supplied one, which in practice means a server running without the
+// limits table — the deployment that has nowhere else to get a number from.
+const ENV_FALLBACK = {
+  maxUrlsPerCrawl:     'MAX_URLS_CEILING',
+  maxCrawlDepth:       'MAX_DEPTH_CEILING',
+  maxCrawlConcurrency: 'MAX_CONCURRENCY_CEILING',
+  requestTimeoutMs:    'TIMEOUT_CEILING_MS',
+};
+
+// Absolute stops. An admin may set anything up to these; past them the crawler's
+// own constructor clamps regardless (crawler.js caps maxUrls at 50,000, maxDepth
+// at 100, concurrency at 16), so the bound is declared here — and attributed —
+// rather than discovered later as a silent truncation.
+const HARD_MAX = {
+  maxUrlsPerCrawl:     50_000,
+  maxCrawlDepth:       100,
+  maxCrawlConcurrency: 16,
+  requestTimeoutMs:    60_000,
+};
+
 // Scope precedence, least to most specific. Used only by 'specific' keys.
 const SCOPE_RANK = { platform: 0, workspace: 1, tier: 2 };
+
+// The layer beneath every policy: platform defaults, with an env override for
+// the handful of keys a deployment may need to set before (or without) the
+// limits table. Sources are tracked from here so the admin UI can say
+// 'env_fallback' rather than implying a default nobody chose.
+function baseLimits() {
+  const limits = { ...DEFAULT_LIMITS };
+  const sources = Object.fromEntries(LIMIT_KEYS.map((k) => [k, 'default']));
+  for (const [key, envName] of Object.entries(ENV_FALLBACK)) {
+    const raw = Number(process.env[envName]);
+    if (Number.isFinite(raw) && raw > 0) {
+      limits[key] = Math.floor(raw);
+      sources[key] = 'env_fallback';
+    }
+  }
+  return { limits, sources };
+}
 
 function fail(op, error) {
   throw new Error(`[adminLimits.${op}] ${error.message || error}`);
@@ -163,8 +215,7 @@ async function latestPolicy(scope, scopeRef = null) {
  * @returns {{limits: object, sources: object}}
  */
 function combine(layers = []) {
-  const limits = { ...DEFAULT_LIMITS };
-  const sources = Object.fromEntries(LIMIT_KEYS.map((k) => [k, 'default']));
+  const { limits, sources } = baseLimits();
 
   for (const layer of layers) {
     if (!layer?.limits) continue;
@@ -178,8 +229,12 @@ function combine(layers = []) {
       const direction = DIRECTION[key] || 'min';
 
       let wins;
-      if (currentSource === 'default') {
-        wins = true;                                 // the first real policy always applies
+      if (currentSource === 'default' || currentSource === 'env_fallback') {
+        // The first real policy always applies. Crucially it applies over
+        // env_fallback too, in EITHER direction: an admin who raises the limit
+        // past an operator's env value gets the raise. Treating env as just
+        // another layer here is what made it a competing ceiling.
+        wins = true;
       } else if (direction === 'specific') {
         wins = SCOPE_RANK[layer.scope] >= SCOPE_RANK[currentSource];
       } else if (direction === 'max') {
@@ -192,6 +247,16 @@ function combine(layers = []) {
         limits[key] = value;
         sources[key] = layer.scope;
       }
+    }
+  }
+
+  // Last, and above every layer: a policy may not raise a limit past the point
+  // the crawler would silently truncate it anyway. Attributed, so the admin UI
+  // shows 'hard_max' instead of a number the operator did not type.
+  for (const [key, max] of Object.entries(HARD_MAX)) {
+    if (limits[key] > max) {
+      limits[key] = max;
+      sources[key] = 'hard_max';
     }
   }
 
@@ -341,6 +406,9 @@ module.exports = {
   DEFAULT_LIMITS,
   LIMIT_KEYS,
   DIRECTION,
+  ENV_FALLBACK,
+  HARD_MAX,
+  baseLimits,
   validateLimits,
   combine,
   latestPolicy,

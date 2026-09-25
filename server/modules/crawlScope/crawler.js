@@ -1689,12 +1689,17 @@ class SeoCrawler extends EventEmitter {
     this.emit("progress", this._progress());
   }
 
+  // Pause and resume mean nothing once the crawl is stopping or has moved on to
+  // its analysis, and emitting them then would have the run manager write
+  // 'paused' or 'running' over a crawl that is on its way to a terminal status.
   pause() {
+    if (this.stopped || this._finishing) return;
     this.paused = true;
     this.emit("state", { state: "paused" });
   }
 
   resume() {
+    if (this.stopped || this._finishing) return;
     this.paused = false;
     this.emit("state", { state: "running" });
     this._schedule();
@@ -2461,6 +2466,11 @@ class SeoCrawler extends EventEmitter {
       active: this.active,
       maxUrls: this.options.maxUrls + this.options.maxExternalUrls,
       elapsed: Date.now() - this.startedAt,
+      // What the crawl is doing once it is no longer fetching. The run's status
+      // stays 'running' until the audit is written, which on a large site is
+      // minutes after the last page — without this a stopped crawl looked
+      // exactly like one that had ignored the Stop button.
+      ...(this.stopped ? { phase: "stopping" } : this._finishing ? { phase: "analysing" } : {}),
     };
   }
 
@@ -2552,6 +2562,7 @@ class SeoCrawler extends EventEmitter {
       !this._finishing
     ) {
       this._finishing = true;
+      this.emit("state", { state: "finishing" });
       this._finish().catch((error) => {
         this.emit("log", { level: "error", message: `Crawl completion failed: ${error.message}` });
       });

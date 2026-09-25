@@ -7,6 +7,8 @@
 .cw-page input,.cw-page select,.cw-page textarea { font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--border); border-radius: 7px; padding: 10px 12px; width: 100%; box-sizing: border-box; }
 .cw-page input:focus,.cw-page select:focus,.cw-page textarea:focus { outline: 2px solid var(--primary); outline-offset: 2px; }
 .cw-page-heading select { min-width: 220px; }
+.cw-page-heading .cw-for-client { color: var(--text-2); font-size: 13px; text-align: right; }
+.cw-page-heading .cw-for-client strong { color: var(--text); font-weight: 600; }
 .cw-page button { cursor: pointer; }
 .cw-page button:disabled { cursor: default; opacity: .45; }
 .cw-page a { color: var(--primary-text); }

@@ -20,7 +20,7 @@ export default function ClearBehavioralHealthPage() {
       // Safe to re-run: the service list is replaced, and addresses, phone
       // numbers and serving areas entered by hand are preserved.
       seed={lsPages.seedClearBehavioralHealth}
-      seedLabel="Sync client list"
+      seedLabel="Set up Clear Behavioral Health"
     />
   );
 }

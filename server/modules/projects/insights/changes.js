@@ -144,6 +144,31 @@ function runLevelDelta(current, previous) {
   };
 }
 
+/**
+ * Why two Hub and Spoke runs cannot be diffed, or null when they can.
+ *
+ * Its findings describe the pages it clustered, and that set was redefined once
+ * already: runs before informational-only selection clustered every crawled
+ * page, location and service pages included. Diffing a run from before against
+ * one from after would report every old finding as "fixed" when the pages behind
+ * it were simply no longer in scope — the easiest lie, told about a definition
+ * change. The same goes for a run that stopped short for want of pages: it has
+ * no findings to compare, not zero of them.
+ */
+function hubSpokeComparability(current, previous) {
+  const versionOf = (run) => run?.payload?.selectionVersion ?? null;
+  if (current.status === 'insufficient_data' || previous.status === 'insufficient_data') {
+    return 'One of the two runs had too little to analyse, so there are no findings to compare '
+      + 'between them.';
+  }
+  if (versionOf(current) !== versionOf(previous)) {
+    return 'The two runs were built from different page sets — Hub and Spoke now clusters '
+      + 'informational pages only — so a finding missing from the newer run was taken out of scope, '
+      + 'not fixed.';
+  }
+  return null;
+}
+
 function scoreDelta(current, previous) {
   const now = current.score === null || current.score === undefined ? null : Number(current.score);
   const then = previous.score === null || previous.score === undefined
@@ -189,6 +214,22 @@ async function buildChanges({ access }) {
         reason: 'This is the first stored run, so there is nothing to compare it against.',
         currentRunId: current.id,
         currentRunAt: current.finished_at || current.created_at,
+      });
+      continue;
+    }
+
+    const notComparable = module.key === 'hub_spoke' ? hubSpokeComparability(current, previous) : null;
+    if (notComparable) {
+      modules.push({
+        moduleKey: module.key,
+        moduleLabel: module.label,
+        state: 'not_comparable',
+        reason: notComparable,
+        currentRunId: current.id,
+        currentRunAt: current.finished_at || current.created_at,
+        previousRunId: previous.id,
+        previousRunAt: previous.finished_at || previous.created_at,
+        score: scoreDelta(current, previous),
       });
       continue;
     }
@@ -284,6 +325,7 @@ module.exports = {
   buildChanges,
   perPageDelta,
   runLevelDelta,
+  hubSpokeComparability,
   scoreDelta,
   findingKeys,
   lastTwoRuns,

@@ -110,11 +110,23 @@ function buildNarrative(analysis, project) {
     : 0;
 
   const lines = [];
-  lines.push(`${project.domain} was analyzed across ${totalPages} confirmed pages, organized into ${analysis.clusters.length} topic clusters `
+  // A project-linked analysis clusters only the crawl's informational pages, and
+  // says so — "confirmed pages" would imply somebody chose them.
+  const selection = analysis.selection?.summary;
+  const scopeText = selection
+    ? `${totalPages} informational pages (articles, guides, FAQs) out of the ${selection.crawledPageCount} found in its sitemaps and informational listings`
+    : `${totalPages} confirmed pages`;
+  lines.push(`${project.domain} was analyzed across ${scopeText}, organized into ${analysis.clusters.length} topic clusters `
     + `(${clustered} pages assigned, ${analysis.unassignedPages.length} left unassigned — no cluster met the similarity bar).`);
+  if (selection) {
+    lines.push(`The other ${analysis.excludedUrls.length} crawled pages — location, service, people, listing and utility `
+      + 'pages among them — were left out of hub and spoke by design; the "Excluded" tab lists each with its reason.');
+  }
   lines.push(`Average cluster health is ${meanHealth}/100. ${gapCount} cluster${gapCount === 1 ? '' : 's'} ${gapCount === 1 ? 'has' : 'have'} no existing page broad enough `
     + `to serve as a hub — these are the clearest content gaps to fill first (see the "Suggested New Pages" tab).`);
-  if (orphanCount > 0) {
+  if (analysis.orphanDetectionWithheld) {
+    lines.push('Orphan pages were not assessed: the crawl did not cover the whole site, so a page with no inbound link here may simply be linked from a page it never fetched.');
+  } else if (orphanCount > 0) {
     lines.push(`${orphanCount} page${orphanCount === 1 ? '' : 's'} have no internal links pointing to them at all; search engines and users alike are unlikely to find these without a sitemap or search.`);
   }
   if (analysis.crawlMeta.sampled) {
@@ -133,7 +145,10 @@ async function buildWorkbook(analysis, project) {
   summary.columns = [{ width: 46 }, { width: 65 }];
   addNote(summary, 'HOW TO READ THIS WORKBOOK:  Cluster Map = every page, grouped under its hub.  '
     + 'Suggested New Pages = pages that DON\'T exist yet — write these.  Pages to Refresh or Retire = EXISTING pages worth improving or removing.  '
-    + 'Excluded = URLs removed before analysis (technical reasons).  Unassigned = pages we read but couldn\'t confidently group.', 2);
+    + (analysis.selection
+      ? 'Excluded = crawled pages left out before clustering: pages that are not informational (location, service, people, listing, utility) and technical cases (noindex, duplicates).  '
+      : 'Excluded = URLs removed before analysis (technical reasons).  ')
+    + 'Unassigned = pages we read but couldn\'t confidently group.', 2);
   summary.addRow([]);
   const summaryHeaderRow = summary.addRow(['Metric', 'Value']);
   summary.headerRowNumber = summaryHeaderRow.number;
@@ -156,7 +171,9 @@ async function buildWorkbook(analysis, project) {
   for (const [reason, count] of Object.entries(excludedByReason)) summary.addRow([`  — ${reason}`, count]);
   summary.addRow(['Clusters', analysis.clusters.length]);
   summary.addRow(['Suggested new pages (see "Suggested New Pages" tab)', analysis.clusters.filter((c) => c.isGap).length]);
-  summary.addRow(['Orphan pages (no internal links in)', analysis.pages.filter((p) => (p.flags || []).includes('orphan')).length]);
+  summary.addRow(['Orphan pages (no internal links in)', analysis.orphanDetectionWithheld
+    ? 'Not assessed — the crawl did not cover the whole site'
+    : analysis.pages.filter((p) => (p.flags || []).includes('orphan')).length]);
   summary.addRow(['Unassigned pages (see "Unassigned" tab)', analysis.unassignedPages.length]);
   summary.addRow(['Mean cluster health', `${meanHealth}/100`]);
   summary.addRow(['Crawl mode', analysis.crawlMeta.crawlMode + (analysis.crawlMeta.sampled ? ` (sampled ${analysis.crawlMeta.sampleSize} of ${analysis.pages.length}+ pages)` : '')]);
@@ -174,7 +191,7 @@ async function buildWorkbook(analysis, project) {
 
   // ── Tab 2: Cluster Map — grouped, hub visually distinct, collapsible ────
   const clusterMap = wb.addWorksheet('Cluster Map');
-  const cmCols = ['Cluster / Page', 'Role', 'URL', 'Word Count', 'Inbound Links (within cluster)', 'Click Depth', 'Last Modified', 'Flags', 'Why It Is Placed Here'];
+  const cmCols = ['Cluster / Page', 'Role', 'URL', 'Word Count', 'Inbound Internal Links', 'Click Depth', 'Last Modified', 'Flags', 'Why It Is Placed Here'];
   clusterMap.columns = cmCols.map((h) => ({ width: h === 'URL' ? 48 : (h === 'Cluster / Page' ? 34 : (h === 'Why It Is Placed Here' ? 46 : 16)) }));
   addNote(clusterMap, 'One block per cluster. The HUB (highlighted) is the existing page that best serves as the pillar for that topic; SPOKES beneath it are the supporting articles. '
     + 'Rows are grouped per cluster — use the [-] / [+] controls in the row-number gutter (left edge) to collapse clusters you don\'t need right now. '
@@ -267,11 +284,13 @@ async function buildWorkbook(analysis, project) {
     actRowIdx++;
   }
 
-  // ── Tab 5: Excluded (removed before analysis, technical reasons) ────────
+  // ── Tab 5: Excluded (left out before analysis, each with its reason) ────
   const excludedWs = wb.addWorksheet('Excluded');
   const exCols = ['URL', 'Reason', 'Detail'];
   excludedWs.columns = [{ width: 55 }, { width: 30 }, { width: 45 }];
-  addNote(excludedWs, 'These confirmed URLs were removed BEFORE clustering, for a specific technical reason — they were never read for topic or content and do not appear anywhere else in this workbook.', exCols.length);
+  addNote(excludedWs, analysis.selection
+    ? 'These crawled pages were left out BEFORE clustering. Hub and spoke maps informational content only, so location, service, people, listing and utility pages are excluded by design; the rest are technical cases (noindex, canonicalised elsewhere, duplicates). Each row gives the reason.'
+    : 'These confirmed URLs were removed BEFORE clustering, for a specific technical reason — they were never read for topic or content and do not appear anywhere else in this workbook.', exCols.length);
   excludedWs.headerRowNumber = excludedWs.rowCount + 1;
   excludedWs.addRow(exCols);
   styleHeaderRow(excludedWs);

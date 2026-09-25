@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Badge, Drawer } from '../ui';
 import { fetchRun, formatDuration, STATUS_VARIANT, toolLabel, actionLabel } from '../lib/runsApi';
+import { useProjectNames, humanRunLabel } from '../lib/runLabel';
 
 // One run, in full: the summary the list already had plus the sanitized input
 // and output, fetched on open. Shared by /runs and the per-module run panels so
@@ -46,6 +47,7 @@ function DetailRow({ label, children }) {
 export default function RunDetailDrawer({ run, onClose, workspaceName }) {
   const [detail, setDetail] = useState(null);
   const [error, setError] = useState('');
+  const projectNames = useProjectNames();
 
   useEffect(() => {
     if (!run) return;
@@ -73,7 +75,7 @@ export default function RunDetailDrawer({ run, onClose, workspaceName }) {
             <DetailRow label="Status">
               <Badge variant={STATUS_VARIANT[run.status] || 'neutral'}>{run.status}</Badge>
             </DetailRow>
-            <DetailRow label="Ran on">{run.label || '—'}</DetailRow>
+            <DetailRow label="Ran on">{humanRunLabel(run.label, projectNames) || '—'}</DetailRow>
             <DetailRow label="Who">{run.actor_email || 'unknown'}</DetailRow>
             {workspaceName && <DetailRow label="Workspace">{workspaceName}</DetailRow>}
             <DetailRow label="Started">{new Date(run.created_at).toLocaleString()}</DetailRow>
@@ -88,27 +90,40 @@ export default function RunDetailDrawer({ run, onClose, workspaceName }) {
             )}
           </div>
 
-          {error && <div style={{ fontSize: 12, color: 'var(--danger)' }}>{error}</div>}
+          {/* The raw request and response are for troubleshooting, not for
+              reading, so they sit behind a disclosure instead of filling the
+              drawer. A failed fetch says so rather than "Loading…" forever. */}
+          <details>
+            <summary style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', cursor: 'pointer' }}>
+              Technical details (for troubleshooting)
+            </summary>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 18, marginTop: 12 }}>
+              {error && (
+                <div style={{ fontSize: 12, color: 'var(--danger)' }}>
+                  Could not load this run’s details: {error}
+                </div>
+              )}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>Input</div>
+                {detail
+                  ? <JsonBlock value={detail.input} truncated={detail.input_truncated} emptyText="No input recorded." />
+                  : !error && <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Loading…</div>}
+              </div>
 
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>Input</div>
-            {detail
-              ? <JsonBlock value={detail.input} truncated={detail.input_truncated} emptyText="No input recorded." />
-              : <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Loading…</div>}
-          </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>Output</div>
+                {detail
+                  ? <JsonBlock value={detail.output} truncated={detail.output_truncated} emptyText="No output recorded." />
+                  : !error && <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Loading…</div>}
+              </div>
 
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>Output</div>
-            {detail
-              ? <JsonBlock value={detail.output} truncated={detail.output_truncated} emptyText="No output recorded." />
-              : <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Loading…</div>}
-          </div>
-
-          {(run.request_method || run.request_path) && (
-            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
-              Request: {run.request_method} {run.request_path}
+              {(run.request_method || run.request_path) && (
+                <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                  Request: {run.request_method} {run.request_path}
+                </div>
+              )}
             </div>
-          )}
+          </details>
         </div>
       )}
     </Drawer>

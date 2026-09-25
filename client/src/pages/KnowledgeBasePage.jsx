@@ -2,6 +2,10 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import KBStatusBadge from '../components/KBStatusBadge';
 import ModuleRuns from '../components/ModuleRuns';
+import { PageFrame } from '../ui/PageFrame';
+import { Button } from '../ui/Button';
+import { useActiveProject } from '../lib/useActiveProject';
+import { matchClientSlug } from '../lib/clientMatch';
 
 const CATEGORIES = ['all', 'industry', 'brand', 'client-feedback', 'best-practices'];
 const CATEGORY_LABELS = {
@@ -23,79 +27,6 @@ const CLIENTS = [
   { value: 'global', label: 'Global' },
 ];
 
-function PageHeader({ navigate }) {
-  return (
-    <header style={{
-      background: 'var(--card)',
-      borderBottom: '1px solid var(--border)',
-      height: '3.5rem',
-      display: 'flex',
-      alignItems: 'center',
-      padding: '0 1.5rem',
-    }}>
-      <div style={{ maxWidth: '80rem', margin: '0 auto', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <button
-            onClick={() => navigate('/')}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '0.375rem',
-              color: 'var(--text-2)', background: 'none', border: 'none',
-              fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer',
-            }}
-            onMouseEnter={e => e.currentTarget.style.color = 'var(--text)'}
-            onMouseLeave={e => e.currentTarget.style.color = 'var(--text-2)'}
-          >
-            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-            </svg>
-            All tools
-          </button>
-          <span style={{ color: 'var(--border)' }}>/</span>
-          <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text)' }}>Knowledge Base</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <button
-            onClick={() => navigate('/kb/audit')}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '0.375rem',
-              padding: '0.375rem 0.75rem', fontSize: '0.75rem', fontWeight: 600,
-              border: '1px solid var(--border)', borderRadius: 'var(--r-lg)',
-              color: 'var(--text-2)', background: 'var(--card)', cursor: 'pointer',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.color = 'var(--text)'; e.currentTarget.style.borderColor = 'var(--text-3)'; }}
-            onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-2)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
-          >
-            Audit
-          </button>
-          <button
-            onClick={() => navigate('/kb/feedback/new')}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '0.375rem',
-              padding: '0.375rem 0.75rem', fontSize: '0.75rem', fontWeight: 600,
-              border: '1px solid var(--border)', borderRadius: 'var(--r-lg)',
-              color: 'var(--text-2)', background: 'var(--card)', cursor: 'pointer',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.color = 'var(--text)'; e.currentTarget.style.borderColor = 'var(--text-3)'; }}
-            onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-2)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
-          >
-            + Client Feedback
-          </button>
-          <button
-            onClick={() => navigate('/kb/new')}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '0.375rem',
-              padding: '0.375rem 0.75rem', fontSize: '0.75rem', fontWeight: 600,
-              borderRadius: 'var(--r-lg)', color: '#fff',
-              background: 'var(--primary)', border: 'none', cursor: 'pointer',
-            }}
-          >
-            + New KB
-          </button>
-        </div>
-      </div>
-    </header>
-  );
-}
 
 export default function KnowledgeBasePage() {
   const navigate = useNavigate();
@@ -106,6 +37,15 @@ export default function KnowledgeBasePage() {
   const [clientFilter, setClientFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // all | active | inactive
 
+  // Start on the header's client (docs/design-audit/02-plan-one-client.md);
+  // "All clients" is still one click away. Re-applied when the header changes.
+  const { project, loaded: projectLoaded } = useActiveProject();
+  useEffect(() => {
+    if (!projectLoaded) return;
+    const slugs = CLIENTS.map((c) => c.value).filter((v) => v && v !== 'global');
+    setClientFilter(matchClientSlug(project, slugs) || '');
+  }, [projectLoaded, project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     fetch('/api/kb', { credentials: 'include' })
       .then(r => r.json())
@@ -115,7 +55,9 @@ export default function KnowledgeBasePage() {
 
   const filtered = kbs.filter(kb => {
     if (activeCategory !== 'all' && kb.category !== activeCategory) return false;
-    if (clientFilter && kb.client !== clientFilter) return false;
+    // Shared ("global") entries apply to every client, so a client's view keeps
+    // them; choosing "Global" itself shows only those.
+    if (clientFilter && kb.client !== clientFilter && !(clientFilter !== 'global' && kb.client === 'global')) return false;
     if (statusFilter === 'active' && !kb.active) return false;
     if (statusFilter === 'inactive' && kb.active) return false;
     return true;
@@ -139,14 +81,20 @@ export default function KnowledgeBasePage() {
 
   return (
     <>
-      <PageHeader navigate={navigate} />
-      <main style={{ maxWidth: '80rem', margin: '0 auto', padding: '1.75rem 2rem' }}>
-        <div style={{ marginBottom: '1.5rem' }}>
-          <h1 style={{ fontSize: '1.375rem', fontWeight: 700, color: 'var(--text)' }}>Knowledge Base</h1>
-          <p style={{ fontSize: '0.875rem', color: 'var(--text-2)', marginTop: '0.25rem' }}>
-            Manage client context, industry rules, and best practices injected into AI tools.
-          </p>
-        </div>
+      {/* One frame, no second "‹ All tools / Knowledge Base" bar: its three
+          buttons now sit where every tool keeps its actions. */}
+      <PageFrame
+        title="Knowledge Base"
+        purpose="The brand voice, industry rules, client feedback and best practices the AI writing tools follow for each client."
+        width="wide"
+        meta={(
+          <>
+            <Button variant="secondary" size="sm" onClick={() => navigate('/kb/audit')}>Check for problems</Button>
+            <Button variant="secondary" size="sm" onClick={() => navigate('/kb/feedback/new')}>Add client feedback</Button>
+          </>
+        )}
+        action={<Button size="sm" onClick={() => navigate('/kb/new')}>New entry</Button>}
+      >
 
         {/* Filter bar */}
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
@@ -276,7 +224,7 @@ export default function KnowledgeBasePage() {
           </div>
         )}
         <ModuleRuns toolId="knowledge-base" title="Recent changes" />
-      </main>
+      </PageFrame>
     </>
   );
 }

@@ -12,6 +12,7 @@ import ModuleRuns from '../components/ModuleRuns';
 import HubSpokeReport, { healthVariant } from '../components/contentArchitect/HubSpokeReport';
 import { ca } from '../lib/contentArchitectApi';
 import { useActiveProjectId } from '../lib/activeProject';
+import { useActiveProject } from '../lib/useActiveProject';
 import { projectsApi } from '../lib/projectsApi';
 
 const DISCOVER_STEPS = [
@@ -50,6 +51,39 @@ const CLASSIFICATION_META = {
 
 const VERTICAL_OPTIONS = ['dental', 'healthcare', 'legal', 'saas', 'ecommerce', 'home-services', 'other'];
 
+// Short nouns for the exclusion codes informationalSelection.js records, for a
+// one-line "Left out: 216 location · 77 service · 121 people" summary. The full
+// labels, and every URL, are in the Excel "Excluded" tab.
+const LEFT_OUT_NOUNS = {
+  location: 'location',
+  service: 'service & product',
+  people: 'people',
+  listing: 'listing',
+  news: 'news & events',
+  media: 'podcast & video',
+  other: 'other',
+  not_indexable: 'noindex',
+  canonical_elsewhere: 'canonicalised',
+  canonical_to_homepage: 'canonical to homepage',
+  parameterised: 'parameterised',
+  paginated: 'paginated',
+  duplicate: 'duplicate',
+  other_language: 'other language',
+  utility: 'form & confirmation',
+  homepage: 'homepage',
+  unknown: 'unclassified',
+  unclassified: 'unjudged',
+  not_checked: 'not yet checked',
+};
+
+function leftOutLine(excludedByReason = [], shown = 5) {
+  const reasons = excludedByReason || [];
+  const head = reasons.slice(0, shown).map((r) => `${r.count} ${LEFT_OUT_NOUNS[r.code] || String(r.label || r.code).toLowerCase()}`);
+  const restCount = reasons.slice(shown).reduce((sum, r) => sum + (Number(r.count) || 0), 0);
+  if (restCount) head.push(`${restCount} more`);
+  return head.join(' · ');
+}
+
 export default function ContentArchitectProjectPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -87,7 +121,21 @@ export default function ContentArchitectProjectPage() {
 
   // Set once here, reused automatically by every "Suggest spokes" click after
   // this — not re-asked per suggestion request.
-  useEffect(() => { setCompetitorsText((project?.competitors || []).join(', ')); }, [project?.id]);
+  // One competitor list per client (docs/design-audit/02-plan-one-client.md):
+  // an analysis with none of its own starts from its project's competitors,
+  // instead of asking for domains the project already holds.
+  const { project: platformProject } = useActiveProject();
+  const projectCompetitors = (platformProject?.id && platformProject.id === project?.platformProjectId
+    ? (platformProject.competitors || []) : [])
+    .map((c) => (typeof c === 'string' ? c : c?.host || c?.domain || c?.normalized_origin || ''))
+    .map((c) => String(c).replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, ''))
+    .filter(Boolean);
+  const competitorsFromProject = !(project?.competitors || []).length && projectCompetitors.length > 0;
+  useEffect(() => {
+    const own = project?.competitors || [];
+    setCompetitorsText((own.length ? own : projectCompetitors).join(', '));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id, projectCompetitors.join(',')]);
 
   async function saveCompetitors() {
     setSavingCompetitors(true);
@@ -146,6 +194,17 @@ export default function ContentArchitectProjectPage() {
           }
         }
       } catch (e) {
+        if (cancelled) return;
+        // No such analysis — or one this user may not see, which the server
+        // answers identically. Every way here is a link: the dashboard card, the
+        // module panel, a bookmark. Before 0032 some of those ids named a file on
+        // another machine that no longer has it, so the link outlived its
+        // report. The tool page reconnects the active project and says what to
+        // do next; an error with a Retry that retries the same missing id does not.
+        if (e.status === 404) {
+          navigate('/content-architect', { replace: true, state: { missingAnalysis: true } });
+          return;
+        }
         setError(e.message);
       }
     })();
@@ -302,6 +361,12 @@ export default function ContentArchitectProjectPage() {
     ? Math.round((100 * analysis.unassignedPages.length) / Math.max(1, analysis.pages.length))
     : 0;
 
+  // A project-linked analysis clusters only the crawl's informational pages and
+  // records what it left out. Said next to the page count, because "12 pages
+  // analysed" on a 590-page site reads as a broken crawl unless it says why.
+  const selectionSummary = analysis?.selection?.summary || null;
+  const leftOut = selectionSummary ? leftOutLine(selectionSummary.excludedByReason) : '';
+
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto' }}>
       <SectionHeader
@@ -446,10 +511,26 @@ export default function ContentArchitectProjectPage() {
                     <span style={{ fontSize: 12.5, color: analysis.unassignedPages.length ? 'var(--text)' : 'var(--text-2)' }}>
                       {analysis.unassignedPages.length} unassigned ({pctUnassigned}%)
                     </span>
-                    <span style={{ fontSize: 12.5, color: orphanCount ? 'var(--danger)' : 'var(--text-2)' }}>
-                      {orphanCount} orphaned
-                    </span>
+                    {analysis.orphanDetectionWithheld ? (
+                      <span style={{ fontSize: 12.5, color: 'var(--text-2)' }} title="The crawl did not cover the whole site, so a page with no inbound link may be linked from a page it never fetched.">
+                        orphans not assessed
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 12.5, color: orphanCount ? 'var(--danger)' : 'var(--text-2)' }}>
+                        {orphanCount} orphaned
+                      </span>
+                    )}
                   </div>
+                  {selectionSummary ? (
+                    <div style={{ fontSize: 11.5, color: 'var(--text-2)', marginTop: 6 }}>
+                      Informational pages only: {selectionSummary.analysedPageCount} of {selectionSummary.crawledPageCount} found in its sitemaps and listings.
+                      {leftOut ? ` Left out: ${leftOut}.` : ''}
+                    </div>
+                  ) : project?.platformProjectId ? (
+                    <div role="note" style={{ fontSize: 11.5, color: 'var(--warning)', marginTop: 6 }}>
+                      This analysis includes every crawled page. Re-run it to cluster informational pages only.
+                    </div>
+                  ) : null}
                   <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
                     {estimatedCount > 0
                       ? `${estimatedCount} page(s) were estimated from their URL rather than crawled.`
@@ -484,7 +565,11 @@ export default function ContentArchitectProjectPage() {
                 style={{ flex: '1 1 260px', minWidth: 200, fontSize: 12, padding: '5px 8px', borderRadius: 'var(--r-md)', border: '1px solid var(--border-strong)', background: 'var(--card)', color: 'var(--text)' }}
               />
               <Button variant="secondary" size="sm" onClick={saveCompetitors} loading={savingCompetitors}>Save</Button>
-              <span style={{ fontSize: 10.5, color: 'var(--text-3)' }}>Set once — used automatically by "Suggest new spokes" below, no need to re-enter.</span>
+              <span style={{ fontSize: 10.5, color: 'var(--text-3)' }}>
+                {competitorsFromProject
+                  ? 'Filled in from this client’s competitor list. Save to use them for "Suggest new spokes" below.'
+                  : 'Set once — used automatically by "Suggest new spokes" below, no need to re-enter.'}
+              </span>
             </div>
           </Card>
 

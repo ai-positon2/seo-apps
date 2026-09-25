@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import MDEditor from '@uiw/react-md-editor';
+import { useTheme } from '../components/ThemeContext';
 
 const BRANDS = ['global','gentle-dental','great-lakes','riccobene','clear-behavioral-health','neuro-wellness-spa','new-life-house'];
 const INDUSTRY_KBS = ['global','dental-service-organizations','mental-health-organizations','b2b-tech'];
@@ -10,6 +11,7 @@ const ALL_MODULES = ['content-research','keyword-research','article-recommendati
 export default function KBEditorPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { theme } = useTheme();
 
   const [kb, setKb] = useState(null);
   const [meta, setMeta] = useState({});
@@ -21,17 +23,25 @@ export default function KBEditorPage() {
   const [toggling, setToggling] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [changeNote, setChangeNote] = useState('');
+  const [loadError, setLoadError] = useState('');
 
+  // A failed read must not fall through to the editor: it used to render an
+  // empty document with Save and Delete live, and Save would have written that
+  // empty body over the entry.
   useEffect(() => {
     fetch(`/api/kb/${id}`, { credentials: 'include' })
-      .then(r => r.json())
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.meta) throw new Error(d.error || `Could not open this knowledge base (${r.status}).`);
+        return d;
+      })
       .then(d => {
         setKb(d);
         setMeta(d.meta || {});
         setBody(d.body || '');
         setLoading(false);
       })
-      .catch(() => { setError('Failed to load KB.'); setLoading(false); });
+      .catch((e) => { setLoadError(e.message || 'Could not open this knowledge base.'); setLoading(false); });
   }, [id]);
 
   async function handleSave() {
@@ -110,8 +120,23 @@ export default function KBEditorPage() {
   );
 
   if (!kb && !loading) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)' }}>
-      <p style={{ fontSize: '0.875rem', color: 'var(--danger)' }}>KB not found.</p>
+    <div style={{ minHeight: '60vh', display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'center', justifyContent: 'center' }}>
+      <p style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text)', margin: 0 }}>
+        This knowledge base could not be opened
+      </p>
+      <p style={{ fontSize: '0.875rem', color: 'var(--text-2)', margin: 0, maxWidth: 480, textAlign: 'center' }}>
+        {loadError || 'It may have been moved or deleted.'} Nothing has been changed.
+      </p>
+      <button
+        onClick={() => navigate('/kb')}
+        style={{
+          marginTop: '0.25rem', padding: '0.375rem 0.875rem', borderRadius: 'var(--r-lg)',
+          border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--text)',
+          fontSize: '0.8125rem', fontWeight: 500, cursor: 'pointer',
+        }}
+      >
+        Back to Knowledge Base
+      </button>
     </div>
   );
 
@@ -324,7 +349,7 @@ export default function KBEditorPage() {
         </aside>
 
         {/* Right pane: Markdown editor */}
-        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }} data-color-mode="light">
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }} data-color-mode={theme}>
           <div style={{ flex: 1, overflow: 'auto' }}>
             <MDEditor
               value={body}
