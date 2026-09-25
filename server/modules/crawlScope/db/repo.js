@@ -478,10 +478,20 @@ async function clearControlRequest(client, id, expected) {
   );
 }
 
-async function updateRun(client, id, patch) {
+// `returning: false` is for the writes a running crawl makes every second or so
+// (progress, heartbeat, state). `returning *` sent the whole row back each time,
+// checkpoint included, and on a large crawl the checkpoint is the entire frontier:
+// megabytes per progress tick. Each write then outlasted the one-second interval,
+// the next queued behind it on the row lock, and they filled the connection pool
+// until every other query in the process timed out waiting for a connection.
+async function updateRun(client, id, patch, { returning = true } = {}) {
   const params = [];
   const sets = setClause("crawl_runs", patch, params);
   params.push(id);
+  if (!returning) {
+    await client.query(`update crawl_runs set ${sets} where id = $${params.length}`, params);
+    return null;
+  }
   return client.maybeOne(
     `update crawl_runs set ${sets} where id = $${params.length} returning *`,
     params,

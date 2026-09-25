@@ -106,6 +106,29 @@ async function samplePageSpeed(db, run, summary) {
 // rows this size.
 const RESULT_BATCH = Number(process.env.RUN_RESULT_BATCH) || 250;
 const PROGRESS_INTERVAL_MS = 1_000;
+
+// At most one write in flight, and the newest value wins. Progress was written
+// every second, unawaited: once one write took longer than a second (a slow link,
+// a large row) the next queued behind it on the same row lock, then the next, and
+// a single crawl held the whole connection pool. Values that arrive while a write
+// is in flight replace each other, so only the latest is written afterwards.
+function latestOnlyWriter(write) {
+  let inFlight = false;
+  let pending;
+  const drain = async () => {
+    inFlight = true;
+    while (pending !== undefined) {
+      const next = pending;
+      pending = undefined;
+      await write(next).catch(() => {});
+    }
+    inFlight = false;
+  };
+  return (value) => {
+    pending = value;
+    if (!inFlight) drain();
+  };
+}
 // Hub and Spoke does not need a finished crawl, only stored results for this
 // run_id (crawlToArchitect.buildFromCrawl reads crawl_run_results by run_id
 // alone, no status check) — so rather than making the reader wait for
@@ -407,7 +430,12 @@ class RunManager {
     // has not finished). Each checkpoint re-queues their pages.
     const unstored = new Set();
     let pausedSince = 0;
+    // A heartbeat still being written when the next is due is skipped rather than
+    // stacked: each carries the full checkpoint, and a second one queued behind
+    // the first on the row lock only adds another held connection.
+    let heartbeatInFlight = false;
     const heartbeat = setInterval(() => {
+      if (heartbeatInFlight) return;
       if (crawler.paused) {
         if (!pausedSince) pausedSince = Date.now();
         if (Date.now() - pausedSince > MAX_PAUSE_MS) {
@@ -432,7 +460,10 @@ class RunManager {
       } catch (error) {
         console.error(`[crawlScope] run ${run.id} checkpoint failed:`, error.message);
       }
-      repo.updateRun(db, run.id, patch).catch(() => {});
+      heartbeatInFlight = true;
+      repo.updateRun(db, run.id, patch, { returning: false })
+        .catch(() => {})
+        .finally(() => { heartbeatInFlight = false; });
     }, HEARTBEAT_MS);
     heartbeat.unref();
 
@@ -583,11 +614,17 @@ class RunManager {
       }
     });
 
+    // A value still pending when the crawl finalizes is dropped: written after
+    // the terminal update, it would replace the final progress with an older one.
+    const writeProgress = latestOnlyWriter(async (progress) => {
+      if (finalized) return;
+      await repo.updateRun(db, run.id, { progress }, { returning: false });
+    });
     crawler.on("progress", (progress) => {
       const now = Date.now();
       if (now - lastProgressAt < PROGRESS_INTERVAL_MS) return;
       lastProgressAt = now;
-      repo.updateRun(db, run.id, { progress }).catch(() => {});
+      writeProgress(progress);
     });
 
     // The crawler emits "paused", "running", "stopping" and "finishing". Only the first
@@ -604,11 +641,12 @@ class RunManager {
     crawler.on("state", (state) => {
       if (finalized) return;
       if (state.state === "paused" || state.state === "running") {
-        repo.updateRun(db, run.id, { status: state.state }).catch(() => {});
+        repo.updateRun(db, run.id, { status: state.state }, { returning: false }).catch(() => {});
       } else if (state.state === "stopping" || state.state === "finishing") {
         lastProgressAt = Date.now();
         flushChain = flushChain.then(() =>
-          repo.updateRun(db, run.id, { progress: crawler._progress() }).catch(() => {}));
+          repo.updateRun(db, run.id, { progress: crawler._progress() }, { returning: false })
+            .catch(() => {}));
       }
     });
 
@@ -918,5 +956,5 @@ class RunManager {
 // is now the latency the API quotes for a remote pause or stop.
 module.exports = {
   RunManager, aggregateFindings, severityCounts, pickPageSpeedSample, resultRow, priorFromRows,
-  HEARTBEAT_MS, CONTROL_POLL_MS,
+  HEARTBEAT_MS, CONTROL_POLL_MS, latestOnlyWriter,
 };
