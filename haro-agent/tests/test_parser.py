@@ -1,9 +1,11 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from haro_agent.identify import identify
 from haro_agent.mailbox.local_fixture import load_fixture_file
-from haro_agent.parser import parse_digest
+from haro_agent.parser import parse_digest, parse_digest_header
 
 SAMPLES_DIR = Path(__file__).resolve().parent.parent / "samples"
 AS_OF = datetime(2026, 8, 24, 21, 0, tzinfo=timezone.utc)
@@ -69,3 +71,43 @@ def test_forwarded_digest_strips_wrapper_and_logs_one_parse_failure():
     q1 = next(q for q in queries if q.query_number == 1)
     assert not q1.summary.startswith(">")
     assert q1.journalist_name == "Ben Ostrow"
+
+
+def test_digest_header_raises_when_no_pattern_and_no_received_at():
+    with pytest.raises(ValueError):
+        parse_digest_header("no header here", "no header here either")
+
+
+def test_digest_header_falls_back_to_received_at():
+    """Regression: a genuine Gmail auto-forward (via a filter's 'Forward it'
+    action) doesn't preserve 'HARO Queries for <date> - <edition> Edition' in
+    either the subject or body the way a manual 'Fwd:' compose does. Confirmed
+    in production - two real auto-forwarded digests both parsed zero queries
+    because this raised ValueError, aborting the whole digest."""
+    received_at = datetime(2026, 9, 25, 20, 8, tzinfo=timezone.utc)  # 4:08 PM ET
+    digest_date, edition = parse_digest_header("", "", received_at=received_at)
+    assert digest_date == "2026-09-25"
+    assert edition == "Evening"
+
+
+def test_full_digest_parses_via_received_at_fallback_when_header_is_missing():
+    body = (
+        "********* INDEX ***********\n\n"
+        "1) Summary: test query with no header text anywhere\n"
+        "Category: Health and Pharma\n"
+        "Name: Test Journalist\n"
+        "Media Outlet: Verywell Health\n"
+        "Deadline: 1:30 PM ET - 27 September\n\n"
+        "Requirements: U.S.-based only.\n"
+        "Reply to: reply+regressiontest@helpareporter.com\n"
+    )
+    queries, failures = parse_digest(
+        subject="",
+        body=body,
+        digest_reference="test",
+        as_of=AS_OF,
+        received_at=datetime(2026, 9, 25, 14, 0, tzinfo=timezone.utc),
+    )
+    assert failures == []
+    assert len(queries) == 1
+    assert queries[0].digest_date == "2026-09-25"

@@ -140,7 +140,11 @@ def process_raw_email(email: RawEmail, ctx: PipelineContext) -> EmailProcessResu
 
     try:
         queries, failures = parse_digest(
-            email.subject, result.cleaned_body, digest_reference=email.message_id, as_of=ctx.as_of
+            email.subject,
+            result.cleaned_body,
+            digest_reference=email.message_id,
+            as_of=ctx.as_of,
+            received_at=email.received_at,
         )
     except ValueError as exc:
         ctx.log_lines.append(f"[format-drift] {email.message_id}: {exc}")

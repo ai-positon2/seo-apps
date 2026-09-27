@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import hashlib
 import re
+from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
-from .deadline import MONTHS, DeadlineParseError, hours_remaining, parse_deadline_raw
+from .deadline import MONTHS, DeadlineParseError, hours_remaining, parse_deadline_raw, to_et
 from .models import ParseFailure, Query
 
 DELIMITER_PATTERN = re.compile(r"\n-{10,}\s*\n")
@@ -55,17 +56,39 @@ KNOWN_CREDENTIAL_TERMS = [
 ]
 
 
-def parse_digest_header(subject: str, body: str) -> Tuple[str, str]:
-    """Return (digest_date 'YYYY-MM-DD', digest_edition) from subject (or body fallback)."""
+def parse_digest_header(
+    subject: str, body: str, received_at: Optional[datetime] = None
+) -> Tuple[str, str]:
+    """Return (digest_date 'YYYY-MM-DD', digest_edition) from subject (or body
+    fallback). Falls back further to received_at (the email's own received
+    timestamp) when neither contains the header at all - a genuine Gmail
+    auto-forward (via a filter's "Forward it" action, as opposed to a manual
+    "Fwd:" compose) doesn't preserve "HARO Queries for <date> - <edition>
+    Edition" in either place, so without this, every real auto-forwarded
+    digest would otherwise parse zero queries."""
     match = DIGEST_HEADER_PATTERN.search(subject or "") or DIGEST_HEADER_PATTERN.search(body or "")
-    if not match:
-        raise ValueError("Could not locate digest date/edition header in subject or body")
-    month_name, day, year, edition = match.groups()
-    month = MONTHS.get(month_name.lower())
-    if month is None:
-        raise ValueError(f"Unrecognized month name in digest header: {month_name!r}")
-    digest_date = f"{int(year):04d}-{month:02d}-{int(day):02d}"
-    return digest_date, edition.capitalize()
+    if match:
+        month_name, day, year, edition = match.groups()
+        month = MONTHS.get(month_name.lower())
+        if month is None:
+            raise ValueError(f"Unrecognized month name in digest header: {month_name!r}")
+        digest_date = f"{int(year):04d}-{month:02d}-{int(day):02d}"
+        return digest_date, edition.capitalize()
+
+    if received_at is not None:
+        if received_at.tzinfo is None:
+            received_at = received_at.replace(tzinfo=timezone.utc)
+        et_dt = to_et(received_at)
+        digest_date = et_dt.strftime("%Y-%m-%d")
+        if et_dt.hour < 11:
+            edition = "Morning"
+        elif et_dt.hour < 16:
+            edition = "Afternoon"
+        else:
+            edition = "Evening"
+        return digest_date, edition
+
+    raise ValueError("Could not locate digest date/edition header in subject or body")
 
 
 def _extract_field(pattern: re.Pattern, block: str) -> Optional[str]:
@@ -197,8 +220,9 @@ def parse_digest(
     body: str,
     digest_reference: str,
     as_of=None,
+    received_at: Optional[datetime] = None,
 ) -> Tuple[List[Query], List[ParseFailure]]:
-    digest_date, digest_edition = parse_digest_header(subject, body)
+    digest_date, digest_edition = parse_digest_header(subject, body, received_at=received_at)
     blocks = _split_blocks(body)
 
     queries: List[Query] = []
