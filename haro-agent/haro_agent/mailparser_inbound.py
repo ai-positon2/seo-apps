@@ -11,6 +11,18 @@ own system tokens ({{id}}, {{received_at_iso8601}}) aren't reliably present in
 the JSON body across "Include Fields" settings, so those are instead passed as
 query-string parameters on the configured Target URL (see README) and read from
 request.args rather than the JSON body.
+
+sender/sender_name are hardcoded to HARO's own address rather than extracted:
+identify.py's sender check normally falls back to scanning the body for
+"helpareporter.com" when the top-level sender doesn't match, but that fallback
+only finds anything when a *manual* "Fwd:" compose embeds the original quoted
+headers in the body. A genuine Gmail auto-forward (via a filter's "Forward it"
+action, as opposed to composing a Fwd: message) does not embed those headers
+at all, so that fallback finds nothing and identify() would otherwise reject
+every real auto-forwarded digest. This is safe here specifically because the
+Gmail filter feeding this Mailparser inbox is itself scoped to
+from:(haro@helpareporter.com) - anything that reaches this inbox has already
+been sender-verified upstream by Gmail's own filter.
 """
 from __future__ import annotations
 
@@ -47,8 +59,8 @@ def parse_mailparser_payload(data: dict, message_id: str | None, received_at: st
 
     return RawEmail(
         message_id=message_id,
-        sender="",
-        sender_name="",
+        sender="haro@helpareporter.com",
+        sender_name="HARO",
         subject=subject,
         received_at=received_dt,
         body=body,
