@@ -4,19 +4,28 @@ import { createContext, useContext, useEffect, useState, useCallback } from 'rea
 // Dark and light are both designed states in this theme (see index.css), so the
 // toggle is real again — it was a no-op while the app was dark-only.
 //
-// Dark is the default: index.html stamps data-theme="dark" so the first paint is
-// already correct for everyone who has not chosen otherwise, and only someone
-// who explicitly picked light sees a transition on mount.
+// Light is the default: index.html stamps data-theme="light" so the first
+// paint is already correct for everyone who has not chosen otherwise, and
+// only someone who explicitly picked dark sees a transition on mount.
+//
+// The storage key carries a version suffix, and that is what makes the new
+// default actually reach anyone. The effect below writes the theme on every
+// mount, not just on an explicit toggle, so everyone who has ever loaded the
+// app already has an explicit 'dark' stored under the old key — a value that
+// was never a real choice, just the old default being silently persisted.
+// Reading that key would hand every one of them the old default forever. A
+// new key resets the default once; an actual toggle keeps persisting under it
+// exactly as before. Same fix as MacWindow.jsx's navCollapsed.v2, same reason.
 //
 // The context shape is unchanged ({ theme, toggle }) so existing useTheme()
 // consumers keep working; `setTheme` and `isDark` are additions.
 
-const STORAGE_KEY = 'seo-studio-theme';
-const DEFAULT_THEME = 'dark';
+const STORAGE_KEY = 'seo-studio-theme.v2';
+const DEFAULT_THEME = 'light';
 
 const ThemeContext = createContext({
   theme: DEFAULT_THEME,
-  isDark: true,
+  isDark: false,
   toggle: () => {},
   setTheme: () => {},
 });

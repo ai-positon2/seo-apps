@@ -8,8 +8,8 @@
    Retuned from the Ledger × Signal (indigo/navy) palette to the Intelligence
    Toolkit theme: warm paper neutrals, a single deep-teal accent, and a
    three-value data palette (accent / amber / coral). Both themes are first
-   class — dark is the default (index.html stamps data-theme="dark"), light is a
-   real, designed alternative rather than an inversion.
+   class — light is the default (index.html stamps data-theme="light"), dark is
+   a real, designed alternative rather than an inversion.
 
    Every token name from the previous system is kept and re-pointed, so the ~120
    files that reference var(--primary), var(--text-2) and friends pick the new
