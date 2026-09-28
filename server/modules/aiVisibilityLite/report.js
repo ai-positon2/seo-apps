@@ -186,6 +186,94 @@ function mentionOrder(answerText, brands) {
   return ranks;
 }
 
+/** A list entry's name part: its bold text if it leads with one, else up to the first separator. */
+function entryLead(text) {
+  const bold = text.match(/^\s*(\*\*|__)(.+?)\1/);
+  const raw = bold ? bold[2] : text.split(/\s[-–—]\s|:\s/)[0];
+  return raw
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[*_`]/g, '')
+    .replace(/^\d+[.)]\s+/, '')
+    .trim();
+}
+
+/**
+ * The recommendation lists an answer is made of, as blocks of entry names in
+ * order. An entry is a numbered or bulleted item, a heading, or a line that
+ * is only a bold name — the shapes every provider writes a "here are some
+ * options" answer in. Entries ending in ':' are section labels ("Top
+ * Recommendations:", "The Setup:"), not options, and are skipped.
+ *
+ * A block ends where its structure does: a list at an unindented paragraph
+ * or heading, a heading level at a shallower heading (### entries under a
+ * new ## section start a new ranking), and
+ * a run of bold-name lines at any heading. That is what keeps "Other options
+ * you might consider" or a closing list of questions from being counted as
+ * more places in the same ranking.
+ */
+function listBlocks(answerText) {
+  const blocks = [];
+  const open = new Map(); // kind -> current block
+
+  const close = (pred) => {
+    for (const [kind, block] of open) {
+      if (pred(kind)) { if (block.length) blocks.push(block); open.delete(kind); }
+    }
+  };
+  const add = (kind, lead) => {
+    if (!lead || lead.endsWith(':')) return;
+    if (!open.has(kind)) open.set(kind, []);
+    open.get(kind).push(lead);
+  };
+
+  for (const line of String(answerText || '').split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+)$/);
+    const numbered = line.match(/^(\s*)\d+[.)]\s+(.+)$/);
+    const bullet = line.match(/^(\s*)[-*+•]\s+(.+)$/);
+
+    if (heading) {
+      const level = heading[1].length;
+      close((k) => k.startsWith('list') || k === 'bold' || (k.startsWith('h') && Number(k.slice(1)) > level));
+      add(`h${level}`, entryLead(heading[2]));
+    } else if (numbered || bullet) {
+      const [, indent, rest] = numbered || bullet;
+      add(`list:${numbered ? 'ol' : 'ul'}:${indent.length > 1 ? 1 : 0}`, entryLead(rest));
+    } else if (/^(\*\*|__)(.+?)\1\s*:?\s*$/.test(line.trim())) {
+      add('bold', entryLead(line.trim()));
+    } else if (!/^\s/.test(line)) {
+      // An unindented paragraph ends any list, but not a run of headings or
+      // bold names — those are separated by paragraphs by design.
+      close((k) => k.startsWith('list'));
+    }
+  }
+  close(() => true);
+  return blocks;
+}
+
+/**
+ * Where the client sits in the answer's own recommendation list: "3rd of the
+ * 4 practices this answer lists", counting every business the answer names
+ * as an option — not only the brands this project tracks, which is what made
+ * a position read #1 while the answer listed two other practices first.
+ *
+ * Null when the answer names the client only in running text, outside any
+ * list: there is no ranking to have a place in.
+ */
+function listPosition(answerText, client) {
+  const names = namesOf(client);
+  const domain = String(client?.domain || '').toLowerCase().replace(/^www\./, '');
+  if (!names.length && !domain) return null;
+  const isClient = (lead) => (names.length && namesBrand(lead, names))
+    || (domain && lead.toLowerCase().includes(domain));
+
+  for (const block of listBlocks(answerText)) {
+    const at = block.findIndex(isClient);
+    if (at !== -1) return { rank: at + 1, of: block.length };
+  }
+  return null;
+}
+
 /**
  * How the client and each competitor did, side by side.
  *
@@ -346,7 +434,7 @@ function sourceTable(measured, client, competitors) {
  * because a question measured twice can only ever read 0%, 50% or 100%, and a
  * delta on it moves in 33-point steps.
  */
-function questionTable(groups) {
+function questionTable(groups, client = null) {
   return groups.map((g) => {
     const surfaces = g.surfaces || [];
     const measured = surfaces.filter((s) => s.mentioned !== null && s.mentioned !== undefined);
@@ -392,6 +480,42 @@ function questionTable(groups) {
         // The verbatim answer. Only a failed capture has none — see status.
         answerText: s.answerText || null,
       })),
+      // One row per engine that touched this question this period, named
+      // over its own measured surfaces — the same arithmetic as the report's
+      // top-level `byEngine`, applied to just this question. `byEngine` above
+      // is one row per SURFACE, so a question asked across two runs in the
+      // period carries two rows for the same engine there; this collapses
+      // those into the single rate a "this model, this question" card needs.
+      visibilityByEngine: [...new Set(surfaces.map((s) => s.engine))].sort().map((engine) => {
+        const rows = surfaces.filter((s) => s.engine === engine);
+        const engineMeasured = rows.filter((s) => s.mentioned !== null && s.mentioned !== undefined);
+        const engineNamed = engineMeasured.filter((s) => s.mentioned === true).length;
+        // The client's place in each answer's own list of recommendations
+        // (listPosition), over the answers that name the client.
+        const namedRows = engineMeasured.filter((s) => s.mentioned === true);
+        const placed = namedRows
+          .map((s) => listPosition(s.answerText, client))
+          .filter(Boolean);
+        let position = null;
+        if (placed.length === 1) {
+          // One answer is a fact, not an average — "#3", not "#3.0".
+          position = { value: placed[0].rank, display: `#${placed[0].rank}`, listed: placed[0].of, answers: 1 };
+        } else if (placed.length > 1) {
+          const avg = placed.reduce((sum, p) => sum + p.rank, 0) / placed.length;
+          position = { ...fmt.metric(avg, 'position'), listed: null, answers: placed.length };
+        }
+        return {
+          engine,
+          surfaceLabel: rows[0]?.surfaceLabel || engine,
+          answers: rows.length,
+          measured: engineMeasured.length,
+          named: engineNamed,
+          namedRate: fmt.metric(fmt.ratio(engineNamed, engineMeasured.length), 'percent'),
+          position,
+          // Named, but only in running text — so there is no list place to show.
+          namedOutsideList: namedRows.length > 0 && placed.length === 0,
+        };
+      }),
     };
   });
 }
@@ -948,7 +1072,7 @@ function build({
     urls: urlTable(measured, brand, competitors),
     // Prompts passed so a group carries the question's current wording and
     // intent rather than only the text as it was sent.
-    byQuestion: questionTable(scoring.groupByPrompt(split.current, prompts)),
+    byQuestion: questionTable(scoring.groupByPrompt(split.current, prompts), brand),
     // Over split.current, the same window every other number on this report
     // uses. It was built over `inScope` — all history — so the chart and the
     // KPI row above it described different periods, and a reader comparing the

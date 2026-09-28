@@ -7,9 +7,6 @@
 //
 // ── Two reports are renamed from the reference, deliberately ───────────────
 //
-//   "Prompts" -> Questions   what the module stores IS a question a buyer would
-//                            type; calling it a prompt describes our plumbing
-//                            rather than the thing being measured.
 //   "Chats"   -> Answers     every row here is one API call with web search on,
 //                            not a consumer chat session. Migration 0029 is
 //                            explicit that the scraped module measures the
@@ -51,8 +48,8 @@ export const REPORTS = [
   },
   {
     id: 'questions',
-    name: 'Questions',
-    blurb: 'Every question measured, and how each one landed',
+    name: 'Prompts',
+    blurb: 'Every prompt measured, and how each one landed',
   },
   {
     id: 'gaps',
@@ -77,7 +74,7 @@ export const REPORTS = [
   {
     id: 'run',
     name: 'Setup & runs',
-    blurb: 'The questions, the business profile, and the run budget',
+    blurb: 'The prompts, the business profile, and the run budget',
   },
 ].map((r) => ({ ...r, stat: STAT[r.id] }));
 

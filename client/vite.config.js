@@ -39,7 +39,7 @@ function manualChunks(id) {
          'property-information', 'space-separated-tokens', 'comma-separated-tokens',
          'character-entities', 'decode-named-character-reference')
       || startsWith('@uiw/', 'remark-', 'rehype-', 'micromark', 'mdast-', 'hast-', 'unist-', 'vfile')) {
-    return 'vendor-md'                                                  // markdown editor (KB pages)
+    return 'vendor-md'          // markdown editor (KB pages) + read-only preview (AI Visibility answers)
   }
   if (is('react-simple-maps', 'topojson-client', 'us-atlas', 'delaunator',
          'robust-predicates', 'internmap')

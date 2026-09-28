@@ -15,6 +15,7 @@
 // hard-code, which is also what makes light mode work for free.
 
 import { useState } from 'react';
+import MarkdownPreview from '@uiw/react-markdown-preview';
 import {
   Card, Kicker, Muted, Tag, Btn, FadingRule, SectionHead,
 } from '../studio/primitives';
@@ -22,6 +23,9 @@ import {
   FilledLabelBar, TypeChip, ShowMore,
 } from '../aiVisibility/reportPrimitives';
 import { LineChart } from '../aiVisibility/reportCharts';
+import openaiLogo from './logos/openai.svg';
+import claudeLogo from './logos/claude.webp';
+import geminiLogo from './logos/gemini.webp';
 import {
   SOURCE_TYPE_LABELS, PAGE_TYPE_LABELS, METRIC_INFO, engineLabel,
 } from './reportRegistry';
@@ -99,12 +103,33 @@ function Row({ cols, cells, strong = false, note = null }) {
   );
 }
 
-/** Named / not named / not measured — three states that must not collapse. */
-function OutcomeTag({ mentioned, status }) {
-  if (status === 'failed' || mentioned === null || mentioned === undefined) {
-    return <Tag tone="muted">not measured</Tag>;
+/**
+ * Tag colour for one model on one prompt, from its per-model totals
+ * (byQuestion[].visibilityByEngine) — never from byEngine, which is one row
+ * per ANSWER and so repeats a model once for every run in the period.
+ * Amber is "named in some of its answers, not all".
+ */
+function engineTone(v) {
+  if (!v.measured) return 'muted';
+  if (v.named === 0) return 'neg';
+  return v.named === v.measured ? 'accent' : 'warn';
+}
+
+/** A prompt's per-answer rows merged to one per model: competitors unioned, citations de-duplicated. */
+function mergeByEngine(rows) {
+  const merged = new Map();
+  for (const r of rows || []) {
+    if (!merged.has(r.engine)) merged.set(r.engine, { engine: r.engine, competitors: new Set(), citations: new Map() });
+    const m = merged.get(r.engine);
+    (r.competitorsMentioned || []).forEach((c) => m.competitors.add(c));
+    (r.citations || []).forEach((c) => {
+      const key = c.url || c.domain || c.title;
+      if (key && !m.citations.has(key)) m.citations.set(key, c);
+    });
   }
-  return <Tag tone={mentioned ? 'accent' : 'neg'}>{mentioned ? 'named' : 'not named'}</Tag>;
+  return [...merged.values()]
+    .sort((a, b) => a.engine.localeCompare(b.engine))
+    .map((m) => ({ engine: m.engine, competitors: [...m.competitors], citations: [...m.citations.values()] }));
 }
 
 // ── Expandable metric tiles ─────────────────────────────────────────────────
@@ -500,7 +525,7 @@ export function OverviewReport({ report }) {
 
       <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))' }}>
         <Card style={{ padding: 18 }}>
-          <SectionHead title="Questions where you are least visible" />
+          <SectionHead title="Prompts where you are least visible" />
           <Muted size={11}>
             Ranked by how often the models named you. Facts only — no recommendation.
           </Muted>
@@ -587,7 +612,7 @@ export function InsightsReport({ report }) {
         />
         <Muted size={11}>
           {report.modelStrength.note
-            || 'The same questions, asked of each model.'}
+            || 'The same prompts, asked of each model.'}
         </Muted>
         <div style={{ marginTop: 12 }}>
           {report.byEngine.map((e) => (
@@ -606,7 +631,7 @@ export function InsightsReport({ report }) {
         <Card style={{ padding: 18 }}>
           <SectionHead title="Across runs" />
           <Muted size={11}>
-            One point per measurement run — the unit that asked the whole question set at one
+            One point per measurement run — the unit that asked the whole prompt set at one
             moment. {scoped ? '' : 'Showing every run, including runs outside the selected period.'}
           </Muted>
           <div style={{ marginTop: 12 }}>
@@ -718,26 +743,26 @@ export function PerceptionReport({ described, describedAt }) {
   );
 }
 
-// ── 4. Questions ───────────────────────────────────────────────────────────
+// ── 4. Prompts ─────────────────────────────────────────────────────────────
 
 export function QuestionsReport({ report }) {
   const cols = '1fr 92px 92px 108px';
   return (
     <Card style={{ padding: 18 }}>
       <SectionHead
-        title={`Every question (${report.byQuestion.length})`}
+        title={`Every prompt (${report.byQuestion.length})`}
         right={<Muted size={11}>{report.headline.namedRate.display} overall</Muted>}
       />
       <Muted size={11}>
-        Each question is asked of all three models, so a rate here is over at most three answers —
+        Each prompt is asked of all three models, so a rate here is over at most three answers —
         the count beside it is the denominator.
       </Muted>
       <div style={{ marginTop: 12 }}>
-        <Table head={{ cols, labels: ['Question', 'Named', 'Searched', 'Models'] }}>
+        <Table head={{ cols, labels: ['Prompt', 'Named', 'Searched', 'Models'] }}>
           <ShowMore
             items={report.byQuestion}
             initial={10}
-            noun="more questions"
+            noun="more prompts"
             render={(q) => (
               <div key={q.promptId || q.text} style={{ padding: '10px 0', borderBottom: '1px solid var(--neutral-800)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 12, alignItems: 'center' }}>
@@ -749,12 +774,9 @@ export function QuestionsReport({ report }) {
                     {q.groundedRate.display}
                   </span>
                   <span style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                    {q.byEngine.map((e) => (
-                      <Tag
-                        key={e.engine}
-                        tone={e.mentioned === null ? 'muted' : (e.mentioned ? 'accent' : 'neg')}
-                      >
-                        {engineLabel(e.engine).slice(0, 6)}
+                    {(q.visibilityByEngine || []).map((v) => (
+                      <Tag key={v.engine} tone={engineTone(v)}>
+                        {engineLabel(v.engine)}
                       </Tag>
                     ))}
                   </span>
@@ -974,30 +996,80 @@ export function UrlsReport({ report }) {
 // ── 8. Answers ─────────────────────────────────────────────────────────────
 
 /** The verbatim answer, collapsed by default — some run past a thousand words. */
-function AnswerToggle({ text }) {
-  const [open, setOpen] = useState(false);
-  if (!text) return null;
+// Opens links in a new tab rather than navigating the report away — the
+// default react-markdown renderer leaves target unset, which would replace
+// this page with whatever the model cited.
+const MARKDOWN_COMPONENTS = {
+  a: ({ node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
+};
+
+/**
+ * One model's verbatim answer(s) to a prompt, opened by clicking its card —
+ * rendered as the model actually formatted it — headings,
+ * bold, bullet lists and real clickable links — not the raw markdown source as
+ * plain text. A capture stores the answer exactly as the API returned it
+ * (markdown, since every provider writes it that way), so showing that source
+ * unrendered means literal "**text**" and "[label](url)" on screen, which is
+ * what made this unreadable before.
+ */
+function AnswerPanel({ engine, surfaces, onClose }) {
   return (
-    <div>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        style={{
-          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-          fontSize: 11.5, color: 'var(--primary)', fontFamily: 'var(--font-mono)',
-        }}
+    <div style={{
+      marginTop: 12, border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', overflow: 'hidden',
+    }}
+    >
+      {/* A header bar, so the box reads as "this is the answer the model
+          gave", not a floating slab of text with no source. */}
+      <div style={{
+        padding: '8px 14px', borderBottom: '1px solid var(--border)', background: 'var(--surface)',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      }}
       >
-        {open ? 'Hide answer' : 'Show answer'}
-      </button>
-      {open && (
-        <div style={{
-          marginTop: 6, padding: 10, background: 'var(--surface)', borderRadius: 'var(--r-md)',
-          fontSize: 12.5, lineHeight: 1.5, whiteSpace: 'pre-wrap',
+        <span style={{
+          fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '.04em',
         }}
         >
-          {text}
+          {engineLabel(engine)}&rsquo;s answer
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          style={{
+            background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+            fontSize: 11.5, color: 'var(--text-3)',
+          }}
+        >
+          Close ✕
+        </button>
+      </div>
+      {surfaces.map((s, i) => (
+        // eslint-disable-next-line react/no-array-index-key
+        <div key={i} style={{ padding: '14px 18px', background: '#FFFFFF', borderTop: i ? '1px solid #E5E5E5' : 'none' }} data-color-mode="light">
+          {surfaces.length > 1 && (
+            <div style={{
+              fontSize: 10.5, fontWeight: 600, color: '#6B6B6B', textTransform: 'uppercase',
+              letterSpacing: '.06em', marginBottom: 8,
+            }}
+            >
+              Answer {i + 1} of {surfaces.length}
+            </div>
+          )}
+          {s.answerText ? (
+            <MarkdownPreview
+              source={s.answerText}
+              components={MARKDOWN_COMPONENTS}
+              style={{
+                background: 'transparent', color: '#1A1A1A', fontSize: 14, lineHeight: 1.65,
+                fontFamily: 'var(--font-sans)',
+              }}
+            />
+          ) : (
+            <span style={{ fontSize: 13, color: '#6B6B6B' }}>
+              No answer could be captured{s.failureReason ? ` — ${s.failureReason}` : ''}.
+            </span>
+          )}
         </div>
-      )}
+      ))}
     </div>
   );
 }
@@ -1028,6 +1100,272 @@ function CitationList({ citations }) {
   );
 }
 
+// ── Visibility-by-model cards ────────────────────────────────────────────
+
+const LOGO_SIZE = 44;
+
+// gemini.webp is the full wordmark (960x217) with the star as a square at its
+// left edge; the box below crops to that square rather than keeping a
+// separately cut file in sync with the original.
+const ENGINE_VISUAL = {
+  openai: { tint: '#E7F4EF', logo: openaiLogo },
+  anthropic: { tint: '#FBECE5', logo: claudeLogo },
+  google: { tint: '#ECEFFC', logo: geminiLogo, cropLeftSquare: true },
+};
+const DEFAULT_ENGINE_VISUAL = { tint: 'var(--surface)', logo: null };
+
+function EngineLogo({ engine, visual }) {
+  if (!visual.logo) {
+    return (
+      <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-3)', lineHeight: `${LOGO_SIZE}px` }}>
+        {engineLabel(engine).charAt(0)}
+      </span>
+    );
+  }
+  return (
+    <span style={{ width: LOGO_SIZE, height: LOGO_SIZE, overflow: 'hidden', display: 'block' }}>
+      <img
+        src={visual.logo}
+        alt={engineLabel(engine)}
+        style={visual.cropLeftSquare
+          ? { height: LOGO_SIZE, width: 'auto', maxWidth: 'none', display: 'block' }
+          : { width: LOGO_SIZE, height: LOGO_SIZE, objectFit: 'contain', display: 'block' }}
+      />
+    </span>
+  );
+}
+
+const STATUS_TONE_COLOR = {
+  accent: 'var(--accent-100)', warn: 'var(--viz-warn)', neg: 'var(--viz-neg)', muted: 'var(--text-3)',
+};
+
+const ordinal = (n) => {
+  const tens = n % 100;
+  if (tens >= 11 && tens <= 13) return `${n}th`;
+  return `${n}${({ 1: 'st', 2: 'nd', 3: 'rd' })[n % 10] || 'th'}`;
+};
+
+/** Plain-English read of one engine's visibility row for this one prompt. */
+function visibilityStatus(e) {
+  if (!e.answers) return { text: 'Not asked on this prompt', tone: 'muted' };
+  if (!e.measured) return { text: 'Could not be measured', tone: 'muted' };
+  if (e.named === 0) return { text: e.measured === 1 ? 'Not named in this answer' : 'Not named in these answers', tone: 'neg' };
+  if (e.named === e.measured) return { text: e.measured === 1 ? 'Named in this answer' : 'Named in every answer', tone: 'accent' };
+  return { text: 'Named in some answers', tone: 'warn' };
+}
+
+/** One model's card: its mark, its rate on this prompt, and what that rate means. */
+function EngineVisibilityCard({ e, surfaces, selected, onSelect }) {
+  const visual = ENGINE_VISUAL[e.engine] || DEFAULT_ENGINE_VISUAL;
+  const status = visibilityStatus(e);
+  const cited = surfaces.some((s) => s.cited);
+  const didNotSearch = surfaces.some((s) => s.grounded === false);
+  const failureReason = surfaces.find((s) => s.failureReason)?.failureReason || null;
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-expanded={selected}
+      style={{
+        textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit', padding: 0,
+        display: 'flex', flexDirection: 'column',
+        border: selected ? '1px solid var(--primary)' : '1px solid var(--border)',
+        boxShadow: selected ? '0 0 0 1px var(--primary)' : 'none',
+        borderRadius: 'var(--r-lg)', overflow: 'hidden', background: 'var(--card)',
+      }}
+    >
+      <div style={{
+        background: visual.tint, padding: '20px 14px', display: 'flex', justifyContent: 'center', position: 'relative',
+        width: '100%', boxSizing: 'border-box',
+      }}
+      >
+        <EngineLogo engine={e.engine} visual={visual} />
+        {/* Every card carries a position slot. Where the model's list does not
+            include the client, it says so rather than inventing a place. */}
+        <span style={{
+          position: 'absolute', top: 10, right: 10, background: 'var(--card)',
+          border: '1px solid var(--border)', borderRadius: 'var(--r-pill)', padding: '3px 10px',
+          fontSize: 11.5, color: 'var(--text-2)', display: 'flex', alignItems: 'baseline', gap: 5,
+        }}
+        >
+          {e.position ? (
+            <>
+              <strong style={{ fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-mono)' }}>
+                {e.position.display}
+              </strong>
+              {e.position.answers > 1 ? 'avg position' : 'position'}
+            </>
+          ) : (
+            <span style={{ color: e.measured ? 'var(--viz-neg)' : 'var(--text-3)' }}>
+              {e.measured ? 'Not listed' : 'Position —'}
+            </span>
+          )}
+        </span>
+      </div>
+      <div style={{ padding: '12px 14px', flex: 1, width: '100%', boxSizing: 'border-box' }}>
+        <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text)', lineHeight: 1 }}>
+          {e.namedRate.display}
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 600, marginTop: 6 }}>{engineLabel(e.engine)}</div>
+        <div style={{ fontSize: 11.5, color: STATUS_TONE_COLOR[status.tone], marginTop: 2 }}>{status.text}</div>
+        {e.position?.listed ? (
+          <Muted size={11} style={{ display: 'block', marginTop: 2 }}>
+            {e.position.listed === 1
+              ? 'The only business this answer lists'
+              : `${ordinal(e.position.value)} of ${e.position.listed} businesses this answer lists`}
+          </Muted>
+        ) : null}
+        {e.namedOutsideList ? (
+          <Muted size={11} style={{ display: 'block', marginTop: 2 }}>
+            Mentioned in the text, not in its list of recommendations
+          </Muted>
+        ) : null}
+        {(cited || didNotSearch || failureReason) && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+            {cited ? <Tag tone="accent">cited your site</Tag> : null}
+            {didNotSearch ? <Tag tone="muted">did not search</Tag> : null}
+            {failureReason ? <Muted size={11}>{failureReason}</Muted> : null}
+          </div>
+        )}
+      </div>
+      <div style={{
+        width: '100%', boxSizing: 'border-box', padding: '8px 14px', borderTop: '1px solid var(--border)',
+        fontSize: 11.5, color: selected ? 'var(--primary)' : 'var(--text-3)',
+      }}
+      >
+        {selected ? 'Hide answer ▲' : 'View answer ▾'}
+      </div>
+    </button>
+  );
+}
+
+/**
+ * The card grid — one card per model that touched this prompt this period.
+ * Clicking a card opens that model's answer beneath the grid; one at a time,
+ * so the answer sits directly under the cards rather than inside one of them.
+ */
+function VisibilityByModel({ visibilityByEngine, byEngine }) {
+  const [selected, setSelected] = useState(null);
+  if (!visibilityByEngine?.length) return <Muted size={11}>Not measured in this period.</Muted>;
+  const surfacesOf = (engine) => byEngine.filter((s) => s.engine === engine);
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
+        {visibilityByEngine.map((e) => (
+          <EngineVisibilityCard
+            key={e.engine}
+            e={e}
+            surfaces={surfacesOf(e.engine)}
+            selected={selected === e.engine}
+            onSelect={() => setSelected((cur) => (cur === e.engine ? null : e.engine))}
+          />
+        ))}
+      </div>
+      {selected && (
+        <AnswerPanel engine={selected} surfaces={surfacesOf(selected)} onClose={() => setSelected(null)} />
+      )}
+    </div>
+  );
+}
+
+/** A labelled group inside an opened prompt — "what changed", not "who said it". */
+function PromptDetailSection({ title, children }) {
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div style={{
+        fontSize: 10.5, fontFamily: 'var(--font-mono)', fontWeight: 600,
+        textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--text-3)',
+        marginBottom: 8,
+      }}
+      >
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+const ENGINE_LABEL_COL = { width: 90, fontSize: 12.5, color: 'var(--text-2)', flexShrink: 0 };
+
+/**
+ * One prompt, collapsed to its text and a per-model at-a-glance tag until
+ * clicked. Opening it groups the evidence by what a reader actually asks —
+ * did it name you, who else came up, what did it read, what did it say —
+ * rather than repeating three engine sub-blocks with the same four facts each.
+ */
+function PromptRow({ q }) {
+  const [open, setOpen] = useState(false);
+  const engines = q.byEngine || [];
+  const perModel = q.visibilityByEngine || [];
+  const merged = mergeByEngine(engines);
+  const withCompetitors = merged.filter((m) => m.competitors.length);
+  const withCitations = merged.filter((m) => m.citations.length);
+
+  return (
+    <div style={{ borderBottom: '1px solid var(--neutral-800)' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: '100%', textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit',
+          background: 'none', border: 'none', padding: '12px 0',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+        }}
+      >
+        <span style={{ fontSize: 13.5, fontWeight: 500 }}>{q.text}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          {perModel.length ? perModel.map((v) => (
+            <Tag key={v.engine} tone={engineTone(v)}>
+              {engineLabel(v.engine)}
+            </Tag>
+          )) : <Muted size={11}>not measured</Muted>}
+          <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{open ? '▲' : '▾'}</span>
+        </span>
+      </button>
+
+      {open && (
+        <div style={{ padding: '0 0 18px' }}>
+          {!engines.length ? (
+            <Muted size={11}>Not measured in this period.</Muted>
+          ) : (
+            <>
+              <PromptDetailSection title="Visibility by model">
+                <VisibilityByModel visibilityByEngine={q.visibilityByEngine} byEngine={engines} />
+              </PromptDetailSection>
+
+              <PromptDetailSection title="Competitors">
+                {withCompetitors.length ? (
+                  <div style={{ display: 'grid', gap: 6 }}>
+                    {withCompetitors.map((e) => (
+                      <div key={e.engine} style={{ display: 'flex', gap: 10, fontSize: 12.5 }}>
+                        <span style={ENGINE_LABEL_COL}>{engineLabel(e.engine)}</span>
+                        <span>{e.competitors.join(', ')}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : <Muted size={11}>No competitor named for this prompt.</Muted>}
+              </PromptDetailSection>
+
+              <PromptDetailSection title="Citations">
+                {withCitations.length ? (
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {withCitations.map((e) => (
+                      <div key={e.engine} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                        <span style={{ ...ENGINE_LABEL_COL, paddingTop: 2 }}>{engineLabel(e.engine)}</span>
+                        <CitationList citations={e.citations} />
+                      </div>
+                    ))}
+                  </div>
+                ) : <Muted size={11}>No source cited for this prompt.</Muted>}
+              </PromptDetailSection>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AnswersReport({ report }) {
   return (
     <div style={{ display: 'grid', gap: 16 }}>
@@ -1045,48 +1383,18 @@ export function AnswersReport({ report }) {
       </Card>
 
       <Card style={{ padding: 18 }}>
-        <SectionHead title="Every question, every model" />
+        <SectionHead title="Every prompt, every model" />
         <Muted size={11}>
-          One block per question and model: whether it named you, who else it named instead, what it
+          Click a prompt to open it: whether each model named you, who else it named instead, what it
           cited, and the answer itself. Answers we could not read are shown too — a list that quietly
           dropped them would make coverage invisible.
         </Muted>
-        <div style={{ marginTop: 12 }}>
+        <div style={{ marginTop: 8 }}>
           <ShowMore
             items={report.byQuestion}
-            initial={6}
-            noun="more questions"
-            render={(q) => (
-              <div key={q.promptId || q.text} style={{ padding: '12px 0', borderBottom: '1px solid var(--neutral-800)' }}>
-                <div style={{ fontSize: 13.5, fontWeight: 500 }}>{q.text}</div>
-                <div style={{ display: 'grid', gap: 10, marginTop: 8 }}>
-                  {q.byEngine.length ? q.byEngine.map((e) => (
-                    <div key={e.engine} style={{ display: 'grid', gap: 6 }}>
-                      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <span style={{ width: 90, fontSize: 12.5, color: 'var(--text-2)' }}>{engineLabel(e.engine)}</span>
-                        <OutcomeTag mentioned={e.mentioned} status={e.status} />
-                        {e.grounded === false ? <Tag tone="muted">did not search</Tag> : null}
-                        {e.cited ? <Tag tone="accent">cited your site</Tag> : null}
-                        {e.failureReason ? <Muted size={11}>{e.failureReason}</Muted> : null}
-                      </div>
-                      {/* Who this engine named instead, on this question — a subset
-                          of q.competitors, which pools every engine together. */}
-                      {e.competitorsMentioned.length ? (
-                        <Muted size={11} style={{ paddingLeft: 100 }}>
-                          Also named: {e.competitorsMentioned.join(', ')}
-                        </Muted>
-                      ) : null}
-                      <div style={{ paddingLeft: 100 }}>
-                        <CitationList citations={e.citations} />
-                      </div>
-                      <div style={{ paddingLeft: 100 }}>
-                        <AnswerToggle text={e.answerText} />
-                      </div>
-                    </div>
-                  )) : <Muted size={11}>Not measured in this period.</Muted>}
-                </div>
-              </div>
-            )}
+            initial={10}
+            noun="more prompts"
+            render={(q) => <PromptRow key={q.promptId || q.text} q={q} />}
           />
         </div>
       </Card>

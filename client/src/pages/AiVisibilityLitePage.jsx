@@ -6,8 +6,8 @@
 //
 // ── Insights first, setup last ─────────────────────────────────────────────
 //
-// The business profile and the question set are INPUTS: they exist so the
-// module can write sensible questions and know which names count as a mention.
+// The business profile and the prompt set are INPUTS: they exist so the
+// module can write sensible prompts and know which names count as a mention.
 // They are not findings, so they live in the last report rather than at the top
 // of the first. What the models actually said leads.
 //
@@ -57,7 +57,7 @@ const IN_FLIGHT = new Set(['running', 'queued']);
 // which is a grid of dashboard cards; this page is tables and prose, which is
 // the Content Research / Article Enhancement shape, so it takes their width.
 //
-// Not 1080: the sources, pages and questions tables are four columns wide and
+// Not 1080: the sources, pages and prompts tables are four columns wide and
 // cramping them to read like Admin would trade a layout complaint for a
 // legibility one.
 //
@@ -101,7 +101,7 @@ function BudgetBar({ budget }) {
       </div>
       <Muted size={11}>
         {budget.remaining > 0
-          ? `${budget.remaining} left. Each run asks every question of all three models.`
+          ? `${budget.remaining} left. Each run asks every prompt of all three models.`
           : 'No runs left on this project.'}
       </Muted>
     </div>
@@ -115,12 +115,12 @@ function ProfileCard({ profile }) {
     <Card style={{ padding: 18 }}>
       <SectionHead title="How the business was identified" />
       {/* Deliberately framed as an input, not a finding. This is read from the
-          client's own website and its only jobs are to write sensible questions
+          client's own website and its only jobs are to write sensible prompts
           and to know which names count as a mention. What the MODELS say lives
           in the Perception report, and conflating the two would present our
           reading of someone's marketing copy as though it were a measurement. */}
       <Muted size={11}>
-        Read from the client&apos;s own site to write the questions and to know which names count
+        Read from the client&apos;s own site to write the prompts and to know which names count
         as a mention. Not a finding.
       </Muted>
       <div style={{ fontSize: 16, fontWeight: 600, marginTop: 10 }}>{profile.businessName}</div>
@@ -431,7 +431,7 @@ export default function AiVisibilityLitePage() {
           <div>
             <SectionHead title="Measurement budget" />
             <Muted size={11}>
-              Every run asks all {promptsUsed} questions of all three models. The cap is enforced on
+              Every run asks all {promptsUsed} prompts of all three models. The cap is enforced on
               the server, not just here.
             </Muted>
           </div>
@@ -449,13 +449,13 @@ export default function AiVisibilityLitePage() {
 
       <Card style={{ padding: 18 }}>
         <SectionHead
-          title={`Questions (${promptsUsed} of ${d.promptCap})`}
+          title={`Prompts (${promptsUsed} of ${d.promptCap})`}
           right={d.profile ? (
             <Btn
               disabled={busy || setupRunning}
               onClick={() => act(
                 () => aivLiteApi.runSetup(projectId, { regenerate: true }),
-                'Rewriting the automatic questions…',
+                'Rewriting the automatic prompts…',
               )}
             >
               Regenerate
@@ -466,7 +466,7 @@ export default function AiVisibilityLitePage() {
         {!promptsUsed && !setupRunning ? (
           <div style={{ padding: '12px 0' }}>
             <Muted size={12}>
-              No questions yet. Setup writes {d.autoPromptCount} from the site itself.
+              No prompts yet. Setup writes {d.autoPromptCount} from the site itself.
             </Muted>
             <Btn
               variant="primary"
@@ -474,7 +474,7 @@ export default function AiVisibilityLitePage() {
               disabled={busy}
               onClick={() => act(() => aivLiteApi.runSetup(projectId), 'Reading the site…')}
             >
-              Identify the business and write questions
+              Identify the business and write prompts
             </Btn>
           </div>
         ) : null}
@@ -485,7 +485,7 @@ export default function AiVisibilityLitePage() {
             prompt={p}
             busy={busy}
             onSave={(id, text) => act(() => aivLiteApi.updatePrompt(projectId, id, text))}
-            onDelete={(id) => act(() => aivLiteApi.deletePrompt(projectId, id), 'Question deleted.')}
+            onDelete={(id) => act(() => aivLiteApi.deletePrompt(projectId, id), 'Prompt deleted.')}
           />
         ))}
 
@@ -496,7 +496,7 @@ export default function AiVisibilityLitePage() {
               <input
                 value={newPrompt}
                 onChange={(e) => setNewPrompt(e.target.value)}
-                placeholder="Add a question a buyer would actually type…"
+                placeholder="Add a prompt a buyer would actually type…"
                 style={{ flex: 1, padding: '6px 8px', fontSize: 13 }}
                 onKeyDown={(e) => {
                   if (e.key !== 'Enter' || !newPrompt.trim()) return;
@@ -512,7 +512,7 @@ export default function AiVisibilityLitePage() {
               </Btn>
             </div>
             <Muted size={11}>
-              {roomLeft} more can be added. Questions that name the business are rejected — the
+              {roomLeft} more can be added. Prompts that name the business are rejected — the
               point is whether a model brings them up on its own.
             </Muted>
           </>
@@ -536,8 +536,8 @@ export default function AiVisibilityLitePage() {
           <Kicker tone="muted">Nothing measured yet</Kicker>
           <Muted size={12} style={{ display: 'block', marginTop: 6 }}>
             {promptsUsed
-              ? 'Open Setup & runs and press Measure now to ask all three models every question.'
-              : 'Open Setup & runs to identify the business and write the questions first.'}
+              ? 'Open Setup & runs and press Measure now to ask all three models every prompt.'
+              : 'Open Setup & runs to identify the business and write the prompts first.'}
           </Muted>
         </Card>
       );
@@ -595,7 +595,7 @@ export default function AiVisibilityLitePage() {
 
       {setupRunning ? (
         <Card style={{ padding: 16, marginBottom: 14 }}>
-          <Spinner label="Reading the site and writing the questions…" />
+          <Spinner label="Reading the site and writing the prompts…" />
         </Card>
       ) : null}
 

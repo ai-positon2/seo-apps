@@ -208,6 +208,100 @@ test('a failed capture carries no answer text, but still names its engine and st
   assert.strictEqual(google.failureReason, 'timeout');
 });
 
+test('byQuestion.visibilityByEngine collapses repeated surfaces into one rate per engine', () => {
+  const out = report.build({
+    captures: [
+      cap({ engine: 'openai', mentioned: true }),
+      cap({ engine: 'openai', mentioned: false, id: 'openai-2' }),
+      cap({ engine: 'anthropic', mentioned: false }),
+      cap({ engine: 'google', status: 'failed', mentioned: null, answerText: null }),
+    ],
+    prompts: PROMPTS,
+    brand: BRAND,
+  });
+  const q = out.byQuestion.find((row) => row.promptId === 'p1');
+  const byEngine = Object.fromEntries(q.visibilityByEngine.map((e) => [e.engine, e]));
+
+  assert.strictEqual(byEngine.openai.answers, 2, 'two surfaces for the same engine collapse to one row');
+  assert.strictEqual(byEngine.openai.namedRate.display, '50.0%', 'named once out of two measured');
+  assert.strictEqual(byEngine.anthropic.namedRate.display, '0.0%', 'measured and absent is a real zero');
+  assert.strictEqual(byEngine.google.measured, 0, 'a failed-only engine has nothing measured');
+  assert.strictEqual(byEngine.google.namedRate.display, '—', 'and so no rate to show');
+});
+
+section('Position — the client\'s place in the answer\'s own list');
+
+const positionOf = (answerText, engine = 'openai', over = {}) => {
+  const out = report.build({
+    captures: [cap({ engine, answerText, ...over })],
+    prompts: PROMPTS,
+    brand: BRAND,
+  });
+  return out.byQuestion.find((row) => row.promptId === 'p1').visibilityByEngine[0];
+};
+
+test('counts untracked businesses listed ahead of the client (bold-name lines)', () => {
+  const e = positionOf([
+    '## Top Recommendations:', '',
+    '**Newton Dental (Boston)**', '', 'Great practice.', '',
+    '**South Boston Dental Group**', '', 'Also good.', '',
+    '**Acme Dental of Raleigh**', '', 'Acme Dental is well reviewed.', '',
+    '**City Hospital Dentistry**', '', 'Hospital-based.',
+  ].join('\n'));
+  assert.strictEqual(e.position.display, '#3', 'third in the list, though no competitor is tracked');
+  assert.strictEqual(e.position.listed, 4, 'the section label is not an entry');
+});
+
+test('numbered headings with bullet details underneath form one list', () => {
+  const e = positionOf([
+    '### **1. Rival Dental (Raleigh)**', '* **The Setup:** big practice.',
+    '### **2. Acme Dental (Raleigh)**', '* **Services:** everything.',
+    '### **3. Smile Co**', '* **Services:** cleanings.',
+    '', '**Tips before booking:**', '* **Insurance:** call ahead.',
+  ].join('\n'));
+  assert.strictEqual(e.position.display, '#2');
+  assert.strictEqual(e.position.listed, 3, 'the "Setup:" bullets and closing tips are not places');
+});
+
+test('a later "other options" list is not counted as more places', () => {
+  const e = positionOf([
+    'Here are a few options:', '',
+    '- Rival Dental (Raleigh)', '  - What they offer: implants.',
+    '- Acme Dental (Cary)', '  - What they offer: everything.', '',
+    'Other options you might consider:',
+    '- Some Other Clinic', '',
+    'A few quick questions:', '- Do you have a preferred location?',
+  ].join('\n'));
+  assert.strictEqual(e.position.display, '#2');
+  assert.strictEqual(e.position.listed, 2);
+});
+
+test('named only in running text has no position, and says so', () => {
+  const e = positionOf('Many people like Acme Dental, but it depends on your needs.');
+  assert.strictEqual(e.position, null, 'no list means no place — not #1');
+  assert.strictEqual(e.namedOutsideList, true);
+});
+
+test('not named means no position, not last place', () => {
+  const e = positionOf('- Rival Dental\n- Smile Co', 'openai', { mentioned: false });
+  assert.strictEqual(e.position, null);
+  assert.strictEqual(e.namedOutsideList, false);
+});
+
+test('several answers from one model average their places', () => {
+  const out = report.build({
+    captures: [
+      cap({ engine: 'openai', answerText: '1. Acme Dental\n2. Rival Dental' }),
+      cap({ engine: 'openai', id: 'o2', answerText: '1. Rival Dental\n2. Acme Dental' }),
+    ],
+    prompts: PROMPTS,
+    brand: BRAND,
+  });
+  const e = out.byQuestion.find((row) => row.promptId === 'p1').visibilityByEngine[0];
+  assert.strictEqual(e.position.display, '#1.5');
+  assert.strictEqual(e.position.answers, 2);
+});
+
 section('The brand table');
 
 const COMPETITORS = [{ name: 'Smile Co', domain: 'smileco.com', aliases: [] }];
