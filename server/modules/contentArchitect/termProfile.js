@@ -52,8 +52,28 @@ function tokenizeWords(text) {
     .filter(Boolean);
 }
 
-function cleanTokens(words) {
-  return words.filter((w) => w.length > 1 && !STOPWORDS.has(w) && !/^\d+$/.test(w)).map((w) => stemmer(w));
+function cleanTokens(words, surface = null) {
+  return words.filter((w) => w.length > 1 && !STOPWORDS.has(w) && !/^\d+$/.test(w)).map((w) => {
+    const stem = stemmer(w);
+    if (surface) {
+      if (!surface.has(stem)) surface.set(stem, new Map());
+      const forms = surface.get(stem);
+      forms.set(w, (forms.get(w) || 0) + 1);
+    }
+    return stem;
+  });
+}
+
+// A stemmed term back in words a reader recognises: each stem as the spelling
+// the pages used most ("tabl" -> "tables", "daili" -> "daily"). Mechanical
+// cluster names showed the stems themselves ("Canva & Zapier Tabl").
+function surfaceTerm(term, surface) {
+  if (!surface) return term;
+  return term.split(' ').map((stem) => {
+    const forms = surface.get(stem);
+    if (!forms) return stem;
+    return [...forms.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
+  }).join(' ');
 }
 
 // Unigrams through NGRAM_MAX-grams from an already-cleaned token sequence —
@@ -75,19 +95,80 @@ function slugText(url) {
   }
 }
 
-// "gentledental.com" / "www.gentledental.com" -> "gentledental". Slug-only
-// mode has no <title> tail to compare variants against (that half of brand
-// detection is a Stage 4/Checkpoint-4 concern, once crawled titles exist).
+// Second-level labels that belong to a country's suffix ("example.co.uk").
+const PUBLIC_SECOND_LEVEL = new Set(['co', 'com', 'org', 'net', 'ac', 'gov', 'edu', 'ne', 'or', 'go']);
+
+// The registrable domain's own label: "www.gentledental.com" -> "gentledental",
+// "my.clevelandclinic.org" -> "clevelandclinic", "blog.example.co.uk" ->
+// "example". (Taking the FIRST label made the brand "my" and "blog".)
+function brandLabel(domain) {
+  const host = String(domain || '').replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].toLowerCase();
+  const labels = host.split('.').filter(Boolean);
+  if (labels.length < 2) return labels[0] || '';
+  let i = labels.length - 2;
+  if (labels[labels.length - 1].length === 2 && PUBLIC_SECOND_LEVEL.has(labels[i]) && i > 0) i -= 1;
+  return labels[i];
+}
+
 function deriveBrandTokens(domain) {
-  const host = String(domain || '').replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0];
-  const sld = host.split('.')[0];
-  return sld ? new Set([stemmer(sld)]) : new Set();
+  const label = brandLabel(domain);
+  return label ? new Set([stemmer(label)]) : new Set();
+}
+
+// The brand as the site writes it in its titles — "… | Aspen Dental",
+// "… - Moz" — when that tail, run together, is the domain's label ("aspen
+// dental" -> "aspendental"). Returns the raw words ("aspen dental") or null.
+// Only a tail on at least a third of the titles counts.
+function titleBrandPhrase(pages, domain) {
+  const label = brandLabel(domain).replace(/[^a-z0-9]/g, '');
+  if (!label) return null;
+  const counts = new Map();
+  for (const p of pages || []) {
+    const parts = String(p.title || '').split(/\s+[|–—-]\s+|\s*[|–—]\s*/);
+    if (parts.length < 2) continue;
+    // NFKC, so "Position²" reads as "position2".
+    const tail = parts[parts.length - 1].normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+    if (tail) counts.set(tail, (counts.get(tail) || 0) + 1);
+  }
+  for (const [tail, count] of [...counts.entries()].sort((a, b) => b[1] - a[1])) {
+    if (count < Math.max(2, (pages || []).length / 3)) break;
+    const joined = tail.replace(/\s+/g, '');
+    if (joined === label || (label.startsWith(joined) && /^\d*$/.test(label.slice(joined.length)))) return tail;
+  }
+  return null;
+}
+
+/**
+ * The brand, for stripping from terms and names: stemmed single tokens (the
+ * domain label, and the words of a multi-word title brand run together) and
+ * stemmed phrases ("aspen dental" -> "aspen dental"), plus the raw word forms
+ * a model or a reader would write ("zapier", "aspen dental").
+ */
+function deriveBrand(domain, pages = []) {
+  const label = brandLabel(domain);
+  const tokens = new Set(label ? [stemmer(label)] : []);
+  const words = new Set(label ? [label] : []);
+  const phrases = [];
+  const phrase = titleBrandPhrase(pages, domain);
+  if (phrase) {
+    words.add(phrase);
+    const stemmed = cleanTokens(tokenizeWords(phrase));
+    if (stemmed.length === 1) tokens.add(stemmed[0]);
+    else if (stemmed.length > 1) phrases.push(stemmed.join(' '));
+  }
+  return { tokens, phrases, words: [...words] };
+}
+
+function isBrandTerm(term, brand) {
+  if (!brand) return false;
+  if (term.split(' ').some((w) => brand.tokens.has(w))) return true;
+  return brand.phrases.some((p) => term === p || term.includes(p));
 }
 
 // One page's raw weighted term map, before corpus-level brand/generic-term
 // removal (see buildCorpusTermProfiles). `page.url` is required; every other
 // field is optional and simply contributes nothing when absent.
-function buildRawTermProfile(page) {
+function buildRawTermProfile(page, surface = null) {
   const fields = [
     [page.title, FIELD_WEIGHTS.title],
     [page.h1, FIELD_WEIGHTS.h1],
@@ -100,7 +181,7 @@ function buildRawTermProfile(page) {
   const profile = new Map();
   for (const [text, weight] of fields) {
     if (!text) continue;
-    const tokens = cleanTokens(tokenizeWords(text));
+    const tokens = cleanTokens(tokenizeWords(text), surface);
     for (const gram of ngrams(tokens, NGRAM_MAX)) {
       profile.set(gram, (profile.get(gram) || 0) + weight);
     }
@@ -113,10 +194,11 @@ function buildRawTermProfile(page) {
 // a known vertical word like "dental" or something corpus-specific the
 // static list can't predict) carries no discriminating signal for clustering.
 function buildCorpusTermProfiles(pages, { domain, vertical }) {
-  const brandTokens = deriveBrandTokens(domain);
+  const brand = deriveBrand(domain, pages);
   const genericTerms = new Set((VERTICAL_GENERIC_TERMS[vertical] || []).map((t) => stemmer(t)));
 
-  const rawProfiles = pages.map((p) => buildRawTermProfile(p));
+  const surface = new Map();
+  const rawProfiles = pages.map((p) => buildRawTermProfile(p, surface));
 
   const docFreq = new Map();
   for (const profile of rawProfiles) {
@@ -127,14 +209,24 @@ function buildCorpusTermProfiles(pages, { domain, vertical }) {
     if (df / n > GENERIC_TERM_DOC_FREQUENCY) genericTerms.add(term);
   }
 
-  return rawProfiles.map((profile) => {
+  // A term is dropped when any of its words is the brand, not only when the
+  // whole term is: "zapier tabl" survived as a bigram and named a cluster.
+  const profiles = rawProfiles.map((profile) => {
     const cleaned = new Map();
     for (const [term, weight] of profile) {
-      if (brandTokens.has(term) || genericTerms.has(term)) continue;
+      if (isBrandTerm(term, brand) || genericTerms.has(term)) continue;
       cleaned.set(term, weight);
     }
     return cleaned;
   });
+  // Carried on the array, not in each profile, so every existing reader of a
+  // profile (a Map of term -> weight) is unaffected.
+  profiles.surface = surface;
+  profiles.brand = brand;
+  return profiles;
 }
 
-module.exports = { buildRawTermProfile, buildCorpusTermProfiles, deriveBrandTokens, tokenizeWords, cleanTokens };
+module.exports = {
+  buildRawTermProfile, buildCorpusTermProfiles, deriveBrandTokens, deriveBrand, brandLabel, titleBrandPhrase,
+  isBrandTerm, surfaceTerm, tokenizeWords, cleanTokens,
+};

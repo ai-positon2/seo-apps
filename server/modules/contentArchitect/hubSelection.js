@@ -3,7 +3,7 @@
 // one input to the score, never the decision itself — matches Stage 5's
 // "deterministic signals decide, the LLM only names/suggests" architecture.
 const { HUB_WEIGHTS, HUB_SCORE_THRESHOLD, HUB_AMBIGUOUS_MARGIN } = require('./config');
-const { LOCATION_TERMS, CITY_LIST } = require('./patternClassifier');
+const { CITY_LIST } = require('./patternClassifier');
 
 const SPOKE_TITLE_PATTERNS = [
   /\bvs\.?\b/i,
@@ -22,9 +22,24 @@ function looksLikeSpokeTitlePattern(title) {
   return SPOKE_TITLE_PATTERNS.some((re) => re.test(title));
 }
 
+// Whether a URL looks like a location page. Matched as whole hyphen-separated
+// words, and only in a folder or a short segment ("/locations/", "/offices/",
+// "austin-office", "dentist-near-me"): matching substrings penalised
+// "chief-marketing-officers" (office), "link-velocity" (city) and
+// "car-dealerships" (dealer), and a whole-word match inside a long article slug
+// still penalised "emergency-room-vs-dental-office". "multi-location" names a
+// topic, not a place — one agency's multi-location marketing cluster lost its
+// hub to that.
+const LOCATION_WORDS = new Set(['location', 'locations', 'city', 'cities', 'office', 'offices', 'branch', 'branches', 'dealer', 'dealers']);
+const LOCATION_SLUG_MAX_WORDS = 3;
 function hasLocationTerm(url) {
   const segs = pathSegments(url).map((s) => s.toLowerCase());
-  if (segs.some((s) => LOCATION_TERMS.some((t) => s === t || s.includes(t)))) return true;
+  for (const seg of segs) {
+    const words = seg.split(/[-_]/).filter(Boolean);
+    if (words.join('-').includes('near-me')) return true;
+    if (words.length > LOCATION_SLUG_MAX_WORDS) continue;
+    if (words.some((w, i) => LOCATION_WORDS.has(w) && words[i - 1] !== 'multi')) return true;
+  }
   return segs.some((s) => CITY_LIST.has(s));
 }
 

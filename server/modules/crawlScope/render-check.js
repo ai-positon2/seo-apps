@@ -118,11 +118,18 @@ async function readCapped(response, limit = MAX_RESPONSE_BYTES) {
   return Buffer.concat(chunks);
 }
 
+// A header sent more than once is passed as an array, which puppeteer sends as
+// separate headers. Joining them with "\n" made Chrome reject the whole
+// response (Fetch.fulfillRequest: "Invalid header: set-cookie"), so any page
+// that set two cookies failed with net::ERR_FAILED: duolingo.com and
+// theguardian.com in the 2026-09-29 audit, i.e. exactly the sites that needed
+// rendering.
 function responseHeaders(headers) {
   const out = {};
   for (const [name, value] of headers) {
     if (DROPPED_RESPONSE_HEADERS.has(name.toLowerCase())) continue;
-    out[name] = name in out ? `${out[name]}\n${value}` : value;
+    if (!(name in out)) out[name] = value;
+    else out[name] = [].concat(out[name], value);
   }
   return out;
 }
@@ -139,7 +146,10 @@ function readRenderedDocument() {
     robots: [meta("robots"), meta("googlebot")].filter(Boolean).join(", "),
     canonical: document.querySelector('head link[rel~="canonical" i]')?.href || "",
     h1Count: document.querySelectorAll("h1").length,
-    words: text ? text.split(/\s+/).length : 0,
+    // Same count as crawler.js#countWords, so the two sides compare.
+    words: !text ? 0 : /[฀-๿぀-ヿ㐀-䶿一-鿿豈-﫿]/.test(text) && typeof Intl.Segmenter === "function"
+      ? [...new Intl.Segmenter(undefined, { granularity: "word" }).segment(text)].filter((s) => s.isWordLike).length
+      : text.split(/\s+/).length,
     links: [...new Set(
       [...document.querySelectorAll("a[href], area[href]")]
         .map((link) => link.href)
@@ -170,9 +180,23 @@ async function withRenderedPage(browser, url, { fetch, userAgent, timeout = REND
     await page.setRequestInterception(true);
     let requests = 0;
     let servedDocument = false;
+    // A script that sends the page somewhere else (location.href = ...): the
+    // DOM read afterwards is another document's, or none, and it was audited
+    // as this page's (duolingo.com/info -> about.duolingo.com: an empty body,
+    // and the other site's /main.js reported as a broken script here).
+    let startedNavigation = false;
+    let navigatedTo = "";
+    const withoutHash = (value) => String(value).split("#")[0];
     page.on("request", (request) => {
       const answer = async () => {
         const target = request.url();
+        if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+          if (startedNavigation && !request.redirectChain().length && withoutHash(target) !== withoutHash(url)) {
+            navigatedTo ||= target;
+            return request.abort("aborted");
+          }
+          startedNavigation = true;
+        }
         // data: and blob: never touch the network.
         if (/^(data|blob):/i.test(target)) return request.continue();
         if (!/^https?:/i.test(target)) return request.abort("blockedbyclient");
@@ -208,7 +232,33 @@ async function withRenderedPage(browser, url, { fetch, userAgent, timeout = REND
         if (!request.isInterceptResolutionHandled()) request.abort("failed").catch(() => {});
       });
     });
-    await page.goto(url, { waitUntil: "networkidle2", timeout });
+    const redirected = () => {
+      const error = new Error(`JavaScript redirects to ${navigatedTo}`);
+      error.name = "JavaScriptRedirect";
+      error.url = navigatedTo;
+      return error;
+    };
+    try {
+      await page.goto(url, { waitUntil: "networkidle2", timeout });
+    } catch (error) {
+      if (navigatedTo) throw redirected();
+      // A page whose embeds and trackers keep the network busy never goes
+      // idle (ma.tt timed out at 15 s). If the document has been parsed and
+      // holds content, its DOM is what an indexer would read: use it rather
+      // than fail. Content, not only readyState: a client-rendered app whose
+      // bundles are still loading is parsed too, and its empty shell was read
+      // as the rendered page (duolingo.com re-crawl: 53 false "missing H1").
+      if (error?.name !== "TimeoutError") throw error;
+      const state = await page
+        .evaluate(() => ({
+          ready: document.readyState,
+          links: document.querySelectorAll("a[href]").length,
+          words: (document.body?.innerText || "").split(/\s+/).filter(Boolean).length,
+        }))
+        .catch(() => ({ ready: "loading", links: 0, words: 0 }));
+      if (state.ready === "loading" || (state.links === 0 && state.words < 50)) throw error;
+    }
+    if (navigatedTo) throw redirected();
     return await read(page);
   } finally {
     await page.close().catch(() => {});

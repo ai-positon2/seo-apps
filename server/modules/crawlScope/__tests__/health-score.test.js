@@ -92,5 +92,27 @@ test("dashboard score ignores site- and resource-scoped findings, like the repor
 test("dashboard score uses precomputed page counts when given them", () => {
   const run = { summary: { counts: { error: 1 }, findings: [] } };
   const score = overview.siteHealth(run, 10, [], { error: 5, warning: 0, notice: 0 });
-  assert.equal(score.score, Math.round(100 - (5 / 10) * 45));
+  // v5, page counts only: each affected page fails one error rule (40 points).
+  assert.equal(score.score, Math.round(100 - (5 * 40) / 10));
+  // With the SQL aggregate's summed loss, that is used as is.
+  const exact = overview.siteHealth(run, 10, [], { error: 5, warning: 0, notice: 0, lossTotals: { error: 230, warning: 40, notice: 6 } });
+  assert.equal(exact.score, Math.round(100 - 276 / 10));
+});
+
+test("v5: the dashboard and the crawl report compute the same score", async () => {
+  const { healthMetrics } = await import(HELPERS);
+  const results = Array.from({ length: 6 }, (_, i) => page(i));
+  const findings = [
+    { url: results[0].url, severity: "error", ruleId: "a", scope: "page" },
+    { url: results[0].url, severity: "error", ruleId: "b", scope: "page" },
+    { url: results[0].url, severity: "error", ruleId: "c", scope: "page" },
+    { url: results[1].url, severity: "warning", ruleId: "d", scope: "template" },
+    { url: results[1].url, severity: "warning", ruleId: "d", scope: "template" },
+    { url: results[2].url, severity: "notice", ruleId: "e", scope: "page" },
+    { url: results[3].url, severity: "warning", ruleId: "f", scope: "page", reviewStatus: "False positive" },
+  ];
+  const client = healthMetrics(results, findings).health;
+  const server = overview.siteHealth({ summary: { findings } }, results.length, findings).score;
+  assert.equal(client, server);
+  assert.equal(client, Math.round(100 - (100 + 10 + 2) / 6), "page 0 is capped at 100");
 });

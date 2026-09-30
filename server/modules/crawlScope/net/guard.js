@@ -36,6 +36,9 @@ function isPublicAddress(ip) {
     if (range === "ipv4Mapped") {
       return isPublicAddress(addr.toIPv4Address().toString());
     }
+    // The deprecated IPv4-compatible form (::10.0.0.1, ::7f00:1) reads as
+    // "unicast" to ipaddr.js; nothing public lives in ::/96.
+    if (addr.parts.slice(0, 6).every((part) => part === 0)) return false;
     return range === "unicast";
   }
   return addr.range() === "unicast";
@@ -84,12 +87,15 @@ function assertPublicUrl(url) {
   const hostname = parsed.hostname.replace(/^\[/, "").replace(/\]$/, "");
   return new Promise((resolve, reject) => {
     guardedLookup(hostname, { all: true }, (err) => {
+      if (err instanceof SsrfError) return reject(err);
       if (err) {
-        return reject(
-          err instanceof SsrfError
-            ? err
-            : new SsrfError(`DNS lookup failed for ${hostname}: ${err.message}`),
-        );
+        // A DNS failure is not a policy refusal. Wrapped as an SsrfError it lost
+        // its code, the crawler's retry check refuses every SsrfError, and a
+        // momentary EAI_AGAIN was recorded as a permanent crawl failure. The
+        // resolver's own code is kept so a transient one is retried.
+        const failure = new Error(`DNS lookup failed for ${hostname}: ${err.message}`, { cause: err });
+        failure.code = err.code;
+        return reject(failure);
       }
       resolve(true);
     });

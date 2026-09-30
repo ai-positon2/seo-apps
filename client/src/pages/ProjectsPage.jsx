@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { projectsApi, relativeTime, countryLabel } from '../lib/projectsApi';
-import { setActiveProjectId } from '../lib/activeProject';
+import { readActiveProjectId, setActiveProjectId } from '../lib/activeProject';
 import {
   Card, Kicker, Muted, Tag, Btn, FadingRule, SectionHead, Spinner,
 } from '../components/studio/primitives';
@@ -31,7 +31,11 @@ const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frid
 export default function ProjectsPage() {
   const navigate = useNavigate();
   const [state, setState] = useState({ loading: true, error: null, data: null });
-  const [selectedId, setSelectedId] = useState(null);
+  // Opens on the client the header names. Every way in — the header's "Manage
+  // projects", the dashboard's "edit" and "Set country →" links — arrives here
+  // with no id in the URL, and a null start fell through to projects[0]: you
+  // clicked "edit" on one client and landed on another client's settings.
+  const [selectedId, setSelectedId] = useState(readActiveProjectId);
   const [showSetup, setShowSetup] = useState(false);
   const [banner, setBanner] = useState(null);   // { tone, text }
 

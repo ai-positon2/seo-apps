@@ -8,7 +8,10 @@ const zlib = require('zlib');
 const { XMLParser } = require('fast-xml-parser');
 const { fetchSafe } = require('./urlSafety');
 const { normalizeUrl, dedupeUrls } = require('./urlNormalizer');
-const { MAX_SITEMAP_URLS, MAX_SITEMAP_RECURSION_DEPTH, MAX_CHILD_SITEMAPS, CRAWL_FALLBACK_DEPTH, CRAWL_FALLBACK_MAX_URLS } = require('./config');
+const {
+  MAX_SITEMAP_URLS, MAX_SITEMAP_RECURSION_DEPTH, MAX_CHILD_SITEMAPS, MAX_SITEMAP_SOURCES, MIN_CHILD_SITEMAPS_PER_SOURCE,
+  CRAWL_FALLBACK_DEPTH, CRAWL_FALLBACK_MAX_URLS,
+} = require('./config');
 
 const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
 
@@ -83,8 +86,9 @@ function asArray(v) {
 // whole discovery — one broken child shouldn't sink an otherwise-good index.
 async function resolveSitemap(entryUrl, depth, state) {
   if (state.capped) return;
+  const maxChildren = state.maxChildSitemaps ?? MAX_CHILD_SITEMAPS;
   if (depth > MAX_SITEMAP_RECURSION_DEPTH) { state.capped = true; state.capReason = 'recursion depth'; return; }
-  if (state.sitemapsFetched >= MAX_CHILD_SITEMAPS) { state.capped = true; state.capReason = 'child sitemap count'; return; }
+  if (state.sitemapsFetched >= maxChildren) { state.capped = true; state.capReason = 'child sitemap count'; return; }
   if (state.urls.size >= MAX_SITEMAP_URLS) { state.capped = true; state.capReason = 'total URL count'; return; }
 
   let parsed;
@@ -97,10 +101,12 @@ async function resolveSitemap(entryUrl, depth, state) {
   state.sitemapsFetched++;
 
   if (parsed.sitemapindex) {
-    for (const entry of asArray(parsed.sitemapindex.sitemap)) {
-      const loc = typeof entry === 'string' ? entry : entry?.loc;
-      if (!loc) continue;
-      if (state.urls.size >= MAX_SITEMAP_URLS || state.sitemapsFetched >= MAX_CHILD_SITEMAPS) { state.capped = true; state.capReason = state.capReason || 'child sitemap count'; break; }
+    // Informational children first, so a child-count cap cuts the others.
+    const children = asArray(parsed.sitemapindex.sitemap)
+      .map((entry) => (typeof entry === 'string' ? entry : entry?.loc))
+      .filter(Boolean);
+    for (const loc of prioritizeSitemaps(children)) {
+      if (state.urls.size >= MAX_SITEMAP_URLS || state.sitemapsFetched >= maxChildren) { state.capped = true; state.capReason = state.capReason || 'child sitemap count'; break; }
       await resolveSitemap(loc, depth + 1, state);
     }
     return;
@@ -188,36 +194,139 @@ async function crawlFallback(origin) {
 }
 
 // ── Entry point ──────────────────────────────────────────────────────────────
-// Returns { source, urls: [{url, lastmod}], capped, capReason, skippedSitemaps, mode }
-// mode: 'sitemap' | 'crawl-fallback'
+// Returns { source, sources, urls: [{url, lastmod}], capped, capReason, skippedSitemaps, mode }
+// mode: 'sitemap' | 'not-found'
+//
+// EVERY sitemap robots.txt declares is read, not just the first. A site often
+// declares one per section, and the first is rarely its articles: one SaaS site
+// listed ten, the first holding 25,000 integration pages, which used the whole
+// URL budget while its blog sitemap was never opened. Sitemaps whose address
+// names informational content are read first, and the URL budget is shared
+// across all of them (sharedBudget), so no single one can crowd out the rest.
+//
+// The usual paths (/sitemap.xml …) are alternatives to each other rather than
+// separate sections, so they are only tried when robots.txt declares none that
+// resolve, and the first to yield URLs is used, as before.
 async function discoverUrls(origin) {
-  const fromRobots = await extractSitemapUrlsFromRobots(origin);
-  const candidates = dedupeUrls([...fromRobots, ...FALLBACK_SITEMAP_PATHS.map((p) => `${origin}${p}`)]);
-
-  // Accumulated across every attempted candidate — even on total failure,
-  // the caller (and the log) should be able to see WHY each one didn't pan
-  // out, rather than that information being silently discarded per-attempt.
+  const fromRobots = dedupeUrls(await extractSitemapUrlsFromRobots(origin)).slice(0, MAX_SITEMAP_SOURCES);
   const allSkipped = [];
-  for (const candidate of candidates) {
-    const state = { urls: new Map(), sitemapsFetched: 0, capped: false, capReason: null, skippedSitemaps: [] };
-    await resolveSitemap(candidate, 1, state);
+
+  const resolved = [];
+  const childBudget = Math.max(MIN_CHILD_SITEMAPS_PER_SOURCE, Math.floor(MAX_CHILD_SITEMAPS / Math.max(1, fromRobots.length)));
+  for (const source of prioritizeSitemaps(fromRobots)) {
+    const state = newState(childBudget);
+    await resolveSitemap(source, 1, state);
     allSkipped.push(...state.skippedSitemaps);
-    if (state.urls.size > 0) {
-      return {
-        mode: 'sitemap',
-        source: candidate,
-        urls: [...state.urls.values()],
-        capped: state.capped,
-        capReason: state.capReason,
-        skippedSitemaps: state.skippedSitemaps,
-      };
+    if (state.urls.size) resolved.push({ source, state });
+  }
+
+  if (!resolved.length) {
+    const fallbacks = dedupeUrls(FALLBACK_SITEMAP_PATHS.map((p) => `${origin}${p}`)).filter((u) => !fromRobots.includes(u));
+    for (const source of fallbacks) {
+      const state = newState(MAX_CHILD_SITEMAPS);
+      await resolveSitemap(source, 1, state);
+      allSkipped.push(...state.skippedSitemaps);
+      if (state.urls.size) { resolved.push({ source, state }); break; }
     }
   }
 
   // No sitemap resolved anything — caller decides whether to invoke
   // crawlFallback() (it's exposed separately so the UI can warn/confirm first
   // rather than this function silently taking minutes on a large site).
-  return { mode: 'not-found', source: null, urls: [], capped: false, capReason: null, skippedSitemaps: allSkipped };
+  if (!resolved.length) {
+    return { mode: 'not-found', source: null, sources: [], urls: [], capped: false, capReason: null, skippedSitemaps: allSkipped };
+  }
+
+  // A URL listed by two sitemaps belongs to the first (highest-priority) one.
+  const seen = new Set();
+  const lists = resolved.map(({ state }) => [...state.urls.values()].filter((e) => {
+    if (seen.has(e.url)) return false;
+    seen.add(e.url);
+    return true;
+  }));
+  const takes = sharedBudget(lists.map((l) => l.length), MAX_SITEMAP_URLS);
+  const urls = [];
+  let truncated = false;
+  lists.forEach((list, i) => {
+    if (takes[i] < list.length) truncated = true;
+    urls.push(...newestFirst(list, takes[i]));
+  });
+  const capReasons = resolved.map(({ state }) => state.capReason).filter(Boolean);
+  return {
+    mode: 'sitemap',
+    source: resolved[0].source,
+    sources: resolved.map(({ source, state }, i) => ({ url: source, count: takes[i], capped: state.capped || takes[i] < lists[i].length })),
+    urls,
+    capped: truncated || capReasons.length > 0,
+    capReason: truncated ? 'total URL count' : (capReasons[0] || null),
+    skippedSitemaps: allSkipped,
+  };
 }
 
-module.exports = { discoverUrls, crawlFallback, HtmlAtSitemapUrlError };
+function newState(maxChildSitemaps) {
+  return { urls: new Map(), sitemapsFetched: 0, maxChildSitemaps, capped: false, capReason: null, skippedSitemaps: [] };
+}
+
+// Sitemap addresses that name informational content ("/blog/sitemap.xml",
+// "post-sitemap.xml", "wp-sitemap-posts-post-1.xml") come first, then the rest
+// in the order the site gave them.
+const INFORMATIONAL_SITEMAP_RE = /(blog|posts?|articles?|guides?|learn|resources?|help|faqs?|glossary|knowledge|insights?|academy|library|tips|how-?to)/i;
+function prioritizeSitemaps(urls) {
+  const pathOf = (u) => { try { return new URL(u).pathname; } catch { return String(u); } };
+  return urls
+    .map((url, i) => ({ url, i, informational: INFORMATIONAL_SITEMAP_RE.test(pathOf(url)) }))
+    .sort((a, b) => (b.informational - a.informational) || (a.i - b.i))
+    .map((x) => x.url);
+}
+
+/**
+ * How many URLs each list may contribute to one shared cap: equal shares,
+ * with whatever a short list leaves unused passed on to the longer ones.
+ * @param {number[]} sizes  list lengths, in priority order
+ * @returns {number[]} how many to take from each
+ */
+function sharedBudget(sizes, cap) {
+  const take = sizes.map(() => 0);
+  let remaining = cap;
+  let open = sizes.map((_, i) => i).filter((i) => sizes[i] > 0);
+  while (remaining > 0 && open.length) {
+    const share = Math.max(1, Math.floor(remaining / open.length));
+    const stillOpen = [];
+    for (const i of open) {
+      if (remaining <= 0) break;
+      const add = Math.min(share, sizes[i] - take[i], remaining);
+      take[i] += add;
+      remaining -= add;
+      if (take[i] < sizes[i]) stillOpen.push(i);
+    }
+    open = stillOpen;
+  }
+  return take;
+}
+
+// The `n` most recently modified entries, when a list has to be cut; entries
+// without a lastmod keep their sitemap order after the dated ones.
+function newestFirst(list, n) {
+  if (n >= list.length) return list;
+  const time = (e) => { const t = Date.parse(e.lastmod || ''); return Number.isFinite(t) ? t : -Infinity; };
+  return list
+    .map((e, i) => ({ e, i, t: time(e) }))
+    .sort((a, b) => (b.t - a.t) || (a.i - b.i))
+    .slice(0, n)
+    .map((x) => x.e);
+}
+
+/**
+ * The URLs of one sitemap (or sitemap index), or [] when there is none there.
+ * Used to probe a section's own sitemap ("/blog/sitemap_index.xml"), which a
+ * site does not always list in robots.txt or its root index.
+ */
+async function resolveSitemapUrls(url) {
+  const state = newState(MAX_CHILD_SITEMAPS);
+  await resolveSitemap(url, 1, state);
+  return { urls: [...state.urls.values()], capped: state.capped, capReason: state.capReason };
+}
+
+module.exports = {
+  discoverUrls, resolveSitemapUrls, crawlFallback, HtmlAtSitemapUrlError, sharedBudget, prioritizeSitemaps,
+};

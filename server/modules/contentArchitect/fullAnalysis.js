@@ -18,6 +18,32 @@ const { SIMILARITY_THRESHOLD, THIN_WORD_COUNT, STALE_MONTHS } = require('./confi
 
 function genId(prefix) { return `${prefix}_${crypto.randomBytes(6).toString('hex')}`; }
 
+// A glossary, dictionary or encyclopedia: one entry per term, all under one
+// folder whose index page lists them. Its entries still cluster by topic, but a
+// cluster made only of entries is not missing a hub — the index is its hub, and
+// the "create a pillar page called 'Security & UGC Attributes'" suggestion that
+// a gap produced on an SEO glossary (28 of them on one site) was noise.
+const REFERENCE_FOLDER_RE = /^(glossary|glossaries|dictionary|definitions|encyclopedia|lexicon|terminology)$/i;
+function referenceFolderOf(url) {
+  let segs;
+  try { segs = new URL(url).pathname.split('/').filter(Boolean); } catch { return null; }
+  const at = segs.slice(0, -1).findIndex((s) => REFERENCE_FOLDER_RE.test(s));
+  if (at === -1) return null;
+  const u = new URL(url);
+  return `${u.origin}/${segs.slice(0, at + 1).join('/')}`;
+}
+function referenceIndexOf(cluster, pages) {
+  const folders = new Set(cluster.memberIndices.map((i) => referenceFolderOf(pages[i].url)));
+  return folders.size === 1 && !folders.has(null) ? [...folders][0] : null;
+}
+// selectHub's result, with a glossary-only gap turned into "the index is the hub".
+function withReferenceHub(hubResult, cluster, pages) {
+  const referenceIndexUrl = hubResult.isGap ? referenceIndexOf(cluster, pages) : null;
+  return referenceIndexUrl
+    ? { ...hubResult, isGap: false, gapSuggestion: null, hubConfidence: 'reference', referenceIndexUrl }
+    : hubResult;
+}
+
 function assignmentReason(pageIndex, cluster, hubResult, pages, profiles, idf) {
   const page = pages[pageIndex];
   const isHub = hubResult.hubPageIndex === pageIndex;
@@ -27,6 +53,9 @@ function assignmentReason(pageIndex, cluster, hubResult, pages, profiles, idf) {
   }
   if (hubResult.isGap) {
     return `No existing page broad enough to serve as hub for this cluster (gap identified).`;
+  }
+  if (hubResult.referenceIndexUrl) {
+    return `A glossary entry; the glossary index (${hubResult.referenceIndexUrl}) is the hub for these terms. ${page.wordCount || 0} words.`;
   }
   const hubIdx = hubResult.hubPageIndex;
   const shared = hubIdx == null ? [] : [...profiles[pageIndex].keys()].filter((t) => profiles[hubIdx].has(t))
@@ -107,7 +136,8 @@ async function analyzeCrawledPages(crawlResult, project, { onProgress, linkGraph
     // suggestion's proposed title shows the pre-naming mechanical
     // placeholder even when the cluster itself got a real LLM name.
     if (nameEntry?.name) cluster.name = nameEntry.name;
-    hubResults.set(cluster.id, selectHub(cluster, pages, profiles, graph, nameEntry?.llmHubRecommendation || null));
+    const hub = selectHub(cluster, pages, profiles, graph, nameEntry?.llmHubRecommendation || null);
+    hubResults.set(cluster.id, withReferenceHub(hub, cluster, pages));
   }
 
   notify('diagnostics', { message: 'Running diagnostics…' });
@@ -182,6 +212,8 @@ async function analyzeCrawledPages(crawlResult, project, { onProgress, linkGraph
       hubPageId: hubResult.hubPageIndex !== null ? pageIdByIndex[hubResult.hubPageIndex] : null,
       isGap: hubResult.isGap,
       gapSuggestion: hubResult.gapSuggestion,
+      // Set for a cluster of glossary entries: the glossary's index is its hub.
+      ...(hubResult.referenceIndexUrl ? { referenceIndexUrl: hubResult.referenceIndexUrl } : {}),
       spokeIds: c.memberIndices.filter((i) => i !== hubResult.hubPageIndex).map((i) => pageIdByIndex[i]),
       hubConfidence: hubResult.hubConfidence,
       ambiguous: hubResult.ambiguous,
@@ -244,4 +276,4 @@ async function analyzeCrawledPages(crawlResult, project, { onProgress, linkGraph
   };
 }
 
-module.exports = { runFullAnalysis, analyzeCrawledPages };
+module.exports = { runFullAnalysis, analyzeCrawledPages, referenceFolderOf, withReferenceHub };

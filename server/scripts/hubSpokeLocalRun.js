@@ -99,7 +99,7 @@ async function crawl(url, maxUrls) {
   let last = 0;
   crawler.on('progress', (p) => {
     const now = Date.now();
-    if (now - last > 15000) { last = now; console.log(`  crawl: ${p.completed ?? '?'} done, ${p.queued ?? '?'} queued`); }
+    if (now - last > 15000) { last = now; console.log(`  crawl: ${p.crawled ?? '?'} done, ${p.queued ?? '?'} queued`); }
   });
   const summary = await crawler.start(url);
   return {

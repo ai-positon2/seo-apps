@@ -55,12 +55,37 @@ test('the parts add up to the whole, for every shape of crawl', () => {
   assert.ok(checked > 10000, `only ${checked} combinations were checked`);
 });
 
-test('the case that shipped broken: two pages, one in error', () => {
-  const metrics = healthMetrics(pages(2, { errors: 1 }), []);
-  assert.strictEqual(metrics.health, 78);
-  // Was 23. Half the site being in error is 22.5 points of a 45-point weight,
-  // and the score kept the 22.
-  assert.strictEqual(totalLost(metrics), 22);
+test('the case that shipped broken: a loss that does not round evenly still adds up', () => {
+  // v4's version: two pages, one in error, scored 78 beside "23 points lost".
+  // v5 (40 points per distinct error rule per page, averaged): three pages, one
+  // with an error, is 13.33 points, which rounds to a score of 87 and 13 lost.
+  const metrics = healthMetrics(pages(3, { errors: 1 }), []);
+  assert.strictEqual(metrics.health, 87);
+  assert.strictEqual(totalLost(metrics), 13);
+});
+
+test('v5: the score moves with how many problems a page has, not only whether it has one', () => {
+  // v4 scored both of these 70: every page with a warning and a notice.
+  const light = healthMetrics(pages(4, { warnings: 4, notices: 4 }), []);
+  const heavy = pages(4);
+  for (const page of heavy) {
+    page.issues = ['a', 'b', 'c', 'd', 'e'].flatMap((id) => [{ id: `w-${id}`, severity: 'warning' }, { id: `n-${id}`, severity: 'notice' }]);
+  }
+  assert.strictEqual(light.health, 88);
+  assert.strictEqual(healthMetrics(heavy, []).health, 40);
+});
+
+test('v5: redirects, error pages and status-only probes are not scored as pages', () => {
+  const results = [
+    ...pages(2),
+    { url: 'https://example.com/old', scope: 'Internal', contentType: 'text/html', status: 301, issues: [] },
+    { url: 'https://example.com/gone', scope: 'Internal', contentType: 'text/html', status: 404, issues: [] },
+    { url: 'https://example.com/far', scope: 'Internal', contentType: 'text/html', status: 200, probe: true, issues: [] },
+  ];
+  results[0].issues = [{ id: 'e', severity: 'error' }];
+  const metrics = healthMetrics(results, []);
+  assert.strictEqual(metrics.htmlCount, 2);
+  assert.strictEqual(metrics.health, 80);
 });
 
 test('no band is ever credited with a negative deduction', () => {
@@ -173,7 +198,7 @@ test('pages that refused the crawler are neither clean nor broken: they are not 
   assert.strictEqual(metrics.htmlCount, 1);
   assert.strictEqual(metrics.refusedCount, 3);
   assert.strictEqual(metrics.affectedErrorPages, 0);
-  assert.strictEqual(metrics.health, 100 - 22);
+  assert.strictEqual(metrics.health, 100 - 10, 'one page, one warning rule');
 
   for (const r of results) r.crawlRefused = true;
   assert.strictEqual(healthMetrics(results, findings).health, null, 'a site that refused every page has no score');

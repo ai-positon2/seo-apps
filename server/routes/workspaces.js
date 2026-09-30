@@ -4,12 +4,8 @@ const workspaceContext = require('../services/workspaceContext');
 const projectAccess = require('../services/projectAccess');
 const projectStore = require('../modules/projects/store');
 const workspaceLifecycle = require('../services/workspaceLifecycle');
-const { COOKIE_OPTIONS, WORKSPACE_COOKIE } = require('./auth');
+const platformAdmin = require('../services/platformAdmin');
 const router = express.Router();
-
-// Runs are recorded against the workspace the user is currently working in.
-// A month is long enough that the choice sticks across sessions.
-const WORKSPACE_COOKIE_MAX_AGE = 30 * 24 * 60 * 60 * 1000;
 
 function requireUserId(req, res) {
   if (!req.user.userId) {
@@ -33,14 +29,18 @@ function handleError(res, e, req) {
   res.status(500).json({ error: 'Something went wrong with that workspace request.' });
 }
 
-// GET /api/workspaces — workspaces the current user belongs to, plus which
-// one is active (the one their runs are being recorded against).
+// GET /api/workspaces — workspaces the current user belongs to, plus their home
+// workspace: where new projects, and work that belongs to no project, go.
+// `active` / `activeWorkspaceId` keep their names so existing screens read the
+// home workspace without changes; there is no longer a way to switch it.
 router.get('/', async (req, res) => {
   const userId = requireUserId(req, res);
   if (!userId) return;
   try {
+    // Resolved first: for a new team member it is the call that adds them to
+    // the team workspace, which the list below must then include.
+    const { workspaceId: homeId } = await workspaceContext.resolveIdentity(req);
     const workspaces = await identityStore.listWorkspacesForUser(userId);
-    const { workspaceId: activeId } = await workspaceContext.resolveIdentity(req);
     // How many projects each one holds. Without this the list is a set of names
     // with no way to tell a workspace holding a client's whole audit history
     // from an empty one somebody made and never used.
@@ -48,36 +48,33 @@ router.get('/', async (req, res) => {
     res.json({
       workspaces: workspaces.map(w => ({
         ...w,
-        active: w.id === activeId,
+        active: w.id === homeId,
         projectCount: (summaries.get(w.id) || []).length,
       })),
-      activeWorkspaceId: activeId || null,
+      activeWorkspaceId: homeId || null,
+      canCreate: await platformAdmin.isPlatformAdmin({ email: req.user.username, userId }),
     });
   } catch (e) { handleError(res, e, req); }
 });
 
-// POST /api/workspaces/:id/activate — switch the workspace this user's runs
-// are recorded against. Membership is checked here and again on every use.
-router.post('/:id/activate', async (req, res) => {
-  const userId = requireUserId(req, res);
-  if (!userId) return;
-  try {
-    if (!(await identityStore.isWorkspaceMember(req.params.id, userId))) {
-      return res.status(403).json({ error: 'You are not a member of that workspace.' });
-    }
-    res.cookie(WORKSPACE_COOKIE, req.params.id, { ...COOKIE_OPTIONS, maxAge: WORKSPACE_COOKIE_MAX_AGE });
-    workspaceContext.setActiveWorkspace(userId, req.params.id, req.user.username);
-    res.json({ ok: true, activeWorkspaceId: req.params.id });
-  } catch (e) { handleError(res, e, req); }
-});
-
 // POST /api/workspaces { name } — creates a workspace; caller becomes its owner.
+//
+// Platform administrators only. The team works in one shared workspace; a new
+// workspace is for a separate client company brought onto the app, not
+// something anyone makes for themselves — self-made workspaces are how the same
+// client ended up as three projects nobody could see all of.
 router.post('/', async (req, res) => {
   const userId = requireUserId(req, res);
   if (!userId) return;
   const { name } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: 'Workspace name is required.' });
   try {
+    if (!(await platformAdmin.isPlatformAdmin({ email: req.user.username, userId }))) {
+      return res.status(403).json({
+        error: 'Only a platform administrator can create a workspace. Your team already shares one.',
+        code: 'forbidden',
+      });
+    }
     res.json({
       workspace: await identityStore.createWorkspace(userId, name.trim(), req.user.username),
     });

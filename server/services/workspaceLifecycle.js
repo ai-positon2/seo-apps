@@ -211,9 +211,14 @@ async function purge({ workspaceId, actorEmail = 'system:purge-cron' }) {
         counts[table] = res.rowCount || 0;
       }
 
+      // is_personal is cleared so the owner's personal slot (a partial unique
+      // index on created_by where is_personal) is free again. Left set, it kept
+      // resolving as their default workspace — one they are no longer a member
+      // of — and every project they tried to create was refused.
       await t.query(
         `update workspaces
-            set lifecycle_status = 'purged', purged_at = $1, purge_after = null
+            set lifecycle_status = 'purged', purged_at = $1, purge_after = null,
+                is_personal = false
           where id = $2`,
         [new Date().toISOString(), workspaceId]
       );

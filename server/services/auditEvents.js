@@ -44,6 +44,10 @@ const ACTIONS = {
   // left the trail able to say a workspace was destroyed but not that it ever
   // came into being.
   WORKSPACE_CREATED:       'workspace.created',
+  // Everything in one workspace moved into another, and the emptied one marked
+  // 'merged' (scripts/consolidateTeamWorkspace.js, migration 0039). Recorded
+  // against both, so each workspace's own history says where its work went.
+  WORKSPACE_MERGED:        'workspace.merged',
   // Phase 3: a module executed against a project (migration 0012). Deliberately
   // not constrained in SQL — see that migration's section 3 for why a DB-side
   // list would turn a vocabulary drift into a silent audit gap.

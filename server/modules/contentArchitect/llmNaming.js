@@ -5,7 +5,7 @@
 // a mechanical fallback name regardless of what the model returns.
 const { createLlmClient, structuredTaskParams, assertNotTruncated } = require('../../services/llmProviders');
 const { topTermsForCluster, mechanicalName, titleCase } = require('./clusterEngine');
-const { deriveBrandTokens } = require('./termProfile');
+const { deriveBrandTokens, deriveBrand } = require('./termProfile');
 
 const LLM_NAMING_TERM_COUNT = 15;
 const H2_SAMPLE_COUNT = 5;
@@ -115,6 +115,32 @@ function isValidName(name, brandTokens) {
   return true;
 }
 
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * The model's name with the brand taken out, rather than the whole name thrown
+ * away for it. On a site that writes about its own product the model names
+ * clusters "Zapier AI Tools and Features" in spite of the rule, and rejecting
+ * those left mechanical names far worse ("Canva & Zapier Tabl").
+ * @param {{words: string[]}} brand  deriveBrand's raw brand forms
+ * @returns {string|null} the name without the brand, or null when nothing usable is left
+ */
+function withoutBrand(name, brand) {
+  let out = String(name || '');
+  for (const word of [...(brand?.words || [])].sort((a, b) => b.length - a.length)) {
+    const pattern = escapeRe(word).replace(/\s+/g, '[\\s-]+');
+    out = out.replace(new RegExp(`(^|[^\\p{L}\\p{N}])${pattern}(?:['’]s)?(?=$|[^\\p{L}\\p{N}])`, 'giu'), '$1');
+  }
+  out = out
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s&,:–—-]+|[\s&,:–—-]+$/g, '')
+    .replace(/^(and|&|for|with|by|of|the|in|on|at)\s+/i, '')
+    .replace(/\s+(and|&|for|with|by|of|the|in|on|at|via)$/i, '')
+    .trim();
+  if (out.split(/\s+/).filter(Boolean).length < 2) return null;
+  return out.replace(/^\p{Ll}/u, (c) => c.toUpperCase());
+}
+
 // Names every cluster, chunked into batches, with full deterministic
 // validation and mechanical fallback per spec: strip any hub URL not
 // actually in that cluster, require every sent cluster ID to come back
@@ -122,7 +148,8 @@ function isValidName(name, brandTokens) {
 // hubRecommendation as more than a suggestion (Stage 6 scores it itself).
 async function nameClusters(clusters, pages, profiles, idf, domain) {
   const results = new Map(); // cluster id -> { name, description, llmHubRecommendation, source }
-  const brandTokens = deriveBrandTokens(domain);
+  const brand = profiles?.brand || deriveBrand(domain, pages);
+  const brandTokens = new Set([...deriveBrandTokens(domain), ...brand.words.map((w) => w.toLowerCase())]);
 
   for (const c of clusters) {
     results.set(c.id, {
@@ -152,7 +179,9 @@ async function nameClusters(clusters, pages, profiles, idf, domain) {
       const current = results.get(entry.id);
       if (!current || !validUrlsByCluster.has(entry.id)) continue; // model invented an id — ignore
 
-      const validName = isValidName(entry.name, brandTokens);
+      const candidate = typeof entry.name === 'string' ? (withoutBrand(entry.name, brand) || entry.name) : entry.name;
+      const validName = isValidName(candidate, brandTokens);
+      if (validName) entry.name = candidate;
       const hubUrl = entry.hubRecommendation && validUrlsByCluster.get(entry.id).has(entry.hubRecommendation)
         ? entry.hubRecommendation
         : null;
@@ -169,4 +198,4 @@ async function nameClusters(clusters, pages, profiles, idf, domain) {
   return results;
 }
 
-module.exports = { nameClusters, isValidName, SYSTEM_PROMPT };
+module.exports = { nameClusters, isValidName, withoutBrand, SYSTEM_PROMPT };

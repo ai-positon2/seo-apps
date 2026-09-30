@@ -18,7 +18,8 @@
 //      `scheduled_for` in the future, and a second add pushes that time out
 //      again rather than enqueueing beside it.
 //   2. It refuses to open a run it already knows cannot measure anything — no
-//      primary domain, no competitors and no auto-discovery, no SEMrush key.
+//      primary domain, competitors still awaiting approval, no SEMrush key.
+//      No competitors at all is NOT a refusal: the run discovers its own.
 //      Each refusal carries a reason the route reports, because "nothing
 //      happened" with no explanation is what makes people press the button
 //      twice.
@@ -101,9 +102,6 @@ const NOTES = {
   no_primary_domain:
     'This project has no primary domain, so there is nothing to compare. '
     + 'Set one and the comparison starts by itself.',
-  no_competitors_tracked:
-    'No competitor is tracked yet, so nothing was started. Add one — or turn on '
-    + '"Find competitors for me" — and the comparison starts by itself.',
   competitors_pending_approval:
     'The competitors on this project are proposed, not tracked. An approver has to accept '
     + 'them before a comparison can run.',
@@ -134,7 +132,6 @@ function decide({
   hasPrimaryDomain = false,
   activeCompetitorCount = 0,
   proposedCompetitorCount = 0,
-  autoFindCompetitors = false,
   hasSemrushKey = false,
   pending = {},
 } = {}) {
@@ -144,14 +141,12 @@ function decide({
   if (!canStartRun) return { ...base, reason: 'not_authorized' };
   if (!hasPrimaryDomain) return { ...base, reason: 'no_primary_domain' };
 
-  if (!activeCompetitorCount && !autoFindCompetitors) {
-    // A contributor's additions land as 'proposed' (§7.2) and are not something
-    // to compare against yet. Saying so is the difference between "waiting for
-    // an approver" and "nothing happened".
-    return {
-      ...base,
-      reason: proposedCompetitorCount ? 'competitors_pending_approval' : 'no_competitors_tracked',
-    };
+  // With no competitor tracked the run goes and finds some itself
+  // (moduleRunners.runCompetitor), so an empty list is not a reason to wait.
+  // Proposed ones are: a contributor's additions land as 'proposed' (§7.2),
+  // and discovering others over the top of them would pre-empt the approver.
+  if (!activeCompetitorCount && proposedCompetitorCount) {
+    return { ...base, reason: 'competitors_pending_approval' };
   }
 
   // Deliberately checked before opening a run rather than inside it: the runner
@@ -296,7 +291,6 @@ async function scheduleCompetitorResearch({ access, domains = [], delayMs: delay
     hasPrimaryDomain: Boolean(primary?.normalized_origin || project.url),
     activeCompetitorCount: active.length,
     proposedCompetitorCount: proposed.length,
-    autoFindCompetitors: Boolean(project.settings?.autoFindCompetitors),
     hasSemrushKey: hasSemrushKey(),
     pending,
   });
@@ -304,7 +298,12 @@ async function scheduleCompetitorResearch({ access, domains = [], delayMs: delay
   const moduleRunners = require('./moduleRunners');
   // What this run bills, stated whether or not it was queued: a caller that
   // decides not to autostart still deserves to know the price of pressing Run.
-  const estimate = moduleRunners.estimateCost(MODULE_KEY, { competitorCount: active.length });
+  // With none tracked the run discovers up to DEFAULT_DISCOVERY_LIMIT, so
+  // pricing it at zero competitors would understate what it is about to spend.
+  const estimate = moduleRunners.estimateCost(MODULE_KEY, {
+    competitorCount: active.length
+      || require('../competitorAnalysis/discovery').DEFAULT_DISCOVERY_LIMIT,
+  });
 
   if (!verdict.start) {
     return answer({

@@ -915,7 +915,7 @@ test('site health is the figure the crawl report itself shows', () => {
   // the 85 HTML ones, both of which included the 35 external pages the crawler
   // followed. Those can never carry a finding, so counting them was worth 13
   // points of free credit: this same crawl read 82 before.
-  assert.strictEqual(overviewModule.siteHealth(run, 50).score, 69);
+  assert.strictEqual(overviewModule.siteHealth(run, 50).score, 87, "v5: (40 + 50x10 + 50x2) / 50 pages = 12.8 points lost");
 });
 
 test('external pages cannot inflate the health score', () => {
@@ -932,7 +932,7 @@ test('external pages cannot inflate the health score', () => {
       ],
     },
   };
-  assert.strictEqual(overviewModule.siteHealth(run, 50).score, 69);
+  assert.strictEqual(overviewModule.siteHealth(run, 50).score, 87);
   assert.strictEqual(overviewModule.siteHealth(run, 50).denominator, 50);
 });
 

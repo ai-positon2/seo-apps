@@ -16,9 +16,21 @@
 
 const { Agent, ProxyAgent, fetch: undiciFetch } = require("undici");
 const { guardedLookup, assertPublicUrl } = require("./guard");
+const { utf8HeaderValue } = require("../http-redirect");
 
 const DEFAULT_CONNECT_TIMEOUT = 10_000;
 const DEFAULT_KEEPALIVE = 4_000;
+// The Fetch standard's limit, the one undici applied when it followed them.
+const MAX_REDIRECTS = 20;
+
+// A response reached through redirects followed here reports the URL it came
+// from and that it was redirected, as undici's own following did.
+function withFinalUrl(response, url, redirected) {
+  if (!redirected) return response;
+  Object.defineProperty(response, "url", { value: url, configurable: true });
+  Object.defineProperty(response, "redirected", { value: true, configurable: true });
+  return response;
+}
 
 function resolveConfig(config = {}) {
   return {
@@ -51,12 +63,48 @@ function createFetch(config = {}) {
   }
 
   async function egressFetch(url, options = {}) {
+    if (cfg.allowPrivateHosts) return undiciFetch(url, { dispatcher, ...options });
     // Pre-flight URL check. With a proxy the real DNS happens at the proxy, but a
     // local resolve still catches obvious internal literals/hostnames cheaply.
-    if (!cfg.allowPrivateHosts) {
-      await assertPublicUrl(typeof url === "string" ? url : url.url || String(url));
+    const first = typeof url === "string" ? url : url.url || String(url);
+    await assertPublicUrl(first);
+    if ((options.redirect || "follow") !== "follow") return undiciFetch(url, { dispatcher, ...options });
+    return followChecked(first, options);
+  }
+
+  // Redirects are followed here, one hop at a time, each hop checked like the
+  // first URL. Left to undici, only the first URL was checked: a hop to an IP
+  // literal never reaches the connect-time lookup (Node skips DNS for an IP),
+  // so a robots.txt, sitemap or llms.txt answering "302 Location:
+  // http://169.254.169.254/" was fetched, and its status leaked into the report.
+  async function followChecked(start, options) {
+    let current = start;
+    let method = String(options.method || "GET").toUpperCase();
+    let body = options.body;
+    for (let hops = 0; ; hops += 1) {
+      const response = await undiciFetch(current, {
+        dispatcher,
+        ...options,
+        method,
+        body,
+        redirect: "manual",
+      });
+      const location = utf8HeaderValue(response.headers.get("location") || "");
+      if (![301, 302, 303, 307, 308].includes(response.status) || !location) {
+        return withFinalUrl(response, current, hops > 0);
+      }
+      await response.body?.cancel().catch(() => {});
+      if (hops >= MAX_REDIRECTS) throw new TypeError(`fetch failed: more than ${MAX_REDIRECTS} redirects`);
+      const next = new URL(location, current).href;
+      await assertPublicUrl(next);
+      // The Fetch standard's method rewrite: a 303, or a 301/302 answering a
+      // POST, continues as a bodiless GET.
+      if (response.status === 303 || ((response.status === 301 || response.status === 302) && method === "POST")) {
+        if (method !== "HEAD") method = "GET";
+        body = undefined;
+      }
+      current = next;
     }
-    return undiciFetch(url, { dispatcher, ...options });
   }
 
   egressFetch.dispatcher = dispatcher;

@@ -1,8 +1,9 @@
 // ── Runs API ────────────────────────────────────────────────────────────────
 // Reads the run history that server/middleware/runTracking.js writes. Always
-// scoped to one workspace: the active workspace resolved for the caller (see
-// services/workspaceContext.js), and a run's detail is only readable by
-// someone who belongs to the workspace the run landed in.
+// scoped to one workspace: the caller's home workspace (see
+// services/workspaceContext.js) — for Position2 staff, the one team workspace
+// everyone's runs land in — and a run's detail is only readable by someone who
+// belongs to the workspace the run landed in.
 
 const express = require('express');
 const runStore = require('../services/runStore');

@@ -87,13 +87,16 @@ const H = 'https://health.invalid';
 
     await test('counts page and template findings on internal HTML pages only', async () => {
       const counts = await overview.healthAffectedPages(run.id);
-      assert.deepEqual(counts, { error: 1, warning: 3, notice: 1 });
+      // lossTotals is v5's per-page loss (40/10/2 per distinct rule), summed
+      // over pages: p0 an error and a warning, p1 a warning and a notice, p2 a
+      // warning. Every fixture finding shares one rule id.
+      assert.deepEqual(counts, { error: 1, warning: 3, notice: 1, lossTotals: { error: 40, warning: 30, notice: 2 } });
     });
 
     await test('the dashboard score from those counts matches the report formula', async () => {
       const counts = await overview.healthAffectedPages(run.id);
       const score = overview.siteHealth({ summary: { counts: {} } }, 4, [], counts);
-      assert.equal(score.score, Math.round(100 - (1 / 4) * 45 - (3 / 4) * 22 - (1 / 4) * 8));
+      assert.equal(score.score, Math.round(100 - (40 + 30 + 2) / 4));
     });
 
     await test('pages that refused the crawler leave both sides of the score', async () => {
@@ -107,7 +110,23 @@ const H = 'https://health.invalid';
       }
       await addFinding(blocked.id, { severity: 'warning', scope: 'page', url: `${H}/` });
       assert.equal(await overview.internalHtmlPageCount(blocked.id), 1);
-      assert.deepEqual(await overview.healthAffectedPages(blocked.id), { error: 0, warning: 1, notice: 0 });
+      assert.deepEqual(await overview.healthAffectedPages(blocked.id), {
+        error: 0, warning: 1, notice: 0, lossTotals: { error: 0, warning: 10, notice: 0 },
+      });
+    });
+
+    await test('v5: distinct rules per page, capped at 100 and shared out in proportion', async () => {
+      const heavy = await newRun();
+      await addResult(heavy.id, `${H}/`, 'text/html');
+      for (const ruleId of ['a', 'b', 'c']) await addFinding(heavy.id, { ruleId, severity: 'error', scope: 'page', url: `${H}/` });
+      // The same rule twice on one page is one failing rule.
+      await addFinding(heavy.id, { ruleId: 'a', severity: 'error', scope: 'page', url: `${H}/` });
+      await addFinding(heavy.id, { ruleId: 'd', severity: 'warning', scope: 'page', url: `${H}/` });
+      const counts = await overview.healthAffectedPages(heavy.id);
+      // Uncapped 3 x 40 + 10 = 130; capped to 100 and split 120:10.
+      assert.ok(Math.abs(counts.lossTotals.error - 1200 / 13) < 1e-9, JSON.stringify(counts));
+      assert.ok(Math.abs(counts.lossTotals.warning - 100 / 13) < 1e-9, JSON.stringify(counts));
+      assert.equal(overview.siteHealth({ summary: { counts: {} } }, 1, [], counts).score, 0);
     });
 
     await test('a run with no stored instances returns null so the caller can fall back', async () => {

@@ -231,11 +231,16 @@ async function isWorkspaceMember(workspaceId, userId) {
   }
 }
 
-// The user's own workspace, or null if they don't have one yet.
+// The user's own workspace, or null if they don't have one yet. A purged or
+// merged one does not count: its members are gone, so handing it back as the
+// user's default pointed them at a workspace they could not use, and every
+// project they tried to create was refused.
 async function getPersonalWorkspace(userId) {
   try {
     return await db.maybeOne(
-      `select * from workspaces where created_by = $1 and is_personal = true`, [userId]);
+      `select * from workspaces
+        where created_by = $1 and is_personal = true
+          and lifecycle_status in ('active', 'pending_deletion')`, [userId]);
   } catch (error) {
     fail('getPersonalWorkspace', error);
   }
@@ -246,10 +251,9 @@ async function getPersonalWorkspace(userId) {
 // partial unique index on workspaces(created_by) where is_personal makes the
 // second insert fail, and we re-read the winner instead of erroring.
 //
-// This — not "whichever shared workspace they happen to belong to" — is where
-// a user's runs land until they explicitly pick another one. Being added to
-// someone else's workspace shouldn't silently start publishing your runs into
-// it; switching is a deliberate act (POST /api/workspaces/:id/activate).
+// Only for someone whose email domain has no team workspace (see
+// ensureHomeWorkspace below). Being added to someone else's workspace still
+// never makes it their default.
 async function ensurePersonalWorkspace(userId, email, nameOverride) {
   const existing = await getPersonalWorkspace(userId);
   if (existing) return existing;
@@ -281,6 +285,164 @@ async function ensurePersonalWorkspace(userId, email, nameOverride) {
     if (winner) return winner;
     fail('ensurePersonalWorkspace', error);
   }
+}
+
+// ── The team workspace ──────────────────────────────────────────────────────
+//
+// Everyone who signs in with an email on a team domain shares ONE workspace,
+// joins it automatically, and works in it by default. Personal workspaces were
+// how the same client came to exist as three separate projects in three
+// people's workspaces, each with its own crawl history.
+//
+// A workspace becomes a team workspace by carrying auto_join_domain (migration
+// 0039). Position2's is the one created on first use; a client company
+// onboarded later gets its own, made by a platform administrator.
+//
+// Removing someone from a team workspace does not stick — they rejoin on their
+// next sign-in. Access to the app as a whole is the sign-in allowlist's job
+// (routes/auth.js isAllowedEmail), not this.
+const TEAM_WORKSPACE_DOMAINS = { [POSITION2_DOMAIN]: 'Position2' };
+
+// Approver, not contributor: members edit project settings, manage competitors
+// and approve recommendations, which is the everyday work of an SEO on the team.
+// Purging a project and managing members stay with admins and owners. A platform
+// administrator joins as owner, so the workspace always has someone who can
+// manage it.
+const TEAM_DEFAULT_ROLE = 'approver';
+const TEAM_AUTO_JOIN_ACTOR = 'system:team-auto-join';
+
+function emailDomain(email) {
+  const s = String(email || '').trim().toLowerCase();
+  const at = s.lastIndexOf('@');
+  return at > 0 ? s.slice(at + 1) : '';
+}
+
+// Set when the database predates migration 0039 (no auto_join_domain column).
+// Migrations are applied by hand, so the code can land first; until then
+// everyone keeps their personal workspace, exactly as before. Sticky for the
+// life of the process — restart after applying 0039.
+let teamColumnMissing = false;
+
+/** The active team workspace for an email domain, or null. */
+async function getTeamWorkspace(domain) {
+  if (!domain || teamColumnMissing) return null;
+  try {
+    return await db.maybeOne(
+      `select * from workspaces where auto_join_domain = $1 and lifecycle_status = 'active'`,
+      [domain]);
+  } catch (error) {
+    if (error?.code === '42703') {   // undefined_column
+      teamColumnMissing = true;
+      console.warn('[identityStore] workspaces.auto_join_domain is missing — apply migration 0039. Using personal workspaces until then.');
+      return null;
+    }
+    fail('getTeamWorkspace', error);
+  }
+}
+
+async function isPlatformAdminUser(userId, email) {
+  // Required here rather than at the top: platformAdmin is a sibling service and
+  // this keeps identityStore's load order independent of it.
+  return require('./platformAdmin').isPlatformAdmin({ email, userId }).catch(() => false);
+}
+
+// Creates a domain's team workspace. Two first sign-ins racing each other both
+// try; the unique index on auto_join_domain lets one win and the other re-reads.
+// The creator gets no membership here — joinTeamWorkspace adds them next, with
+// the same role and history entry as everyone who follows.
+async function createTeamWorkspace(domain, userId, email) {
+  const name = TEAM_WORKSPACE_DOMAINS[domain];
+  try {
+    const workspace = await db.one(
+      `insert into workspaces (name, created_by, auto_join_domain) values ($1, $2, $3) returning *`,
+      [name, userId, domain]);
+    await auditEvents.record({
+      action: auditEvents.ACTIONS.WORKSPACE_CREATED,
+      workspaceId: workspace.id,
+      actorUserId: userId,
+      actorEmail: email,
+      entityType: 'workspace',
+      entityId: workspace.id,
+      newState: { name: workspace.name, autoJoinDomain: domain },
+      source: 'identity.team_workspace',
+    });
+    return workspace;
+  } catch (error) {
+    const winner = await getTeamWorkspace(domain);
+    if (winner) return winner;
+    fail('createTeamWorkspace', error);
+  }
+}
+
+// Adds the user to their team workspace if they are not in it yet. Existing
+// members keep whatever role they already have.
+async function joinTeamWorkspace(workspace, userId, email) {
+  if (await isWorkspaceMember(workspace.id, userId)) return false;
+
+  const role = (await isPlatformAdminUser(userId, email)) ? 'owner' : TEAM_DEFAULT_ROLE;
+  const domain = workspace.auto_join_domain;
+  let added;
+  try {
+    added = await db.tx(async (t) => {
+      const row = await t.maybeOne(
+        `insert into workspace_members (workspace_id, user_id, role) values ($1, $2, $3)
+           on conflict (workspace_id, user_id) do nothing
+         returning role`,
+        [workspace.id, userId, role]);
+      if (!row) return false;   // a concurrent request added them first
+      await writeMemberEvent(t, {
+        workspaceId: workspace.id,
+        access: { userId: null, actorEmail: TEAM_AUTO_JOIN_ACTOR },
+        subjectUserId: userId,
+        subjectEmail: email,
+        action: 'added',
+        oldRole: null,
+        newRole: role,
+        reason: `Joined automatically: signed in with an @${domain} email`,
+      });
+      return true;
+    });
+  } catch (error) {
+    fail('joinTeamWorkspace', error);
+  }
+  if (!added) return false;
+
+  require('./projectAccess').invalidateRole(workspace.id, userId);
+  invalidateWorkspacesFor(userId);
+  await recordRoleAudit({
+    workspaceId: workspace.id,
+    access: { userId: null, actorEmail: TEAM_AUTO_JOIN_ACTOR, role: null },
+    subjectUserId: userId, subjectEmail: email,
+    action: 'added', oldRole: null, newRole: role,
+  });
+  return true;
+}
+
+/**
+ * The workspace a user works in by default: new projects, and runs that belong
+ * to no project, are recorded here.
+ *
+ *   email on a team domain  → that domain's team workspace (joined, and for
+ *                             Position2 created, on the spot)
+ *   anyone else             → their personal workspace
+ *
+ * Work on a project always lands in the PROJECT's workspace, wherever it is
+ * started from; this only decides what has no project to follow.
+ */
+async function ensureHomeWorkspace(userId, email) {
+  // The synthetic platform-embed account is on the Position2 domain but is not
+  // a person on the team; it keeps its own workspace (ensurePlatformWorkspace).
+  if (String(email || '').toLowerCase() === PLATFORM_EMAIL) {
+    return ensurePersonalWorkspace(userId, email);
+  }
+  const domain = emailDomain(email);
+  let team = await getTeamWorkspace(domain);
+  if (!team && !teamColumnMissing && TEAM_WORKSPACE_DOMAINS[domain]) {
+    team = await createTeamWorkspace(domain, userId, email);
+  }
+  if (!team) return ensurePersonalWorkspace(userId, email);
+  await joinTeamWorkspace(team, userId, email);
+  return team;
 }
 
 async function createWorkspace(userId, name, actorEmail = null) {
@@ -828,6 +990,8 @@ module.exports = {
   addWorkspaceMember, setWorkspaceMemberRole, removeWorkspaceMember, listMemberEvents,
   ASSIGNABLE_ROLES, parseAssignableRole,
   isWorkspaceMember, getPersonalWorkspace, ensurePersonalWorkspace, ensurePlatformWorkspace,
+  ensureHomeWorkspace, getTeamWorkspace, emailDomain,
+  TEAM_WORKSPACE_DOMAINS, TEAM_DEFAULT_ROLE,
   PLATFORM_EMAIL,
   recordActivity,
 };

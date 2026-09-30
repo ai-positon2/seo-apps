@@ -1,14 +1,17 @@
-// ── Active-workspace resolution ─────────────────────────────────────────────
-// Answers one question, on every tracked request: which workspace does this
-// user's work belong to?
+// ── Home-workspace resolution ───────────────────────────────────────────────
+// Answers one question, on every tracked request: where does work that belongs
+// to no project get recorded, and where does a new project go by default?
 //
-//   1. The workspace_id cookie, if the user is actually a member of it
-//      (set by POST /api/workspaces/:id/activate — caller-supplied, so it is
-//      membership-checked every time it's used, never trusted as-is).
-//   2. Otherwise their own personal workspace, created on the spot if they
-//      don't have one yet — so a run always has a workspace, without anyone
-//      having to set one up first, and being added to somebody else's
-//      workspace never silently starts recording your runs into it.
+// Always the user's home workspace (identityStore.ensureHomeWorkspace): their
+// team's workspace when their email domain has one — for Position2 staff, the
+// one Position2 workspace — and otherwise their personal workspace.
+//
+// There is no switch any more. It used to be a workspace_id cookie set by
+// POST /api/workspaces/:id/activate, and that is how one afternoon's work on a
+// client landed in two workspaces: tool runs followed the cookie while the
+// project's own runs followed the project. Work on a project follows the
+// project; this only decides what has nothing else to follow. A stale cookie
+// from before the change is ignored and cleared at sign-out.
 //
 // Platform-embed sessions (shared iframe token, no individual user) resolve to
 // one synthetic user + workspace instead — see ensurePlatformWorkspace.
@@ -41,11 +44,6 @@ function cacheSet(key, identity) {
 function invalidate(key) {
   cache.delete(key);
   inflight.delete(key);
-}
-
-// Called after an explicit switch so the next request doesn't have to re-verify.
-function setActiveWorkspace(userId, workspaceId, actorEmail) {
-  if (userId && workspaceId) cacheSet(userId, { userId, workspaceId, actorEmail: actorEmail || null });
 }
 
 // Cached value only — no queries, no promises. Lets synchronous paths (the
@@ -88,30 +86,13 @@ async function resolvePlatformIdentity() {
   });
 }
 
-async function resolveUserIdentity(userId, email, requestedWorkspaceId) {
-  // An explicitly selected workspace wins, but only after a membership check.
-  if (requestedWorkspaceId) {
-    const cached = cacheGet(userId);
-    if (cached?.workspaceId === requestedWorkspaceId) return cached;
-    try {
-      if (await identityStore.isWorkspaceMember(requestedWorkspaceId, userId)) {
-        const identity = { userId, workspaceId: requestedWorkspaceId, actorEmail: email || null };
-        cacheSet(userId, identity);
-        return identity;
-      }
-    } catch (e) {
-      console.error('[workspaceContext.resolve(requested)]', e.message);
-    }
-    // Not a member (stale cookie, or removed from the workspace) — fall
-    // through to the user's own default rather than failing the request.
-  }
-
+async function resolveUserIdentity(userId, email) {
   const cached = cacheGet(userId);
   if (cached) return cached;
 
   return once(userId, async () => {
     try {
-      const workspace = await identityStore.ensurePersonalWorkspace(userId, email);
+      const workspace = await identityStore.ensureHomeWorkspace(userId, email);
       const identity = { userId, workspaceId: workspace?.id || null, actorEmail: email || null };
       if (identity.workspaceId) cacheSet(userId, identity);
       return identity;
@@ -123,15 +104,15 @@ async function resolveUserIdentity(userId, email, requestedWorkspaceId) {
 }
 
 // The single entry point used by the run-tracking middleware and the runs API:
-// reads the identity requireAuth put on the request plus the workspace cookie,
-// and resolves both to { userId, workspaceId, actorEmail }.
+// resolves the identity requireAuth put on the request to
+// { userId, workspaceId, actorEmail }.
 async function resolveIdentity(req) {
   if (!isDatabaseConfigured()) return EMPTY;
   const userId = req.user?.userId;
   const email = req.user?.username;
-  if (userId) return resolveUserIdentity(userId, email, req.cookies?.workspace_id);
+  if (userId) return resolveUserIdentity(userId, email);
   if (req.user) return resolvePlatformIdentity();
   return EMPTY;
 }
 
-module.exports = { resolveIdentity, peekWorkspaceId, setActiveWorkspace, invalidate };
+module.exports = { resolveIdentity, peekWorkspaceId, invalidate };

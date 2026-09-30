@@ -41,7 +41,8 @@ const { URL_CATEGORIES, TEMPLATE_CATEGORIES } = require('./informationalClassifi
 const {
   INFORMATIONAL_SELECTION_VERSION, SELECTION_INCLUDED_CATEGORIES, LISTING_MIN_CHILDREN,
   SELECTION_TEMPLATE_EXAMPLES, SELECTION_MAX_URL_CHECKS, SELECTION_AI_BUDGET_MS,
-  SELECTION_CACHE_TTL_DAYS, SELECTION_ROOT_BUCKET_TEMPLATE_MIN,
+  SELECTION_CACHE_TTL_DAYS, SELECTION_ROOT_BUCKET_TEMPLATE_MIN, SELECTION_DIGEST_SERIES_MIN,
+  SELECTION_RECHECK_TEMPLATE_MIN,
 } = require('./config');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -104,10 +105,12 @@ function hostOf(url) {
   return u ? u.host.toLowerCase().replace(/^www\./, '') : '';
 }
 
+// Repeated slashes collapse: one agency's sitemap listed every URL as
+// "//blog/…", each redirecting to "/blog/…" — the same page.
 function normalizedPath(url) {
   const u = safeUrl(url);
   if (!u) return '';
-  return (u.pathname.replace(/\/+$/, '') || '/').toLowerCase();
+  return (u.pathname.replace(/\/{2,}/g, '/').replace(/\/+$/, '') || '/').toLowerCase();
 }
 
 /**
@@ -218,6 +221,21 @@ function isUtilityPath(url) {
     || seg.split(/[-_.]/).some((w) => UTILITY_WORDS.has(w)));
 }
 
+// The series name of a slug that ends in a date — "best-of-the-week-mar-06-2015"
+// and "best-of-the-week-19-june-2015" are both "best-of-the-week" — or null.
+// Only a date at the END counts, and the name left must be two words or more,
+// so "/blog/2015/…" folders and "trends-2016" titles are never a series.
+const MONTH = '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
+const TRAILING_DATE_RE = new RegExp(`-(?:${MONTH}-\\d{1,2}-\\d{4}|\\d{1,2}-${MONTH}-\\d{4}|\\d{4}-\\d{2}-\\d{2}|${MONTH}-\\d{4})$`, 'i');
+function digestSeriesName(url) {
+  const segs = pathSegments(url);
+  const last = String(segs[segs.length - 1] || '').toLowerCase().replace(/\.[a-z]+$/, '');
+  if (!TRAILING_DATE_RE.test(last)) return null;
+  const name = last.replace(TRAILING_DATE_RE, '');
+  if (name.split('-').filter(Boolean).length < 2) return null;
+  return `${segs.slice(0, -1).join('/').toLowerCase()}/${name}`;
+}
+
 function isNonIndexable(candidate) {
   return String(candidate.indexability || '').toLowerCase() === 'non-indexable';
 }
@@ -246,7 +264,10 @@ function canonicalElsewhere(candidate) {
  *          excluded: Array<{url, code, reason, detail, source}>, summary: object, verdicts: object}>}
  */
 async function selectInformationalPages(candidates, {
-  classifier = null, cache = null, now = Date.now(), limits = {}, hints = [],
+  classifier = null, cache = null, now = Date.now(), limits = {}, hints = [], listingKeys = null,
+  // true when the caller will check, itself, the pages it goes on to read
+  // (buildFromDiscovery): 3c then asks nothing and hands back pendingRecheck.
+  deferRecheck = false,
 } = {}) {
   const L = {
     includedCategories: SELECTION_INCLUDED_CATEGORIES,
@@ -256,6 +277,8 @@ async function selectInformationalPages(candidates, {
     examples: SELECTION_TEMPLATE_EXAMPLES,
     listingMinChildren: LISTING_MIN_CHILDREN,
     rootBucketTemplateMin: SELECTION_ROOT_BUCKET_TEMPLATE_MIN,
+    digestSeriesMin: SELECTION_DIGEST_SERIES_MIN,
+    recheckTemplateMin: SELECTION_RECHECK_TEMPLATE_MIN,
     ...limits,
   };
   const list = candidates || [];
@@ -300,7 +323,34 @@ async function selectInformationalPages(candidates, {
         'prefilter', `Canonical: ${canonical}`);
     } else if (detectPagination(c.url).is_paginated) decide(i, 'paginated', 'prefilter');
     else if (isUtilityPath(c.url)) decide(i, 'utility', 'prefilter');
-    else survivors.push(i);
+    else if (listingKeys && listingKeys.has(pageKey(c.url))) {
+      decide(i, 'listing', 'prefilter', 'Read as the listing of its section');
+    } else survivors.push(i);
+  }
+
+  // A dated series under one name — "/blog/best-of-the-week-mar-06-2015",
+  // "/weekly-roundup-2024-05-03" — is a digest of other posts. Each reuses the
+  // title of a post from its week, so as articles they made most of one agency
+  // blog's cannibalisation pairs (15 of 20, from 99 such digests).
+  {
+    const seriesOf = new Map();
+    for (const i of survivors) {
+      const name = digestSeriesName(list[i].url);
+      if (!name) continue;
+      if (!seriesOf.has(name)) seriesOf.set(name, []);
+      seriesOf.get(name).push(i);
+    }
+    const digests = new Set();
+    for (const [name, idxs] of seriesOf) {
+      if (idxs.length < L.digestSeriesMin) continue;
+      for (const i of idxs) {
+        decide(i, 'listing', 'prefilter', `One of ${idxs.length} dated "${name}" digests`);
+        digests.add(i);
+      }
+    }
+    if (digests.size) {
+      for (let k = survivors.length - 1; k >= 0; k -= 1) if (digests.has(survivors[k])) survivors.splice(k, 1);
+    }
   }
 
   // Other-language copies. A help centre in six languages, or /de-de/ and
@@ -405,6 +455,7 @@ async function selectInformationalPages(candidates, {
 
   // ── 3a. Template verdicts ──────────────────────────────────────────────────
   const templateVerdict = new Map();
+  const recheckQueue = [];
   const pendingTemplates = [];
   for (const t of templateQueue) {
     const hit = validEntry(prior?.templates?.[t.key], TEMPLATE_CATEGORIES, now, ttlMs);
@@ -443,6 +494,14 @@ async function selectInformationalPages(candidates, {
       continue;
     }
     for (const i of t.idxs) decide(i, v.category, v.source, `URL template ${t.pattern}`);
+    // A large section judged informational from 8 examples can still carry a
+    // minority the examples missed — customer stories and award posts in a
+    // SaaS blog, company news in an agency's. Its pages are also checked one by
+    // one with whatever URL checks are left (3c); until then they keep the
+    // template's verdict.
+    if (L.includedCategories.includes(v.category) && t.count >= L.recheckTemplateMin) {
+      for (const i of t.idxs) recheckQueue.push({ idx: i, template: t });
+    }
   }
 
   // ── 3b. URL-by-URL verdicts ────────────────────────────────────────────────
@@ -496,6 +555,51 @@ async function selectInformationalPages(candidates, {
       decide(q.idx, fallbackForUrl(q), 'rules', urlDetail(q));
       sourcesUsed.add('rules');
     }
+  }
+
+  // ── 3c. Per-page check of large informational templates ───────────────────
+  // Only a verdict that the page is NOT informational changes anything; a page
+  // left unchecked (cap, budget, failed batch) keeps its template's verdict.
+  const recheckDetail = (q) => `URL template ${q.template.pattern} (checked per page)`;
+  const pendingRechecks = [];
+  for (const q of recheckQueue) {
+    const key = pageKey(list[q.idx].url);
+    const hit = validEntry(prior?.urls?.[key], URL_CATEGORIES, now, ttlMs);
+    if (hit) {
+      nextCache.urls[key] = hit;
+      if (!L.includedCategories.includes(hit.category) && hit.category !== 'unknown') {
+        decide(q.idx, hit.category, 'cache', recheckDetail(q));
+      }
+    } else {
+      pendingRechecks.push({ ...q, key });
+    }
+  }
+  const recheckRoom = Math.max(0, L.maxUrlChecks - aiChecks.urlsAsked);
+  // Pages still unchecked after this pass. A caller that reads only some of
+  // the included pages (buildFromDiscovery) checks these among the ones it is
+  // about to read, rather than spending checks on pages it never reads.
+  let pendingRecheck = pendingRechecks.map((q) => q.idx);
+  if (classifier && pendingRechecks.length && recheckRoom && !deferRecheck) {
+    pendingRechecks.sort((a, b) => (Number(list[b.idx].inlinks) || 0) - (Number(list[a.idx].inlinks) || 0)
+      || String(list[a.idx].url).localeCompare(String(list[b.idx].url)));
+    const toAsk = pendingRechecks.slice(0, recheckRoom);
+    const asked = new Set(toAsk.map((q) => q.idx));
+    pendingRecheck = pendingRecheck.filter((i) => !asked.has(i));
+    aiChecks.urlsRechecked = toAsk.length;
+    const res = await classifier.classifyUrls(toAsk.map((q) => ({ key: q.key, url: list[q.idx].url })), { deadline, hints });
+    let changed = 0;
+    for (const q of toAsk) {
+      const category = res.verdicts.get(q.key);
+      if (!category) continue;
+      nextCache.urls[q.key] = { category, decidedAt: nowIso };
+      // "unknown" from a per-page look does not overturn a template verdict.
+      if (!L.includedCategories.includes(category) && category !== 'unknown') {
+        decide(q.idx, category, 'ai', recheckDetail(q));
+        changed += 1;
+      }
+    }
+    aiChecks.recheckExcluded = changed;
+    if (res.error) errors.push(res.error);
   }
 
   // ── 4. Listing pages ───────────────────────────────────────────────────────
@@ -617,6 +721,8 @@ async function selectInformationalPages(candidates, {
     includedIdx,
     aliasOf,
     excluded,
+    // Included on a template's verdict, not yet checked page by page (3c).
+    pendingRecheck: pendingRecheck.filter(isIncluded),
     summary: {
       scope: 'informational',
       version: INFORMATIONAL_SELECTION_VERSION,

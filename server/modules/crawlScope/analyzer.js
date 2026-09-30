@@ -681,13 +681,22 @@ function linkTextEvidence(edge) {
 }
 
 // Why a crawled hreflang target cannot stand in the set, or "" when it can.
+// Whether a result's document was parsed. An alternate on another host (a
+// ccTLD, a language subdomain) is only status-checked as an external link: its
+// hreflang, robots and canonical tags were never read, so an empty `hreflangs`
+// there means "not looked at", not "none" (wikiHow: 15 of 15 false return-tag
+// findings, 2026-09-29).
+// crawler.js reads the head of an alternate on another host (alternateHeadParsed).
+const parsedDocument = (result) => result.scope !== "External" || result.alternateHeadParsed === true;
+
 function hreflangTargetProblem(target, index) {
-  if (target.statusText === "Blocked by robots.txt") return "";
+  if (target.statusText === "Blocked by robots.txt" || target.externalNotChecked) return "";
   if (!target.status) return `could not be fetched (${target.statusText || "no response"})`;
   if (target.status >= 400) return `returns HTTP ${target.status}${target.statusText ? ` ${target.statusText}` : ""}`;
   if (isRedirectStatus(target.status)) {
     return `redirects (HTTP ${target.status}${target.redirectUrl ? ` to ${target.redirectUrl}` : ""}) instead of being the page itself`;
   }
+  if (!parsedDocument(target)) return "";
   const refresh = redirectDestination(target);
   if (refresh) return `sends visitors on to ${refresh} with a refresh instead of being the page itself`;
   if (isNoindex(resultRobotsDirectives(target))) return "is noindex, so it will not be shown in any language";
@@ -951,6 +960,10 @@ function declarativeRefresh(result) {
       isReload: result.refreshHeaderIsReload,
     };
   }
+  if (result?.javascriptRedirectUrl && !result?.metaRefreshRaw) {
+    // Found by rendering: the page's scripts navigate elsewhere on load.
+    return { source: "javascript", raw: "", delay: 0, delayRaw: "0", url: result.javascriptRedirectUrl, isReload: false };
+  }
   if (result?.metaRefreshRaw) {
     return {
       source: "meta",
@@ -966,6 +979,7 @@ function declarativeRefresh(result) {
 }
 
 function declarativeRefreshLabel(refresh) {
+  if (refresh?.source === "javascript") return "JavaScript redirect";
   return refresh?.source === "header" ? "HTTP Refresh header" : "Meta refresh";
 }
 
@@ -1117,6 +1131,20 @@ function describeHeading(level, text) {
 // Webflow emits no rel=prev/next at all. `p` is deliberately not a page
 // parameter: WordPress uses ?p=123 for a post id.
 const PAGINATION_QUERY_PARAM = /^(?:page|paged|pg|pagenum|pageno|page_number|[\w]+[_-]page)$/i;
+
+// A URL that names a page number: ?page=2, ?p=3, /page/2, /page-2, /p2.
+function looksPaginatedUrl(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  for (const [name, value] of parsed.searchParams) {
+    if (PAGINATION_QUERY_PARAM.test(name) && /^\d+$/.test(value)) return true;
+  }
+  return /\/(?:page[/-]?|p)\d+\/?$/i.test(parsed.pathname);
+}
 
 function isPaginatedListingPage(result) {
   if (result.paginationPrev) return true;
@@ -1376,6 +1404,22 @@ const SITEMAP_RULES = [
   "orphan-page",
 ];
 const EXTERNAL_FETCH_RULES = ["broken-external-link", "external-403"];
+// Checks that read a page's content or the links between pages. On a
+// client-rendered site that could not be rendered, the crawl saw only the
+// server's empty shell, so these would describe the shell, not the page:
+// "no H1", "no language", "orphan" on every URL (duolingo.com, 2026-09-29).
+const JS_SHELL_RULES = new Set([
+  "title-missing", "title-short", "title-long", "title-multiple", "title-duplicate",
+  "meta-missing", "meta-long", "meta-short", "meta-duplicate",
+  "h1-missing", "h1-multiple", "h1-duplicate", "h1-title-duplicate", "heading-hierarchy-skipped",
+  "html-lang-missing", "low-word-count", "low-text-html-ratio",
+  "content-duplicate-exact", "content-duplicate-near", "soft-404",
+  "open-graph-incomplete", "open-graph-description-missing", "open-graph-image-alt-missing",
+  "open-graph-url-invalid", "open-graph-canonical",
+  "schema-error", "schema-required-missing", "schema-recommended-missing",
+  "orphan-page", "single-inlink", "deep-page",
+  "anchor-missing", "anchor-nondescriptive", "image-alt-missing",
+]);
 // Checks read from the pages' link and resource edges.
 const LINK_DATA_RULES = [
   "broken-internal-links",
@@ -1413,6 +1457,9 @@ function crawlCoverage({
   scopeLimited = false,
   scopeExcluded = 0,
   internalResults = [],
+  servedShellOnly = false,
+  crawlState = null,
+  externalNotChecked = [],
 }) {
   const notEvaluated = new Map();
   // Pages the crawl reached but did not audit, and why (not per rule).
@@ -1423,7 +1470,8 @@ function crawlCoverage({
       count: renderedCrawl.failed,
       reason: renderedCrawl.available === false
         ? "JavaScript rendering was asked for, but no headless browser was available, so every page was audited as the server sent it."
-        : `JavaScript rendering was asked for, but ${renderedCrawl.failed.toLocaleString("en-US")} page${renderedCrawl.failed === 1 ? "" : "s"} could not be rendered and ${renderedCrawl.failed === 1 ? "was" : "were"} audited as the server sent ${renderedCrawl.failed === 1 ? "it" : "them"}.`,
+        : `JavaScript rendering was asked for, but ${renderedCrawl.failed.toLocaleString("en-US")} page${renderedCrawl.failed === 1 ? "" : "s"} could not be rendered and ${renderedCrawl.failed === 1 ? "was" : "were"} audited as the server sent ${renderedCrawl.failed === 1 ? "it" : "them"}; ` +
+          "a page whose served HTML is only the app's empty shell is left out of the content checks and Site Health.",
     });
   }
   const sitemapNotCrawled = Number(siteDiagnostics.sitemapNotCrawled) || 0;
@@ -1456,6 +1504,12 @@ function crawlCoverage({
     // every sitemap" cannot be established, and entries in the unread
     // documents were not checked.
     const traversal = siteDiagnostics.sitemapCoverage;
+    if (siteDiagnostics.sitemapsFound === false) {
+      skip(
+        ["sitemap-missing-indexable"],
+        "No sitemap could be read, so pages cannot be compared with one; the missing sitemap is reported once instead.",
+      );
+    }
     if (traversal?.traversalStopped) {
       const unread = Number(traversal.documentsNotRead) || 0;
       const reason =
@@ -1501,6 +1555,25 @@ function crawlCoverage({
         "so the links pointing at a page could not all be counted.",
     );
   }
+  const probes = siteDiagnostics.probes || {};
+  if (Number(probes.checked) > 0) {
+    pagesNotAudited.push({
+      count: Number(probes.checked),
+      reason:
+        `${Number(probes.checked).toLocaleString("en-US")} internal URL${probes.checked === 1 ? " was" : "s were"} past the page budget ` +
+        "and only status-checked (for broken links and redirects), not audited as pages.",
+    });
+  }
+  if (Number(probes.unchecked) > 0) {
+    // "Broken internal links: clean" on a capped crawl claimed links nobody
+    // checked (2026-09-29 audit: real 404 links on three sites).
+    const reason =
+      `${Number(probes.unchecked).toLocaleString("en-US")} internal URL${probes.unchecked === 1 ? "" : "s"} that crawled pages link or ` +
+      "redirect to were past the crawl's limits and not requested, so links and redirects to them were not checked.";
+    for (const ruleId of ["broken-internal-links", "link-to-redirect", "redirect-chain", "redirect-loop", "redirect-terminal-failure"]) {
+      partial.set(ruleId, reason);
+    }
+  }
   if (!externalLinksChecked) {
     skip(EXTERNAL_FETCH_RULES, "External links were not checked on this crawl.");
   } else if (Number(siteDiagnostics.externalLinksUnchecked) > 0) {
@@ -1510,6 +1583,17 @@ function crawlCoverage({
         ruleId,
         `${unchecked.toLocaleString("en-US")} external URLs past the crawl's external-link limit were not requested, so links to them were not checked.`,
       );
+    }
+  }
+  if (externalLinksChecked && externalNotChecked.length) {
+    const hosts = [...new Set(externalNotChecked.map((result) => {
+      try { return new URL(result.url).hostname; } catch { return ""; }
+    }).filter(Boolean))];
+    const reason =
+      `${externalNotChecked.length.toLocaleString("en-US")} external URL${externalNotChecked.length === 1 ? " was" : "s were"} not checked: ` +
+      `${hosts.slice(0, 3).join(", ")}${hosts.length > 3 ? ` and ${hosts.length - 3} more` : ""} kept answering 429/503 (rate limiting), so the crawl stopped asking.`;
+    for (const ruleId of EXTERNAL_FETCH_RULES) {
+      partial.set(ruleId, partial.has(ruleId) ? `${partial.get(ruleId)} ${reason}` : reason);
     }
   }
   if (!robotsRespected && !googlebotRobotsChecked) {
@@ -1555,17 +1639,22 @@ function crawlCoverage({
   const fetchedAssets = assets.filter((result) => result.status === 200);
   const isScriptOrStyle = (result) =>
     /javascript|css/.test(result.contentType || "") || /\.(?:m?js|css)(?:$|\?)/i.test(result.url);
+  // "No CSS files were fetched" read as "the site has none" on a crawl whose
+  // page budget ran out before it reached any (audit R8).
+  const whyNone = crawlTruncated
+    ? " The crawl reached its limits first, so this does not mean the site has none."
+    : "";
   if (!assets.length) {
-    skip(["blocked-resource"], "No internal resource files (CSS, JavaScript, images, documents) were found to check.");
+    skip(["blocked-resource"], `No internal resource files (CSS, JavaScript, images, documents) were found to check.${whyNone}`);
   }
   if (!assets.some(isScriptOrStyle)) {
-    skip(["broken-javascript"], "No internal JavaScript or CSS files were found to check.");
+    skip(["broken-javascript"], `No internal JavaScript or CSS files were found to check.${whyNone}`);
   }
   if (!fetchedAssets.some(isScriptOrStyle)) {
-    skip(["asset-uncached", "asset-unminified", "asset-uncompressed"], "No internal CSS or JavaScript files were fetched.");
+    skip(["asset-uncached", "asset-unminified", "asset-uncompressed"], `No internal CSS or JavaScript files were fetched.${whyNone}`);
   }
   if (!fetchedAssets.some((result) => (result.contentType || "").startsWith("image/"))) {
-    skip(["image-oversized"], "No internal images were fetched.");
+    skip(["image-oversized"], `No internal images were fetched.${whyNone}`);
   }
 
   if (pagesMissingLinkData > 0) {
@@ -1574,6 +1663,14 @@ function crawlCoverage({
       `page${pagesMissingLinkData === 1 ? "" : "s"} fetched before the interruption were stored without their ` +
       "links and resources, so those pages' links, images and scripts were not checked.";
     for (const ruleId of LINK_DATA_RULES) if (!partial.has(ruleId)) partial.set(ruleId, reason);
+  }
+
+  if (servedShellOnly) {
+    skip(
+      [...JS_SHELL_RULES],
+      "The site builds its content and links with JavaScript, and this crawl could not render its pages, " +
+        "so only the server's empty page was seen. Content, heading, metadata and internal-link checks were not run on it.",
+    );
   }
 
   const render = siteDiagnostics.renderCheck;
@@ -1597,7 +1694,36 @@ function crawlCoverage({
   for (const ruleId of firedRuleIds) notEvaluated.delete(ruleId);
   const inCatalogOrder = (map) =>
     catalog.filter((rule) => map.has(rule.id)).map((rule) => ({ ruleId: rule.id, reason: map.get(rule.id) }));
-  return { notEvaluated: inCatalogOrder(notEvaluated), partial: inCatalogOrder(partial), pagesNotAudited };
+  // How much of the site the audit stands for, for the report's first line: a
+  // workbook that never said its crawl was cut short read as a whole-site
+  // audit (audit R4).
+  const crawl = crawlState
+    ? {
+        pagesAudited: internalResults.filter(
+          (result) => !result.probe && result.contentType?.includes("text/html") && result.status >= 200 && result.status < 300,
+        ).length,
+        stopped: Boolean(crawlState.stopped),
+        budgetReached: Boolean(crawlState.budgetReached),
+        depthLimited: Boolean(crawlState.depthLimited),
+        edgesTruncated: Boolean(crawlState.edgesTruncated),
+        truncated: Boolean(crawlState.truncated),
+        trapTemplates: Number(crawlState.trapTemplates) || 0,
+        // URLs the crawl knew of and did not audit as pages. The unrendered
+        // entry above is left out: those pages were audited, as served.
+        knownNotAudited:
+          sitemapNotCrawled +
+          closedToCrawlScopeOnly +
+          (scopeLimited ? Number(scopeExcluded) || 0 : 0) +
+          (Number(siteDiagnostics.probes?.checked) || 0) +
+          (Number(siteDiagnostics.probes?.unchecked) || 0),
+      }
+    : undefined;
+  return {
+    notEvaluated: inCatalogOrder(notEvaluated),
+    partial: inCatalogOrder(partial),
+    pagesNotAudited,
+    ...(crawl ? { crawl } : {}),
+  };
 }
 
 function buildFindings({
@@ -1617,6 +1743,10 @@ function buildFindings({
   // so inlink-count-based checks (single-inlink, orphan-page) would otherwise
   // report false confidence on a crawl that never saw the whole site.
   crawlTruncated = false,
+  // The crawler's stopped / budgetReached / depthLimited / edgesTruncated /
+  // truncated flags, for coverage.crawl. Absent from callers that are not a
+  // live crawl.
+  crawlState = null,
   // The crawl's removeParameters and includeSubdomains options, for its URL
   // identity (url-identity.js).
   removeParameters = [],
@@ -1650,7 +1780,11 @@ function buildFindings({
   const findingIds = new Set();
   // "Absent from every sitemap" needs every sitemap document. When traversal
   // stopped at its cap, the unread ones may list the page (M5).
-  const sitemapsComplete = sitemapsChecked && !siteDiagnostics?.sitemapCoverage?.traversalStopped;
+  // …and at least one sitemap. With none at all, every page is "absent from every
+  // sitemap", which restates the one site-level finding (sitemap-robots-config)
+  // once per page: 300 notices on paulgraham.com in the 2026-09-29 audit.
+  const sitemapsComplete =
+    sitemapsChecked && !siteDiagnostics?.sitemapCoverage?.traversalStopped && siteDiagnostics?.sitemapsFound !== false;
   const newsSitemaps = new Set(siteDiagnostics?.newsSitemaps || []);
   const allInternalResults = results.filter((result) => result.scope !== "External");
   // Responses that refused the crawler are not the site's pages, so every check
@@ -1669,8 +1803,10 @@ function buildFindings({
   const { refused } = refusals;
   const index = createResultIndex(results.filter((result) => !refused.has(result.url)), startUrl, identityOptions);
   const internalResults = allInternalResults.filter((result) => !refused.has(result.url));
+  // Probe rows (crawler.js#_processProbe: past the page budget, status only)
+  // were never read, so they are no page's content.
   const htmlResults = internalResults.filter((result) =>
-    result.contentType?.includes("text/html"),
+    result.contentType?.includes("text/html") && !result.probe,
   );
   const brandSegments = brandTitleSegments(
     htmlResults.filter((result) => result.status >= 200 && result.status < 300),
@@ -1698,7 +1834,24 @@ function buildFindings({
       .filter(([, issue]) => issue),
   );
 
+  // A client-rendered shell that no page of the crawl got past (see
+  // JS_SHELL_RULES): its content checks are reported as not evaluated.
+  const servedShellOnly =
+    Boolean(siteDiagnostics.clientRenderedShell) &&
+    !allInternalResults.some((result) => result.renderedWithJavaScript);
+  // The link being judged, while the link loop below runs: its findings name
+  // the href as the page wrote it when the crawler folded tracking parameters
+  // out of the target (audit R5), so the link a developer fixes is the one shown.
+  let currentEdge = null;
   const add = (ruleId, source = {}, extra = {}) => {
+    if (servedShellOnly && JS_SHELL_RULES.has(ruleId)) return;
+    // One page of a rendered crawl that could not be rendered: its served
+    // shell is not the page (crawler.js unrenderedShell).
+    if ((source?.unrenderedShell || source?.javascriptRedirectUrl) && JS_SHELL_RULES.has(ruleId)) return;
+    if (currentEdge?.hrefAsWritten && extra.targetUrl === currentEdge.targetUrl) {
+      const written = `Written on the page as ${currentEdge.hrefAsWritten}`;
+      extra = { ...extra, detail: extra.detail ? `${extra.detail}. ${written}` : written };
+    }
     const finding = findingFor(ruleId, source, extra, { startUrl });
     if (!finding || findingIds.has(finding.id)) return;
     findingIds.add(finding.id);
@@ -1955,7 +2108,10 @@ function buildFindings({
         }`,
       });
     } else if (!brokenAsset && result.status >= 400 && result.status < 500) {
-      add("page-4xx", result);
+      add("page-4xx", result, {
+        detail: result.statusText,
+        detectedValue: `HTTP ${result.status}${result.statusText ? ` ${result.statusText}` : ""}`,
+      });
     }
     if (bodyUnread && result.status >= 200 && result.status < 300) {
       add("crawl-failure", result, {
@@ -1978,7 +2134,9 @@ function buildFindings({
     // is not reported, only counted as not audited (coverage); one closed to
     // Googlebot alone was fetched and audited, and is reported.
     if (result.statusText === "Blocked by robots.txt") {
-      if (result.googlebotAllowed !== true) {
+      // robots.txt could not be read at all: the site blocked nothing, and the
+      // outage is reported once, site-wide, from robotsWarnings.
+      if (result.googlebotAllowed !== true && !result.robotsUnavailable) {
         add(result.isAsset ? "blocked-resource" : "robots-blocked", result,
           result.googlebotAllowed === false
             ? { detail: "robots.txt disallows this URL for Googlebot, and for CrawlScope." }
@@ -1990,7 +2148,9 @@ function buildFindings({
       });
     }
 
-    if (inSitemaps.length) {
+    // A sitemap URL that was never fetched because robots.txt was down says
+    // nothing about the sitemap.
+    if (inSitemaps.length && !result.robotsUnavailable) {
       const refresh = declarativeRefresh(result);
       const declarativeRedirect = redirectDestination(result);
       const terminalFailure = redirectTerminalFailures.get(result.url);
@@ -2009,9 +2169,8 @@ function buildFindings({
       if (
         !plainRedirect &&
         (result.status !== 200 ||
-          result.indexability !== "Indexable" ||
-          canonicalMismatch ||
-          declarativeRedirect)
+          // A probe's indexability is unknown (never read): only its status counts.
+          (!result.probe && (result.indexability !== "Indexable" || canonicalMismatch || declarativeRedirect)))
       ) {
         add("sitemap-incorrect-url", result, {
           detail:
@@ -2093,6 +2252,7 @@ function buildFindings({
 
     if (
       !crawlTruncated &&
+      !result.probe &&
       !scopeLimited &&
       isHtml &&
       result.status === 200 &&
@@ -2112,6 +2272,7 @@ function buildFindings({
     }
     if (
       !crawlTruncated &&
+      !result.probe &&
       !scopeLimited &&
       isHtml &&
       result.status === 200 &&
@@ -2130,7 +2291,7 @@ function buildFindings({
       });
     }
     const clickDepth = clickDepthOf(result.url);
-    if (isHtml && result.status >= 200 && result.status < 300 && clickDepth > limits.maxClickDepth) {
+    if (isHtml && !result.probe && result.status >= 200 && result.status < 300 && clickDepth > limits.maxClickDepth) {
       // A link from a page one click short of the limit brings it within it.
       const candidates = linkCandidates(result.url, { maxDepth: limits.maxClickDepth - 1 });
       const depthLabel = (url, at) => {
@@ -2209,9 +2370,11 @@ function buildFindings({
     // position2.com's sitemap has ~55 double-slash URLs that 308-redirect,
     // and every one of them was being flagged for "missing meta description"
     // and "low word count" despite having no actual page to evaluate).
-    if (isHtml && result.status >= 200 && result.status < 300 && !bodyUnread) {
+    if (isHtml && result.status >= 200 && result.status < 300 && !bodyUnread && !result.probe) {
       const refresh = declarativeRefresh(result);
-      if (refresh) {
+      // A JavaScript redirect is not a refresh tag: it is reported where links
+      // and sitemaps point at it (link-to-redirect, sitemap-incorrect-url).
+      if (refresh && refresh.source !== "javascript") {
         const raw = String(refresh.raw).replaceAll('"', "'");
         const delay = refreshDelayLabel(refresh);
         const ruleId = refresh.source === "header" ? "http-refresh" : "meta-refresh";
@@ -2306,12 +2469,16 @@ function buildFindings({
           });
         }
         if (!result.h1Count) {
-          add("h1-missing", result, { recommendedValue: suggestH1(result) });
+          add("h1-missing", result, {
+            detail: `No <h1> element in the ${result.renderedWithJavaScript ? "rendered" : "served"} HTML`,
+            detectedValue: "0 <h1> elements",
+            recommendedValue: suggestH1(result),
+          });
         } else if (result.h1Count > 1) {
           add("h1-multiple", result, { detectedValue: result.h1Count });
         }
         if (!result.viewport) {
-          add("viewport-missing", result);
+          add("viewport-missing", result, { detail: 'No <meta name="viewport"> tag', detectedValue: "(none)" });
         } else if (!/width\s*=\s*device-width/i.test(result.viewport)) {
           add("viewport-not-responsive", result, { detectedValue: result.viewport });
         }
@@ -2326,9 +2493,18 @@ function buildFindings({
       // Explicitly empty only: a result stored before the crawler read the
       // attribute has no htmlLang at all, which is not the same thing. The
       // same goes for charset and doctype below.
-      if (result.htmlLang === "") add("html-lang-missing", result);
-      if (result.charsetDeclared === false) add("charset-missing", result);
-      if (result.doctypeDeclared === false) add("doctype-missing", result);
+      if (result.htmlLang === "") {
+        add("html-lang-missing", result, { detail: "The <html> element has no lang attribute", detectedValue: "(none)" });
+      }
+      if (result.charsetDeclared === false) {
+        add("charset-missing", result, {
+          detail: `No byte-order mark, no <meta charset>, and no charset in the Content-Type header${result.contentType ? ` (${result.contentType})` : ""}`,
+          detectedValue: "(none)",
+        });
+      }
+      if (result.doctypeDeclared === false) {
+        add("doctype-missing", result, { detail: "The document does not start with <!DOCTYPE html>", detectedValue: "(none)" });
+      }
 
       // Weight and compression of the HTML itself (the resource checks cover
       // scripts and stylesheets).
@@ -2447,11 +2623,17 @@ function buildFindings({
           detectedValue: "og:description",
         });
       }
-      if (result.ogUrl && result.canonical && result.ogUrl !== result.canonical) {
+      // Against the canonical the page DECLARES. `result.canonical` falls back
+      // to the page's own URL when there is none, which reported "canonical:
+      // <this page>" on pages with no canonical tag at all (ma.tt author and
+      // paged archives, 2026-09-29). Results stored before `canonicals` existed
+      // keep the old comparison.
+      const declaredCanonical = Array.isArray(result.canonicals) ? result.canonicals[0] || "" : result.canonical;
+      if (result.ogUrl && declaredCanonical && !index.same(result.ogUrl, declaredCanonical)) {
         const rawOgUrl = result.ogUrlRaw || result.ogUrl;
         add("open-graph-canonical", result, {
-          targetUrl: result.canonical,
-          detail: `og:url: ${rawOgUrl}; canonical: ${result.canonical}`,
+          targetUrl: declaredCanonical,
+          detail: `og:url: ${rawOgUrl}; canonical: ${declaredCanonical}`,
           detectedValue: rawOgUrl,
         });
       }
@@ -2480,7 +2662,12 @@ function buildFindings({
         /\.(?:m?js|css)(?:$|\?)/i.test(result.url);
       if (isScriptOrStyle && !result.cacheable) add("asset-uncached", result);
       if (isScriptOrStyle && result.unminified) add("asset-unminified", result);
-      if (isScriptOrStyle && !result.contentEncoding) add("asset-uncompressed", result);
+      // The same floor as HTML: below about one packet, compression saves
+      // nothing (kubernetes.io's three findings were 81-918 byte scripts).
+      const assetBytes = Number(result.decodedSize) || Number(result.size) || 0;
+      if (isScriptOrStyle && !result.contentEncoding && assetBytes >= HTML_COMPRESSION_MIN_BYTES) {
+        add("asset-uncompressed", result, { detectedValue: `${(assetBytes / 1024).toFixed(1)} KB sent with no Content-Encoding` });
+      }
       if (
         (result.contentType || "").startsWith("image/") &&
         result.size > 200 * 1024
@@ -2522,7 +2709,13 @@ function buildFindings({
         detectedValue: lang,
       });
     }
-    if (!pagesByLang.has("x-default")) add("hreflang-x-default-missing", result);
+    if (!pagesByLang.has("x-default")) {
+      const langs = [...pagesByLang.keys()];
+      add("hreflang-x-default-missing", result, {
+        detail: `The hreflang set declares ${langs.length} language${langs.length === 1 ? "" : "s"} (${langs.slice(0, 12).join(", ")}${langs.length > 12 ? ", …" : ""}) and no x-default`,
+        detectedValue: langs.slice(0, 12).join(", "),
+      });
+    }
 
     for (const entry of result.hreflangs) {
       if (index.same(entry.url, result.url)) continue;
@@ -2544,6 +2737,7 @@ function buildFindings({
         });
         continue;
       }
+      if (!parsedDocument(target)) continue; // its hreflang tags were never read
       const pointsBack = (target.hreflangs || []).some((t) => index.same(t.url, result.url));
       if (!pointsBack) {
         add("hreflang-missing-return", result, {
@@ -2662,7 +2856,15 @@ function buildFindings({
       });
     } else {
       if (isNoindex(resultRobotsDirectives(target))) {
-        add("canonical-to-noindex", result, { targetUrl: result.canonical });
+        const sources = [
+          target.robots ? `meta robots "${target.robots}"` : "",
+          target.xRobotsTag ? `X-Robots-Tag "${target.xRobotsTag}"` : "",
+        ].filter(Boolean);
+        add("canonical-to-noindex", result, {
+          targetUrl: result.canonical,
+          detail: `The canonical target is noindex${sources.length ? ` (${sources.join("; ")})` : ""}`,
+          detectedValue: sources.join("; ") || "noindex",
+        });
       }
     }
   }
@@ -2687,8 +2889,24 @@ function buildFindings({
       }
     }
 
-    if (result.canonical && !index.same(result.canonical, result.url)) {
-      add("pagination-canonical-conflict", result, { targetUrl: result.canonical });
+    // rel=next/prev alone does not make a paginated listing: Sphinx, MkDocs and
+    // most documentation generators emit them for the next chapter, and a
+    // versioned docs page canonicalising to its /3/ copy is correct. On
+    // docs.python.org all 109 findings told the site to self-canonicalise
+    // every version. A series is paginated when its URLs say so.
+    const paginated = [result.url, result.paginationNext, result.paginationPrev]
+      .filter(Boolean)
+      .some((url) => looksPaginatedUrl(url));
+    if (paginated && result.canonical && !index.same(result.canonical, result.url)) {
+      add("pagination-canonical-conflict", result, {
+        targetUrl: result.canonical,
+        detail: [
+          result.paginationPrev ? `rel="prev" ${result.paginationPrev}` : "",
+          result.paginationNext ? `rel="next" ${result.paginationNext}` : "",
+          `canonical ${result.canonical}`,
+        ].filter(Boolean).join("; "),
+        detectedValue: result.canonical,
+      });
     }
   }
 
@@ -2872,6 +3090,7 @@ function buildFindings({
   const incomingFollow = new Map();
   const externalNofollowBySource = new Map();
   for (const edge of linkEdges) {
+    currentEdge = edge;
     const source = index.get(edge.sourceUrl);
     // The page the crawler fetched for this link — for an http:// href on an
     // https site, its https equivalent (the edge keeps the href as written).
@@ -2919,7 +3138,9 @@ function buildFindings({
           targetUrl: edge.targetUrl,
           statusCode: target.status,
           detail: evidence,
-          detectedValue: evidence,
+          // The link, not the redirect: a page can link to one URL several
+          // times, and the redirect is already in Detail (audit R6).
+          detectedValue: linkTextEvidence(edge),
         });
       } else if (targetTrace?.limitReached) {
         const evidence = `Exceeds Fetch's ${MAX_FETCH_REDIRECTS}-redirect limit: ${redirectLimitEvidence(targetTrace)}`;
@@ -2927,7 +3148,9 @@ function buildFindings({
           targetUrl: edge.targetUrl,
           statusCode: target.status,
           detail: evidence,
-          detectedValue: evidence,
+          // The link, not the redirect: a page can link to one URL several
+          // times, and the redirect is already in Detail (audit R6).
+          detectedValue: linkTextEvidence(edge),
         });
       } else if (targetTerminalSuitability) {
         const evidence = `Link target's ${targetTerminalSuitability.relationshipDetail}. Path: ${targetTerminalSuitability.pathEvidence}`;
@@ -2935,7 +3158,9 @@ function buildFindings({
           targetUrl: edge.targetUrl,
           statusCode: target.status,
           detail: evidence,
-          detectedValue: evidence,
+          // The link, not the redirect: a page can link to one URL several
+          // times, and the redirect is already in Detail (audit R6).
+          detectedValue: linkTextEvidence(edge),
         });
       } else if (
         !targetTerminalFailure &&
@@ -2949,7 +3174,9 @@ function buildFindings({
           targetUrl: edge.targetUrl,
           statusCode: target.status,
           detail: evidence,
-          detectedValue: evidence,
+          // The link, not the redirect: a page can link to one URL several
+          // times, and the redirect is already in Detail (audit R6).
+          detectedValue: linkTextEvidence(edge),
         });
       } else if (!targetTerminalFailure && targetRedirect) {
         const targetRefresh = declarativeRefresh(target);
@@ -2958,7 +3185,9 @@ function buildFindings({
           targetUrl: edge.targetUrl,
           statusCode: target.status,
           detail: evidence,
-          detectedValue: evidence,
+          // The link, not the redirect: a page can link to one URL several
+          // times, and the redirect is already in Detail (audit R6).
+          detectedValue: linkTextEvidence(edge),
         });
       }
       if (isNofollow) {
@@ -2991,7 +3220,10 @@ function buildFindings({
       }
       externalNofollowBySource.set(edge.sourceUrl, policy);
 
-      if (REFUSED_EXTERNAL_STATUS[target?.status]) {
+      if (target?.externalNotChecked) {
+        // Never requested: its host was rate-limiting the crawler. Coverage
+        // says how many; it is neither broken nor fine.
+      } else if (REFUSED_EXTERNAL_STATUS[target?.status]) {
         // Refusal, not absence: bot protection, rate limiting and login walls
         // answer a crawler this way while the page is live for visitors.
         const label = REFUSED_EXTERNAL_STATUS[target.status];
@@ -3002,15 +3234,25 @@ function buildFindings({
           detectedValue: `HTTP ${target.status} (${label})`,
         });
       } else if (target && (target.status >= 400 || !target.status)) {
+        const crawlerSaw = target.status
+          ? `HTTP ${target.status}${target.statusText ? ` ${target.statusText}` : ""}`
+          : `no response (${target.statusText || "fetch failed"})`;
+        const browserSaw = target.browserStatus
+          ? `HTTP ${target.browserStatus}`
+          : "no response";
         add("broken-external-link", source, {
           targetUrl: edge.targetUrl,
           statusCode: target.status,
-          detail: target.statusText,
+          detail: `The crawler got ${crawlerSaw}; asked again as a browser: ${browserSaw}.`,
+          detectedValue: crawlerSaw,
         });
       }
     }
 
-    if (!edge.anchorText && !edge.accessibleName) {
+    if (edge.hiddenFromAccessibility) {
+      // aria-hidden="true" tabindex="-1": the decorative duplicate of a named
+      // link (w3.org's blog cards). Screen readers never reach it.
+    } else if (!edge.anchorText && !edge.accessibleName) {
       add("anchor-missing", source, {
         targetUrl: edge.targetUrl,
         detail: edge.elementHint || "Link has no visible or accessible name",
@@ -3062,6 +3304,7 @@ function buildFindings({
       });
     }
   }
+  currentEdge = null;
 
   for (const [sourceUrl, policy] of externalNofollowBySource) {
     const genericCount = policy.genericNofollow.length;
@@ -3149,10 +3392,12 @@ function buildFindings({
         : "alt attribute contains only whitespace";
       const elementEvidence =
         edge.altElementHint || edge.elementHint || "img element";
+      // An image embedded as a data: URI has no URL to show; the evidence says so.
+      const embedded = edge.targetUrl ? "" : " (embedded data: image, no URL)";
       add("image-alt-missing", source, {
         targetUrl: edge.targetUrl,
-        detail: `${reason}: ${elementEvidence}`,
-        detectedValue: elementEvidence,
+        detail: `${reason}: ${elementEvidence}${embedded}`,
+        detectedValue: `${elementEvidence}${embedded}`,
       });
     }
   }
@@ -3330,7 +3575,9 @@ function buildFindings({
     });
   }
   if (siteDiagnostics.llmsStatus === "missing") {
-    add("llms-missing", { url: new URL("/llms.txt", startUrl).href });
+    add("llms-missing", { url: new URL("/llms.txt", startUrl).href }, {
+      ...(siteDiagnostics.llmsMissingDetail ? { detail: siteDiagnostics.llmsMissingDetail } : {}),
+    });
   } else if (siteDiagnostics.llmsFormatIssue) {
     add("llms-format", { url: new URL("/llms.txt", startUrl).href }, {
       detail: siteDiagnostics.llmsFormatIssue,
@@ -3345,7 +3592,7 @@ function buildFindings({
   // hostname is enough to know whether that host sends the header.
   const hstsCheckedHosts = new Map();
   for (const result of internalResults) {
-    if (!result.url.startsWith("https:") || result.status !== 200) continue;
+    if (!result.url.startsWith("https:") || result.status !== 200 || result.probe) continue;
     let host;
     try {
       host = new URL(result.url).hostname;
@@ -3420,6 +3667,9 @@ function buildFindings({
         (result) => result.statusText === "Blocked by robots.txt" && result.googlebotAllowed === true,
       ).length,
       internalResults: allInternalResults,
+      servedShellOnly,
+      crawlState,
+      externalNotChecked: results.filter((result) => result.externalNotChecked),
     }),
     mediaLibrary: buildMediaLibrary(results, resourceEdges),
     // Internal HTML pages only — the same universe every other page-level

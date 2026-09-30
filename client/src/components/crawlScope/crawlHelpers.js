@@ -239,11 +239,21 @@ export function filterResults(results, { tab = 'all', issueFilter = '', filter =
   return values;
 }
 
-// ── Health ──────────────────────────────────────────────────────────────────
-// Weights (45 / 22 / 8) and the dedupe-by-affected-page rule are carried over
-// verbatim. Counting affected PAGES rather than raw findings is deliberate: a
-// page with five missing alt attributes is one affected page, not five, and
-// counting findings let a single page hit the same penalty as a site-wide issue.
+// ── Health (v5) ─────────────────────────────────────────────────────────────
+// Each page loses HEALTH_WEIGHTS points per DISTINCT rule it fails, by
+// severity, capped at 100 for the page; Site Health is 100 less the average
+// loss over the audited pages. A page with five missing alt attributes has
+// one rule failing, not five, so one noisy rule cannot sink a page.
+//
+// v4 counted only whether a page had ANY finding of each severity (45 / 22 / 8
+// by page share), so any site where every page had a warning and a notice
+// scored 70 whatever else was wrong: five of eleven sites in the 2026-09-29
+// accuracy audit scored exactly 70, from 516 findings to 7,763.
+//
+// Pages scored (isScoredPage): internal 2xx HTML pages the crawl audited. Not
+// redirect stubs or error pages (each would count as a clean "page"), not
+// responses that refused the crawler, not URLs only status-checked past the
+// page budget (`probe`).
 //
 // Internal pages only, everywhere below.
 //
@@ -257,12 +267,47 @@ export function filterResults(results, { tab = 'all', issueFilter = '', filter =
 // behind broken-external-link and external-403, which attach to the internal page
 // carrying the link. They are simply not pages of this site, so they are not
 // scored as pages of this site.
+// Points a page loses per distinct failing rule of each severity.
+export const HEALTH_WEIGHTS = { error: 40, warning: 10, notice: 2 };
+
+export const isScoredPage = (result) =>
+  isHtmlPage(result) &&
+  !result.crawlRefused &&
+  !result.probe &&
+  // A page of a rendered crawl that could not be rendered: only its empty
+  // shell was read, so it is neither clean nor broken.
+  !result.unrenderedShell &&
+  (result.status === undefined || result.status === null || (result.status >= 200 && result.status < 300));
+
+/**
+ * The v5 loss, split by severity: for every page, its distinct failing rules
+ * per severity (`{ error, warning, notice }` counts), weighted, capped at 100
+ * per page, and averaged over `pageCount` pages. The cap is shared out in
+ * proportion so the three parts still add up to the page's capped loss.
+ */
+export function healthLoss(rulesPerPage, pageCount) {
+  const loss = { error: 0, warning: 0, notice: 0 };
+  if (!pageCount) return loss;
+  for (const counts of rulesPerPage) {
+    const raw = {
+      error: (counts.error || 0) * HEALTH_WEIGHTS.error,
+      warning: (counts.warning || 0) * HEALTH_WEIGHTS.warning,
+      notice: (counts.notice || 0) * HEALTH_WEIGHTS.notice,
+    };
+    const total = raw.error + raw.warning + raw.notice;
+    if (!total) continue;
+    const scale = Math.min(100, total) / total;
+    for (const key of Object.keys(loss)) loss[key] += (raw[key] * scale) / pageCount;
+  }
+  return loss;
+}
+
 export function healthMetrics(results, findings = []) {
   const internalResults = results.filter((item) => item.scope !== 'External');
   // A response that refused the crawler (bot protection, rate limiting — the
   // analyzer's crawl-blocked finding) is not one of the site's pages: nothing
   // was learned about it, so it is neither counted clean nor counted broken.
-  const htmlResults = internalResults.filter((item) => isHtmlPage(item) && !item.crawlRefused);
+  const htmlResults = internalResults.filter(isScoredPage);
   const htmlUrls = new Set(htmlResults.map((item) => item.url));
   // `finding.scope` ('page' | 'site' | 'resource' | 'template') is unrelated to
   // a crawl result's own `.scope` ('Internal' | 'External') just above. A
@@ -311,19 +356,29 @@ export function healthMetrics(results, findings = []) {
   // up double-counts and can exceed the number of pages crawled.
   const affectedAnyPages = affectedPages(null);
 
-  // Internal HTML pages alone. The old `Math.max(htmlResults.length,
-  // results.length)` put every external result back into the divisor.
-  const denominator = Math.max(htmlResults.length, 1);
+  // Distinct failing rules per scored page and severity. Findings without a
+  // rule id (older stored rows) count as one rule per severity, so forty rows
+  // of one unnamed warning are still one problem, as in v4.
+  const rulesByPage = new Map();
+  const note = (url, severity, rule) => {
+    if (!htmlUrls.has(url) || !(severity in HEALTH_WEIGHTS)) return;
+    const page = rulesByPage.get(url) || { error: new Set(), warning: new Set(), notice: new Set() };
+    page[severity].add(rule);
+    rulesByPage.set(url, page);
+  };
+  if (useFindings) {
+    for (const f of activeFindings) note(f.url, f.severity, f.ruleId || "?");
+  } else {
+    for (const item of internalResults) {
+      for (const issue of item.issues || []) note(item.url, issue.severity, issue.id || "?");
+    }
+  }
+  const bandLoss = healthLoss(
+    [...rulesByPage.values()].map((p) => ({ error: p.error.size, warning: p.warning.size, notice: p.notice.size })),
+    htmlResults.length,
+  );
   const health = htmlResults.length
-    ? Math.max(
-        0,
-        Math.round(
-          100 -
-            (affectedErrorPages / denominator) * 45 -
-            (affectedWarningPages / denominator) * 22 -
-            (affectedNoticePages / denominator) * 8,
-        ),
-      )
+    ? Math.max(0, Math.round(100 - bandLoss.error - bandLoss.warning - bandLoss.notice))
     : null;
 
   return {
@@ -331,6 +386,8 @@ export function healthMetrics(results, findings = []) {
     warnings,
     notices,
     health,
+    // Exact points each severity cost (healthScoreBreakdown apportions them).
+    bandLoss,
     indexable: htmlResults.filter((item) => item.indexability === 'Indexable').length,
     htmlCount: htmlResults.length,
     refusedCount: internalResults.filter((item) => item.crawlRefused).length,
@@ -372,11 +429,15 @@ export function healthScoreBreakdown(metrics) {
   const denominator = Math.max(metrics.htmlCount, 1);
 
   const bands = [
-    { label: 'Errors', pages: metrics.affectedErrorPages, weight: 45 },
-    { label: 'Warnings', pages: metrics.affectedWarningPages, weight: 22 },
-    { label: 'Notices', pages: metrics.affectedNoticePages, weight: 8 },
+    { label: 'Errors', key: 'error', pages: metrics.affectedErrorPages, weight: HEALTH_WEIGHTS.error },
+    { label: 'Warnings', key: 'warning', pages: metrics.affectedWarningPages, weight: HEALTH_WEIGHTS.warning },
+    { label: 'Notices', key: 'notice', pages: metrics.affectedNoticePages, weight: HEALTH_WEIGHTS.notice },
   ].map((b) => {
-    const exact = ((b.pages || 0) / denominator) * b.weight;
+    // v5 metrics carry each band's exact loss; a caller with only page counts
+    // (older stored metrics) gets the page-share approximation.
+    const exact = metrics.bandLoss
+      ? Number(metrics.bandLoss[b.key]) || 0
+      : ((b.pages || 0) / denominator) * b.weight;
     return { ...b, exact, points: Math.floor(exact) };
   });
 

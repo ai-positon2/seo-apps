@@ -216,9 +216,9 @@ async function runAgentReadiness({ access, run, project, keywords, isStillOurs }
  * unattended: the top candidates are persisted as tracked competitors
  * directly, with no review step, instead of held for a human to confirm.
  * Called two ways: automatically inside runCompetitor (only when a project
- * with the setup toggle on still has zero tracked competitors), and on demand
+ * has zero tracked competitors and none awaiting approval), and on demand
  * from the Domains panel's "Find competitors with AI" button regardless of
- * that toggle or how many competitors already exist — see
+ * how many competitors already exist — see
  * routes.js POST /:projectId/domains/competitors/discover.
  *
  * `existingCompetitors` (hosts already tracked or proposed) is passed through
@@ -324,15 +324,16 @@ async function runCompetitor({ access, project, domains }) {
   let competitors = (domains || []).filter((d) => d.role === 'competitor' && d.status === 'active');
   const primary = (domains || []).find((d) => d.role === 'primary' && d.status === 'active');
 
-  // "Find competitors for me" from Project Setup does not run at setup time —
-  // it runs HERE, the first time this metered comparison is actually started,
-  // which is what keeps a toggle flipped at setup from spending a SEMrush
-  // budget before anyone asked to run anything (same reasoning as this module
-  // being excluded from "Run Full Audit" below). Gated on the project still
-  // having zero active competitors: once any exist — auto-discovered or typed
-  // in — this never overrides what the analyst has since curated.
+  // A project with no competitors finds its own, HERE, inside the metered run
+  // rather than at setup — discovery spends SEMrush units too, so it happens
+  // only when a comparison is actually started. Gated on the project having
+  // zero active competitors: once any exist — auto-discovered or typed in —
+  // this never overrides what the analyst has since curated. Also held back
+  // while a contributor's proposals await approval, so it cannot pre-empt the
+  // approver's decision about them.
+  const hasProposed = (domains || []).some((d) => d.role === 'competitor' && d.status === 'proposed');
   let autoDiscoveryNote = '';
-  if (!competitors.length && project.settings?.autoFindCompetitors) {
+  if (!competitors.length && !hasProposed) {
     const knownCompetitors = (domains || [])
       .filter((d) => d.role === 'competitor')
       .map((d) => d.host || d.normalized_origin)
@@ -351,13 +352,16 @@ async function runCompetitor({ access, project, domains }) {
     autoDiscoveryNote = discovered.note;
   }
 
+  // Only reachable with proposals pending — every other empty list discovered
+  // its own above.
   if (!competitors.length) {
     return {
       status: 'insufficient_data',
       score: null,
       findings: [],
-      payload: { competitorCount: 0, reason: 'no_competitors_tracked' },
-      note: 'No competitors are tracked on this project, so there is nothing to compare against.',
+      payload: { competitorCount: 0, reason: 'competitors_pending_approval' },
+      note: 'The competitors on this project are proposed, not tracked. An approver has to accept '
+        + 'them before a comparison can run.',
     };
   }
 
@@ -723,6 +727,29 @@ async function runHubSpoke({ project, domains }) {
         .catch((e) => console.error('[hub_spoke] could not clear the all-pages analysis:', e.message));
     }
 
+    // The site refused the requests. Its sitemap and menus were never seen, so
+    // advice about publishing a sitemap would be wrong — seen on two retailers
+    // whose bot protection answered every request with 403.
+    const blocked = input.meta?.blocked;
+    if (blocked) {
+      return {
+        status: 'insufficient_data',
+        score: null,
+        findings: [],
+        payload: {
+          reason: 'site_blocked',
+          crawlRunId: crawl.id,
+          blockedStatus: blocked.status ?? null,
+          limitations: summary.limitations || [],
+          cardNote: `The site refused our requests${blocked.status ? ` (HTTP ${blocked.status})` : ''} — nothing could be read.`,
+        },
+        note:
+          `The site answered our requests with ${blocked.status ? `HTTP ${blocked.status}` : 'a refusal'}, so its `
+          + 'sitemaps, menus and articles could not be read. This is usually bot protection (a firewall or CDN rule). '
+          + 'Allowing the crawler through — by its user agent or IP address — would let hub and spoke analyse the site.',
+      };
+    }
+
     return {
       status: 'insufficient_data',
       score: null,
@@ -991,6 +1018,7 @@ async function runHubSpoke({ project, domains }) {
       clusters: clusters.slice(0, 20).map((c) => ({
         name: c.name,
         isGap: c.isGap,
+        ...(c.referenceIndexUrl ? { referenceIndexUrl: c.referenceIndexUrl } : {}),
         spokes: (c.spokeIds || []).length,
         health: c.health ?? null,
         hubConfidence: c.hubConfidence ?? null,

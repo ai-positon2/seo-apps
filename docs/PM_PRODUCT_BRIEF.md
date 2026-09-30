@@ -250,7 +250,7 @@ A row holds tool, action, label (URL/keyword/client), actor, workspace, status, 
 
 ### 5.5 Workspaces
 
-A user's runs land in their **active** workspace, chosen on the Workspaces page and stored in a `workspace_id` cookie, membership-checked on every use. Until someone picks one, runs go to their personal workspace. Being added to a teammate's workspace never silently starts recording your runs there — **a team sharing one run history requires each member to switch to it once.** That is a known onboarding friction point; it is deliberate (privacy), not a bug.
+Everyone who signs in with a Position2 email joins **one shared Position2 workspace** automatically, as an approver (platform administrators as owner), and works in it by default (`identityStore.ensureHomeWorkspace`, migration 0039). Every client lives there, so the team shares one run history with no setup. There is no "active workspace" to switch: work on a project is always filed with the project, and work with no project goes to your home workspace. A new workspace — only a platform administrator can create one — is for a separate client company brought onto the app later; anyone whose email domain has no team workspace keeps a personal one. Existing personal workspaces are merged in by `server/scripts/consolidateTeamWorkspace.js`.
 
 ### 5.6 Limits — versioned policy, layered
 

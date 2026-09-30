@@ -35,9 +35,10 @@ const TRACKING_PARAMS = new Set([
   "yclid",
   "_ga",
   "_gl",
-  "ref",
+  // Not "ref" or "referrer": sites use them to select content (?ref=<branch>,
+  // a referral landing page), so folding them could merge different pages
+  // (2026-09-29 audit, R5). ref_src is Twitter's share tag.
   "ref_src",
-  "referrer",
   "mkt_tok",
   "hsa_acc",
   "hsa_cam",

@@ -2,6 +2,18 @@ function cleanLine(value = "") {
   return String(value).replace(/\s+/g, " ").trim();
 }
 
+// How far before and after a reference its context is read. Short before, so
+// the reference itself is inside the 180 characters that are kept.
+const CONTEXT_BEFORE = 60;
+const CONTEXT_AFTER = 240;
+
+// A fresh copy of a short string. V8 returns slices and trims as views onto the
+// string they came from, so a 40-character URL kept from a 2 MB stylesheet
+// keeps the whole stylesheet alive for as long as the URL is kept.
+function detach(text) {
+  return Buffer.from(text, "utf8").toString("utf8");
+}
+
 function consumeComment(value, start) {
   if (value[start] !== "/" || value[start + 1] !== "*") return start;
   const end = value.indexOf("*/", start + 2);
@@ -147,19 +159,31 @@ function cssResourceReferences(input, { allowImports = true } = {}) {
     }
     return low + 1;
   };
+  // The context is read from a window around the reference, never from the
+  // whole line. Minified CSS is one line, often megabytes long: cleaning all of
+  // it once per url() made the work quadratic, and the 180-character slice kept
+  // of each cleaned copy pinned that whole copy in memory for the rest of the
+  // crawl — measured on a finance publisher, 773 MB of live heap after 100
+  // pages, and an out-of-memory crash at 800.
   const add = (raw, kind, position) => {
     const normalized = String(raw || "").trim();
     if (!normalized || normalized.startsWith("#")) return;
-    const lineStart = value.lastIndexOf("\n", position - 1) + 1;
-    const nextLine = value.indexOf("\n", position);
-    const lineEnd = nextLine < 0 ? value.length : nextLine;
-    const context = cleanLine(value.slice(lineStart, lineEnd));
+    const windowStart = Math.max(0, position - CONTEXT_BEFORE);
+    const windowEnd = Math.min(value.length, position + CONTEXT_AFTER);
+    const around = value.slice(windowStart, windowEnd);
+    const offset = position - windowStart;
+    const before = around.lastIndexOf("\n", offset - 1);
+    const after = around.indexOf("\n", offset);
+    const lineStart = before >= 0 ? before + 1 : 0;
+    let context = cleanLine(around.slice(lineStart, after >= 0 ? after : around.length));
+    if (before < 0 && windowStart > 0 && value[windowStart - 1] !== "\n") context = `…${context}`;
     references.push({
-      raw: normalized,
+      raw: detach(normalized),
       kind,
       line: lineAt(position),
-      context:
+      context: detach(
         context.length > 180 ? `${context.slice(0, 180)}…` : context,
+      ),
     });
   };
 

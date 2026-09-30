@@ -77,7 +77,14 @@ async function streamRun(req, res, client, runId, viewer = null) {
       }
 
       const run = await repo.getRunForViewer(client, runId, viewer);
-      if (run) {
+      // Gone since the stream opened: replaced by a newer crawl of the same
+      // site (a project runs one at a time, see repo.createRun), or deleted.
+      // Streaming on would poll a row that no longer exists, forever.
+      if (!run) {
+        send("error", { message: "This crawl was replaced by a newer crawl of the same site." });
+        break;
+      }
+      {
         // heartbeatAt and status ride along with progress.
         //
         // `state` is sent once, at connection, and never again — so a client

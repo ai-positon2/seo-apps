@@ -109,8 +109,8 @@ async function runCompetitor(run, { isStillOurs } = {}) {
     can: (name) => (role ? projectAccess.capabilityFor(role, name) : false),
   };
 
-  // Raw row, not projectView: runCompetitor reads `country_code`, `settings`
-  // and the raw project_domains rows. (AI Visibility above is the opposite —
+  // Raw row, not projectView: runCompetitor reads `country_code` and the raw
+  // project_domains rows. (AI Visibility above is the opposite —
   // hence the two are built differently rather than sharing one shape.)
   //
   // `isStillOurs` is handed down rather than checked here, because the closing

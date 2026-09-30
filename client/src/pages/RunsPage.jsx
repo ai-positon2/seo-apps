@@ -7,7 +7,7 @@ import {
   fetchRuns, fetchRunStats, toolLabel, formatDuration, formatWhen, STATUS_VARIANT,
 } from '../lib/runsApi';
 
-// Run history for the active workspace. Every module records its runs through
+// Run history for your team's workspace. Every module records its runs through
 // server/middleware/runTracking.js; this reads them back via /api/runs.
 //
 // Runs are workspace-scoped, and a workspace belongs to a primary user (its
@@ -135,14 +135,11 @@ export default function RunsPage() {
         title="Run history"
         subtitle={
           workspace
-            ? `Every run recorded in ${workspace.name}${workspace.ownerEmail ? ` · owned by ${workspace.ownerEmail}` : ''}`
-            : 'Every run recorded in your active workspace.'
+            ? `Every run your team recorded in ${workspace.name}`
+            : 'Every run your team recorded.'
         }
         actions={
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Button variant="ghost" onClick={() => navigate('/workspaces')}>Switch workspace</Button>
-            <Button variant="secondary" onClick={() => { setOffset(0); setReloadKey(k => k + 1); }}>Refresh</Button>
-          </div>
+          <Button variant="secondary" onClick={() => { setOffset(0); setReloadKey(k => k + 1); }}>Refresh</Button>
         }
       />
 

@@ -119,10 +119,11 @@ router.get('/', async (req, res) => {
     const userId = req.user?.userId;
     if (!userId) return res.json({ projects: [], workspaces: [], capabilities: {}, flags: {} });
 
-    const [workspaceIds, identity] = await Promise.all([
-      projectAccess.accessibleWorkspaceIds(userId),
-      resolveIdentity(req),
-    ]);
+    // In order, not in parallel: resolving is what adds a new team member to
+    // the team workspace, and the membership read must see that. Cached after
+    // the first call, so the second await costs nothing in the steady state.
+    const identity = await resolveIdentity(req);
+    const workspaceIds = await projectAccess.accessibleWorkspaceIds(userId);
 
     const requested = req.query.workspaceId || null;
     // A workspace id in the query is still membership-checked: it narrows the
@@ -178,7 +179,7 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   if (!requireConfigured(res)) return;
   try {
-    const { name, primaryDomain, country, competitors, schedule, recipients, crawlOptions, autoFindCompetitors } = req.body || {};
+    const { name, primaryDomain, country, competitors, schedule, recipients, crawlOptions } = req.body || {};
 
     if (!primaryDomain) {
       return res.status(400).json({ error: 'A primary domain is required.', field: 'primaryDomain' });
@@ -190,9 +191,9 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Which workspace the project lands in: the caller's active workspace
-    // (resolved and membership-checked by workspaceContext), or an explicitly
-    // named one they belong to.
+    // Which workspace the project lands in: the caller's home workspace (their
+    // team's, resolved by workspaceContext), or an explicitly named one they
+    // belong to — membership-checked by requireWorkspace below.
     const identity = await resolveIdentity(req);
     const workspaceId = req.body.workspaceId || identity.workspaceId;
     if (!workspaceId) {
@@ -220,7 +221,6 @@ router.post('/', async (req, res) => {
 
     const project = await store.createProject({
       access, name, primaryDomain, country, competitors, schedule, recipients, crawlOptions,
-      autoFindCompetitors: Boolean(autoFindCompetitors),
     });
 
     // Create the module entry immediately; its analysis is queued by the crawl
@@ -497,12 +497,11 @@ router.post('/:projectId/domains/competitors', async (req, res) => {
 });
 
 // POST /api/projects/:projectId/domains/competitors/discover
-// "Find competitors for me", available after setup too — not just as the
-// Project Setup toggle. Runs the same SEMrush + AI discovery
-// moduleRunners.runCompetitor falls back to automatically, but on demand and
-// regardless of the project's autoFindCompetitors setting or current
-// competitor count, so a project that already has one or two tracked can
-// still ask for more suggestions. Same capability gate and propose/accept
+// "Find competitors with AI" from the Domains panel. Runs the same SEMrush +
+// AI discovery moduleRunners.runCompetitor falls back to automatically when a
+// project has none, but on demand and regardless of the current competitor
+// count, so a project that already has one or two tracked can still ask for
+// more suggestions. Same capability gate and propose/accept
 // split as manual add (§7.2) — a contributor's picks land as 'proposed'.
 //
 // THIS COSTS SEMRUSH UNITS (unitCosts.js: estimateDiscoveryCost), so it is

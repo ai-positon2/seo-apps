@@ -3,7 +3,7 @@
 //
 // Two conventions worth knowing before reading the callers:
 //
-//   • The active workspace is never sent from here. The server resolves it from
+//   • The home workspace is never sent from here. The server resolves it from
 //     the session (services/workspaceContext.js) and membership-checks anything
 //     the client does name, so a project can't be created into a workspace by
 //     asking nicely.

@@ -3,6 +3,12 @@ module.exports = {
   MAX_SITEMAP_URLS: 25000,
   MAX_SITEMAP_RECURSION_DEPTH: 3,
   MAX_CHILD_SITEMAPS: 50, // safety valve independent of the URL cap — one bloated index can't hang discovery
+  // Every sitemap robots.txt declares is read (sitemapDiscovery.discoverUrls),
+  // up to this many, sharing MAX_CHILD_SITEMAPS between them — but never fewer
+  // than MIN_CHILD_SITEMAPS_PER_SOURCE each, so a site declaring twenty still
+  // gets a few child files read from every one.
+  MAX_SITEMAP_SOURCES: 20,
+  MIN_CHILD_SITEMAPS_PER_SOURCE: 5,
   CRAWL_FALLBACK_DEPTH: 3,
   CRAWL_FALLBACK_MAX_URLS: 500,
   LARGE_SELECTION_THRESHOLD: 800, // above this, offer sample/all/skip before crawling (Stage 4)
@@ -119,6 +125,18 @@ module.exports = {
   // A root bucket ("/{slug}"-first template) this big is asked about as a
   // template before falling back to per-URL checks. See informationalSelection.
   SELECTION_ROOT_BUCKET_TEMPLATE_MIN: 50,
+  // A template judged informational with at least this many pages also has its
+  // pages checked one by one, with the URL checks left after the templates and
+  // mixed buckets — to catch the case studies and company news its 8 examples
+  // missed. See informationalSelection 3c.
+  SELECTION_RECHECK_TEMPLATE_MIN: 20,
+  // The project-linked run also checks, just before reading, the pages it is
+  // about to read that no per-page check has covered yet: up to this many, in
+  // at most this long (crawlToArchitect.buildFromDiscovery).
+  SELECTION_MAX_RECHECKS: 900,
+  SELECTION_RECHECK_BUDGET_MS: 120000,
+  // A dated series ("best-of-the-week-mar-06-2015") this long is a digest.
+  SELECTION_DIGEST_SERIES_MIN: 5,
 
   // ── Informational page discovery (project-linked runs) ────────────────────
   // Hub and spoke finds its own candidate pages rather than taking whatever the
@@ -134,4 +152,18 @@ module.exports = {
   DISCOVERY_MAX_FETCH: 800,
   DISCOVERY_FETCH_CONCURRENCY: 4,
   DISCOVERY_FETCH_DELAY_MS: 150,
+  // A site's robots.txt Crawl-delay, which the site crawl already honours, is
+  // honoured here too: listing walks and page reads are spaced by it. It is
+  // capped as the crawler caps it, and page reads then fit a time budget, so a
+  // 10-second delay reads ~50 pages rather than 800 at 4-per-150ms (measured:
+  // a publisher began refusing requests part-way through the faster pace).
+  // The trade-off, measured: on a health system asking for 10 seconds this
+  // reads 48 pages instead of 800, and far fewer clusters form. false restores
+  // the old pace (4 at a time, 150ms apart) whatever robots.txt asks.
+  DISCOVERY_HONOUR_CRAWL_DELAY: true,
+  DISCOVERY_MAX_CRAWL_DELAY_MS: 60000,
+  DISCOVERY_LISTING_BUDGET_MS: 3 * 60 * 1000,
+  DISCOVERY_FETCH_BUDGET_MS: 8 * 60 * 1000,
+  // A section's own sitemap ("/blog/sitemap_index.xml") adds at most this many.
+  DISCOVERY_SECTION_SITEMAP_MAX: 10000,
 };

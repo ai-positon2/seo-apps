@@ -40,6 +40,7 @@ const runsRoutes = require('./routes/runs');
 const projectsRoutes = require('./modules/projects/routes');
 const adminRoutes = require('./routes/admin');
 const platformAdmin = require('./services/platformAdmin');
+const db = require('./services/db');
 const { trackRuns } = require('./middleware/runTracking');
 const { RUN_TRACKING } = require('./config/runTracking');
 const runStore = require('./services/runStore');
@@ -588,7 +589,15 @@ async function shutdown(signal, exitCode = 0) {
   } catch (err) {
     console.error('[shutdown]', err.message);
   }
-  server.close(() => process.exit(exitCode));
+  // The pool closes last, once in-flight requests are done with it. Exiting
+  // with it open dropped every pooled socket without a goodbye, which the
+  // server counts as an abandoned session: indistinguishable, in the database's
+  // own stats, from a client the network cut off.
+  server.close(() => {
+    db.end()
+      .catch((err) => console.error('[shutdown] db:', err.message))
+      .finally(() => process.exit(exitCode));
+  });
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));

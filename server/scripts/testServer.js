@@ -30,6 +30,7 @@ const SUITES = [
   'modules/contentWriter/__tests__/contentWriter.test.js',
   'routes/__tests__/auth.test.js',
   'routes/__tests__/workspaces.test.js',
+  'services/__tests__/teamWorkspace.test.js',
   'locationPageBuilder/__tests__/run.js',
   'locationPageBuilder/__tests__/lsPages.test.js',
   'middleware/__tests__/runTracking.test.js',
@@ -40,6 +41,9 @@ const SUITES = [
   'modules/projects/__tests__/competitorProposals.test.js',
   'modules/projects/__tests__/contentArchitect.test.js',
   'modules/projects/__tests__/homepageAutostart.test.js',
+  // Site Crawler routes that attach a crawl to a project or edit one go through
+  // the project's own access check.
+  'modules/projects/__tests__/crawlRouteAccess.test.js',
   'modules/projects/__tests__/competitorAutostart.test.js',
   'modules/projects/__tests__/projectPurge.test.js',
   'services/__tests__/appendOnlySchema.test.js',
@@ -50,6 +54,8 @@ const SUITES = [
   'modules/contentArchitect/__tests__/informationalSelection.test.js',
   'modules/contentArchitect/__tests__/informationalClassifier.test.js',
   'modules/contentArchitect/__tests__/informationalDiscovery.test.js',
+  'modules/contentArchitect/__tests__/sitemapDiscovery.test.js',
+  'modules/contentArchitect/__tests__/clusterNaming.test.js',
   'modules/projects/__tests__/crawlToArchitect.test.js',
   'services/__tests__/llmProviders.test.js',
   'modules/projects/__tests__/moduleDetail.test.js',

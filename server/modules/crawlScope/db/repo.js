@@ -187,7 +187,73 @@ async function repairProjectNextRun(client, id, nextIso) {
 
 // ---- runs -----------------------------------------------------------------
 
+// ── One crawl per site per project ───────────────────────────────────────────
+//
+// A project runs at most one crawl of a site at a time. Starting another
+// DELETES the one already queued, running or paused: its row and, by cascade,
+// every page, finding and link it stored. Its executor, wherever it runs, sees
+// the row gone on its next control poll (run/manager.js) and stops without
+// writing anything more.
+//
+// "Site" is the host without a leading "www.", so http/https and www/apex
+// spellings of one site are one site. A list crawl has no single site (its url
+// is a label, "List crawl (12 URLs)") and neither replaces nor is replaced.
+const ACTIVE_STATUSES = ["queued", "running", "paused"];
+
+function siteOf(url) {
+  try {
+    const { protocol, hostname } = new URL(url);
+    if (protocol !== "http:" && protocol !== "https:") return null;
+    return hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+// Inside the caller's transaction, under a per-project lock, so two crawls
+// started at the same moment cannot both survive. Returns the deleted ids.
+// Held to the end of the transaction; re-entrant within it.
+async function lockProjectRuns(t, projectId) {
+  await t.query(`select pg_advisory_xact_lock(hashtext('crawl_runs:' || $1::text))`, [projectId]);
+}
+
+async function supersedeActiveRuns(t, projectId, url) {
+  const site = siteOf(url);
+  if (!projectId || !site) return [];
+  await lockProjectRuns(t, projectId);
+  const active = await t.rows(
+    `select id, url from crawl_runs
+      where project_id = $1 and status = any($2)
+      for update`,
+    [projectId, ACTIVE_STATUSES],
+  );
+  const ids = active.filter((row) => siteOf(row.url) === site).map((row) => row.id);
+  if (ids.length) await t.query(`delete from crawl_runs where id = any($1)`, [ids]);
+  return ids;
+}
+
+function logSuperseded(ids, projectId) {
+  if (!ids.length) return;
+  console.warn(
+    `[crawlScope] project ${projectId}: deleted ${ids.length} crawl(s) of the same site `
+    + `replaced by a new one (${ids.join(", ")})`,
+  );
+}
+
 async function createRun(client, run) {
+  if (run.project_id && typeof client.tx === "function") {
+    let superseded = [];
+    const created = await client.tx(async (t) => {
+      superseded = await supersedeActiveRuns(t, run.project_id, run.url);
+      return insertRun(t, run);
+    });
+    logSuperseded(superseded, run.project_id);
+    return created;
+  }
+  return insertRun(client, run);
+}
+
+async function insertRun(client, run) {
   return client.one(
     `insert into crawl_runs
        (owner, workspace_id, project_id, scheduled_for, url, options, status, trigger)
@@ -213,22 +279,45 @@ async function createRun(client, run) {
 // 23505 (unique_violation) is the one error here that means "success, someone else
 // got there first" rather than a failure, so it is inspected rather than rethrown.
 async function enqueueScheduledRun(client, run) {
+  const insert = (c) => c.one(
+    `insert into crawl_runs
+       (owner, workspace_id, project_id, scheduled_for, url, options, status, trigger)
+     values ($1, $2, $3, $4, $5, $6, 'queued', $7)
+     returning *`,
+    [
+      run.owner,
+      run.workspace_id || null,
+      run.project_id,
+      run.scheduled_for,
+      run.url,
+      json(run.options || {}),
+      run.trigger || "schedule",
+    ],
+  );
   try {
-    return await client.one(
-      `insert into crawl_runs
-         (owner, workspace_id, project_id, scheduled_for, url, options, status, trigger)
-       values ($1, $2, $3, $4, $5, $6, 'queued', $7)
-       returning *`,
-      [
-        run.owner,
-        run.workspace_id || null,
-        run.project_id,
-        run.scheduled_for,
-        run.url,
-        json(run.options || {}),
-        run.trigger || "schedule",
-      ],
-    );
+    if (typeof client.tx !== "function") return await insert(client);
+    // A scheduled crawl is a crawl started, and replaces an older one of the
+    // same site like any other (see supersedeActiveRuns). One transaction, so
+    // when the slot turns out to be taken — another replica got there first —
+    // nothing was deleted either.
+    //
+    // The slot is checked under the project lock BEFORE anything is replaced:
+    // otherwise the second replica to reach a tick took the first replica's
+    // run for this very slot as "an older crawl of the site", deleted it, and
+    // inserted its own, killing a run a worker may already have claimed.
+    let superseded = [];
+    const created = await client.tx(async (t) => {
+      await lockProjectRuns(t, run.project_id);
+      const taken = await t.maybeOne(
+        `select id from crawl_runs where project_id = $1 and scheduled_for = $2`,
+        [run.project_id, run.scheduled_for],
+      );
+      if (taken) return null;
+      superseded = await supersedeActiveRuns(t, run.project_id, run.url);
+      return insert(t);
+    });
+    logSuperseded(superseded, run.project_id);
+    return created;
   } catch (error) {
     if (error.code === "23505") return null;
     throw error;
@@ -397,6 +486,11 @@ async function listRuns(client, owner, { limit = 50, projectId = null } = {}) {
 // ownership. This replaces a candidate-window loop that existed only because PostgREST
 // could not express row locking — every worker that lost a race there burned a round
 // trip, and the claim still had to re-assert `status = 'queued'` to be safe.
+// How long a queued run of another trigger waits before the worker takes it.
+// The web process claims the manual runs it creates within milliseconds, so
+// one still queued after this has been left for the worker.
+const ORPHANED_QUEUED_MS = 2 * 60_000;
+
 async function claimNextQueuedRun(client, { triggers, trigger, workerId } = {}) {
   const wanted = triggers?.length ? triggers : trigger ? [trigger] : null;
   const nowIso = new Date().toISOString();
@@ -404,7 +498,15 @@ async function claimNextQueuedRun(client, { triggers, trigger, workerId } = {}) 
   let narrow = "";
   if (wanted) {
     params.push(wanted);
-    narrow = ` and trigger = any($${params.length})`;
+    params.push(new Date(Date.now() - ORPHANED_QUEUED_MS).toISOString());
+    // Also taken, whatever started them, because nothing else ever will: the
+    // web process only executes the runs it has just created.
+    //   - A run carrying a checkpoint: an interrupted crawl waiting to resume.
+    //   - A run queued for a while: a manual crawl put back without one (a
+    //     list crawl cut off by a deploy, one claimed as the web process began
+    //     shutting down, a parked one resumed). It sat 'queued' forever.
+    narrow = ` and (trigger = any($${params.length - 1}) or checkpoint is not null`
+      + ` or created_at < $${params.length})`;
   }
   return client.maybeOne(
     `update crawl_runs r
@@ -460,6 +562,17 @@ async function readControlRequest(client, id) {
     [id],
   );
   return row?.control_request || null;
+}
+
+// The same read, telling a missing row apart from one with no request: a run
+// deleted while it executes (superseded by a newer crawl of the same site, see
+// createRun) is how its executor learns to stop.
+async function readRunControl(client, id) {
+  const row = await client.maybeOne(
+    `select control_request from crawl_runs where id = $1`,
+    [id],
+  );
+  return { exists: Boolean(row), request: row?.control_request || null };
 }
 
 /**
@@ -519,6 +632,65 @@ async function requeueRun(client, id, { attempts, keepCheckpoint = false } = {})
   return updateRun(client, id, patch);
 }
 
+// Back on the queue to start over from the seed, its partial rows deleted in
+// the same transaction so it is never claimable while they are still there.
+// For an interrupted run with nothing to resume from (a list crawl has no
+// frontier): execute() only inserts, so rows left behind would be doubled.
+async function restartRun(client, id) {
+  return client.tx(async (t) => {
+    await clearRunRows(t, id);
+    return requeueRun(t, id);
+  });
+}
+
+// ── A pause held past MAX_PAUSE_MS ──────────────────────────────────────────
+// The execution ends and gives up its worker slot, and the run waits as
+// 'paused' with no executor until someone presses Resume or Stop. It used to be
+// put back on the queue, where a worker picked it up at once and carried on
+// crawling a site the user had paused.
+//
+// "No executor" is no heartbeat and no start time. That is also what keeps
+// staleRuns from reclaiming it: both of its arms need one of the two.
+function isParkedRun(run) {
+  return run?.status === "paused" && !run.heartbeat_at && !run.started_at;
+}
+
+async function parkRun(client, id, { checkpoint = null } = {}) {
+  const patch = {
+    status: "paused",
+    started_at: null,
+    finished_at: null,
+    heartbeat_at: null,
+    worker_id: null,
+    error: null,
+    summary: null,
+    checkpoint,
+  };
+  if (checkpoint) return updateRun(client, id, patch, { returning: false });
+  // Nothing to resume from, so Resume will start it over: its rows go now, and
+  // its progress with them.
+  return client.tx(async (t) => {
+    await clearRunRows(t, id);
+    await updateRun(t, id, { ...patch, progress: {} }, { returning: false });
+  });
+}
+
+// Resume or Stop on a parked run: back on the queue for a worker to pick up
+// (claimNextQueuedRun), carrying the request so the executor applies it the
+// moment it starts. Guarded on the row still being parked. Returns the row, or
+// null when it no longer is.
+async function unparkRun(client, id, { request = null } = {}) {
+  return client.maybeOne(
+    `update crawl_runs
+        set status = 'queued',
+            control_request = $2::text,
+            control_requested_at = case when $2::text is null then null else $3::timestamptz end
+      where id = $1 and status = 'paused' and heartbeat_at is null and started_at is null
+      returning *`,
+    [id, request, new Date().toISOString()],
+  );
+}
+
 // Just the frontier, never the whole row: a checkpoint for a large crawl is
 // megabytes, and the callers that need it only need to know whether it is usable.
 async function getRunCheckpoint(client, id) {
@@ -576,7 +748,18 @@ function observedRunGuard(run, params) {
 // `keepCheckpoint` decides whether the retry resumes or starts over. The
 // checkpoint is cleared by default so a run reclaimed without one cannot later
 // pick up a stale frontier.
-async function reclaimStaleRun(client, run, attempts, { keepCheckpoint = false } = {}) {
+async function reclaimStaleRun(client, run, attempts, { keepCheckpoint = false, clearRows = false } = {}) {
+  // With `clearRows`, the dead attempt's rows go in the same transaction as the
+  // reclaim, and only if the guarded reclaim matched: the run is never
+  // claimable while they are still there, and a live run's rows (one whose
+  // heartbeat moved on) are never touched.
+  if (clearRows && typeof client.tx === "function") {
+    return client.tx(async (t) => {
+      const reclaimed = await reclaimStaleRun(t, run, attempts, { keepCheckpoint });
+      if (reclaimed) await clearRunRows(t, run.id);
+      return reclaimed;
+    });
+  }
   const patch = {
     status: "queued",
     started_at: null,
@@ -1052,18 +1235,37 @@ async function listRunLinks(client, runId, { limit = 20000 } = {}) {
 
 // Clear a reclaimed run's partial rows before it is retried, so the retry does not
 // append to a half-finished result set.
+// Everything a run's attempt writes, keyed by run_id.
+const RUN_ROW_TABLES = [
+  "crawl_run_results",
+  "crawl_run_findings",
+  "crawl_run_finding_instances",
+  "crawl_run_links",
+];
+
 async function deleteRunResults(client, runId) {
   // One transaction: a failure partway used to leave a mix of two attempts'
   // rows, which is precisely the half-finished state this function exists to
   // prevent. A retry re-derives the graph from scratch, so the edges go too —
   // leaving the previous attempt's would double every count in the clustering.
+  await client.tx((t) => clearRunRows(t, runId));
+}
+
+// Every row an attempt of the run wrote. Inside the caller's transaction.
+async function clearRunRows(t, runId) {
+  for (const table of RUN_ROW_TABLES) {
+    await t.query(`delete from "${table}" where run_id = $1`, [runId]);
+  }
+}
+
+// What a run's completion writes, cleared before it writes them. Those inserts
+// have no unique key, so a completion that died part-way (out of memory at its
+// peak, or a deploy's drain running out) and was then resumed inserted every
+// finding, instance and link a second time. The page rows stay: they are what
+// the resumed run reloads.
+async function deleteRunCompletion(client, runId) {
   await client.tx(async (t) => {
-    for (const table of [
-      "crawl_run_results",
-      "crawl_run_findings",
-      "crawl_run_finding_instances",
-      "crawl_run_links",
-    ]) {
+    for (const table of ["crawl_run_findings", "crawl_run_finding_instances", "crawl_run_links"]) {
       await t.query(`delete from "${table}" where run_id = $1`, [runId]);
     }
   });
@@ -1254,6 +1456,7 @@ module.exports = {
   advanceProjectFrom,
   repairProjectNextRun,
   createRun,
+  siteOf,
   enqueueScheduledRun,
   getRun,
   listRuns,
@@ -1272,6 +1475,11 @@ module.exports = {
   listRunLinks,
   insertFindings,
   readControlRequest,
+  readRunControl,
+  restartRun,
+  isParkedRun,
+  parkRun,
+  unparkRun,
   clearControlRequest,
   insertRunFindingInstances,
   lockRun,
@@ -1282,6 +1490,7 @@ module.exports = {
   listRunFindingRollup,
   listRunFindingInstancesPage,
   deleteRunResults,
+  deleteRunCompletion,
   listResults,
   updateResultPagespeed,
   patchResultCategories,

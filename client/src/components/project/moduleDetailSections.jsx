@@ -381,7 +381,9 @@ function HubSpokeDetail({ payload, navigate }) {
             name: c.name,
             spokes: c.spokes,
             health: num(c.health),
-            hub: c.isGap ? 'none — gap' : (c.hubConfidence === 'ambiguous' ? 'ambiguous' : 'selected'),
+            hub: c.isGap ? 'none — gap'
+              : c.referenceIndexUrl ? 'glossary index'
+                : (c.hubConfidence === 'ambiguous' ? 'ambiguous' : 'selected'),
           }))}
         />
       )}

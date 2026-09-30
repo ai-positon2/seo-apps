@@ -137,24 +137,47 @@ const present = (values) =>
     value !== null && value !== undefined &&
     !(typeof value === "string" && !value.trim()));
 
-function jsonLdNode(value, schemaContext, depth, source) {
+// Terms an inline @context object defines for itself ("w3p": "http://…",
+// "isBasedOn": { "@type": "@id" }). A term the page declares belongs to the
+// vocabulary it maps to, so it is not judged against schema.org's.
+function inlineContextTerms(context, inherited) {
+  const terms = new Set(inherited);
+  for (const entry of [].concat(context ?? [])) {
+    if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+      for (const key of Object.keys(entry)) if (!key.startsWith("@")) terms.add(key);
+    }
+  }
+  return terms;
+}
+
+function jsonLdNode(value, schemaContext, depth, source, inherited = new Set()) {
   if (depth > MAX_DEPTH || value === null || value === undefined) return value ?? null;
-  if (Array.isArray(value)) return value.map((item) => jsonLdNode(item, schemaContext, depth + 1, source));
+  if (Array.isArray(value)) return value.map((item) => jsonLdNode(item, schemaContext, depth + 1, source, inherited));
   if (typeof value !== "object") return value;
   if ("@value" in value) return value["@value"];
   if ("@list" in value || "@set" in value) {
-    return jsonLdNode(value["@list"] ?? value["@set"], schemaContext, depth + 1, source);
+    return jsonLdNode(value["@list"] ?? value["@set"], schemaContext, depth + 1, source, inherited);
   }
+  const terms = inlineContextTerms(value["@context"], inherited);
   const own = isSchemaContext(value["@context"]);
   const context = own === null ? schemaContext : own;
-  const rawTypes = [].concat(value["@type"] ?? []).map(String);
+  // schema.org's own JSON-LD context (https://schema.org/docs/jsonldcontext.jsonld)
+  // maps "id" to @id and "type" to @type, so under it they are keywords, not
+  // properties. Read as properties they produced '"id" is not a schema.org
+  // property' and "an item with no @type" on valid markup (w3.org specs,
+  // wikiHow: 49 false findings in the 2026-09-29 audit).
+  const typeValue = value["@type"] ?? (context && typeof value.type === "string" ? value.type : undefined)
+    ?? (context && Array.isArray(value.type) && value.type.every((t) => typeof t === "string") ? value.type : undefined);
+  const idValue = value["@id"] ?? (context && typeof value.id === "string" ? value.id : undefined);
+  const aliased = new Set(context ? [typeValue === value.type && value.type !== undefined ? "type" : "", idValue === value.id && value.id !== undefined ? "id" : ""] : []);
+  const rawTypes = [].concat(typeValue ?? []).map(String);
   const node = {
     types: [],
     foreignTypes: [],
     rawTypes,
     source,
     schema: context,
-    id: typeof value["@id"] === "string" ? value["@id"] : null,
+    id: typeof idValue === "string" ? idValue : null,
     props: new Map(),
   };
   for (const raw of rawTypes) {
@@ -163,13 +186,14 @@ function jsonLdNode(value, schemaContext, depth, source) {
     else node.foreignTypes.push(raw);
   }
   for (const [key, child] of Object.entries(value)) {
-    if (key.startsWith("@")) continue;
+    if (key.startsWith("@") || aliased.has(key)) continue;
+    if (terms.has(key) && !PROPERTIES.has(key)) continue;
     const values = []
-      .concat(jsonLdNode(child, context, depth + 1, source))
+      .concat(jsonLdNode(child, context, depth + 1, source, terms))
       .flat(MAX_DEPTH);
     node.props.set(key, values);
   }
-  if (value["@graph"]) node.graph = [].concat(jsonLdNode(value["@graph"], context, depth + 1, source)).flat(MAX_DEPTH);
+  if (value["@graph"]) node.graph = [].concat(jsonLdNode(value["@graph"], context, depth + 1, source, terms)).flat(MAX_DEPTH);
   return node;
 }
 

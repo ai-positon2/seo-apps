@@ -35,6 +35,10 @@ function hubState(cluster) {
   if (cluster.isGap) {
     return { key: 'gap', color: 'var(--danger)', status: 'Hub missing', action: 'Create hub' };
   }
+  if (cluster.referenceIndexUrl) {
+    // Glossary entries: the glossary's own index page is their hub.
+    return { key: 'reference', color: 'var(--primary)', status: 'Glossary', action: 'Index is hub' };
+  }
   if (cluster.ambiguous) {
     return { key: 'ambiguous', color: 'var(--warning)', status: 'Hub unclear', action: 'Review' };
   }
@@ -517,7 +521,7 @@ function ClusterRow({ cluster, pageById, navigate, projectId, siteName, suggesti
   const { enhancedUrls = {}, recommendedTopics = {} } = actionStatus || {};
   const [open, setOpen] = useState(false);
   const state = hubState(cluster);
-  const healthy = state.key === 'selected';
+  const healthy = state.key === 'selected' || state.key === 'reference';
   const hub = cluster.hubPageId ? pageById.get(cluster.hubPageId) : null;
   const spokes = cluster.spokeIds.map((id) => pageById.get(id)).filter(Boolean);
   const scored = Number.isFinite(cluster.health);
@@ -647,6 +651,19 @@ function ClusterRow({ cluster, pageById, navigate, projectId, siteName, suggesti
               <span style={{ marginLeft: 'auto', flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-3)' }}>
                 {hub.wordCount ? `${hub.wordCount.toLocaleString()} words` : '—'}
               </span>
+            </div>
+          )}
+          {!hub && cluster.referenceIndexUrl && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--r-md)', border: '1px solid var(--border)', background: 'var(--surface)' }}>
+              <Badge variant="success">HUB</Badge>
+              <a
+                href={cluster.referenceIndexUrl}
+                target="_blank"
+                rel="noreferrer"
+                style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              >
+                Glossary index — {cluster.referenceIndexUrl.replace(/^https?:\/\//, '')}
+              </a>
             </div>
           )}
 

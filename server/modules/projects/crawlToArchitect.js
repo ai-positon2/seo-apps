@@ -42,7 +42,12 @@ const {
 } = require('../contentArchitect/informationalSelection');
 const { discoverInformationalCandidates, fetchPages } = require('../contentArchitect/informationalDiscovery');
 const { createInformationalClassifier } = require('../contentArchitect/informationalClassifier');
-const { MIN_INFORMATIONAL_PAGES, DISCOVERY_MAX_FETCH } = require('../contentArchitect/config');
+const {
+  MIN_INFORMATIONAL_PAGES, DISCOVERY_MAX_FETCH, DISCOVERY_FETCH_DELAY_MS, DISCOVERY_FETCH_BUDGET_MS,
+  SELECTION_MAX_RECHECKS, SELECTION_RECHECK_BUDGET_MS,
+} = require('../contentArchitect/config');
+
+const REFUSED_STATUSES = new Set([401, 403, 429]);
 
 // CrawlScope joins H2/H3 text with this separator when it stores a result.
 const HEADING_SEPARATOR = ' | ';
@@ -525,7 +530,7 @@ async function buildFromCrawl(runId, {
  */
 async function buildFromDiscovery(runId, {
   origin, maxUrls = null, crawlSummary = null, crawlStatus = null, selectionCache = null, classifier,
-  discover = discoverInformationalCandidates, fetch = fetchPages, maxFetch = DISCOVERY_MAX_FETCH,
+  discover = discoverInformationalCandidates, fetch = fetchPages, maxFetch = DISCOVERY_MAX_FETCH, selectionLimits = undefined,
 } = {}) {
   if (!db.isDatabaseConfigured()) throw notConfigured();
 
@@ -564,30 +569,110 @@ async function buildFromDiscovery(runId, {
     // Where the crawl measured it, so the URL check spends a cap on the
     // best-linked pages first.
     inlinks: Number(crawlByKey.get(pageKey(c.url))?.data?.inlinks) || 0,
+    lastmod: c.lastmod || null,
   }));
+  // The pages discovery walked as listings — a section's index and its
+  // pagination. They list the articles; they are not one, and left in they
+  // were chosen as hubs (a dental blog's index, a course sales page).
+  const listingKeys = new Set([
+    ...(discovery.listingPages || []),
+    ...(discovery.listings || []).map((l) => l.url),
+  ].map(pageKey).filter(Boolean));
 
   // 2. Which of them are informational, judged from their URLs.
+  const judge = classifier === undefined ? createInformationalClassifier() : classifier;
   const selection = await selectInformationalPages(candidates, {
-    classifier: classifier === undefined ? createInformationalClassifier() : classifier,
+    classifier: judge,
     cache: selectionCache,
     hints: discovery.hints,
+    listingKeys,
+    limits: selectionLimits,
+    // Checked below, among only the pages about to be read.
+    deferRecheck: true,
   });
 
-  // 3. Read only those pages. Under the per-run limit, the pages the site
-  // itself puts forward come first: those its own listings show, then the
-  // best-linked. (One SaaS site had ~6,400 informational candidates; in sitemap
-  // order the first 800 read were an arbitrary slice.)
+  // 3. Read only those pages — see readOrder for which come first under the
+  // per-run limit. A robots.txt Crawl-delay spaces the reads, and the limit
+  // then shrinks to what fits the time budget.
+  const crawlDelayMs = Number(discovery.crawlDelayMs) || 0;
+  const pacedLimit = crawlDelayMs > DISCOVERY_FETCH_DELAY_MS
+    ? Math.max(MIN_INFORMATIONAL_PAGES, Math.floor(DISCOVERY_FETCH_BUDGET_MS / crawlDelayMs))
+    : Infinity;
+  const fetchLimit = Math.min(maxFetch, pacedLimit);
   const listed = new Set(discovery.candidates.filter((c) => c.sources.includes('listing')).map((c) => pageKey(c.url)));
-  const chosen = selection.includedIdx
-    .map((i) => candidates[i])
-    .sort((a, b) => (listed.has(pageKey(b.url)) - listed.has(pageKey(a.url)))
-      || (b.inlinks - a.inlinks)
-      || String(a.url).localeCompare(String(b.url)))
-    .map((c) => c.url);
-  const toFetch = chosen.slice(0, maxFetch);
-  const overCap = chosen.slice(maxFetch);
-  const fetched = await fetchFollowingRedirects(toFetch, fetch, origin);
+  const ordered = readOrder(selection.includedIdx.map((i) => ({ ...candidates[i], idx: i })), { listed, limit: fetchLimit });
+
+  // Pages in a large section judged informational as a whole are checked one
+  // by one before they are read — only the ones about to be read, so the
+  // checks go where they change the analysis. The template's eight examples
+  // miss a minority: customer stories and award posts in one SaaS blog,
+  // company news in an agency's. A page found not to be informational is left
+  // out and the next in line takes its place (two rounds at most).
+  const recheckExclusions = [];
+  const pendingRecheck = new Set(selection.pendingRecheck || []);
+  const dropped = new Set();
+  if (judge && pendingRecheck.size) {
+    const asked = new Set();
+    const deadline = Date.now() + SELECTION_RECHECK_BUDGET_MS;
+    for (let round = 0; round < 2; round += 1) {
+      const window = ordered.filter((c) => !dropped.has(c.idx)).slice(0, fetchLimit);
+      const ask = window.filter((c) => pendingRecheck.has(c.idx) && !asked.has(c.idx))
+        .slice(0, Math.max(0, SELECTION_MAX_RECHECKS - asked.size));
+      if (!ask.length || Date.now() > deadline) break;
+      for (const c of ask) asked.add(c.idx);
+      // eslint-disable-next-line no-await-in-loop
+      const res = await judge.classifyUrls(ask.map((c) => ({ key: pageKey(c.url), url: c.url })), { deadline, hints: discovery.hints });
+      for (const c of ask) {
+        const key = pageKey(c.url);
+        const category = res.verdicts.get(key);
+        if (!category) continue;
+        selection.verdicts.urls[key] = { category, decidedAt: new Date().toISOString() };
+        if (category !== 'informational' && category !== 'unknown') {
+          dropped.add(c.idx);
+          recheckExclusions.push({
+            url: c.url, code: category, reason: REASON_LABELS[category] || category,
+            detail: 'Checked page by page before reading', source: 'ai',
+          });
+        }
+      }
+    }
+    if (selection.summary?.aiChecks) {
+      selection.summary.aiChecks.urlsRechecked = (selection.summary.aiChecks.urlsRechecked || 0) + asked.size;
+      selection.summary.aiChecks.recheckExcluded = (selection.summary.aiChecks.recheckExcluded || 0) + recheckExclusions.length;
+    }
+  }
+  const chosen = ordered.filter((c) => !dropped.has(c.idx)).map((c) => c.url);
+  const toFetch = chosen.slice(0, fetchLimit);
+  const overCap = chosen.slice(fetchLimit);
+  const pacedFetch = crawlDelayMs > DISCOVERY_FETCH_DELAY_MS
+    ? (urls) => fetch(urls, { crawlerOptions: { perHostDelay: crawlDelayMs, concurrency: 1 } })
+    : fetch;
+  const fetched = await fetchFollowingRedirects(toFetch, pacedFetch, origin);
   const fetchedByKey = fetched.byKey;
+
+  // A listed URL that redirects is judged again at the page it lands on: an
+  // FAQ URL judged informational 301'd to a service page's #faq anchor, and the
+  // service page was analysed — and made a hub — without ever being judged.
+  const verdictByKey = new Map();
+  selection.includedIdx.forEach((i) => verdictByKey.set(pageKey(candidates[i].url), null));
+  for (const e of [...selection.excluded, ...recheckExclusions]) verdictByKey.set(pageKey(e.url), e);
+  const unjudgedLandings = [];
+  for (const url of toFetch) {
+    const r = fetchedByKey.get(pageKey(url));
+    const landKey = r && pageKey(r.url);
+    if (!landKey || landKey === pageKey(url) || verdictByKey.has(landKey)) continue;
+    if (!unjudgedLandings.some((c) => pageKey(c.url) === landKey)) {
+      unjudgedLandings.push({ url: r.url, canonical: null, indexability: null, inlinks: 0 });
+    }
+  }
+  if (unjudgedLandings.length) {
+    const landing = await selectInformationalPages(unjudgedLandings, {
+      classifier: judge, cache: selection.verdicts, hints: discovery.hints, listingKeys,
+    });
+    landing.includedIdx.forEach((i) => verdictByKey.set(pageKey(unjudgedLandings[i].url), null));
+    for (const e of landing.excluded) verdictByKey.set(pageKey(e.url), e);
+    Object.assign(selection.verdicts.urls, landing.verdicts.urls);
+  }
 
   // 4. What reading them showed: the technical checks the URL alone could not.
   const keptRows = [];
@@ -607,6 +692,11 @@ async function buildFromDiscovery(runId, {
     if (!r) { exclude(url, 'fetch_failed'); continue; }
     if (status >= 300 && status < 400) { exclude(url, 'redirected', r.redirectUrl ? `Redirects to ${r.redirectUrl}` : null); continue; }
     if (!(status >= 200 && status < 300)) { exclude(url, 'fetch_failed', status ? `HTTP ${status}` : (r.bodyError || null)); continue; }
+    const landed = verdictByKey.get(pageKey(r.url));
+    if (pageKey(r.url) !== pageKey(url) && landed) {
+      exclude(url, 'redirected', `Redirects to ${r.url} — ${String(landed.reason || landed.code).toLowerCase()}`);
+      continue;
+    }
     if (r.contentType && !/html/i.test(r.contentType)) { exclude(url, 'not_html', r.contentType); continue; }
     if (String(r.indexability || '').toLowerCase() === 'non-indexable') { exclude(url, 'not_indexable', r.indexabilityReason || null); continue; }
     const canonicalKey = r.canonical ? pageKey(r.canonical) : null;
@@ -623,13 +713,15 @@ async function buildFromDiscovery(runId, {
   }
   for (const url of overCap) exclude(url, 'fetch_cap');
 
-  const excluded = [...selection.excluded, ...lateExclusions];
+  const excluded = [...selection.excluded, ...recheckExclusions, ...lateExclusions];
   const byReason = new Map();
   for (const e of excluded) byReason.set(e.code, (byReason.get(e.code) || 0) + 1);
   const limitations = [
     ...discovery.limitations,
     ...(fetched.redirected ? [`${fetched.redirected} listed URL(s) redirect to another address (for example a missing trailing slash); the page each lands on was read instead. A sitemap should list final URLs.`] : []),
-    ...(overCap.length ? [`${overCap.length} informational page(s) were not read this run: the per-run limit is ${maxFetch} pages.`] : []),
+    ...(overCap.length ? [fetchLimit < maxFetch
+      ? `${overCap.length} informational page(s) were not read this run: robots.txt asks for ${Math.round(crawlDelayMs / 1000)} second(s) between requests, so ${fetchLimit} pages fit the run's time limit. Every section is represented in that sample.`
+      : `${overCap.length} informational page(s) were not read this run: the per-run limit is ${maxFetch} pages. The pages read are spread across every section, newest first.`] : []),
     ...((selection.summary && selection.summary.limitations) || []),
   ];
   const summary = {
@@ -661,7 +753,18 @@ async function buildFromDiscovery(runId, {
       crawledPageCount: candidates.length,
       minimum: MIN_INFORMATIONAL_PAGES,
       selection: finalSelection,
-      meta: { capped, incompleteReason, urlCap: cap, noSitemap: !discovery.sitemap?.count },
+      meta: {
+        capped,
+        incompleteReason,
+        urlCap: cap,
+        noSitemap: !discovery.sitemap?.count,
+        // The site refused the requests (discovery's homepage, or every page the
+        // crawl tried), rather than having nothing to find.
+        blocked: discovery.blocked
+          || (!crawlRows.length && results.some((r) => REFUSED_STATUSES.has(Number(r.data?.status ?? r.status))))
+          ? { status: discovery.blocked?.status ?? Number(results[0]?.data?.status ?? results[0]?.status) }
+          : null,
+      },
     };
   }
 
@@ -696,6 +799,83 @@ async function buildFromDiscovery(runId, {
     candidateSource: 'pages found in its sitemaps and informational listings',
     crawlPageCount: crawlRows.length,
   });
+}
+
+// `cap` split across lists in proportion to their sizes (largest remainder),
+// never more than a list holds. sizes are in priority order; ties in the
+// remainder go to the earlier list.
+function proportionalShares(sizes, cap) {
+  const total = sizes.reduce((a, b) => a + b, 0);
+  if (!total || cap <= 0) return sizes.map(() => 0);
+  if (cap >= total) return [...sizes];
+  const exact = sizes.map((s) => (s * cap) / total);
+  const take = exact.map((x, i) => Math.min(sizes[i], Math.floor(x)));
+  let left = cap - take.reduce((a, b) => a + b, 0);
+  const order = exact.map((x, i) => ({ i, rem: x - Math.floor(x) })).sort((a, b) => b.rem - a.rem || a.i - b.i);
+  while (left > 0) {
+    let moved = false;
+    for (const { i } of order) {
+      if (left <= 0) break;
+      if (take[i] < sizes[i]) { take[i] += 1; left -= 1; moved = true; }
+    }
+    if (!moved) break;
+  }
+  return take;
+}
+
+// The section a URL belongs to, for spreading reads: its first two folders,
+// stopping at a date or number ("/blog/2015/02/13/x" -> "/blog",
+// "/health/diseases/x" -> "/health/diseases").
+function readSectionOf(url) {
+  let segs;
+  try { segs = new URL(url).pathname.split('/').filter(Boolean); } catch { return ''; }
+  const out = [];
+  for (const seg of segs.slice(0, -1)) {
+    if (out.length === 2 || /^\d+$/.test(seg)) break;
+    out.push(seg.toLowerCase());
+  }
+  return `/${out.join('/')}`;
+}
+
+/**
+ * The order informational pages are read in, when there are more than the
+ * per-run limit.
+ *
+ * The pages the site's own listings show come first. The rest of the limit is
+ * shared across the site's sections (readSectionOf) in proportion to their
+ * size, so the sample looks like the site; within a section the best-linked,
+ * then the most recently modified, come first. Proportional rather than equal
+ * shares: under a small limit (a Crawl-delay leaves ~50 reads) equal shares
+ * gave each of a health system's many small department sections one page, and
+ * one page of a topic is nothing to cluster.
+ *
+ * Measured before this: ties fell back to alphabetical order, and on a health
+ * system the 800 pages read were all "/departments/…" and "/health/articles/…"
+ * — its disease, drug and treatment library (8,800 pages) was never read; on a
+ * date-path blog, 94% of the pages read were from 2007–2015.
+ *
+ * @param {Array<{url, inlinks, lastmod}>} pages
+ * @returns the same pages, reordered: the first `limit` are the ones to read
+ */
+function readOrder(pages, { listed = new Set(), limit = Infinity } = {}) {
+  const time = (p) => { const t = Date.parse(p.lastmod || ''); return Number.isFinite(t) ? t : -Infinity; };
+  const within = (a, b) => ((b.inlinks || 0) - (a.inlinks || 0)) || (time(b) - time(a)) || String(a.url).localeCompare(String(b.url));
+  const first = pages.filter((p) => listed.has(pageKey(p.url))).sort(within);
+  const rest = pages.filter((p) => !listed.has(pageKey(p.url)));
+  if (first.length + rest.length <= limit) return [...first, ...rest.sort(within)];
+
+  const bySection = new Map();
+  for (const p of rest) {
+    const key = readSectionOf(p.url);
+    if (!bySection.has(key)) bySection.set(key, []);
+    bySection.get(key).push(p);
+  }
+  const sections = [...bySection.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+  for (const [, list] of sections) list.sort(within);
+  const takes = proportionalShares(sections.map(([, list]) => list.length), Math.max(0, limit - first.length));
+  const taken = sections.flatMap(([, list], i) => list.slice(0, takes[i]));
+  const left = sections.flatMap(([, list], i) => list.slice(takes[i]));
+  return [...first, ...taken, ...left];
 }
 
 /**
@@ -792,4 +972,6 @@ module.exports = {
   buildFromCrawl,
   buildFromDiscovery,
   fetchFollowingRedirects,
+  readOrder,
+  readSectionOf,
 };

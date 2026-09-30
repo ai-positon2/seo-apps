@@ -272,3 +272,280 @@ test('buildFromDiscovery reads only the informational pages and keeps the crawl\
     if (saved) require.cache[dbPath] = saved; else delete require.cache[dbPath];
   }
 });
+
+// ── 10-site review, 2026-09-29 ──────────────────────────────────────────────
+
+test('a section is named by its label, not by a word inside a product name or a button', () => {
+  const O = 'https://zapier.example';
+  const links = [
+    // Seen live: an integration page walked as the "Help" section.
+    { url: `${O}/apps/help-scout/integrations`, label: 'Help Scout', area: 'header' },
+    // HubSpot and Moz: product pages behind "Learn more" buttons.
+    { url: `${O}/products/crm/ai-crm`, label: 'Learn more', area: 'header' },
+    // Single articles, matched by their slug's last word.
+    { url: `${O}/blog/zapier-copilot-guide/`, label: 'Zapier Copilot A personalized automation assistant', area: 'header' },
+    { url: `${O}/pie-baking-guide`, label: 'Pie season', area: 'header' },
+    { url: `${O}/blog/get-started-with-zapier/`, label: 'Zapier quick-start guide', area: 'header' },
+    { url: `${O}/apps/categories/it-operations-education`, label: 'Online Courses', area: 'header' },
+    // Real sections, named or pathed as one.
+    { url: `${O}/patient-resources`, label: 'Patient Resources', area: 'header' },
+    { url: `${O}/training`, label: 'Moz Academy', area: 'header' },
+    { url: `${O}/pro/reference`, label: 'Resources & Reference', area: 'footer' },
+    { url: `${O}/blog/category/product-blog/`, label: 'What’s new?', area: 'header' },
+  ];
+  assert.deepEqual(
+    d.informationalMenuLinks(links).map((l) => new URL(l.url).pathname),
+    ['/patient-resources', '/training', '/blog/category/product-blog/', '/pro/reference'],
+  );
+});
+
+test('a mega-menu link is named by its first line, not its name and strapline run together', () => {
+  const O = 'https://zapier.example';
+  const menu = html('<header><nav><a href="/resources/guides"><span>Guides</span><span>Go deep with dedicated guidance</span></a>'
+    + '<a href="/pricing"><span>Pricing</span><span>Plans that help you grow</span></a></nav></header>');
+  const links = d.extractMenuLinks(menu, O);
+  assert.equal(links[0].label, 'Guides Go deep with dedicated guidance');
+  assert.equal(links[0].firstText, 'Guides');
+  assert.deepEqual(d.informationalMenuLinks(links).map((l) => new URL(l.url).pathname), ['/resources/guides']);
+});
+
+test("a section's own sitemap is read when the root sitemap does not list it", async () => {
+  const probed = [];
+  const result = await d.discoverInformationalCandidates(ORIGIN, {
+    sitemapDiscover: async () => ({ mode: 'sitemap', source: `${ORIGIN}/sitemap.xml`, urls: [{ url: `${ORIGIN}/services/implants` }] }),
+    sectionSitemap: async (url) => {
+      probed.push(new URL(url).pathname);
+      return url.endsWith('/blog/sitemap_index.xml')
+        ? { urls: [{ url: `${ORIGIN}/blog/deep-post`, lastmod: '2026-09-01' }] }
+        : null;
+    },
+    fetchHtml: async (url) => {
+      if (url === ORIGIN) return html(header);
+      if (url.endsWith('/robots.txt')) return '';
+      return html('<main></main>');
+    },
+    listingDelayMs: 0,
+  });
+  assert.ok(probed.includes('/blog/sitemap.xml') && probed.includes('/blog/sitemap_index.xml'));
+  const deep = result.candidates.find((c) => c.url.endsWith('/blog/deep-post'));
+  assert.deepEqual(deep.sources, ['sitemap']);
+  assert.equal(deep.lastmod, '2026-09-01');
+  assert.ok(result.limitations.some((l) => /only in \/blog\/sitemap_index\.xml/.test(l)));
+});
+
+test('a site that refuses every request is reported as blocking, not as having no sitemap', async () => {
+  const refuse = async () => { throw Object.assign(new Error('Request failed with status code 403'), { response: { status: 403 } }); };
+  const result = await d.discoverInformationalCandidates(ORIGIN, {
+    sitemapDiscover: async () => ({ mode: 'not-found', urls: [] }),
+    fetchHtml: refuse,
+    listingDelayMs: 0,
+  });
+  assert.equal(result.blocked.status, 403);
+  assert.ok(!result.limitations.some((l) => /JavaScript cannot be read/.test(l)), 'no guess about JavaScript menus');
+
+  const open = await d.discoverInformationalCandidates(ORIGIN, {
+    sitemapDiscover: async () => ({ mode: 'not-found', urls: [] }),
+    fetchHtml: async () => html('<div></div>'),
+    listingDelayMs: 0,
+  });
+  assert.equal(open.blocked, null);
+});
+
+test("robots.txt's Crawl-delay paces the listing walk, and the walk stops at its time limit", async () => {
+  assert.equal(d.robotsCheck('User-agent: *\nCrawl-delay: 10\n').crawlDelayMs, 10000);
+  assert.equal(d.robotsCheck('User-agent: *\nDisallow:\n').crawlDelayMs, 0);
+
+  const { fetchHtml } = blogSite();
+  const walk = await d.walkListing({ url: `${ORIGIN}/blog` }, { fetchHtml, delayMs: 50, deadline: Date.now() + 20 });
+  assert.equal(walk.pagesWalked, 1, 'the first page is read; the next would pass the deadline');
+  assert.equal(walk.stoppedBecause, 'stopped at the time limit');
+
+  const result = await d.discoverInformationalCandidates(ORIGIN, {
+    sitemapDiscover: async () => ({ mode: 'sitemap', urls: [{ url: `${ORIGIN}/post-a` }] }),
+    fetchHtml: async (url) => (url.endsWith('/robots.txt') ? 'User-agent: *\nCrawl-delay: 5\n' : html('<main></main>')),
+    listingDelayMs: 0,
+  });
+  assert.equal(result.crawlDelayMs, 5000);
+  assert.ok(result.limitations.some((l) => /5 second\(s\) between requests/.test(l)));
+});
+
+test('under the read limit, every section is represented, newest first — not the alphabetical head', () => {
+  const { readOrder, readSectionOf } = require('../../projects/crawlToArchitect');
+  assert.equal(readSectionOf(`${ORIGIN}/blog/2015/02/13/post`), '/blog');
+  assert.equal(readSectionOf(`${ORIGIN}/health/diseases/flu`), '/health/diseases');
+  assert.equal(readSectionOf(`${ORIGIN}/top-level-post`), '/');
+
+  // Measured: a health library's 800 reads were all "/departments/…". Shares
+  // follow each section's size, so the sample looks like the site.
+  const pages = [
+    ...Array.from({ length: 50 }, (_, i) => ({ url: `${ORIGIN}/departments/heart/p${i}`, inlinks: 0 })),
+    ...Array.from({ length: 300 }, (_, i) => ({ url: `${ORIGIN}/health/diseases/d${i}`, inlinks: 0 })),
+    ...Array.from({ length: 300 }, (_, i) => ({ url: `${ORIGIN}/health/drugs/x${i}`, inlinks: 0 })),
+  ];
+  const read = readOrder(pages, { limit: 130 }).slice(0, 130);
+  const count = (s) => read.filter((p) => p.url.includes(s)).length;
+  assert.deepEqual([count('/departments/'), count('/diseases/'), count('/drugs/')], [10, 60, 60]);
+
+  // Within a section, the most recently modified come first; the site's own
+  // listing comes before everything.
+  const dated = [
+    { url: `${ORIGIN}/blog/2008/01/01/old`, inlinks: 0, lastmod: '2008-01-01' },
+    { url: `${ORIGIN}/blog/2026/09/01/new`, inlinks: 0, lastmod: '2026-09-01' },
+    { url: `${ORIGIN}/blog/2012/01/01/listed`, inlinks: 0, lastmod: '2012-01-01' },
+  ];
+  const { pageKey } = require('../informationalSelection');
+  const listed = new Set([pageKey(`${ORIGIN}/blog/2012/01/01/listed`)]);
+  assert.deepEqual(readOrder(dated, { limit: 2, listed }).map((p) => p.url.split('/').pop()), ['listed', 'new', 'old']);
+});
+
+async function withStubDb(fn) {
+  const stubDb = {
+    isDatabaseConfigured: () => true,
+    async rows(sql, params) {
+      const lastId = params[params.length - 2];
+      const limit = params[params.length - 1];
+      const source = /crawl_run_links/.test(sql) ? this.links : this.results;
+      return source.filter((r) => r.id > lastId).slice(0, limit);
+    },
+    results: [{ id: 1, url: `${ORIGIN}/`, status: 200, data: { url: `${ORIGIN}/`, scope: 'Internal', status: 200, depth: 0 } }],
+    links: [],
+  };
+  const dbPath = require.resolve('../../../services/db');
+  const c2aPath = require.resolve('../../projects/crawlToArchitect');
+  const saved = require.cache[dbPath];
+  require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: stubDb };
+  delete require.cache[c2aPath];
+  try {
+    return await fn(require('../../projects/crawlToArchitect'), stubDb);
+  } finally {
+    if (saved) require.cache[dbPath] = saved; else delete require.cache[dbPath];
+    delete require.cache[c2aPath];
+  }
+}
+
+const discovered = (urls, extra = {}) => async () => ({
+  candidates: urls.map((url) => ({ url, sources: ['sitemap'] })),
+  sitemap: { mode: 'sitemap', count: urls.length },
+  menu: { header: 1, footer: 0, informational: [] },
+  listings: [],
+  listingEdges: [],
+  hints: [],
+  limitations: [],
+  ...extra,
+});
+const pageResult = (url, extra = {}) => ({
+  url, status: 200, contentType: 'text/html', indexability: 'Indexable', canonical: url, title: url, h1: url, words: 900, ...extra,
+});
+const allInformational = (urlVerdict = () => 'informational') => ({
+  model: 'stub',
+  classifyTemplates: async (items) => ({ verdicts: new Map(items.map((t) => [t.key, 'informational'])), failedKeys: new Set(), skippedKeys: new Set() }),
+  classifyUrls: async (items) => ({ verdicts: new Map(items.map((t) => [t.key, urlVerdict(t.url)])), failedKeys: new Set(), skippedKeys: new Set() }),
+});
+
+test('a URL that redirects to a page judged non-informational is left out, with the reason', async () => {
+  // Seen live: FAQ URLs that 301 to a service page's #faq anchor.
+  await withStubDb(async (c2a) => {
+    const posts = Array.from({ length: 6 }, (_, i) => `${ORIGIN}/patient-resources/faq/topic-${i}-faq`);
+    const input = await c2a.buildFromDiscovery('run-1', {
+      origin: ORIGIN,
+      classifier: allInformational((url) => (/dental-implants/.test(url) ? 'service' : 'informational')),
+      discover: discovered(posts),
+      fetch: async (urls) => ({
+        results: urls.map((url) => (url.endsWith('topic-0-faq')
+          ? { url, status: 301, redirectUrl: `${ORIGIN}/dental-implants/#implantsfaq` }
+          : pageResult(url))),
+        linkEdges: [],
+      }),
+    });
+    const red = input.crawlResult.excluded.find((e) => e.url.endsWith('topic-0-faq'));
+    assert.equal(red.code, 'redirected');
+    assert.match(red.detail, /dental-implants/);
+    assert.ok(!input.crawlResult.pages.some((p) => p.url.includes('/dental-implants')), 'the service page is not analysed');
+    assert.equal(input.meta.pageCount, 5);
+  });
+});
+
+test('the listing pages discovery walked are never analysed as articles', async () => {
+  await withStubDb(async (c2a) => {
+    const posts = Array.from({ length: 6 }, (_, i) => `${ORIGIN}/dental-care-resources/post-${i}`);
+    let fetchedUrls = [];
+    const input = await c2a.buildFromDiscovery('run-1', {
+      origin: ORIGIN,
+      classifier: allInformational(),
+      discover: discovered([`${ORIGIN}/dental-care-resources/`, ...posts], {
+        listings: [{ url: `${ORIGIN}/dental-care-resources/`, pagesWalked: 1, found: 6 }],
+        listingPages: [`${ORIGIN}/dental-care-resources/`],
+      }),
+      fetch: async (urls) => { fetchedUrls = urls; return { results: urls.map((u) => pageResult(u)), linkEdges: [] }; },
+    });
+    assert.equal(fetchedUrls.length, 6);
+    assert.ok(!fetchedUrls.some((u) => u.endsWith('/dental-care-resources/')));
+    assert.equal(input.crawlResult.excluded.find((e) => e.url.endsWith('/dental-care-resources/')).code, 'listing');
+  });
+});
+
+test('a robots.txt Crawl-delay paces the page reads and shrinks the read to the time budget', async () => {
+  await withStubDb(async (c2a) => {
+    const posts = Array.from({ length: 200 }, (_, i) => `${ORIGIN}/resources/post-${i}`);
+    const calls = [];
+    const input = await c2a.buildFromDiscovery('run-1', {
+      origin: ORIGIN,
+      classifier: allInformational(),
+      discover: discovered(posts, { crawlDelayMs: 10000 }),
+      fetch: async (urls, opts) => { calls.push({ n: urls.length, opts }); return { results: urls.map((u) => pageResult(u)), linkEdges: [] }; },
+    });
+    const { DISCOVERY_FETCH_BUDGET_MS } = require('../config');
+    assert.equal(calls[0].n, Math.floor(DISCOVERY_FETCH_BUDGET_MS / 10000));
+    assert.deepEqual(calls[0].opts, { crawlerOptions: { perHostDelay: 10000, concurrency: 1 } });
+    assert.ok(input.limitations.some((l) => /10 second\(s\) between requests/.test(l)));
+  });
+});
+
+test('pages about to be read from a large informational template are checked one by one first', async () => {
+  // Seen live: a SaaS blog judged informational as a whole, whose customer
+  // stories and award posts were then clustered.
+  await withStubDb(async (c2a) => {
+    const posts = Array.from({ length: 30 }, (_, i) => `${ORIGIN}/blog/how-to-automate-thing-${i}`);
+    const stories = [`${ORIGIN}/blog/customer-story-acme`, `${ORIGIN}/blog/award-winners-june`];
+    const asked = [];
+    let fetchedUrls = [];
+    const input = await c2a.buildFromDiscovery('run-1', {
+      origin: ORIGIN,
+      classifier: {
+        model: 'stub',
+        classifyTemplates: async (items) => ({ verdicts: new Map(items.map((t) => [t.key, 'informational'])), failedKeys: new Set(), skippedKeys: new Set() }),
+        classifyUrls: async (items) => {
+          asked.push(...items.map((t) => t.url));
+          return {
+            verdicts: new Map(items.map((t) => [t.key, /customer-story/.test(t.url) ? 'other' : /award/.test(t.url) ? 'news' : 'informational'])),
+            failedKeys: new Set(),
+            skippedKeys: new Set(),
+          };
+        },
+      },
+      discover: discovered([...posts, ...stories]),
+      maxFetch: 20,
+      // Selection's own URL checks used up (as on a large site), so the check
+      // happens just before reading.
+      selectionLimits: { maxUrlChecks: 0 },
+      fetch: async (urls) => { fetchedUrls = urls; return { results: urls.map((u) => pageResult(u)), linkEdges: [] }; },
+    });
+    assert.ok(!fetchedUrls.some((u) => /customer-story|award/.test(u)), 'neither is read');
+    assert.equal(fetchedUrls.length, 20, 'the next pages in line take their places');
+    assert.ok(asked.length <= 22 && asked.length >= 20, `only pages about to be read are checked (${asked.length})`);
+    assert.equal(input.crawlResult.excluded.find((e) => e.url.endsWith('customer-story-acme')).detail, 'Checked page by page before reading');
+    assert.equal(input.crawlResult.excluded.find((e) => e.url.endsWith('customer-story-acme')).code, 'other');
+    assert.equal(input.crawlResult.excluded.find((e) => e.url.endsWith('award-winners-june')).code, 'news');
+  });
+});
+
+test('a site that refuses every request is marked blocked', async () => {
+  await withStubDb(async (c2a, db) => {
+    db.results = [{ id: 1, url: `${ORIGIN}/`, status: 403, data: { url: `${ORIGIN}/`, scope: 'Internal', status: 403 } }];
+    const input = await c2a.buildFromDiscovery('run-1', {
+      origin: ORIGIN, classifier: null, discover: discovered([]), fetch: async () => ({ results: [], linkEdges: [] }),
+    });
+    assert.equal(input.tooFewInformational, true);
+    assert.equal(input.meta.blocked.status, 403);
+  });
+});

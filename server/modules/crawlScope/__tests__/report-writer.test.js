@@ -263,7 +263,7 @@ test("V5.1: site-scoped and slow-page findings get Site/Config fix types, never 
   await workbook.xlsx.load(buffer);
 
   const hstsDetail = workbook.worksheets.find(
-    (sheet) => sheet.getCell("A1").value === "Subdomains do not support HSTS",
+    (sheet) => sheet.getCell("A1").value === "Hosts without HSTS",
   );
   assert.ok(hstsDetail);
   // Generic layout: url(1) target(2) value(3) evidence(4) code(5)
@@ -487,10 +487,10 @@ test("V5.1: a site-scoped finding gets its own SUMMARY block, excluded from TOTA
 
   const values = summary.getColumn(2).values;
   const bandRowIndex = values.findIndex(
-    (v) => v === "Site, resource & template-level findings — not page-scoped, and not part of TOTAL above",
+    (v) => v === "Site & resource-level findings — not page-scoped, and not part of TOTAL above",
   );
   assert.ok(bandRowIndex > 0, "expected a 'Site-level findings' band row");
-  const hstsRowIndex = values.findIndex((v) => v?.text?.includes("Subdomains do not support HSTS"));
+  const hstsRowIndex = values.findIndex((v) => v?.text?.includes("Hosts without HSTS"));
   assert.ok(hstsRowIndex > bandRowIndex, "HSTS row should appear inside the site-level block");
   assert.equal(summary.getCell(`C${hstsRowIndex}`).value.result, 2);
   // The Tier column (G) is what the real SUMIF keys off of — it must be
@@ -503,7 +503,7 @@ test("V5.1: a site-scoped finding gets its own SUMMARY block, excluded from TOTA
   assert.equal(summary.getCell(`C${totalRowIndex}`).value.result, 1);
 });
 
-test("crawler-completeness Phase 1: a rule split across page and template scope in the same run gets two rows, two detail sheets, and TOTAL counts only the page-scoped half", async () => {
+test("a rule split across page and template scope in the same run gets two rows, two detail sheets, and TOTAL counts both (audit R2)", async () => {
   // Mirrors what collapseTemplateFindings() in analyzer.js actually
   // produces: broken-internal-links fires on both a genuine one-off broken
   // link (stays scope='page', the catalog default) AND a shared-footer link
@@ -558,15 +558,18 @@ test("crawler-completeness Phase 1: a rule split across page and template scope 
   assert.ok(mainRowIndex > 0);
   assert.equal(summary.getCell(`C${mainRowIndex}`).value.result, 1);
 
-  // The template block gets its own row, suffixed, with count 6.
+  // The template half gets its own row, suffixed, with count 6, in the main
+  // table: each of its rows is still a page with the problem.
   const templateRowIndex = values.findIndex((v) => v?.text === "Broken internal links (Template)");
   assert.ok(templateRowIndex > 0);
   assert.equal(summary.getCell(`C${templateRowIndex}`).value.result, 6);
-  assert.equal(summary.getCell(`G${templateRowIndex}`).value, null, "Tier blank keeps it out of TOTAL's SUMIF");
+  assert.equal(summary.getCell(`G${templateRowIndex}`).value, definitions["broken-internal-links"].priority);
 
-  // TOTAL is 1, not 7 — the whole point of the rollup.
+  // TOTAL is 7. It was 1, so the more pages a problem spread to, the less of
+  // it the headline counted.
   const totalRowIndex = values.findIndex((v) => v === "TOTAL");
-  assert.equal(summary.getCell(`C${totalRowIndex}`).value.result, 1);
+  assert.ok(templateRowIndex < totalRowIndex);
+  assert.equal(summary.getCell(`C${totalRowIndex}`).value.result, 7);
 
   // Two distinct detail sheets, not one mixed one — each with only its own
   // scope's rows, so the sheet's own COUNTIF ranges never double-count. A1
@@ -651,7 +654,8 @@ test("a check the crawl could not run is listed as not evaluated, not as passed"
   await workbook.xlsx.load(buffer);
   const sheet = workbook.getWorksheet("Checks Passed");
   const automatic = catalog.filter((c) => c.detection === "Automatic").length;
-  assert.equal(sheet.getCell("A1").value, `${automatic - 2} of ${automatic - 2} automatic checks clean; 2 not evaluated`);
+  // The headline says how much of "clean" was only partly checked (audit R3).
+  assert.equal(sheet.getCell("A1").value, `${automatic - 2} of ${automatic - 2} automatic checks clean (1 only partly checked); 2 not evaluated`);
   const rows = [];
   sheet.eachRow((row) => rows.push(row.values.slice(1)));
   const titleOf = (id) => catalog.find((c) => c.id === id).title;

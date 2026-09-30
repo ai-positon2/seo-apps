@@ -24,7 +24,6 @@ const READY = {
   hasPrimaryDomain: true,
   activeCompetitorCount: 2,
   proposedCompetitorCount: 0,
-  autoFindCompetitors: false,
   hasSemrushKey: true,
   pending: {},
 };
@@ -40,11 +39,12 @@ test('a primary domain and a tracked competitor is all it takes', () => {
   assert.strictEqual(d.competitorCount, 2);
 });
 
-test('"find competitors for me" starts it with none tracked yet', () => {
+test('no competitors tracked still starts it — the run finds its own', () => {
   // The run discovers them itself (moduleRunners.runCompetitor), so waiting for
   // a competitor row to exist would mean waiting forever.
-  const d = decide({ activeCompetitorCount: 0, autoFindCompetitors: true });
+  const d = decide({ activeCompetitorCount: 0 });
   assert.strictEqual(d.start, true);
+  assert.strictEqual(d.reason, 'queued');
 });
 
 console.log('\nCompetitor autostart — what it refuses, and why it says so');
@@ -63,15 +63,10 @@ test('no primary domain means there is nothing to compare', () => {
   assert.strictEqual(decide({ hasPrimaryDomain: false }).reason, 'no_primary_domain');
 });
 
-test('no competitors and no auto-discovery starts nothing', () => {
-  const d = decide({ activeCompetitorCount: 0, autoFindCompetitors: false });
-  assert.strictEqual(d.start, false);
-  assert.strictEqual(d.reason, 'no_competitors_tracked');
-});
-
 test('a contributor\'s proposed competitors are named as pending, not as absent', () => {
   // §7.2: a contributor may propose but not apply. "Waiting for an approver" and
-  // "you added nothing" are different states and must not read the same.
+  // "you added nothing" are different states and must not read the same — and
+  // auto-discovery must not pre-empt the approver.
   const d = decide({ activeCompetitorCount: 0, proposedCompetitorCount: 2 });
   assert.strictEqual(d.start, false);
   assert.strictEqual(d.reason, 'competitors_pending_approval');
@@ -89,7 +84,7 @@ test('a missing SEMrush key is caught BEFORE a run is opened', () => {
 test('every refusal carries a sentence the API can hand back', () => {
   for (const reason of [
     'autostart_disabled', 'not_authorized', 'no_primary_domain',
-    'no_competitors_tracked', 'competitors_pending_approval', 'no_semrush_key',
+    'competitors_pending_approval', 'no_semrush_key',
   ]) {
     assert.ok(autostart.NOTES[reason], `${reason} has no note`);
   }

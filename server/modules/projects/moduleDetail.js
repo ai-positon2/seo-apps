@@ -259,15 +259,15 @@ async function buildModuleDetail({ access, moduleKey, domains = [] }) {
   const competitorCount = domains
     .filter((d) => d.role === 'competitor' && d.status === 'active').length;
 
-  // Auto-discovery ("Find competitors for me" from Project Setup) runs INSIDE
-  // the competitor run itself, the first time it starts with none tracked —
-  // see moduleRunners.runCompetitor. The Run button's price is read straight
-  // off this count, so pricing it at zero here would quote the cost of
-  // comparing against nobody for a run that is about to go find some (§16.11:
-  // no invented evidence, and understating a real cost is its own version of
+  // Auto-discovery runs INSIDE the competitor run itself whenever it starts
+  // with none tracked and none awaiting approval — see
+  // moduleRunners.runCompetitor. The Run button's price is read straight off
+  // this count, so pricing it at zero here would quote the cost of comparing
+  // against nobody for a run that is about to go find some (§16.11: no
+  // invented evidence, and understating a real cost is its own version of
   // that).
   const pendingAutoDiscovery = module.key === 'competitor' && !competitorCount
-    && Boolean(access.project.settings?.autoFindCompetitors);
+    && !domains.some((d) => d.role === 'competitor' && d.status === 'proposed');
   const pricedCompetitorCount = pendingAutoDiscovery
     ? require('../competitorAnalysis/discovery').DEFAULT_DISCOVERY_LIMIT
     : competitorCount;

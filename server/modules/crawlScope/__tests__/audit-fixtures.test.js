@@ -799,3 +799,24 @@ test("M6: an article in both the Google News sitemap and a regular sitemap is no
     ["/listed-twice/"],
   );
 });
+
+// ── Hub & spoke review · zapier.com, 2026-09-29 ──────────────────────────────
+// CSS-in-JS puts a <style> inside the heading it styles, and its rules were read
+// as the heading's words: an H2 came back as ".css-19a5n3-Link{all:unset;…}",
+// and topic clustering named a cluster "Color & Link" from them.
+
+test("heading text leaves out the style and script elements inside a heading", async (t) => {
+  const site = await serve(() => ({
+    "/": page({
+      title: "Fixture home",
+      body: '<h1>Zap<style>.css-1{all:unset;color:red}</style> templates</h1>'
+        + '<h2><script>window.x=1</script>Related articles</h2>',
+    }),
+  }));
+  t.after(site.close);
+
+  const payload = await crawl(site.origin, { maxUrls: 2, respectRobots: false, discoverSitemaps: false });
+  const home = payload.results.find((r) => new URL(r.url).pathname === "/");
+  assert.equal(home.h1, "Zap templates");
+  assert.equal(home.h2, "Related articles");
+});

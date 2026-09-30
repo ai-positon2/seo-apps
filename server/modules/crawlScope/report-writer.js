@@ -126,6 +126,37 @@ function rowHeightFromLines(lines, { lineHeight = 13, minHeight = 20, maxHeight 
   return Math.min(maxHeight, Math.max(minHeight, lines * lineHeight + 8));
 }
 
+// One sentence on how much of the site this audit covers, or "" when the
+// crawl finished with nothing known left unaudited. `coverage.crawl` is set by
+// analyzer.js crawlCoverage; older runs have only pagesNotAudited.
+function crawlCoverageLine(coverage) {
+  const crawl = coverage?.crawl;
+  const notAudited = crawl
+    ? Number(crawl.knownNotAudited) || 0
+    : 0;
+  const partial = crawl && (crawl.stopped || crawl.budgetReached || crawl.depthLimited || crawl.edgesTruncated || crawl.truncated);
+  if (!crawl) {
+    const reasons = (coverage?.pagesNotAudited || []).map((entry) => entry.reason).filter(Boolean);
+    return reasons.length ? `Partial audit. ${reasons.join(" ")}` : "";
+  }
+  if (!partial && !notAudited) return "";
+  const pages = Number(crawl.pagesAudited) || 0;
+  const audited = notAudited
+    ? `${pages.toLocaleString("en-US")} of at least ${(pages + notAudited).toLocaleString("en-US")} known URLs were audited as pages`
+    : `${pages.toLocaleString("en-US")} page${pages === 1 ? " was" : "s were"} audited`;
+  const why = [
+    crawl.stopped ? "the crawl was stopped before it finished" : "",
+    crawl.budgetReached ? "it reached its page limit" : "",
+    crawl.depthLimited ? "it reached its depth limit" : "",
+    crawl.edgesTruncated ? "its link list was capped" : "",
+    crawl.trapTemplates
+      ? `URLs matching ${crawl.trapTemplates} repeating path pattern${crawl.trapTemplates === 1 ? " were" : "s were"} skipped as a crawl trap`
+      : "",
+  ].filter(Boolean);
+  const cause = why.length ? `: ${why.join(", ")}` : "";
+  return `Partial audit — ${audited}${cause}. Counts below cover the audited pages only, not the whole site.`;
+}
+
 function styleSummarySheet(sheet, headerRowNumber) {
   sheet.views = [{ state: "frozen", ySplit: headerRowNumber, showGridLines: false }];
   sheet.columns = [
@@ -461,7 +492,7 @@ function addDetailSheet(workbook, definition, findings, sheetName, displayTitle 
       const raw = cellValueFor(column.key, finding);
       if (column.type === "url" && raw) {
         const hyperlink = column.key === "url" ? finding.url : finding.targetUrl;
-        if (hyperlink) return { text: raw, hyperlink };
+        if (hyperlink && /^https?:/i.test(hyperlink)) return { text: raw, hyperlink };
       }
       return raw;
     });
@@ -645,9 +676,9 @@ function addConsolidatedActionsSheet(workbook, { findings, sheetPlan, findingSco
   ];
 
   const pageScopeActive = findings.filter(
-    (f) => ["Needs review", "Confirmed issue"].includes(f.reviewStatus) && findingScope(f) === "page",
+    (f) => ["Needs review", "Confirmed issue"].includes(f.reviewStatus) && ["page", "template"].includes(findingScope(f)),
   ).length;
-  const pageScopeActionCount = rows.filter((r) => r.group.scope === "page").length;
+  const pageScopeActionCount = rows.filter((r) => ["page", "template"].includes(r.group.scope)).length;
   const titleRow = sheet.addRow([
     rows.length
       ? `${pageScopeActionCount} action${pageScopeActionCount === 1 ? "" : "s"} across ${pageScopeActive.toLocaleString()} page-level occurrence${pageScopeActive === 1 ? "" : "s"}`
@@ -660,7 +691,7 @@ function addConsolidatedActionsSheet(workbook, { findings, sheetPlan, findingSco
 
   const noteRow = sheet.addRow([
     "One row per distinct root cause (identical evidence — the same broken link, the same missing schema property, the same server) — not one row per affected page. " +
-      "Site, resource & template-level actions are included below but excluded from the occurrence count above, same as SUMMARY's own TOTAL.",
+      "Site & resource-level actions are included below but excluded from the occurrence count above, same as SUMMARY's own TOTAL.",
   ]);
   sheet.mergeCells(noteRow.number, 1, noteRow.number, 10);
   noteRow.height = rowHeightFromLines(estimateWrappedLines(noteRow.getCell(1).value, 120), { lineHeight: 13, minHeight: 18 });
@@ -762,7 +793,18 @@ async function buildAuditWorkbook({
   titleRow.height = 26;
   titleRow.getCell(1).font = { name: "Poppins", size: 13, bold: true, color: { argb: COLORS.navy } };
   titleRow.getCell(1).alignment = { vertical: "middle", horizontal: "left", indent: 1 };
-  const HEADER_ROW = 2;
+  // What the audit stands for, before any count: a partial crawl's workbook
+  // said nothing about it, so its counts read as the whole site's (audit R4).
+  const coverageLine = crawlCoverageLine(coverage);
+  if (coverageLine) {
+    const bannerRow = summary.addRow([coverageLine]);
+    summary.mergeCells(bannerRow.number, 1, bannerRow.number, 7);
+    bannerRow.height = rowHeightFromLines(estimateWrappedLines(coverageLine, 150), { lineHeight: 15, minHeight: 22 });
+    bannerRow.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF4E5" } };
+    bannerRow.getCell(1).font = { name: "Poppins", size: 10, bold: true, color: { argb: "8A4B00" } };
+    bannerRow.getCell(1).alignment = { vertical: "middle", horizontal: "left", indent: 1, wrapText: true };
+  }
+  const HEADER_ROW = summary.rowCount + 1;
   summary.addRow([
     "#",
     "Issue",
@@ -786,6 +828,11 @@ async function buildAuditWorkbook({
   // a per-host one.
   function findingScope(finding) {
     return finding.scope || definitions.get(finding.ruleId)?.scope || "page";
+  }
+  // A template-scoped row is one page carrying a problem shared across pages,
+  // so it is an occurrence like any page-scoped one.
+  function countsTowardTotal(finding) {
+    return ["page", "template"].includes(findingScope(finding));
   }
   const grouped = new Map(); // "ruleId::scope" -> finding[]
   for (const finding of findings) {
@@ -854,14 +901,15 @@ async function buildAuditWorkbook({
     // 2, even within the same priority tier. Category/title break ties so the
     // order stays deterministic when counts match.
     const rules = [...grouped.entries()]
-      .filter(([, group]) => findingScope(group[0]) === "page")
+      .filter(([, group]) => countsTowardTotal(group[0]))
       .map(([key, group]) => ({ key, definition: definitions.get(group[0].ruleId) || group[0] }))
       .filter(({ definition }) => definition.priority === priority)
-      // Site/template/resource-scoped groups get their own block (and their
-      // own total) below the main table — a page×check matrix can't
-      // represent them without either double-counting (once per host, for
-      // HSTS) or silently dropping them, so they're never mixed into this
-      // per-page-issue ranking or its TOTAL.
+      // Site/resource-scoped groups get their own block (and their own
+      // total) below the main table — a page×check matrix can't represent
+      // them without either double-counting (once per host, for HSTS) or
+      // silently dropping them. Template-scoped groups are in: each of their
+      // rows is still one page with the problem, and leaving them out made
+      // TOTAL shrink the more pages a problem spread to (audit R2).
       .map(({ key, definition }) => ({
         key,
         definition,
@@ -914,8 +962,9 @@ async function buildAuditWorkbook({
       // tab and title carry when a rule split across scopes this run — a
       // reader scanning the summary sheet shouldn't have to click through to
       // discover which half of a split rule this row is.
-      const rowTitle = groupCountByRuleId.get(definition.id) > 1
-        ? `${definition.title} (Page)`
+      const rowScope = findingScope(group[0]);
+      const rowTitle = groupCountByRuleId.get(definition.id) > 1 || rowScope === "template"
+        ? `${definition.title} (${rowScope.replace(/^./, (c) => c.toUpperCase())})`
         : definition.title;
       const row = summary.addRow([
         sequence,
@@ -979,12 +1028,12 @@ async function buildAuditWorkbook({
     });
   }
 
-  // Page-scoped only — matches the rows actually in this table above. A
-  // site-scoped finding's count is never added in here (see its own block
-  // and total below), the same rule the UI's reconciliation strip follows.
+  // Page- and template-scoped — matches the rows actually in this table
+  // above. A site-scoped finding's count is never added in here (see its own
+  // block and total below).
   const total = findings.filter((finding) =>
     ["Needs review", "Confirmed issue"].includes(finding.reviewStatus) &&
-    findingScope(finding) === "page",
+    countsTowardTotal(finding),
   ).length;
   // SUMIF on the Tier column (G), not a hardcoded list of row references: a
   // row inserted or deleted between the header and this total updates the
@@ -1018,16 +1067,16 @@ async function buildAuditWorkbook({
 
   summary.autoFilter = { from: `A${HEADER_ROW}`, to: `G${totalRow.number - 1}` };
 
-  // Site/template/resource-scoped findings, on their own — not one more row
+  // Site/resource-scoped findings, on their own — not one more row
   // in the table above. The Tier column (G) is left blank on every row in
   // this block on purpose: TOTAL's SUMIF sums column C wherever column G is
   // non-blank, over a wide fixed row range that includes these rows too, so
   // leaving G blank here is what actually keeps them out of TOTAL, not just
   // where they're visually placed on the sheet.
-  const siteScopedGroupKeys = [...grouped.keys()].filter((key) => findingScope(grouped.get(key)[0]) !== "page");
+  const siteScopedGroupKeys = [...grouped.keys()].filter((key) => !countsTowardTotal(grouped.get(key)[0]));
   if (siteScopedGroupKeys.length) {
     const bandRow = summary.addRow([
-      "Site, resource & template-level findings — not page-scoped, and not part of TOTAL above",
+      "Site & resource-level findings — not page-scoped, and not part of TOTAL above",
     ]);
     summary.mergeCells(bandRow.number, 1, bandRow.number, 7);
     bandRow.height = 22;
@@ -1189,8 +1238,10 @@ async function buildAuditWorkbook({
   const passedSheet = workbook.addWorksheet("Checks Passed");
   passedSheet.views = [{ state: "frozen", ySplit: 2, showGridLines: false }];
   passedSheet.columns = [{ width: 34 }, { width: 22 }, { width: 68 }];
+  const partlyClean = cleanChecks.filter((c) => partlyChecked.has(c.id)).length;
   const passedTitleRow = passedSheet.addRow([
     `${cleanChecks.length} of ${automaticChecks.length} automatic checks clean` +
+      (partlyClean ? ` (${partlyClean} only partly checked)` : "") +
       (notEvaluatedChecks.length ? `; ${notEvaluatedChecks.length} not evaluated` : ""),
   ]);
   passedSheet.mergeCells(passedTitleRow.number, 1, passedTitleRow.number, 3);

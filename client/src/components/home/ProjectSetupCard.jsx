@@ -34,9 +34,9 @@ const COMMON_COUNTRIES = [
 // surprise.
 const SEMRUSH_UNITS_PER_DOMAIN = 1955;
 
-// competitorAnalysis/discovery.js — what "find competitors for me" adds when the
-// typed list is empty, so the estimate is not blank in the one case where the
-// count is not yet known.
+// competitorAnalysis/discovery.js — how many competitors the run finds for
+// itself when the typed list is empty, so the estimate is not blank in the one
+// case where the count is not yet known.
 const AUTO_DISCOVERY_COUNT = 3;
 
 const inputStyle = {
@@ -76,7 +76,6 @@ export default function ProjectSetupCard({
   const [primaryDomain, setPrimaryDomain] = useState('');
   const [country, setCountry] = useState('US');
   const [competitorText, setCompetitorText] = useState('');
-  const [autoFindCompetitors, setAutoFindCompetitors] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   // Set when the server reports the domain is already tracked in this
@@ -85,17 +84,17 @@ export default function ProjectSetupCard({
 
   const maxUrls = limits?.maxUrlsPerCrawl ?? 500;
 
-  // The toggle and the typed list are not mutually exclusive: whatever is typed
-  // here is sent either way, and the server only auto-discovers more
-  // competitors if this list is still empty when the run starts
-  // (server/modules/projects/moduleRunners.js).
+  // Left empty, the server finds competitors itself when the run starts
+  // (server/modules/projects/moduleRunners.js); anything typed here is used
+  // as-is instead.
   const competitors = useMemo(
     () => competitorText.split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
     [competitorText],
   );
   const competitorCount = competitors.length;
+  const autoDiscovers = !competitorCount;
   const estimatedUnits = (
-    (competitorCount || (autoFindCompetitors ? AUTO_DISCOVERY_COUNT : 0)) + 1
+    (competitorCount || AUTO_DISCOVERY_COUNT) + 1
   ) * SEMRUSH_UNITS_PER_DOMAIN;
 
   async function submit(event) {
@@ -108,10 +107,9 @@ export default function ProjectSetupCard({
         primaryDomain: primaryDomain.trim(),
         country,
         competitors,
-        autoFindCompetitors,
         confirmDuplicate: Boolean(duplicate),
         // Omitted when there was no choice to make, so the server falls back to
-        // the session's active workspace exactly as before.
+        // the caller's home workspace (their team's).
         ...(workspaceId ? { workspaceId } : {}),
       });
 
@@ -210,28 +208,6 @@ export default function ProjectSetupCard({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <span style={{ fontSize: 12, color: 'var(--text-2)' }}>Competitor domains</span>
 
-          <label
-            style={{
-              display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 12px',
-              border: '1px solid var(--border)', borderRadius: 'var(--r-md)', cursor: 'pointer',
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={autoFindCompetitors}
-              onChange={(e) => setAutoFindCompetitors(e.target.checked)}
-              style={{ marginTop: 2 }}
-            />
-            <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Find competitors for me</span>
-              <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
-                SEMrush + AI pick them as part of the Competitor Research run this project starts for itself.
-                They&rsquo;re added and tracked automatically, no extra confirmation, and you can edit the list
-                anytime afterward.
-              </span>
-            </span>
-          </label>
-
           <textarea
             style={{ ...inputStyle, minHeight: 76, resize: 'vertical' }}
             value={competitorText}
@@ -239,40 +215,38 @@ export default function ProjectSetupCard({
             placeholder={'aspendental.com\nsmiledirectclub.com'}
           />
           <Muted size={11}>
-            {autoFindCompetitors
-              ? 'Optional, and editable later. SEMrush + AI only fill this in if it’s still empty when the run starts — anything you type here now is kept as-is.'
-              : 'Optional, and editable later. One per line or comma separated. Competitors are used for competitive evidence only — their sites are never crawled.'}
+            Optional, and editable later. One per line or comma separated. Leave it empty and
+            SEMrush + AI find competitors for you, adding them to the project automatically.
+            Competitors are used for competitive evidence only — their sites are never crawled.
           </Muted>
 
           {/* What creating this project will spend, before it is created.
-              Competitor Research bills per domain and now starts by itself, so
+              Competitor Research bills per domain and starts by itself, so
               the number belongs next to the field that decides it — not in a
               run history someone reads afterwards. */}
-          {(competitorCount > 0 || autoFindCompetitors) && (
-            <div
-              style={{
-                display: 'flex', flexDirection: 'column', gap: 4,
-                padding: '10px 12px', borderRadius: 'var(--r-md)',
-                background: 'color-mix(in srgb, var(--viz-warn) 10%, transparent)',
-                border: '1px solid color-mix(in srgb, var(--viz-warn) 35%, transparent)',
-              }}
-            >
-              <span style={{ fontSize: 12.5, color: 'var(--text)' }}>
-                Competitor Research starts as soon as this project is created.
-              </span>
-              <Muted size={11}>
-                It compares your domain against {autoFindCompetitors && !competitorCount
-                  ? 'the competitors it finds'
-                  : `${competitorCount} competitor${competitorCount === 1 ? '' : 's'}`}{' '}
-                and costs roughly{' '}
-                <strong style={{ color: 'var(--text-2)' }}>
-                  {estimatedUnits.toLocaleString('en-US')} SEMrush units
-                </strong>{' '}
-                {autoFindCompetitors && !competitorCount ? '(estimated) ' : ''}
-                for the run. Adding competitors later starts another one.
-              </Muted>
-            </div>
-          )}
+          <div
+            style={{
+              display: 'flex', flexDirection: 'column', gap: 4,
+              padding: '10px 12px', borderRadius: 'var(--r-md)',
+              background: 'color-mix(in srgb, var(--viz-warn) 10%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--viz-warn) 35%, transparent)',
+            }}
+          >
+            <span style={{ fontSize: 12.5, color: 'var(--text)' }}>
+              Competitor Research starts as soon as this project is created.
+            </span>
+            <Muted size={11}>
+              It compares your domain against {autoDiscovers
+                ? 'the competitors it finds'
+                : `${competitorCount} competitor${competitorCount === 1 ? '' : 's'}`}{' '}
+              and costs roughly{' '}
+              <strong style={{ color: 'var(--text-2)' }}>
+                {estimatedUnits.toLocaleString('en-US')} SEMrush units
+              </strong>{' '}
+              {autoDiscovers ? '(estimated) ' : ''}
+              for the run. Adding competitors later starts another one.
+            </Muted>
+          </div>
         </div>
 
         {/* Crawl policy, stated before anything runs (PRD §20.2). */}

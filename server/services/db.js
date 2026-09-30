@@ -137,6 +137,22 @@ function getPool() {
     max: Number(process.env.DATABASE_POOL_MAX || 10),
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 15_000,
+    // TCP keepalive on the client side. pg leaves it off, and with it off a
+    // connection the network drops silently — a Wi-Fi roam, an ISP failover,
+    // a NAT forgetting the flow — is never noticed: the query on it waits for
+    // a reply that cannot come, holds its pooled connection forever, and `max`
+    // of those exhaust the pool. The server's own keepalive (RDS: 300s idle,
+    // 2 probes) closes its end but cannot tell a client it can no longer
+    // reach. With probes from this side the OS fails the socket, pg rejects
+    // the query, and the pool discards the client.
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10_000,
+    // Pin every connection to UTC so the timestamptz parser above always sees
+    // a "+00" offset regardless of the host's local zone. Awaited by the pool
+    // before the client is handed out: the former pool.on('connect') handler
+    // could not be awaited, so its SET overlapped the caller's first query on
+    // the same client, which pg 8 warns about and pg 9 will reject.
+    onConnect: (client) => client.query("set time zone 'UTC'"),
     // No statement_timeout. Long-running module work (crawl completion writes,
     // evidence rollups) can legitimately outlast a default, so one set here
     // would kill legitimate queries.
@@ -162,13 +178,43 @@ function getPool() {
     console.error('postgres idle client error:', err.message);
   });
 
-  // Pin every connection to UTC so the timestamptz parser above always sees a
-  // "+00" offset regardless of the host's local zone.
-  pool.on('connect', (client) => {
-    client.query("set time zone 'UTC'").catch(() => {});
-  });
-
   return pool;
+}
+
+// ── Connecting, with a retry for a failed connect ────────────────────────────
+// Only the CONNECT is retried, never a statement: a connect that failed sent
+// nothing, so trying again cannot run anything twice, whereas a statement that
+// failed mid-flight may have committed. The errors are the FAST failures a
+// network blip produces. Timeouts are deliberately not among them: a host that
+// did not answer within connectionTimeoutMillis is unreachable, not blipping,
+// and retrying it tripled the wait (15s -> 46s) before the caller heard so.
+// Nor is a pool that is merely busy ("timeout exceeded when trying to
+// connect"), for the same reason.
+const CONNECT_ATTEMPTS = 3;
+const CONNECT_RETRY_BASE_MS = 250;
+const TRANSIENT_CONNECT_CODES = new Set([
+  'ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ENETUNREACH', 'EHOSTUNREACH', 'EAI_AGAIN',
+  '57P03', // cannot_connect_now: the server is starting up
+  '53300', // too_many_connections
+]);
+
+function isTransientConnectError(err) {
+  const code = String(err?.code || '');
+  if (TRANSIENT_CONNECT_CODES.has(code) || /^08/.test(code)) return true;
+  return /Connection terminated unexpectedly/i.test(err?.message || '');
+}
+
+async function connect() {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await getPool().connect();
+    } catch (err) {
+      if (attempt >= CONNECT_ATTEMPTS || !isTransientConnectError(err)) throw err;
+      const wait = CONNECT_RETRY_BASE_MS * 4 ** (attempt - 1);
+      console.warn(`postgres connect failed (${err.code || err.message}); retrying in ${wait}ms`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
 }
 
 async function end() {
@@ -180,9 +226,19 @@ async function end() {
 
 // ── Query helpers ────────────────────────────────────────────────────────────
 
-// Returns the full pg result ({ rows, rowCount, ... }).
-function query(text, params) {
-  return getPool().query(text, params);
+// Returns the full pg result ({ rows, rowCount, ... }). pool.query() with the
+// connect retry above in front of it; the client is released the way
+// pool.query releases it, discarded on any error.
+async function query(text, params) {
+  const client = await connect();
+  try {
+    const result = await client.query(text, params);
+    client.release();
+    return result;
+  } catch (err) {
+    client.release(err);
+    throw err;
+  }
 }
 
 // The common case: just the rows.
@@ -224,7 +280,7 @@ async function count(text, params) {
 // Runs fn inside a transaction on one dedicated connection. fn receives a
 // client exposing the same helpers, so nested calls stay on that connection.
 async function tx(fn) {
-  const client = await getPool().connect();
+  const client = await connect();
   const scoped = {
     query: (t, p) => client.query(t, p),
     rows: async (t, p) => (await client.query(t, p)).rows,

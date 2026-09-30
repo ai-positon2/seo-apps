@@ -5,7 +5,6 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from './ThemeContext';
 import { projectsApi } from '../lib/projectsApi';
 import { useActiveProjectId, useProjectsChanged } from '../lib/activeProject';
-import { switchWorkspace } from '../lib/activeWorkspace';
 import SemrushBalanceBadge from './SemrushBalanceBadge';
 import CrawlStatusBar from './home/CrawlStatusBar';
 import { useCrawlStatus } from '../lib/useCrawlStatus';
@@ -20,7 +19,7 @@ const HOME_NAV_COLLAPSED_KEY = 'seoStudio.homeNavCollapsed.v2';
 // header could not tell you where you were.
 const PAGE_TITLES = [
   ['/projects', 'Projects'],
-  ['/workspaces', 'Workspaces'],
+  ['/workspaces', 'Team'],
   ['/runs', 'Run history'],
   ['/admin', 'Administration'],
   ['/robots-monitor', 'Robots Monitor'],
@@ -236,13 +235,11 @@ const ClientSwitcher = memo(function ClientSwitcher() {
   const navigate = useNavigate();
   const [activeProjectId, setActiveProjectId] = useActiveProjectId();
   const [projects, setProjects] = useState([]);
-  // The workspace every new project and tool run is RECORDED against. It used
-  // to be visible on exactly one screen (/workspaces), so the answer to "where
-  // is this going to be filed" was invisible everywhere it mattered — and
-  // nothing kept it consistent with the client named right here.
+  // Only for labelling: a client that lives in a workspace other than the
+  // caller's home one (the Position2 team workspace, for staff) says which.
+  // There is nothing to switch — work on a client is always filed with it.
   const [workspaces, setWorkspaces] = useState([]);
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState(null);
-  const [switching, setSwitching] = useState(false);
+  const [homeWorkspaceId, setHomeWorkspaceId] = useState(null);
   const [open, setOpen] = useState(false);
   const boxRef = useRef(null);
   // This component lives in the app shell, which does not unmount as the user
@@ -276,7 +273,7 @@ const ClientSwitcher = memo(function ClientSwitcher() {
         if (cancelled) return;
         setProjects(data.projects || []);
         setWorkspaces(data.workspaces || []);
-        setActiveWorkspaceId(data.activeWorkspaceId || null);
+        setHomeWorkspaceId(data.activeWorkspaceId || null);
       })
       .catch(() => {
         if (cancelled) return;
@@ -384,74 +381,6 @@ const ClientSwitcher = memo(function ClientSwitcher() {
             padding: 6, display: 'flex', flexDirection: 'column', gap: 2,
           }}
         >
-          {/* Workspace, above the clients.
-              Shown only when there is more than one — with a single workspace
-              the choice has one answer and the row is noise. Switching here goes
-              through switchWorkspace(), which activates it, refreshes every
-              list, AND moves the client selection into the new workspace if it
-              was pointing outside it. Those three were previously separate,
-              which is how the header came to name a client in one workspace
-              while new runs were being filed under another. */}
-          {workspaces.length > 1 && (
-            <>
-              <div style={{
-                fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase',
-                color: 'var(--text-3)', fontWeight: 600, padding: '6px 9px 4px',
-              }}>
-                Recording work in
-              </div>
-              {workspaces.map((ws) => {
-                const isActiveWs = ws.id === activeWorkspaceId;
-                return (
-                  <button
-                    key={ws.id}
-                    role="menuitem"
-                    disabled={switching}
-                    onClick={async () => {
-                      if (isActiveWs) return;
-                      setSwitching(true);
-                      try {
-                        const result = await switchWorkspace(ws.id, projects);
-                        setActiveWorkspaceId(result.workspaceId);
-                        setOpen(false);
-                        // The client moved with the workspace, so the screen
-                        // below is about a different project now.
-                        if (result.projectChanged) navigate('/');
-                      } catch {
-                        /* The cookie is unchanged, so both selections still
-                           agree; /workspaces reports the failure properly. */
-                      } finally {
-                        setSwitching(false);
-                      }
-                    }}
-                    style={{
-                      textAlign: 'left', border: 'none',
-                      cursor: isActiveWs || switching ? 'default' : 'pointer',
-                      background: isActiveWs ? 'var(--nav-active-bg)' : 'transparent',
-                      color: 'var(--text)', padding: '6px 9px', borderRadius: 'var(--r-sm)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      gap: 8, fontFamily: 'var(--font-sans)', fontSize: 12.5,
-                    }}
-                  >
-                    <span style={{ fontWeight: isActiveWs ? 600 : 400 }}>
-                      {ws.name}{ws.isPersonal ? ' (personal)' : ''}
-                    </span>
-                    {isActiveWs && (
-                      <span style={{ fontSize: 10, color: 'var(--text-3)' }}>active</span>
-                    )}
-                  </button>
-                );
-              })}
-              <div style={{ height: 1, background: 'var(--border)', margin: '4px 2px' }} />
-              <div style={{
-                fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase',
-                color: 'var(--text-3)', fontWeight: 600, padding: '2px 9px 4px',
-              }}>
-                Clients
-              </div>
-            </>
-          )}
-
           {projects.map((project) => {
             const isActive = active?.id === project.id;
             const ws = workspaces.find((w) => w.id === project.workspaceId);
@@ -472,14 +401,10 @@ const ClientSwitcher = memo(function ClientSwitcher() {
                 <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
                   {project.primaryDomain?.host || project.legacyUrl}
                   {project.countryCode ? ' · ' + project.countryCode : ' · country not set'}
-                  {/* Which workspace this client's work is filed under. Only
-                      worth saying when it is NOT the one currently recording,
-                      because that is the case where picking it means work lands
-                      somewhere other than the row above says. */}
-                  {workspaces.length > 1 && project.workspaceId !== activeWorkspaceId && (
-                    <span style={{ color: 'var(--viz-warn)' }}>
-                      {' · in '}{ws?.name || 'another workspace'}
-                    </span>
+                  {/* Only for a client outside your team's workspace — e.g. one
+                      in a client company's own workspace you were added to. */}
+                  {workspaces.length > 1 && project.workspaceId !== homeWorkspaceId && (
+                    <span>{' · in '}{ws?.name || 'another workspace'}</span>
                   )}
                 </span>
               </button>
@@ -810,8 +735,8 @@ export default function MacWindow() {
             <HeaderButton title="Projects and competitors" onClick={() => navigate('/projects')}>
               Projects
             </HeaderButton>
-            <HeaderButton title="Workspaces and members" onClick={() => navigate('/workspaces')}>
-              Workspaces
+            <HeaderButton title="Your team: members and roles" onClick={() => navigate('/workspaces')}>
+              Team
             </HeaderButton>
 
             {/* Shown on the server's say-so; /api/admin re-checks the persisted
@@ -1032,7 +957,7 @@ function UserChip({ email, onLogout }) {
               {email || 'Signed in'}
             </span>
             <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
-              Roles are held per workspace
+              Your role is set on the Team page
             </span>
           </div>
           <div style={{ height: 1, background: 'var(--border)' }} />

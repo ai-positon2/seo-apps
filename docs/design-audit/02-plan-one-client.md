@@ -32,6 +32,8 @@
 
 Option (a) matches "one client, everywhere". Either way, the five tracker clients with no project need a project created, or they get archived.
 
+**Decided (28 Sep 2026): option (a).** Everyone with a Position2 email now shares one "Position2" workspace (migration 0039). `server/scripts/consolidateTeamWorkspace.js` moves every personal workspace into it and lists each client that exists more than once, with a proposed keeper (the copy with the most crawl and module history). With `--retire-duplicates` the other copies are soft-deleted, which can be undone.
+
 **Still to do:**
 - **Fill the new column** from the reviewed report, as a reviewed script run by a person, not from a laptop whose `.env` points at production.
 - **Switch the reads.** Competitor Analysis should read `project_id` instead of matching by domain.

@@ -168,11 +168,14 @@ async function reapStaleRuns(db) {
   for (const run of stale) {
     try {
       const attempts = (run.attempts || 0) + 1;
+      const resumable = Boolean(run.checkpoint?.version);
 
-      // Only triggers this worker will claim can be retried. Requeueing a 'manual' run
-      // would strand it: it executes in the web process, nothing polls the queue for it,
-      // and it could never reach a terminal state either. Fail it outright instead.
-      if (!WORKER_TRIGGERS.includes(run.trigger)) {
+      // Only runs this worker will claim can be retried: its own triggers, and
+      // any run with a checkpoint (claimNextQueuedRun takes those whatever
+      // started them). A 'manual' run without one would be stranded on the
+      // queue, since the web process only executes runs it has just created,
+      // so it is failed outright instead.
+      if (!WORKER_TRIGGERS.includes(run.trigger) && !resumable) {
         const failed = await repo.failStaleRun(
           db,
           run,
@@ -206,10 +209,15 @@ async function reapStaleRuns(db) {
       // still has to start from the seed, and then the partial rows MUST go —
       // otherwise the retry appends a second full set and the report
       // double-counts every page.
-      const resumable = Boolean(run.checkpoint?.version);
-      const requeued = await repo.reclaimStaleRun(db, run, attempts, { keepCheckpoint: resumable });
+      // Without a checkpoint the partial rows are deleted in the same
+      // transaction as the reclaim. Deleted after it, a run was claimable
+      // before its old rows were gone, and a failed delete left them under a
+      // retry that then appended a second full set.
+      const requeued = await repo.reclaimStaleRun(db, run, attempts, {
+        keepCheckpoint: resumable,
+        clearRows: !resumable,
+      });
       if (requeued) {
-        if (!resumable) await repo.deleteRunResults(db, run.id);
         console.warn(
           `reclaimed run ${run.id} -> queued (attempt ${attempts}, worker ${run.worker_id}` +
             `${resumable ? `, resuming from ${run.checkpoint.completedCount || 0} pages` : ", from seed"})`,
@@ -343,35 +351,30 @@ async function runOne(manager, db, state, run, slot) {
     failure = error;
   }
 
-  // A crawl cut short by our own shutdown yields summary.stopped, which is
-  // indistinguishable from a user-requested stop at the manager level. Emailing it would
-  // send every client a truncated audit on each redeploy, so requeue it instead and let
-  // the next container finish the job.
+  // A crawl our own shutdown interrupted has already put itself back on the
+  // queue with its checkpoint (RunManager halts it for "shutdown" and requeues
+  // it inside the execution shutdown() waits for). This used to happen here,
+  // AFTER the manager had finished the run as "stopped" and cleared its
+  // checkpoint, so every deploy restarted a crawl from the seed — or, when the
+  // process exited first, left it "stopped" for good.
+  // A pause held too long ends the same way, parked as paused (not emailed:
+  // it has not finished).
+  if (result?.requeued) {
+    console.warn(
+      `[slot ${slot}] run ${run.id} ${result.parked ? "parked as paused" : "requeued after this shutdown"}`,
+    );
+    return;
+  }
+  // Replaced by a newer crawl of the same site, and deleted: nobody to tell.
+  if (result?.superseded) {
+    console.warn(`[slot ${slot}] run ${run.id} replaced by a newer crawl of the same site`);
+    return;
+  }
+  // A run the user stopped while this shutdown was under way: a partial audit.
+  // Not emailed, which would send every client a truncated audit on each
+  // redeploy.
   if (result?.summary?.stopped && !state.running) {
-    console.warn(`[slot ${slot}] run ${run.id} stopped by shutdown; requeueing`);
-    try {
-      // A redeploy is the most common way a long crawl dies, so this is the path
-      // that most needs to resume rather than restart. The checkpoint written by
-      // the heartbeat is left in place and the stored rows are kept: the next
-      // container picks up where this one stopped.
-      //
-      // Without a checkpoint the partial rows MUST be cleared first — execute()
-      // only ever inserts, so a restart would append a second full set of
-      // results and findings and the report would double-count every page.
-      const checkpoint = await repo.getRunCheckpoint(db, run.id);
-      const resumable = Boolean(checkpoint?.version);
-      if (!resumable) await repo.deleteRunResults(db, run.id);
-      await repo.requeueRun(db, run.id, {
-        attempts: (run.attempts || 0) + 1,
-        keepCheckpoint: resumable,
-      });
-      console.warn(
-        `[slot ${slot}] run ${run.id} requeued ` +
-          `${resumable ? `to resume from ${checkpoint.completedCount || 0} pages` : "to restart from the seed"}`,
-      );
-    } catch (error) {
-      console.error(`requeue failed for run ${run.id}:`, error.message);
-    }
+    console.warn(`[slot ${slot}] run ${run.id} stopped during shutdown; not emailed`);
     return;
   }
 

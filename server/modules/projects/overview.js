@@ -234,12 +234,18 @@ async function internalHtmlPageCount(runId) {
     // as clean are the same mistake pointing in two directions.
     // Pages that refused the crawler (bot protection, rate limiting) were not
     // audited, so they are not pages the score can describe either way.
+    // v5: 2xx pages that were audited. A redirect stub or an error page is not
+    // a page of content, and a URL only status-checked past the page budget
+    // (`probe`) was never read (client crawlHelpers.js#isScoredPage).
     return await db.count(
       `select count(*) from crawl_run_results
         where run_id = $1
           and content_type ilike '%text/html%'
           and data->>'scope' = 'Internal'
-          and coalesce(data->>'crawlRefused', 'false') <> 'true'`,
+          and coalesce(data->>'crawlRefused', 'false') <> 'true'
+          and coalesce(data->>'probe', 'false') <> 'true'
+          and coalesce(data->>'unrenderedShell', 'false') <> 'true'
+          and (status is null or status between 200 and 299)`,
       [runId]
     );
   } catch (error) {
@@ -469,28 +475,56 @@ async function healthAffectedPages(runId) {
       [runId],
     );
     if (!hasInstances?.present) return null;
-    const rows = await db.rows(
-      `select f.data->>'severity' as severity,
-              count(distinct f.data->>'url')::int as pages
-         from crawl_run_finding_instances f
-         join crawl_run_results r
-           on r.run_id = f.run_id and r.url = f.data->>'url'
-         left join crawl_finding_reviews v
-           on v.run_id = f.run_id and v.finding_id = f.finding_id
-        where f.run_id = $1
-          and coalesce(f.data->>'scope', 'page') = any($2)
-          and r.content_type ilike '%text/html%'
-          and r.data->>'scope' = 'Internal'
-          and coalesce(r.data->>'crawlRefused', 'false') <> 'true'
-          and coalesce(v.review_status, '') <> all($3)
-        group by 1`,
-      [runId, [...PAGE_LEVEL_SCOPES], DISMISSED_REVIEW_STATUSES],
+    // v5: per page, the distinct failing rules of each severity, weighted and
+    // capped at 100 (healthLoss below, and client crawlHelpers.js#healthLoss);
+    // summed over pages here, divided by the denominator in siteHealth. One row.
+    const [row] = await db.rows(
+      `with counted as (
+         select f.data->>'url' as url,
+                f.data->>'severity' as severity,
+                coalesce(f.data->>'ruleId', '?') as rule
+           from crawl_run_finding_instances f
+           join crawl_run_results r
+             on r.run_id = f.run_id and r.url = f.data->>'url'
+           left join crawl_finding_reviews v
+             on v.run_id = f.run_id and v.finding_id = f.finding_id
+          where f.run_id = $1
+            and coalesce(f.data->>'scope', 'page') = any($2)
+            and r.content_type ilike '%text/html%'
+            and r.data->>'scope' = 'Internal'
+            and coalesce(r.data->>'crawlRefused', 'false') <> 'true'
+            and coalesce(r.data->>'probe', 'false') <> 'true'
+            and coalesce(r.data->>'unrenderedShell', 'false') <> 'true'
+            and (r.status is null or r.status between 200 and 299)
+            and coalesce(v.review_status, '') <> all($3)
+       ), per_page as (
+         select url,
+                count(distinct rule) filter (where severity = 'error') * $4::float8 as e,
+                count(distinct rule) filter (where severity = 'warning') * $5::float8 as w,
+                count(distinct rule) filter (where severity = 'notice') * $6::float8 as n
+           from counted
+          group by url
+       )
+       select count(*) filter (where e > 0)::int as error_pages,
+              count(*) filter (where w > 0)::int as warning_pages,
+              count(*) filter (where n > 0)::int as notice_pages,
+              coalesce(sum(case when e + w + n > 0 then e * least(100, e + w + n) / (e + w + n) else 0 end), 0)::float8 as error_loss,
+              coalesce(sum(case when e + w + n > 0 then w * least(100, e + w + n) / (e + w + n) else 0 end), 0)::float8 as warning_loss,
+              coalesce(sum(case when e + w + n > 0 then n * least(100, e + w + n) / (e + w + n) else 0 end), 0)::float8 as notice_loss
+         from per_page`,
+      [runId, [...PAGE_LEVEL_SCOPES], DISMISSED_REVIEW_STATUSES, HEALTH_WEIGHTS.error, HEALTH_WEIGHTS.warning, HEALTH_WEIGHTS.notice],
     );
-    const counts = { error: 0, warning: 0, notice: 0 };
-    for (const row of rows) {
-      if (row.severity in counts) counts[row.severity] = Number(row.pages) || 0;
-    }
-    return counts;
+    return {
+      error: Number(row?.error_pages) || 0,
+      warning: Number(row?.warning_pages) || 0,
+      notice: Number(row?.notice_pages) || 0,
+      // Summed over pages; siteHealth divides by the page count.
+      lossTotals: {
+        error: Number(row?.error_loss) || 0,
+        warning: Number(row?.warning_loss) || 0,
+        notice: Number(row?.notice_loss) || 0,
+      },
+    };
   } catch (error) {
     console.error('[projects.overview.healthAffectedPages]', error.message);
     return null;
@@ -761,19 +795,46 @@ function siteHealth(run, internalHtmlCount = null, instances = [], affectedPageC
   // without a scope predates the field and is a page finding.
   const counted = (f) => PAGE_LEVEL_SCOPES.has(f.scope || 'page')
     && !DISMISSED_REVIEW_STATUSES.includes(f.reviewStatus);
-  const affectedPages = (severity) => new Set(
-    effectiveInstances
-      .filter((f) => f.severity === severity && f.url && counted(f))
-      .map((f) => f.url),
-  ).size;
+  // Distinct failing rules per page and severity (v5). Rows without a rule id
+  // (older stored findings) count as one rule per severity.
+  const rulesByPage = new Map();
+  for (const f of effectiveInstances) {
+    if (!f.url || !counted(f) || !(f.severity in HEALTH_WEIGHTS)) continue;
+    const page = rulesByPage.get(f.url) || { error: new Set(), warning: new Set(), notice: new Set() };
+    page[f.severity].add(f.ruleId || '?');
+    rulesByPage.set(f.url, page);
+  }
+  const affectedPages = (severity) => [...rulesByPage.values()].filter((p) => p[severity].size).length;
 
-  // Precomputed distinct-page counts (healthAffectedPages) are exact where the
-  // instance list is not: they are restricted to the internal HTML pages the
-  // denominator counts, and they honour stored reviews.
+  // Precomputed counts and loss (healthAffectedPages) are exact where the
+  // instance list is not: they are restricted to the pages the denominator
+  // counts, and they honour stored reviews.
   const useCounts = affectedPageCounts && typeof affectedPageCounts === 'object';
   const error = useCounts ? Number(affectedPageCounts.error) || 0 : affectedPages('error');
   const warning = useCounts ? Number(affectedPageCounts.warning) || 0 : affectedPages('warning');
   const notice = useCounts ? Number(affectedPageCounts.notice) || 0 : affectedPages('notice');
+  let loss;
+  if (useCounts && affectedPageCounts.lossTotals) {
+    const t = affectedPageCounts.lossTotals;
+    loss = {
+      error: (Number(t.error) || 0) / denominator,
+      warning: (Number(t.warning) || 0) / denominator,
+      notice: (Number(t.notice) || 0) / denominator,
+    };
+  } else if (useCounts) {
+    // Page counts alone (a caller from before v5): each affected page is taken
+    // to fail one rule of that severity.
+    loss = healthLoss([
+      ...Array.from({ length: error }, () => ({ error: 1 })),
+      ...Array.from({ length: warning }, () => ({ warning: 1 })),
+      ...Array.from({ length: notice }, () => ({ notice: 1 })),
+    ], denominator);
+  } else {
+    loss = healthLoss(
+      [...rulesByPage.values()].map((p) => ({ error: p.error.size, warning: p.warning.size, notice: p.notice.size })),
+      denominator,
+    );
+  }
 
   // A crawl stored before per-instance findings existed has counts but no urls,
   // so the shares cannot be computed. Withheld rather than reported as 100%,
@@ -784,15 +845,31 @@ function siteHealth(run, internalHtmlCount = null, instances = [], affectedPageC
   }
 
   return {
-    score: Math.max(0, Math.round(
-      100
-      - (error / denominator) * 45
-      - (warning / denominator) * 22
-      - (notice / denominator) * 8,
-    )),
+    score: Math.max(0, Math.round(100 - loss.error - loss.warning - loss.notice)),
     affected: { error, warning, notice },
+    loss,
     denominator,
   };
+}
+
+// Site Health v5, identical to client crawlHelpers.js (HEALTH_WEIGHTS,
+// healthLoss); crawlScope/__tests__/health-score.test.js checks they agree.
+const HEALTH_WEIGHTS = { error: 40, warning: 10, notice: 2 };
+function healthLoss(rulesPerPage, pageCount) {
+  const loss = { error: 0, warning: 0, notice: 0 };
+  if (!pageCount) return loss;
+  for (const counts of rulesPerPage) {
+    const raw = {
+      error: (counts.error || 0) * HEALTH_WEIGHTS.error,
+      warning: (counts.warning || 0) * HEALTH_WEIGHTS.warning,
+      notice: (counts.notice || 0) * HEALTH_WEIGHTS.notice,
+    };
+    const total = raw.error + raw.warning + raw.notice;
+    if (!total) continue;
+    const scale = Math.min(100, total) / total;
+    for (const key of Object.keys(loss)) loss[key] += (raw[key] * scale) / pageCount;
+  }
+  return loss;
 }
 
 // Versioned, because the formula moves: v2 changed the denominator, v3 the
@@ -800,13 +877,17 @@ function siteHealth(run, internalHtmlCount = null, instances = [], affectedPageC
 // findings on non-page URLs do not), v4 the denominator again (pages that
 // refused the crawler are not counted). A stored score and the sentence
 // explaining it have to stay readable together after the formula moves.
-const SITE_HEALTH_BASIS = 'the site crawl\'s own health score (v4, internal pages only): 100 '
-  + 'less 45 points scaled by the share of internal pages with an error, 22 by pages with a '
-  + 'warning and 8 by pages with a notice. A problem found on most pages counts on every one '
-  + 'of them; findings a reviewer marked false positive or resolved do not count, and site-wide '
-  + 'configuration findings are reported separately. External pages the crawler followed, and '
-  + 'pages that refused the crawler (bot protection, rate limiting), are excluded from both the '
-  + 'findings and the denominator, so the score describes the pages of your site that were audited';
+// v5 (2026-09-29 accuracy audit) changed the numerator: each page loses points
+// per distinct failing rule rather than per severity present, so the score no
+// longer sits at 70 for every site whose pages all carry a warning and a notice;
+// and the denominator: only 2xx pages that were audited.
+const SITE_HEALTH_BASIS = 'the site crawl\'s own health score (v5, audited internal pages only): '
+  + 'each page loses 40 points for every kind of error it has, 10 for every kind of warning and 2 '
+  + 'for every kind of notice, up to 100 per page, and the score is 100 less the average loss. '
+  + 'A problem found on most pages counts on every one of them; findings a reviewer marked false '
+  + 'positive or resolved do not count, and site-wide configuration findings are reported separately. '
+  + 'External pages, redirects, error pages and pages that refused the crawler (bot protection, rate '
+  + 'limiting) are not scored, so the score describes the pages of your site that were audited';
 
 function technicalCard(runs, findings, internalPages = null, internalHtmlPages = null, findingInstances = [], affectedPageCounts = null) {
   const module = MODULES[0];

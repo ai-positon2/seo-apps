@@ -204,7 +204,7 @@ async function buildWorkbook(analysis, project) {
   const sortedClusters = [...analysis.clusters].sort((a, b) => (a.health || 0) - (b.health || 0));
   for (const c of sortedClusters) {
     const banner = clusterMap.addRow([
-      `${c.name}  —  Health ${c.health}/100${c.isGap ? '  —  NO HUB (see Suggested New Pages)' : ''}${c.ambiguous ? '  —  ambiguous hub, worth a manual check' : ''}`,
+      `${c.name}  —  Health ${c.health}/100${c.isGap ? '  —  NO HUB (see Suggested New Pages)' : ''}${c.referenceIndexUrl ? `  —  glossary entries; hub: ${c.referenceIndexUrl}` : ''}${c.ambiguous ? '  —  ambiguous hub, worth a manual check' : ''}`,
     ]);
     clusterMap.mergeCells(banner.number, 1, banner.number, cmCols.length);
     banner.eachCell((cell) => { cell.fill = BANNER_FILL; cell.font = { bold: true, size: 11 }; });
@@ -351,6 +351,14 @@ function buildMarkdownNarrative(analysis, project) {
       lines.push(`**Suggested new pillar page:** ${c.gapSuggestion?.title} (\`${c.gapSuggestion?.slug}\`)`);
       lines.push('Outline:');
       for (const h of c.gapSuggestion?.outline || []) lines.push(`- ${h}`);
+    } else if (c.referenceIndexUrl) {
+      lines.push('');
+      lines.push(`**Hub:** the glossary index, ${c.referenceIndexUrl} — these are glossary entries.`);
+      lines.push('**Spokes:**');
+      for (const id of c.spokeIds) {
+        const s = analysis.pages.find((p) => p.id === id);
+        if (s) lines.push(`- [${s.title || s.url}](${s.url})`);
+      }
     } else {
       const hub = analysis.pages.find((p) => p.id === c.hubPageId);
       lines.push('');

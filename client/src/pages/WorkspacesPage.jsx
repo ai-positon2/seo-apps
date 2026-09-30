@@ -2,23 +2,18 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { SectionHeader } from '../ui/SectionHeader';
 import { setActiveProjectId } from '../lib/activeProject';
-import { switchWorkspace } from '../lib/activeWorkspace';
-import { projectsApi } from '../lib/projectsApi';
 
-// ── Workspaces ───────────────────────────────────────────────────────────────
+// ── Team ─────────────────────────────────────────────────────────────────────
 //
-// This screen shows one relationship, and it is the one the whole app is
-// organised around: a workspace HOLDS PROJECTS, and everyone in it can open all
-// of them.
+// Everyone with a Position2 email is in one workspace — the team's — joined
+// automatically on sign-in, and every client lives there. So for almost everyone
+// this screen is "who is on the team, and what may each of them do".
 //
-// It used to show a workspace's members and nothing else, which made a workspace
-// look like a contact list. That is how you end up with a workspace named after a
-// client that contains none of that client's work: a project is recorded in
-// whichever workspace was ACTIVE when it was created, and no screen said so.
-//
-// So projects are listed first, above people; every card carries its count, so an
-// empty workspace is visible without opening it; and the empty state names where
-// the projects actually went rather than leaving a blank space to interpret.
+// A workspace still HOLDS PROJECTS, and everyone in it can open all of them;
+// projects are listed above people for that reason. More than one workspace
+// only appears for someone also in a client company's own workspace, and only a
+// platform administrator can create one. There is no "active workspace" to
+// switch: work on a client is always filed with that client.
 
 async function req(path, options = {}) {
   const res = await fetch(path, {
@@ -93,41 +88,27 @@ function Label({ children }) {
 }
 
 /**
- * Why the workspace you are looking at has nothing in it.
- *
- * The unhelpful version of this is "No projects." The useful version says which
- * workspace the work went to instead, because an empty workspace is almost
- * always a surprise rather than an intention.
+ * Why the workspace you are looking at has nothing in it — and where new
+ * projects go instead, since an empty workspace is usually a surprise.
  */
-function emptyProjectsNote(selected, workspaces, activeId) {
-  if (selected.id === activeId) {
-    return 'Nothing here yet. This workspace is active, so the next project you '
-      + 'create will be recorded here.';
+function emptyProjectsNote(selected, workspaces, homeId) {
+  if (selected.id === homeId) {
+    return 'Nothing here yet. Projects you create go here.';
   }
-
-  const active = workspaces.find((w) => w.id === activeId);
-  // The active workspace is named by the first sentence, so it must not be
-  // listed again by the second — "that is currently X. Your work is in X."
-  const others = workspaces.filter(
-    (w) => w.id !== selected.id && w.id !== activeId && w.projectCount > 0,
-  );
-
-  const activeClause = active
-    ? `, and that is currently ${active.name}`
-      + `${active.projectCount ? ` (${countLabel(active.projectCount)})` : ''}`
-    : '';
-  const othersClause = others.length
-    ? ` You also have work in ${others.map((w) => `${w.name} (${countLabel(w.projectCount)})`).join(', ')}.`
-    : '';
-
-  return 'Nothing here yet. A project is recorded in whichever workspace is active '
-    + `when you create it${activeClause}.${othersClause}`;
+  const home = workspaces.find((w) => w.id === homeId);
+  return 'Nothing here yet. Projects you create go to '
+    + `${home ? home.name : 'your team’s workspace'}`
+    + `${home?.projectCount ? ` (${countLabel(home.projectCount)})` : ''}.`;
 }
 
 export default function WorkspacesPage() {
   const navigate = useNavigate();
   const [workspaces, setWorkspaces] = useState([]);
-  const [activeId, setActiveId] = useState(null);
+  // The caller's home workspace: where projects they create go. For Position2
+  // staff, the team workspace.
+  const [homeId, setHomeId] = useState(null);
+  // Only a platform administrator may create a workspace (routes/workspaces.js).
+  const [canCreate, setCanCreate] = useState(false);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState('');
   const [selected, setSelected] = useState(null);
@@ -136,14 +117,12 @@ export default function WorkspacesPage() {
   // adding someone in a hurry grants the least, not the most.
   const [newMemberRole, setNewMemberRole] = useState('contributor');
   const [memberEvents, setMemberEvents] = useState([]);
-  // Says what a switch did to the client selection, because it is a change the
-  // user did not explicitly ask for and would otherwise only notice later.
-  const [banner, setBanner] = useState('');
 
   function loadList() {
     return req('/api/workspaces').then((d) => {
       setWorkspaces(d.workspaces || []);
-      setActiveId(d.activeWorkspaceId || null);
+      setHomeId(d.activeWorkspaceId || null);
+      setCanCreate(d.canCreate === true);
       return d;
     });
   }
@@ -161,32 +140,9 @@ export default function WorkspacesPage() {
       .catch(() => setMemberEvents([]));
   }
 
-  // The active workspace is the one every NEW project and tool run is recorded
-  // against. It does not gate what you can see — /api/projects returns projects
-  // from every workspace you belong to — which is why Open below works without
-  // switching first.
-  // Goes through switchWorkspace() rather than calling /activate directly, so
-  // this screen and the header switcher cannot drift apart. It activates the
-  // workspace, refreshes the lists, and moves the client selection into the new
-  // workspace if it was pointing outside it — previously this only set the
-  // cookie, leaving the header naming a client whose work files elsewhere.
-  async function handleActivate(id) {
-    setError('');
-    try {
-      const projects = await projectsApi.list().then((d) => d.projects || []).catch(() => []);
-      const result = await switchWorkspace(id, projects);
-      setActiveId(id);
-      if (result.projectChanged) {
-        setBanner(result.activeProjectId
-          ? 'Switched. The active client moved to one in this workspace.'
-          : 'Switched. This workspace has no projects yet, so no client is selected.');
-      }
-    } catch (e) { setError(e.message); }
-  }
-
   useEffect(() => {
-    // Open the active workspace by default rather than showing an empty pane: the
-    // first thing worth knowing is what is in the one you are working in.
+    // Open the home workspace by default rather than showing an empty pane: the
+    // first thing worth knowing is who is on your team.
     loadList()
       .then((d) => {
         const first = (d.workspaces || []).find((w) => w.id === d.activeWorkspaceId)
@@ -261,12 +217,15 @@ export default function WorkspacesPage() {
   // from an admin the matrix says may use them.
   const canManageMembers = selected?.capabilities?.manageWorkspaceMembers === true;
   const canAssignOwner = selected?.canAssignOwner === true;
+  // With a single workspace the list beside it has one entry and nothing to
+  // choose; the page is simply the team.
+  const showList = workspaces.length > 1 || canCreate;
 
   return (
     <div style={{ padding: '28px 32px 48px' }}>
       <SectionHeader
-        title="Workspaces"
-        subtitle="A workspace holds projects and the people who can see them. The active workspace is where new projects and tool runs are recorded."
+        title="Team"
+        subtitle="Everyone on the team can open every client. Anyone who signs in with a Position2 email joins automatically; set what each person may do here."
         actions={
           <button
             onClick={() => navigate('/runs')}
@@ -289,28 +248,25 @@ export default function WorkspacesPage() {
         </div>
       )}
 
-      {banner && (
-        <div role="status" style={{
-          fontSize: 12, color: 'var(--text-2)', background: 'var(--card)',
-          border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', marginBottom: 16,
-        }}>
-          {banner}
-        </div>
-      )}
-
       <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
+        {showList && (
         <div style={{ width: 300, flexShrink: 0 }}>
-          <form onSubmit={handleCreate} style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="New workspace name"
-              style={{ flex: 1, minWidth: 0, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 13 }}
-            />
-            <button type="submit" style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-              Create
-            </button>
-          </form>
+          {/* Platform administrators only: a new workspace is for a separate
+              client company brought onto the app, never a second home for the
+              team's own clients. */}
+          {canCreate && (
+            <form onSubmit={handleCreate} style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="New client company workspace"
+                style={{ flex: 1, minWidth: 0, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 13 }}
+              />
+              <button type="submit" style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                Create
+              </button>
+            </form>
+          )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {workspaces.map((ws) => {
@@ -359,59 +315,33 @@ export default function WorkspacesPage() {
                     </div>
                   </button>
 
-                  <div style={{ marginTop: 8 }}>
-                    {ws.id === activeId ? (
+                  {ws.id === homeId && (
+                    <div style={{ marginTop: 8 }}>
                       <span style={{
                         fontSize: 10, fontWeight: 600, color: 'var(--success)',
                         background: 'var(--success-soft)', borderRadius: 999, padding: '2px 8px',
                       }}>
-                        Active — new work lands here
+                        Your team — new projects go here
                       </span>
-                    ) : (
-                      <button
-                        onClick={() => handleActivate(ws.id)}
-                        style={{
-                          fontSize: 11, color: 'var(--text-2)', background: 'none',
-                          border: '1px solid var(--border)', borderRadius: 6, padding: '2px 8px', cursor: 'pointer',
-                        }}
-                      >
-                        Use this workspace
-                      </button>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
-            {!workspaces.length && (
-              <div style={{ fontSize: 12, color: 'var(--text-3)' }}>No workspaces yet — create one above.</div>
-            )}
           </div>
         </div>
+        )}
 
         {selected && (
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              gap: 12, marginBottom: 4,
-            }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>
-                {selected.name}
-              </div>
-              {selected.id !== activeId && (
-                <button
-                  onClick={() => handleActivate(selected.id)}
-                  style={{
-                    fontSize: 12, fontWeight: 600, color: 'var(--text-2)', background: 'none',
-                    border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px',
-                    cursor: 'pointer', flexShrink: 0,
-                  }}
-                >
-                  Use this workspace
-                </button>
-              )}
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>
+              {selected.name}
             </div>
 
             <div style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5, marginBottom: 20, maxWidth: 620 }}>
+              {selected.auto_join_domain
+                ? `Anyone who signs in with an @${selected.auto_join_domain} email joins automatically, as an approver. `
+                : ''}
               Everything a project records — crawls, module runs, recommendations —
               belongs to the workspace that project sits in. Members of this
               workspace can open all of it.
@@ -461,7 +391,7 @@ export default function WorkspacesPage() {
                   padding: '12px 14px', borderRadius: 8,
                   border: '1px dashed var(--border)', background: 'var(--card)', maxWidth: 620,
                 }}>
-                  {emptyProjectsNote(selectedInList || selected, workspaces, activeId)}
+                  {emptyProjectsNote(selectedInList || selected, workspaces, homeId)}
                 </div>
               )}
             </div>

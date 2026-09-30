@@ -493,3 +493,59 @@ test('helpers: page keys, example spread, section prefixes and folders', () => {
   assert.equal(folderPatternOf('https://x.com/blog/a-post'), '/blog/{slug}');
   assert.equal(folderPatternOf('https://x.com/a-post'), null);
 });
+
+// ── 10-site review, 2026-09-29 ──────────────────────────────────────────────
+
+test('a page discovery walked as a listing is a listing, whatever its URL looks like', async () => {
+  const candidates = [page('/dental-care-resources/'), ...range(6, (i) => page(`/dental-care-resources/topic-${i}`))];
+  const selection = await selectInformationalPages(candidates, {
+    classifier: stubClassifier({ templates: { '/dental-care-resources/{slug}': 'informational' }, urls: () => 'informational' }),
+    listingKeys: new Set([pageKey(`${ORIGIN}/dental-care-resources`)]),
+  });
+  assert.equal(codeFor(selection, '/dental-care-resources/'), 'listing');
+  assert.equal(selection.includedIdx.length, 6);
+});
+
+test('a dated digest series is a listing; a lone dated post is not', async () => {
+  const digests = range(6, (i) => page(`/blog/best-of-the-week-mar-0${i}-2015`));
+  const candidates = [
+    ...digests,
+    page('/blog/best-of-the-week-19-june-2015'),
+    ...range(8, (i) => page(`/blog/how-to-write-post-${i}`)),
+    page('/blog/marketing-nation-summit-april-2014'),
+    page('/blog/digital-marketing-trends-2016'),
+  ];
+  const selection = await selectInformationalPages(candidates, {
+    classifier: stubClassifier({ templates: { '/blog/{slug}': 'informational' } }),
+  });
+  for (const d of [...digests, page('/blog/best-of-the-week-19-june-2015')]) assert.equal(codeFor(selection, pathOf(d.url)), 'listing');
+  const kept = includedPaths(candidates, selection);
+  assert.ok(kept.includes('/blog/marketing-nation-summit-april-2014'), 'one dated post is not a series');
+  assert.ok(kept.includes('/blog/digital-marketing-trends-2016'), 'a year in a title is not a date');
+});
+
+test('a large informational template also has its pages checked one by one', async () => {
+  // Seen live: customer stories and award posts inside a SaaS blog judged
+  // informational as a whole from eight examples.
+  const posts = range(24, (i) => page(`/blog/how-to-automate-${i}`));
+  const candidates = [...posts, page('/blog/zappy-award-monthly-winners'), page('/blog/customer-story-acme')];
+  const classifier = stubClassifier({
+    templates: { '/blog/{slug}': 'informational' },
+    urls: (p) => (/award/.test(p) ? 'news' : /customer-story/.test(p) ? 'other' : /automate-3$/.test(p) ? 'unknown' : 'informational'),
+  });
+  const selection = await selectInformationalPages(candidates, { classifier });
+  assert.equal(codeFor(selection, '/blog/zappy-award-monthly-winners'), 'news');
+  assert.equal(codeFor(selection, '/blog/customer-story-acme'), 'other');
+  assert.ok(includedPaths(candidates, selection).includes('/blog/how-to-automate-3'), '"unknown" does not overturn the template');
+  assert.equal(selection.includedIdx.length, 24);
+  assert.equal(selection.summary.aiChecks.recheckExcluded, 2);
+
+  // With no URL checks left, the template's verdict stands.
+  const capped = await selectInformationalPages(candidates, { classifier, limits: { maxUrlChecks: 0 } });
+  assert.equal(capped.includedIdx.length, 26);
+
+  // A small template is not rechecked.
+  const small = range(12, (i) => page(`/guides/how-to-guide-${i}`));
+  const few = stubClassifier({ templates: { '/guides/{slug}': 'informational' }, urls: () => 'other' });
+  assert.equal((await selectInformationalPages(small, { classifier: few })).includedIdx.length, 12);
+});

@@ -221,10 +221,18 @@ class RunManager {
   constructor(deps = {}) {
     this.serviceClientFactory = deps.serviceClient;
     this.optionOverrides = deps.optionOverrides || {};
+    // The environment's intervals, overridable so tests need not wait them out.
+    this.heartbeatMs = deps.heartbeatMs || HEARTBEAT_MS;
+    this.maxPauseMs = deps.maxPauseMs || MAX_PAUSE_MS;
     this.crawlers = new Map();
+    // Per run, how to end its execution for a reason other than a user's Stop
+    // (see `halt` in _execute): a deploy, a pause held too long, the run being
+    // replaced by a newer crawl of the same site.
+    this.halts = new Map();
     // The in-flight execute() promises, so shutdown() can wait for them rather
     // than stopping the crawlers and hoping the cleanup lands before exit.
     this.executions = new Set();
+    this.shuttingDown = false;
   }
 
   isActive(runId) {
@@ -259,8 +267,17 @@ class RunManager {
   // deleteRunResults/requeueRun, leaving the run stuck in 'running' with a
   // half-written result set until the reaper's ten-minute stale window found it.
   // Now the caller can actually await the drain.
+  //
+  // A shutdown is not a Stop. It used to call crawler.stop(), which _execute
+  // could not tell from the user pressing Stop: it finished the run as
+  // "stopped", cleared its checkpoint, and only then did the worker try to
+  // requeue it — from the seed, having found no checkpoint. Now each execution
+  // is halted for "shutdown": it takes its checkpoint before stopping, stores
+  // its pages, and puts itself back on the queue, all inside the execution
+  // this waits for.
   async shutdown({ timeoutMs = 20_000 } = {}) {
-    for (const crawler of this.crawlers.values()) crawler.stop();
+    this.shuttingDown = true;
+    for (const halt of this.halts.values()) halt("shutdown");
     const pending = [...this.executions];
     if (!pending.length) return;
     let timer;
@@ -312,6 +329,13 @@ class RunManager {
         return { run, skipped: true };
       }
       run = { ...run, ...owned };
+    }
+    // Claimed after the shutdown began (a claim in flight when the signal
+    // arrived): nothing would ever stop this crawl, and it would sit "running"
+    // until the reaper found it. Straight back on the queue, attempt unspent.
+    if (this.shuttingDown) {
+      await repo.requeueRun(db, run.id, { keepCheckpoint: Boolean(run.checkpoint) });
+      return { run, requeued: true };
     }
     // List-mode runs store the real URLs in options.urls and a display label
     // ("List crawl (N URLs)") in run.url — re-derive the request body accordingly.
@@ -400,21 +424,28 @@ class RunManager {
       }
     }
 
-    this.crawlers.set(run.id, crawler);
-
     // Claim the run immediately so a worker polling the queue won't also pick it up.
-    await repo.updateRun(db, run.id, {
-      status: "running",
-      started_at: run.started_at || new Date().toISOString(),
-      heartbeat_at: new Date().toISOString(),
-      // The options that ACTUALLY ran, not the ones the row was created with.
-      // Without this the run page reads run.options.maxUrls and labels it
-      // "budget", so a run cut from 5,000 to 500 displayed 5,000 — the number
-      // nobody got. Everything downstream that asks "what was this crawl's
-      // budget" now has one honest answer.
-      options,
-      budget: budgetRecord(options, budgetClamped, resolved.sources),
-    });
+    //
+    // Before the crawler is registered: if this write fails, nothing is left
+    // behind claiming the run is active here, and the dispatcher is closed.
+    try {
+      await repo.updateRun(db, run.id, {
+        status: "running",
+        started_at: run.started_at || new Date().toISOString(),
+        heartbeat_at: new Date().toISOString(),
+        // The options that ACTUALLY ran, not the ones the row was created with.
+        // Without this the run page reads run.options.maxUrls and labels it
+        // "budget", so a run cut from 5,000 to 500 displayed 5,000 — the number
+        // nobody got. Everything downstream that asks "what was this crawl's
+        // budget" now has one honest answer.
+        options,
+        budget: budgetRecord(options, budgetClamped, resolved.sources),
+      });
+    } catch (error) {
+      await Promise.resolve(fetchImpl.close()).catch(() => {});
+      throw error;
+    }
+    this.crawlers.set(run.id, crawler);
 
     // Liveness on its own timer rather than piggybacking the progress writes above: a
     // legitimately paused run emits no progress events, and the reaper must not mistake
@@ -424,11 +455,38 @@ class RunManager {
     // sat paused, so staleRuns could never reclaim it: it held its crawler, its
     // undici dispatcher and its unflushed result buffer for as long as the
     // process lived, and nothing would ever move it to a terminal status. Past
-    // MAX_PAUSE_MS the heartbeat stops, which lets the reaper treat it like any
-    // other run whose owner stopped responding.
+    // MAX_PAUSE_MS the execution ends and the run is parked (repo.parkRun):
+    // still paused, holding nothing, until someone resumes or stops it.
     // Result rows produced and not yet written (buffered, or in a write that
     // has not finished). Each checkpoint re-queues their pages.
     const unstored = new Set();
+
+    // Ends this execution for a reason that is not the user's Stop, remembering
+    // which. "shutdown" and "pause-expired" take the checkpoint BEFORE stopping
+    // (stop() empties the frontier, and snapshot() then returns nothing) so the
+    // run can be resumed later. "superseded" means the row is gone: nothing more
+    // is written. A user's Stop that landed first wins, and a crawl already
+    // analysing is left to finish.
+    //
+    // The crawl is abandoned, not stopped: its analysis is not run, because
+    // nothing here would use it. It used to be, and on a large crawl that took
+    // longer than a deploy's drain window, so the requeue after it never ran.
+    let haltReason = null;
+    let haltCheckpoint = null;
+    const halt = (reason) => {
+      if (haltReason || crawler.stopped || (crawler._finishing && reason !== "superseded")) return;
+      haltReason = reason;
+      if (reason !== "superseded") {
+        try {
+          haltCheckpoint = crawler.snapshot({ unstoredResults: [...unstored].map((row) => row.data) });
+        } catch (error) {
+          console.error(`[crawlScope] run ${run.id} checkpoint failed:`, error.message);
+        }
+      }
+      crawler.stop({ abandon: true });
+    };
+    this.halts.set(run.id, halt);
+
     let pausedSince = 0;
     // A heartbeat still being written when the next is due is skipped rather than
     // stacked: each carries the full checkpoint, and a second one queued behind
@@ -438,11 +496,16 @@ class RunManager {
       if (heartbeatInFlight) return;
       if (crawler.paused) {
         if (!pausedSince) pausedSince = Date.now();
-        if (Date.now() - pausedSince > MAX_PAUSE_MS) {
+        if (Date.now() - pausedSince > this.maxPauseMs) {
+          // Ended here, not left for the reaper. Going quiet used to let the
+          // reaper requeue the run while this paused copy stayed alive, holding
+          // a worker slot and polling the same control channel, so a later
+          // Resume or Stop could reach either copy and both wrote to the row.
           console.warn(
-            `[crawlScope] run ${run.id} paused for over ${Math.round(MAX_PAUSE_MS / 60_000)}m; ` +
-              "no longer heart-beating so the reaper can reclaim it",
+            `[crawlScope] run ${run.id} paused for over ${Math.round(this.maxPauseMs / 60_000)}m; ` +
+              "ending this execution; it stays paused until resumed",
           );
+          halt("pause-expired");
           return;
         }
       } else {
@@ -464,8 +527,43 @@ class RunManager {
       repo.updateRun(db, run.id, patch, { returning: false })
         .catch(() => {})
         .finally(() => { heartbeatInFlight = false; });
-    }, HEARTBEAT_MS);
+    }, this.heartbeatMs);
     heartbeat.unref();
+
+    // After the crawling, until the terminal status: liveness alone, no
+    // checkpoint. Storing a large crawl's findings, instances and link graph
+    // can take longer than the reaper's stale window, and with no heartbeat at
+    // all the run looked dead part-way through: the reaper requeued it, a
+    // second executor resumed it while this one was still writing, and both
+    // wrote the same findings into one run.
+    let liveness = null;
+    const keepAlive = () => {
+      liveness = setInterval(() => {
+        repo.updateRun(db, run.id, { heartbeat_at: new Date().toISOString() }, { returning: false })
+          .catch(() => {});
+      }, this.heartbeatMs);
+      liveness.unref();
+    };
+    const endLiveness = () => {
+      clearInterval(liveness);
+      liveness = null;
+    };
+
+    // Applies a pause/resume/stop request, from the control poll or pending
+    // on the row when this execution claimed it.
+    const applyControl = (request) => {
+      // Through the same methods the in-process buttons use, so a remote
+      // stop and a local one cannot diverge.
+      if (request === "pause") crawler.pause();
+      else if (request === "resume") crawler.resume();
+      else if (request === "stop") crawler.stop();
+      else console.warn(`[crawlScope] run ${run.id}: unknown control request "${request}"`);
+      console.log(`[crawlScope] run ${run.id}: applied remote ${request} request`);
+      // Cleared only if it is still the request that was read — see
+      // repo.clearControlRequest. An unrecognised value is cleared too, or
+      // it would be re-read every poll for the life of the run.
+      return repo.clearControlRequest(db, run.id, request);
+    };
 
     // ── Stopping a crawl that is executing HERE, asked for over THERE ──────
     //
@@ -496,20 +594,17 @@ class RunManager {
         return;
       }
       repo
-        .readControlRequest(db, run.id)
-        .then((request) => {
+        .readRunControl(db, run.id)
+        .then(({ exists, request }) => {
+          // The row was deleted: a newer crawl of the same site replaced this
+          // one (repo.createRun). Stop, and write nothing more.
+          if (!exists) {
+            console.warn(`[crawlScope] run ${run.id} was replaced by a newer crawl; stopping`);
+            halt("superseded");
+            return;
+          }
           if (!request) return;
-          // Through the same methods the in-process buttons use, so a remote
-          // stop and a local one cannot diverge.
-          if (request === "pause") crawler.pause();
-          else if (request === "resume") crawler.resume();
-          else if (request === "stop") crawler.stop();
-          else console.warn(`[crawlScope] run ${run.id}: unknown control request "${request}"`);
-          console.log(`[crawlScope] run ${run.id}: applied remote ${request} request`);
-          // Cleared only if it is still the request that was read — see
-          // repo.clearControlRequest. An unrecognised value is cleared too, or
-          // it would be re-read every poll for the life of the run.
-          return repo.clearControlRequest(db, run.id, request);
+          return applyControl(request);
         })
         // A dropped poll is not a failed crawl: the next one is three seconds
         // away, and a control channel that could kill a run by failing to read
@@ -650,12 +745,80 @@ class RunManager {
       }
     });
 
+    // Whether the run's row still exists; a newer crawl of the same site
+    // deletes it (repo.createRun). Assumed to exist when the read fails.
+    const stillExists = () =>
+      repo.readRunControl(db, run.id).then(({ exists }) => exists, () => true);
+
     try {
-      const summary = await crawler.start(options.urls || url);
+      const started = crawler.start(options.urls || url);
+      // A request already waiting when this execution claimed the run — a
+      // parked run resumed with Stop (repo.unparkRun) — is applied now, not on
+      // the first poll a few pages later.
+      if (run.control_request) {
+        Promise.resolve()
+          .then(() => applyControl(run.control_request))
+          .catch(() => {});
+      }
+      const summary = await started;
+      // The crawling is over, and so is the checkpointing heartbeat and the
+      // control poll. That heartbeat used to run until the very end, through
+      // the analysis and the writes after the terminal status: each tick saved
+      // a snapshot of the stopped crawler (an empty frontier) as the
+      // checkpoint, and a run resumed from it finished at once as "completed"
+      // on part of a site. Liveness alone carries on until the terminal write.
+      clearInterval(heartbeat);
+      clearInterval(control);
+      keepAlive();
       finalized = true; // no further status writes may race the terminal one below
       await flush();
 
+      if (haltReason === "superseded" || !(await stillExists())) {
+        return { run, summary, superseded: true };
+      }
+
+      // A deploy, or a pause held past MAX_PAUSE_MS. Done here, inside the
+      // execution shutdown() waits for, so the process cannot exit between
+      // "stopped" and "requeued". Neither spends an attempt: a deploy is not a
+      // failure, and a pause is not one either.
+      if (haltReason === "shutdown" || haltReason === "pause-expired") {
+        endLiveness();
+        const paused = haltReason === "pause-expired";
+        if (paused) {
+          // Still paused, on no executor, until someone resumes or stops it.
+          // With no checkpoint (a list crawl) its rows go: Resume restarts it.
+          await repo.parkRun(db, run.id, { checkpoint: haltCheckpoint });
+        } else if (haltCheckpoint) {
+          // Back on the queue with the frontier taken before the stop, keeping
+          // the pages already stored. The next executor resumes it.
+          await repo.updateRun(db, run.id, {
+            status: "queued",
+            checkpoint: haltCheckpoint,
+            started_at: null,
+            finished_at: null,
+            heartbeat_at: null,
+            worker_id: null,
+            error: null,
+            summary: null,
+            progress: {},
+          }, { returning: false });
+        } else {
+          // Nothing to resume from (a list crawl has no frontier): back on
+          // the queue to start over. It used to be finished as a partial
+          // "stopped" run, for good, by every deploy that caught it.
+          await repo.restartRun(db, run.id);
+        }
+        console.warn(
+          `[crawlScope] run ${run.id} ${paused ? "parked as paused" : "requeued"} (${haltReason}, `
+            + `${haltCheckpoint ? "resumes from its checkpoint" : "starts over"})`,
+        );
+        return { run, summary, requeued: true, ...(paused ? { parked: true } : {}) };
+      }
+
       const findings = Array.isArray(summary.findings) ? summary.findings : [];
+      // Cleared first: an earlier completion of this run that died part-way
+      // left rows behind, and these inserts would add a second copy.
+      await repo.deleteRunCompletion(db, run.id);
       await repo.insertFindings(db, aggregateFindings(findings, run.owner, run.id));
       // Full per-occurrence detail (migration 0023) — chunked INSERTs, not the
       // single giant summary.findings UPDATE that used to carry this and was
@@ -841,6 +1004,8 @@ class RunManager {
           ? { error: `${lostRows} crawled pages could not be stored; the report is incomplete.` }
           : {}),
       });
+      // Terminal: the reaper no longer looks at it.
+      endLiveness();
 
       // Pages checked with PageSpeed Insights while the crawl ran (from the
       // report, one page at a time) become Core Web Vitals findings now that
@@ -927,8 +1092,16 @@ class RunManager {
 
       return { run, summary, counts };
     } catch (error) {
+      clearInterval(heartbeat);
+      clearInterval(control);
+      endLiveness();
       finalized = true;
       await flush().catch(() => {});
+      // Deleted underneath it (replaced by a newer crawl): the failure is the
+      // missing row, not the crawl, and there is nothing to mark failed.
+      if (haltReason === "superseded" || !(await stillExists())) {
+        return { run, superseded: true };
+      }
       await repo.updateRun(db, run.id, {
         status: "failed",
         error: String(error?.message || error),
@@ -939,7 +1112,9 @@ class RunManager {
     } finally {
       clearInterval(heartbeat);
       clearInterval(control);
+      endLiveness();
       this.crawlers.delete(run.id);
+      this.halts.delete(run.id);
       try {
         await fetchImpl.close();
       } catch {

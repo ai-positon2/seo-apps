@@ -156,6 +156,22 @@ router.get(
 router.post(
   "/runs",
   asyncRoute(async (req, res) => {
+    // Naming a project is a project action, and is checked as one. A crawl with
+    // a project_id shows on that project's dashboard and syncs into its page
+    // list, and this id used to be stored exactly as sent: any signed-in user
+    // could attach a crawl to any project, in any workspace. requireProject
+    // answers 404 for a project the caller cannot reach, so the check does not
+    // confirm the id exists either.
+    //
+    // Filed under the project's workspace, not the caller's active one — the
+    // same place queueProjectRun files the project's own crawls, and the same
+    // limits those crawls run under.
+    const projectId = req.body?.projectId || null;
+    const project = projectId
+      ? (await projectAccess.requireProject(req, projectId, "startRun")).project
+      : null;
+    const workspaceId = project ? project.workspace_id : req.crawlWorkspaceId;
+
     // Resolved here as well as in manager.execute(), because the 201 below
     // reports the budget and it must be the same number the run will use. The
     // manager resolves again at execute time — deliberately: a policy can change
@@ -163,12 +179,12 @@ router.post(
     // is the one that counts.
     const { url, options, listInfo, budgetClamped } = parseCrawlRequest(
       req.body || {},
-      await resolveLimits(req.crawlWorkspaceId),
+      await resolveLimits(workspaceId),
     );
     const run = await repo.createRun(req.db, {
       owner: req.user.id,
-      workspace_id: req.crawlWorkspaceId,
-      project_id: req.body.projectId || null,
+      workspace_id: workspaceId,
+      project_id: project ? project.id : null,
       url,
       options,
       trigger: "manual",
@@ -521,6 +537,25 @@ for (const action of ["pause", "resume", "stop"]) {
         });
       }
 
+      // Paused for longer than a worker holds a paused crawl, and parked: no
+      // executor is polling for a request, so a Resume or Stop puts it back on
+      // the queue, and the worker that picks it up applies the Stop at once.
+      if (repo.isParkedRun(run)) {
+        if (action === "pause") return res.json({ ok: true, action, applied: "immediately" });
+        const queued = await repo.unparkRun(req.db, run.id, { request: action === "stop" ? "stop" : null });
+        if (queued) {
+          return res.json({
+            ok: true,
+            action,
+            applied: "requested",
+            note: action === "stop"
+              ? "The crawl will stop in a moment, and its report is written from the pages it reached."
+              : "The crawl is back in the queue and will carry on from where it paused.",
+          });
+        }
+        // No longer parked (resumed or replaced a moment ago): handled below.
+      }
+
       await repo.updateRun(req.db, run.id, {
         control_request: action,
         control_requested_at: new Date().toISOString(),
@@ -739,12 +774,50 @@ router.post(
   }),
 );
 
+// The origin of a stored or submitted crawl URL, or null for anything that is
+// not one — a list project's `url` is a display label ("List crawl (12 URLs)").
+const originOf = (value) => {
+  try {
+    return require("../../projects/domains").normalizeOrigin(value).normalizedOrigin;
+  } catch {
+    return null;
+  }
+};
+
 router.patch(
   "/projects/:id",
   asyncRoute(async (req, res) => {
     const body = req.body || {};
-    const existing = await repo.getProjectForViewer(req.db, req.params.id, req.crawlViewer);
-    if (!existing) return res.status(404).json({ error: "Project not found." });
+    // The same rule as PATCH /api/projects/:id, because these are the same
+    // project settings. This used to be two rules: the read was workspace-scoped
+    // but the write was filtered on `owner`, so a teammate's edit matched no row,
+    // changed nothing, and still answered 200 — the screen said "Schedule
+    // updated." over a schedule that was not.
+    const access = await projectAccess.requireProject(req, req.params.id, "editProjectSettings");
+    const existing = access.project;
+
+    // A different SITE is a primary-domain change, and goes through the one
+    // writer for it. Written straight to `url`, the crawler moved to the new site
+    // while the project's primary domain — what every other module, the
+    // dashboard and the competitor list read — stayed on the old one, and the
+    // site verification and robots override granted for the old site carried
+    // over to the new one.
+    //
+    // Compared against the stored crawl URL, not the primary domain: the form
+    // sends `url` back on every save, and a project whose crawl URL already
+    // differs from its primary (a `www.` start, say) must not have its primary
+    // rewritten by a schedule change. A new path on the same site is not a
+    // domain change either. List mode has no single site, so it never moves it.
+    if (body.url && !body.urls) {
+      const submitted = originOf(body.url);
+      if (submitted && submitted !== originOf(existing.url)) {
+        await projectStore.setPrimaryDomain({
+          access,
+          domain: body.url,
+          reason: "Site URL changed in the Site Crawler.",
+        });
+      }
+    }
 
     const patch = {};
     if (body.name !== undefined) patch.name = body.name;
@@ -786,7 +859,9 @@ router.patch(
       patch.next_run_at = next ? next.toISOString() : null;
     }
 
-    const project = await repo.updateProject(req.db, req.params.id, patch, req.user.id);
+    // No owner filter: requireProject above is the authorization.
+    const project = await repo.updateProject(req.db, req.params.id, patch);
+    if (!project) return res.status(404).json({ error: "Project not found." });
     res.json({ project });
   }),
 );

@@ -108,7 +108,10 @@ test("RunManager writes the stopping phase before the terminal status", async (t
     resultEdgesSupported: async () => false,
     updateRun: async (_db, _id, patch) => { updates.push(patch); return {}; },
     readControlRequest: async () => null,
+    // The row is still there: a missing one means the run was replaced.
+    readRunControl: async () => ({ exists: true, request: null }),
     clearControlRequest: async () => {},
+    deleteRunCompletion: async () => {},
     insertResults: async (_db, rows) => { stored += rows.length; },
     insertFindings: async () => {},
     insertRunFindingInstances: async () => {},

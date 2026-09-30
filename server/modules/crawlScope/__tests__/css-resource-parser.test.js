@@ -63,3 +63,28 @@ test("CSS resource parsing excludes inert syntax and scales across large stylesh
     ["https://cdn.test/final.png"],
   );
 });
+
+// Minified CSS is one line. Reading each reference's context from the whole
+// line made the work quadratic and kept a copy of the line alive per reference
+// — a finance publisher's pages ran a crawl out of memory.
+test("a reference's context comes from around it, not from its whole minified line", () => {
+  const rules = Array.from(
+    { length: 2_000 },
+    (_, i) => `.r${i}{color:#123;background:url(https://cdn.test/${i}.png)}`,
+  );
+  const oneLine = `${".pad{margin:0}".repeat(20_000)}${rules.join("")}`;
+  const started = Date.now();
+  const references = cssResourceReferences(oneLine);
+  const elapsed = Date.now() - started;
+
+  assert.equal(references.length, 2_000);
+  assert.ok(elapsed < 2_000, `parsing took ${elapsed}ms`);
+  for (const reference of [references[0], references[999], references[1_999]]) {
+    assert.ok(reference.context.length <= 182, reference.context.length);
+    assert.ok(reference.context.startsWith("…"));
+  }
+  assert.match(references[999].context, /url\(https:\/\/cdn\.test\/999\.png\)/);
+  // Short, multi-line CSS reads exactly as before: the reference's own line.
+  const [short] = cssResourceReferences(".a {\n  background: url(x.png);\n}");
+  assert.equal(short.context, "background: url(x.png);");
+});

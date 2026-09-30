@@ -111,11 +111,6 @@ function projectView(project, domains = []) {
     siteVerifiedAt: project.site_verified_at,
     robotsOverride: Boolean(project.robots_override),
     settings: project.settings || {},
-    // Set at creation (Project Setup's "Find competitors for me" toggle). Read
-    // by moduleRunners.runCompetitor: when true and no competitor is tracked
-    // yet, that run discovers and self-confirms candidates instead of reporting
-    // insufficient_data. Left alone once any competitor exists — see there.
-    autoFindCompetitors: Boolean(project.settings?.autoFindCompetitors),
     // The pages this project targets, each with its OWN keywords. Keywords are
     // per page, not per site: the implants page targets a different term from
     // the pricing page. Kept in settings rather than a table of its own — it is
@@ -356,7 +351,7 @@ async function getProject(projectRow) {
  *   projectView and is repaired in project settings. Never defaulted to a guess
  *   — an invented market is worse than an absent one (§24.2).
  */
-async function createProject({ access, name, primaryDomain, country, competitors = [], schedule = {}, recipients = [], crawlOptions = {}, autoFindCompetitors = false, requireCountry = true }) {
+async function createProject({ access, name, primaryDomain, country, competitors = [], schedule = {}, recipients = [], crawlOptions = {}, requireCountry = true }) {
   if (!db.isDatabaseConfigured()) throw notConfigured();
 
   const primary = domainsLib.normalizeOrigin(primaryDomain);
@@ -440,11 +435,7 @@ async function createProject({ access, name, primaryDomain, country, competitors
           schedule.enabled === true
             ? cron.nextRun(cronExpr, new Date(), timezone)?.toISOString() || null
             : null,
-          // "Find competitors for me" from setup. Deliberately not acted on
-          // here — it only fires later, from the Competitor Research run itself
-          // (see moduleRunners.runCompetitor), so choosing this at setup never
-          // spends a metered SEMrush budget before anyone asked to run anything.
-          db.json(autoFindCompetitors ? { autoFindCompetitors: true } : {}),
+          db.json({}),
         ]
       );
 
@@ -486,7 +477,6 @@ async function createProject({ access, name, primaryDomain, country, competitors
       primaryDomain: primary.normalizedOrigin,
       countryCode,
       competitors: competitorDomains.map((d) => d.normalizedOrigin),
-      autoFindCompetitors: Boolean(autoFindCompetitors),
     },
     source: 'api.projects',
   });

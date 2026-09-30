@@ -9,7 +9,8 @@
 
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 
-const { isDatabaseConfigured } = require('./services/db');
+const db = require('./services/db');
+const { isDatabaseConfigured } = db;
 const moduleWorker = require('./services/moduleWorker');
 const executors = require('./services/moduleExecutors');
 
@@ -31,7 +32,10 @@ function shutdown(signal) {
   clearInterval(keepAlive);
   // A claimed run is left as-is: the reaper requeues it once its heartbeat
   // goes quiet, which is safer than this process trying to unwind mid-capture.
-  process.exit(0);
+  // The pool is closed first so its sockets end cleanly rather than counting
+  // as abandoned sessions; the timer caps the wait on an in-flight query.
+  setTimeout(() => process.exit(0), 5_000).unref();
+  db.end().catch(() => {}).finally(() => process.exit(0));
 }
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));

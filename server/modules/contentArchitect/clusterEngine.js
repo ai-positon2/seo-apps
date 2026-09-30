@@ -7,6 +7,7 @@
 const { MIN_CLUSTER_SIZE, MAX_CLUSTER_SIZE, DUAL_CLUSTER_MARGIN, SIMILARITY_THRESHOLD, MECHANICAL_NAME_TERM_COUNT } = require('./config');
 const { agglomerativeAverageLinkage } = require('./agglomerativeClustering');
 const { computeIdf } = require('./similarity');
+const { surfaceTerm } = require('./termProfile');
 
 function titleCase(term) {
   return term.split(' ').map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w)).join(' ');
@@ -34,9 +35,13 @@ function topTermsForCluster(memberIndices, profiles, idf, n) {
   return chosen;
 }
 
+// Terms are stems ("daili seo fix"); a name shows each as the spelling the
+// pages used most, when buildCorpusTermProfiles recorded them (profiles.surface).
 function mechanicalName(memberIndices, profiles, idf) {
   const chosen = topTermsForCluster(memberIndices, profiles, idf, MECHANICAL_NAME_TERM_COUNT);
-  return chosen.length ? chosen.map(titleCase).join(' & ') : 'Unnamed Cluster';
+  return chosen.length
+    ? chosen.map((term) => titleCase(surfaceTerm(term, profiles.surface))).join(' & ')
+    : 'Unnamed Cluster';
 }
 
 function meanIntraClusterSimilarity(indices, matrix) {

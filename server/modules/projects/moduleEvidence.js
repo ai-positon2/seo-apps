@@ -523,7 +523,10 @@ const FLAT_MINUTES = {
   // informational listings, spends up to three minutes choosing pages
   // (SELECTION_AI_BUDGET_MS in contentArchitect/config.js), and fetches up to
   // DISCOVERY_MAX_FETCH of them before naming and relevance even start.
-  hub_spoke: 15, competitor: 15, ai_visibility: 45, ai_visibility_prompts: 10,
+  // 20, not 15: measured 12 minutes on one SaaS site with no crawl delay, and
+  // a site's Crawl-delay is now honoured, within DISCOVERY_LISTING_BUDGET_MS
+  // (3 min) for listings and DISCOVERY_FETCH_BUDGET_MS (8 min) for page reads.
+  hub_spoke: 20, competitor: 15, ai_visibility: 45, ai_visibility_prompts: 10,
   // The API module is the fast one, and that is its whole reason for existing.
   // 20 prompts x 3 providers, three providers answering in parallel per prompt,
   // a few seconds each: a full run lands around 3-5 minutes. 12 leaves room for

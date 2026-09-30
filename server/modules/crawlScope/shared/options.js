@@ -321,6 +321,9 @@ function parseCrawlRequest(body = {}, overrides = {}) {
     renderCheck: raw.renderCheck !== false,
     // Audit every page as rendered in a headless browser. Off unless asked.
     renderJavaScript: raw.renderJavaScript === true,
+    // ...but switched on automatically when the start page is a
+    // client-rendered shell (crawler.js#_looksClientRendered).
+    autoRenderJavaScript: raw.autoRenderJavaScript !== false,
     renderSampleSize: clampInt(1, 25)(raw.renderSampleSize ?? 10),
     // What part of the site to crawl (url-scope.js). Patterns follow
     // robots.txt: "/blog/*" from the start of the path, "*?sort=" anywhere,
@@ -338,6 +341,12 @@ function parseCrawlRequest(body = {}, overrides = {}) {
     // lengths, thin content, slow responses, click depth, URL length, links.
     thresholds: resolveThresholds(raw.thresholds),
   };
+  // Internal URLs past the page budget that a crawled page links or redirects
+  // to are status-checked, not audited (crawler.js#_processProbe): up to one
+  // per page in the budget, and never for a URL list, which crawls only its URLs.
+  if (!listUrls && !storing) {
+    options.maxProbeUrls = clampInt(0, 5_000)(raw.maxProbeUrls ?? Math.min(options.maxUrls || cap.maxUrls, 1_000));
+  }
   if (listUrls) options.urls = listUrls;
   // Storing mode leaves an unstated budget unstated rather than writing a
   // number the caller never chose. Drop the key entirely so the stored blob says

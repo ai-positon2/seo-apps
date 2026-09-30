@@ -10,9 +10,10 @@ import { healthScoreBreakdown } from '../crawlHelpers';
 // answered every question except the one the reader arrived with.
 //
 // The score is the crawler's own (crawlHelpers.healthMetrics), and the bars
-// beside it are its actual arithmetic, not a decorative breakdown: the same
-// 45/22/8 weights, each scaled by the share of HTML pages it touches. A client
-// asked to trust a number is owed the formula, so the formula is on screen.
+// beside it are its actual arithmetic, not a decorative breakdown: the points
+// each severity cost (crawlHelpers HEALTH_WEIGHTS, per distinct rule per page,
+// averaged over the audited pages). A client asked to trust a number is owed
+// the formula, so the formula is on screen.
 
 /**
  * @param {object} props
@@ -126,9 +127,10 @@ export default function OverviewPanel({
             {/* The weights, said out loud. Without them the bars are three
                 numbers whose relative size looks arbitrary. */}
             <span style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5 }}>
-              Starting from 100, an error band costs up to 45 points, a warning 22 and a notice 8
-              — each scaled by the share of the site’s {metrics.htmlCount} HTML pages it touches.
-              External pages the crawler followed are excluded from both sides.
+              Each page loses 40 points for every kind of error it has, 10 for every kind of warning
+              and 2 for every kind of notice, up to 100; the score is 100 less the average loss over
+              the {metrics.htmlCount} HTML pages audited. Redirects, error pages and external pages
+              are not scored as pages.
             </span>
           </>
         )}
