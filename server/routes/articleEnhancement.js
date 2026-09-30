@@ -11,6 +11,9 @@ const store = require('../services/kbStore');
 const { searchGoogle } = require('../services/googleSearch');
 const { createLlmClient, resolveModelIds, WRITER_MODEL_ID } = require('../services/llmProviders');
 const { synthesizeRecommendations } = require('../services/llmSynthesis');
+const caStore = require('../modules/contentArchitect/store');
+const { authorize: authorizeCaProject } = require('../modules/contentArchitect/access');
+const enhancementsStore = require('../modules/contentArchitect/enhancementsStore');
 
 // gpt-5-mini was removed — it failed on 100% of runs and added only noise.
 const MODELS = [
@@ -50,8 +53,31 @@ router.post('/init', async (req, res) => {
     return res.status(400).json({ error: e.message });
   }
 
+  // Started from a Content Architect project's Hub & Spoke report: the result is
+  // saved against that project's page (contentArchitect/enhancementsStore.js).
+  // The caller must be allowed to run work on that project, or the id is
+  // ignored rather than written to.
+  let origin = null;
+  if (req.body.origin?.caProjectId) {
+    try {
+      const project = await caStore.getProject(String(req.body.origin.caProjectId));
+      if (project) {
+        await authorizeCaProject(req, project, 'startRun');
+        origin = {
+          caProjectId: project.id,
+          clusterId: req.body.origin.clusterId ? String(req.body.origin.clusterId).slice(0, 200) : null,
+          pageUrl: url.trim(),
+        };
+      }
+    } catch (e) {
+      if (e.status !== 403 && e.status !== 404) console.error('[article-enhancement] origin check failed:', e.message);
+    }
+  }
+
   const token = generateToken();
   sessions.set(token, {
+    origin,
+    actor: req.user?.username || null,
     url: parsedUrl.href,
     kbId: kbId || 'seo-geo-article-enhancement-knowledge-base',
     manualContent: (manualContent || '').trim(),
@@ -206,13 +232,34 @@ router.get('/stream/:token', async (req, res) => {
 
     emit('step', { id: 'enhance', status: 'done', message: 'Article enhancement complete' });
     // Coverage Report is surfaced in its own tab (not appended to the article).
-    emit('coverage', {
+    const coverageSummary = {
       checked: coverage.report.length,
       total: 12,
       covered: coverage.coveredCount,
       reportMarkdown: buildCoverageMarkdown(coverage.report),
-    });
+    };
+    emit('coverage', coverageSummary);
     emit('enhanced', { text: enhancedText });
+
+    // Started from the Hub & Spoke report: keep the result beside that page.
+    if (session.origin) {
+      const saved = await enhancementsStore.saveEnhancement({
+        projectId: session.origin.caProjectId,
+        clusterId: session.origin.clusterId,
+        url: session.origin.pageUrl,
+        contentType: articleData.contentType,
+        title: articleData.title,
+        createdBy: session.actor,
+        result: {
+          recommendations,
+          enhancedText,
+          coverage: coverageSummary,
+          articleMeta: { title: articleData.title, url: articleData.url, wordCount: articleData.wordCount, h2s: articleData.h2s },
+          manualContent: Boolean(manualContent),
+        },
+      });
+      emit('saved', { to: 'content-architect', caProjectId: session.origin.caProjectId, saved: saved.saved });
+    }
 
   } catch (err) {
     console.error('[article-enhancement] Error:', err.message);

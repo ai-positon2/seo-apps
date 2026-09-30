@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { SectionHeader } from '../ui/SectionHeader';
 import { Button } from '../ui/Button';
@@ -14,6 +14,7 @@ import { ca } from '../lib/contentArchitectApi';
 import { useActiveProjectId } from '../lib/activeProject';
 import { useActiveProject } from '../lib/useActiveProject';
 import { projectsApi } from '../lib/projectsApi';
+import { matchClientSlug, KB_CLIENT_SLUGS } from '../lib/clientMatch';
 
 const DISCOVER_STEPS = [
   { id: 'sitemap', label: 'Find sitemap' },
@@ -119,6 +120,16 @@ export default function ContentArchitectProjectPage() {
     return () => { cancelled = true; };
   }, [analysis, id]);
 
+  // Everything made from this report — keyword sets, article drafts, page
+  // enhancements — shown beside the hub, spoke or topic it belongs to.
+  // Reloaded on return to the page (the tools that make it are other pages)
+  // and whenever a panel here saves something.
+  const [work, setWork] = useState(null);
+  const loadWork = useCallback(() => {
+    ca.getWork(id).then(setWork).catch(() => {});
+  }, [id]);
+  useEffect(() => { if (analysis) loadWork(); }, [Boolean(analysis), loadWork]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Set once here, reused automatically by every "Suggest spokes" click after
   // this — not re-asked per suggestion request.
   // One competitor list per client (docs/design-audit/02-plan-one-client.md):
@@ -131,6 +142,13 @@ export default function ContentArchitectProjectPage() {
     .map((c) => String(c).replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, ''))
     .filter(Boolean);
   const competitorsFromProject = !(project?.competitors || []).length && projectCompetitors.length > 0;
+  // The knowledge-base client for inline keyword research and the Content
+  // Writer handoff: the linked project's brand first (its name, e.g.
+  // "Riccobene", rather than its host, brushandfloss.com), then the host.
+  const linkedProject = platformProject?.id && platformProject.id === project?.platformProjectId ? platformProject : null;
+  const kbClient = matchClientSlug(linkedProject, KB_CLIENT_SLUGS)
+    || matchClientSlug({ name: project?.name, primaryDomain: { host: project?.domain || project?.name } }, KB_CLIENT_SLUGS)
+    || '';
   useEffect(() => {
     const own = project?.competitors || [];
     setCompetitorsText((own.length ? own : projectCompetitors).join(', '));
@@ -587,8 +605,10 @@ export default function ContentArchitectProjectPage() {
             pageById={pageById}
             navigate={navigate}
             projectId={id}
-            siteName={project?.name}
+            kbClient={kbClient}
             actionStatus={actionStatus}
+            work={work}
+            onWorkChanged={loadWork}
             onSuggestions={(clusterId, result) => setAnalysis((prev) => ({
               ...prev,
               spokeSuggestionsByCluster: { ...(prev.spokeSuggestionsByCluster || {}), [clusterId]: result },

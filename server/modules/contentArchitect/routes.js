@@ -33,26 +33,17 @@ const { runFullAnalysis } = require('./fullAnalysis');
 const { buildWorkbook, buildMarkdownNarrative } = require('./exporter');
 const { suggestSpokes } = require('./spokeSuggestions');
 const spokeSuggestionsStore = require('./spokeSuggestionsStore');
+const keywordResearchStore = require('./keywordResearchStore');
+const enhancementsStore = require('./enhancementsStore');
+const work = require('./work');
 const runStore = require('../../services/runStore');
 const { buildCorpusTermProfiles } = require('./termProfile');
 const { computeIdf } = require('./similarity');
 const { topTermsForCluster } = require('./clusterEngine');
 
 const analyzeSessions = new Map();
-const projectAccess = require('../../services/projectAccess');
-
-// Access follows the record's link. Linked to a platform project: that
-// project's workspace access. Unlinked but still in a workspace: that
-// workspace's members — the importer leaves records like this when it can
-// resolve a workspace but not the project inside it. Neither: a standalone
-// analysis, open to anyone signed in, as the standalone tool always was.
-async function authorize(req, project, capability) {
-  if (project.platformProjectId) {
-    await projectAccess.requireProject(req, project.platformProjectId, capability);
-  } else if (project.workspaceId) {
-    await projectAccess.requireWorkspace(req, project.workspaceId, capability);
-  }
-}
+// Access follows the record's link — see access.js.
+const { authorize } = require('./access');
 
 router.param('id', async (req, res, next, id) => {
   try {
@@ -541,6 +532,58 @@ router.post('/projects/:id/clusters/:clusterId/suggest-spokes', async (req, res)
     res.status(500).json({ error: err.message });
   }
 });
+
+// Inline keyword research, per topic (keywordResearchStore.js). The research
+// itself runs through /api/keyword-research, which is tracked as its own run;
+// these only keep its result and the user's picks next to the cluster.
+router.get('/projects/:id/clusters/:clusterId/keyword-research', wrap(async (req, res) => {
+  const project = await store.getProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  const items = await keywordResearchStore.listForCluster(project.id, req.params.clusterId);
+  res.json({ items });
+}));
+
+// Body { topic, intent, result, selection } saves a finished run;
+// { topic, selection } alone updates the picks of one already saved.
+router.put('/projects/:id/clusters/:clusterId/keyword-research', wrap(async (req, res) => {
+  const project = await store.getProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  const { topic, intent, result, selection } = req.body || {};
+  if (typeof topic !== 'string' || !topic.trim()) return res.status(400).json({ error: 'topic is required' });
+  if (result !== undefined && (typeof result !== 'object' || result === null)) {
+    return res.status(400).json({ error: 'result must be an object' });
+  }
+  const outcome = result
+    ? await keywordResearchStore.saveResult(project.id, req.params.clusterId, { topic: topic.trim(), intent, result, selection })
+    : await keywordResearchStore.saveSelection(project.id, req.params.clusterId, topic.trim(), selection);
+  res.json(outcome);
+}));
+
+// Everything made from this report — keyword sets, article drafts, page
+// enhancements — as summaries the report places beside each hub, spoke and
+// suggested topic (work.js). The full article or enhancement is its own read.
+router.get('/projects/:id/work', wrap(async (req, res) => {
+  const project = await store.getProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  res.json(await work.projectWork(req, project));
+}));
+
+router.get('/projects/:id/work/articles/:articleId', wrap(async (req, res) => {
+  const project = await store.getProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  const article = await work.getArticle(req, project, req.params.articleId);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+  res.json(article);
+}));
+
+router.get('/projects/:id/work/enhancement', wrap(async (req, res) => {
+  const project = await store.getProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (typeof req.query.url !== 'string' || !req.query.url) return res.status(400).json({ error: 'url is required' });
+  const enhancement = await enhancementsStore.getEnhancement(project.id, req.query.url);
+  if (!enhancement) return res.status(404).json({ error: 'No saved enhancement for this page' });
+  res.json(enhancement);
+}));
 
 router.get('/projects/:id/export', async (req, res) => {
   try {

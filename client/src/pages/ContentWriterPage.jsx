@@ -6,6 +6,7 @@ import { projectsApi } from '../lib/projectsApi';
 import { readActiveProjectId, setActiveProjectId, useActiveProjectId } from '../lib/activeProject';
 import { matchClientSlug } from '../lib/clientMatch';
 import { contentWriterApi as api } from '../lib/contentWriterApi';
+import { originFromParams } from '../lib/keywordResearchModel';
 import BriefEditor from '../components/contentWriter/BriefEditor';
 import DraftEditor from '../components/contentWriter/DraftEditor';
 import './ContentWriterPage.css';
@@ -68,7 +69,10 @@ export default function ContentWriterPage() {
           if (handoff) {
             const incoming = params.get('client') || '';
             const project = list.find(p => p.id === id);
-            setDoc({ ...blank(), keyword: handoff, options: { ...options(),
+            // From the Hub & Spoke report: the origin rides on the first save,
+            // so the report can list this article beside its topic.
+            const origin = originFromParams(params);
+            setDoc({ ...blank(), keyword: handoff, ...(origin ? { origin } : {}), options: { ...options(),
               secondaryKeywords: params.get('secondary') || '',
               client: CLIENTS.includes(incoming) ? incoming : (matchClientSlug(project, CLIENTS) || '') } });
             setSettingsOpen(true);
@@ -248,8 +252,15 @@ export default function ContentWriterPage() {
         <button aria-label="Dismiss" style={{ marginLeft: 8 }} onClick={() => setLinkedElsewhere(null)}>×</button>
       </div>
     )}
+    {doc.origin?.tool === 'content-architect' && (
+      <div className="cw-notice" role="status">
+        Written for <strong>{doc.origin.topic}</strong> from the Hub &amp; Spoke report
+        {record ? ' — the brief and draft show there beside that topic.' : ' — it is listed there once you save or build the brief.'}{' '}
+        <Link to={`/content-architect/${encodeURIComponent(doc.origin.caProjectId)}`}>Back to the report →</Link>
+      </div>
+    )}
     {error && <div className="cw-notice cw-error" role="alert">{error}<button aria-label="Dismiss error" onClick={() => setError('')}>×</button></div>}
-    {conflict && <div className="cw-notice">Another session saved this article. Export JSON to keep your local edits before reloading.
+    {conflict &&<div className="cw-notice">Another session saved this article. Export JSON to keep your local edits before reloading.
       <Button size="sm" variant="secondary" onClick={async () => { try { install(await api.get(projectId, record.id)); setError(''); } catch (e) { setError(e.message); } }}>Discard local edits & reload saved article</Button></div>}
     {!loading && !projects.length && <div className="cw-empty"><h2>Select a home for your content</h2><p>Create a project to save briefs and drafts.</p><Link to="/projects">Go to projects →</Link></div>}
     {!!projects.length && <div className="cw-workspace">

@@ -16,10 +16,14 @@
 // hub selection, ambiguity and the per-page flags are all the analysis's own
 // output; none of it is re-derived here.
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Badge } from '../../ui/Badge';
 import { Button } from '../../ui/Button';
 import { ca } from '../../lib/contentArchitectApi';
+import { indexWork } from '../../lib/hubSpokeWork';
+import TopicWork from './work/TopicWork';
+import WorkTally from './work/WorkTally';
+import { EnhancementBadge, EnhancementPanel } from './work/PageEnhancement';
 
 /** Health bands, shared with the page's donut so the two cannot disagree. */
 export function healthVariant(score) {
@@ -66,8 +70,16 @@ function spokeStatusFor(page) {
 //
 // Both values land as ordinary initial state on the other side, so they stay
 // editable: this is a prefill, not a lock.
-function enhanceHref(url, contentType) {
-  return `/article-enhancement?url=${encodeURIComponent(url)}&contentType=${contentType}`;
+//
+// The project and cluster ride along too, so the finished enhancement is saved
+// against this page and shows up here beside it (enhancementsStore.js).
+function enhanceHref(url, contentType, origin) {
+  const params = new URLSearchParams({ url, contentType });
+  if (origin?.caProjectId) {
+    params.set('caProject', origin.caProjectId);
+    if (origin.clusterId) params.set('cluster', origin.clusterId);
+  }
+  return `/article-enhancement?${params}`;
 }
 
 function actionButtonStyle(outlined) {
@@ -99,17 +111,22 @@ function ViewRecommendationButton({ runId, navigate, outlined = false }) {
   );
 }
 
-function EnhanceButton({ url, contentType, navigate, label = 'Enhance', outlined = false, viewRunId = null }) {
+// A page with a saved enhancement shows it through its badge (PageEnhancement),
+// so the action becomes "Re-enhance". The older run-history link is kept only
+// for pages enhanced before results were saved.
+function EnhanceButton({ url, contentType, navigate, label = 'Enhance', outlined = false, viewRunId = null, origin = null, saved = false }) {
   if (!url) return null;
-  if (viewRunId) return <ViewRecommendationButton runId={viewRunId} navigate={navigate} outlined={outlined} />;
+  if (viewRunId && !saved) return <ViewRecommendationButton runId={viewRunId} navigate={navigate} outlined={outlined} />;
   return (
     <button
       type="button"
-      onClick={(e) => { e.stopPropagation(); navigate(enhanceHref(url, contentType)); }}
-      title={`Open this ${contentType === 'hub' ? 'hub' : 'page'} in Enhance Existing Article`}
+      onClick={(e) => { e.stopPropagation(); navigate(enhanceHref(url, contentType, origin)); }}
+      title={saved
+        ? 'Run the enhancement again — the saved result is replaced when it finishes'
+        : `Open this ${contentType === 'hub' ? 'hub' : 'page'} in Enhance Existing Article`}
       style={actionButtonStyle(outlined)}
     >
-      {label}
+      {saved ? (contentType === 'hub' ? 'Re-enhance hub' : 'Re-enhance') : label}
     </button>
   );
 }
@@ -163,196 +180,6 @@ function SummaryTile({ label, value, color, iconBg, icon }) {
   );
 }
 
-// ── Inline keyword research ─────────────────────────────────────────────────
-//
-// Content Architect only ever hands off a TOPIC (an AI-suggested title, not a
-// researched keyword) — never straight to Article Recommendation. Instead of
-// navigating away to the standalone Keyword Research page, this runs that
-// same backend pipeline (POST /init + SSE /stream, unchanged) inline and
-// expands the topic card in place: research it here, approve which keywords
-// actually fit, THEN write a brief for one of THOSE — not the raw suggestion.
-//
-// Deliberately a lighter consumer of the SSE stream than KeywordResearchPage
-// itself: it only reads `step` (one status line, not the full 6-badge
-// timeline), `result`, and `fail` — the per-URL/per-query detail events exist
-// for the full page's own UI and have no compact equivalent here.
-function keyOf(kw) { return (kw.keyword || '').trim().toLowerCase(); }
-const MAX_APPROVED = 2;
-
-function InlineKeywordResearch({ topic, client, navigate, viewRunId = null }) {
-  const [phase, setPhase] = useState('idle'); // idle | running | done | error
-  const [statusMessage, setStatusMessage] = useState('');
-  const [candidates, setCandidates] = useState([]); // [{keyword, volume, ...}]
-  const [approved, setApproved] = useState(new Set()); // keyOf(kw) -> approved
-  const [warning, setWarning] = useState('');
-  const [error, setError] = useState('');
-  const esRef = useRef(null);
-
-  useEffect(() => () => esRef.current?.close(), []);
-
-  if (viewRunId) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <ViewRecommendationButton runId={viewRunId} navigate={navigate} />
-      </div>
-    );
-  }
-
-  function run() {
-    setPhase('running');
-    setError('');
-    setStatusMessage('Starting…');
-    fetch('/api/keyword-research/init', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ keyword: topic, client: client || undefined }),
-    })
-      .then(async (res) => {
-        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to start');
-        return res.json();
-      })
-      .then(({ token }) => {
-        const es = new EventSource(`/api/keyword-research/stream/${token}`);
-        esRef.current = es;
-        es.addEventListener('step', (e) => setStatusMessage(JSON.parse(e.data).message || ''));
-        es.addEventListener('result', (e) => {
-          const d = JSON.parse(e.data);
-          const primary = d.primary || [];
-          const secondary = d.secondary || [];
-          const merged = [...primary, ...secondary].filter((kw, i, arr) => arr.findIndex((k) => keyOf(k) === keyOf(kw)) === i);
-          setCandidates(merged);
-          // Primary keywords are already the AI's top pick — pre-approved,
-          // still editable (a checkbox, not a lock).
-          setApproved(new Set(primary.map(keyOf)));
-          setWarning(d.warning || '');
-        });
-        // The server always emits 'done' after 'fail' too (its SSE handler's
-        // outer finally), so 'done' must not blindly flip phase to 'done' —
-        // it only wins if nothing has already marked this run as failed.
-        es.addEventListener('fail', (e) => { setPhase('error'); setError(JSON.parse(e.data).message || 'Research failed.'); });
-        es.addEventListener('done', () => { es.close(); esRef.current = null; setPhase((p) => (p === 'error' ? p : 'done')); });
-        es.onerror = () => { es.close(); esRef.current = null; setPhase('error'); setError((prev) => prev || 'Connection lost. Please try again.'); };
-      })
-      .catch((e) => { setPhase('error'); setError(e.message); });
-  }
-
-  // Same 2-primary-keyword cap the standalone Keyword Research page already
-  // enforces (KeywordResearchPage.jsx's primaryList) — one brief targets a
-  // primary keyword pair, not an open-ended list. Unchecking is never
-  // blocked, only adding a 3rd.
-  function toggle(kw) {
-    setApproved((prev) => {
-      const k = keyOf(kw);
-      if (prev.has(k)) {
-        const next = new Set(prev);
-        next.delete(k);
-        return next;
-      }
-      if (prev.size >= MAX_APPROVED) return prev;
-      return new Set(prev).add(k);
-    });
-  }
-
-  if (phase === 'idle') {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); run(); }}
-          title="Research keywords for this topic, right here — approve which ones fit, then write a brief for one"
-          style={{
-            fontSize: 11.5, fontWeight: 600, color: 'var(--text-2)', background: 'var(--surface)',
-            border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px',
-            cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap',
-          }}
-        >
-          Keyword Research
-        </button>
-      </div>
-    );
-  }
-
-  const approvedKeywords = candidates.filter((kw) => approved.has(keyOf(kw)));
-  // Highest-volume approved keyword drives the brief — Article Recommendation
-  // targets one seed keyword, not a list; the others stay visible as
-  // approved context but aren't lost, just not the one a brief gets written
-  // for right now.
-  const topApproved = approvedKeywords.length
-    ? [...approvedKeywords].sort((a, b) => (b.volume || 0) - (a.volume || 0))[0]
-    : null;
-
-  return (
-    <div style={{ marginTop: 10, padding: 12, borderRadius: 'var(--r-md)', border: '1px solid var(--border)', background: 'var(--surface)' }}>
-      {phase === 'running' && (
-        <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Researching keywords for "{topic}"… {statusMessage}</div>
-      )}
-      {error && (
-        <div style={{ fontSize: 12, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          {error}
-          <button type="button" onClick={(e) => { e.stopPropagation(); run(); }} style={{ fontSize: 11, color: 'var(--text-2)', background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 8px', cursor: 'pointer' }}>Retry</button>
-        </div>
-      )}
-      {phase === 'done' && (
-        <>
-          {warning && <div style={{ fontSize: 11, color: 'var(--warning)', marginBottom: 8 }}>{warning}</div>}
-          {candidates.length === 0 ? (
-            <div style={{ fontSize: 12, color: 'var(--text-3)' }}>No keywords came back for this topic.</div>
-          ) : (
-            <>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>Approve up to {MAX_APPROVED} primary keywords for now</span>
-                <span style={{
-                  fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99,
-                  background: approved.size === MAX_APPROVED ? 'var(--success-soft)' : 'var(--danger-soft, #FEF2F2)',
-                  color: approved.size === MAX_APPROVED ? 'var(--success)' : 'var(--danger)',
-                }}>
-                  {approved.size} / {MAX_APPROVED} selected
-                </span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {candidates.map((kw) => {
-                const checked = approved.has(keyOf(kw));
-                const atCap = !checked && approved.size >= MAX_APPROVED;
-                return (
-                <label
-                  key={keyOf(kw)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: atCap ? 'not-allowed' : 'pointer', opacity: atCap ? 0.5 : 1 }}
-                  title={atCap ? `Primary is full (${MAX_APPROVED}/${MAX_APPROVED}) — remove one first` : undefined}
-                >
-                  <input type="checkbox" checked={checked} disabled={atCap} onChange={(e) => { e.stopPropagation(); toggle(kw); }} onClick={(e) => e.stopPropagation()} />
-                  <span style={{ fontSize: 12.5, color: 'var(--text)', flex: 1 }}>{kw.keyword}</span>
-                  {kw.volume ? <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{kw.volume.toLocaleString('en-US')}/mo</span> : null}
-                </label>
-                );
-              })}
-              </div>
-            </>
-          )}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
-            <button
-              type="button"
-              disabled={!topApproved}
-              onClick={(e) => {
-                e.stopPropagation();
-                navigate(`/content-writer?keyword=${encodeURIComponent(topApproved.keyword)}${client ? `&client=${encodeURIComponent(client)}` : ''}`);
-              }}
-              title={topApproved ? `Write a content brief for "${topApproved.keyword}"` : 'Approve a keyword above first'}
-              style={{
-                fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 7, border: '1px solid var(--primary)',
-                background: topApproved ? 'var(--primary)' : 'var(--surface)', color: topApproved ? '#fff' : 'var(--text-3)',
-                cursor: topApproved ? 'pointer' : 'not-allowed', opacity: topApproved ? 1 : 0.6,
-              }}
-            >
-              Recommend Article{topApproved ? ` for "${topApproved.keyword}"` : ''}
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
 // Where a suggestion's rationale came from — kept short, since the rationale
 // sentence itself already says the specific number/quote.
 const SUGGESTION_SOURCE_LABEL = {
@@ -362,7 +189,29 @@ const SUGGESTION_SOURCE_LABEL = {
   reasoning: 'AI judgment',
 };
 
-function SuggestedSpokesPanel({ cluster, projectId, siteName, suggestions, onSuggestions, navigate, recommendedTopics = {} }) {
+// The Keywords → Brief → Draft rail for one suggested topic, wired to this
+// cluster's saved keyword research and the project's work index.
+function TopicWorkFor({ topic, cluster, projectId, kbClient, navigate, keywordResearch, workIndex, onWorkChanged, recommendedTopics }) {
+  return (
+    <TopicWork
+      key={topic}
+      projectId={projectId}
+      clusterId={cluster.id}
+      topic={topic}
+      client={kbClient}
+      navigate={navigate}
+      entry={workIndex.forTopic(cluster.id, topic)}
+      saved={keywordResearch.byTopic[topic] || null}
+      onSaved={keywordResearch.remember}
+      onWorkChanged={onWorkChanged}
+      aside={recommendedTopics[topic]?.runId
+        ? <ViewRecommendationButton runId={recommendedTopics[topic].runId} navigate={navigate} />
+        : null}
+    />
+  );
+}
+
+function SuggestedSpokesPanel({ cluster, projectId, kbClient, suggestions, onSuggestions, navigate, recommendedTopics = {}, keywordResearch, workIndex, onWorkChanged }) {
   const isGap = cluster.isGap;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -414,18 +263,17 @@ function SuggestedSpokesPanel({ cluster, projectId, siteName, suggestions, onSug
                 </div>
               </div>
               {s.rationale && <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-3)' }}>{s.rationale}</p>}
-              <div style={{ marginTop: 8 }}>
-                <InlineKeywordResearch
-                  topic={s.title}
-                  client={siteName}
-                  navigate={navigate}
-                  viewRunId={recommendedTopics[s.title]?.runId || null}
+              <div style={{ marginTop: 10 }}>
+                <TopicWorkFor
+                  topic={s.title} cluster={cluster} projectId={projectId} kbClient={kbClient} navigate={navigate}
+                  keywordResearch={keywordResearch} workIndex={workIndex} onWorkChanged={onWorkChanged}
+                  recommendedTopics={recommendedTopics}
                 />
               </div>
             </div>
           ))}
           {!suggestions.signals.llmAvailable && (
-            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>ANTHROPIC_API_KEY not configured — showing keyword ideas as-is rather than AI-shaped topics. Use Keyword Research on any of these to take it further.</div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>OPENAI_API_KEY not configured — showing keyword ideas as-is rather than AI-shaped topics. Use Keyword Research on any of these to take it further.</div>
           )}
           {!suggestions.signals.semrushAvailable && (
             <div style={{ fontSize: 11, color: 'var(--text-3)' }}>SEMRUSH_API_KEY not configured — no real search-volume signal was available.</div>
@@ -450,8 +298,9 @@ function SuggestedSpokesPanel({ cluster, projectId, siteName, suggestions, onSug
 
 // ── One cluster ─────────────────────────────────────────────────────────────
 
-function SpokeTable({ spokes, navigate, enhancedUrls = {} }) {
+function SpokeTable({ spokes, navigate, enhancedUrls = {}, workIndex, origin }) {
   const columns = 'minmax(0,1fr) 90px 100px 92px';
+  const [openUrl, setOpenUrl] = useState(null);
   return (
     <div>
       <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.05em', color: 'var(--text-3)' }}>
@@ -468,13 +317,15 @@ function SpokeTable({ spokes, navigate, enhancedUrls = {} }) {
           </div>
           {spokes.map((s, i) => {
             const st = spokeStatusFor(s);
+            const enhancement = workIndex.forPage(s.url);
+            const expanded = openUrl === s.url && enhancement;
             return (
+              <div key={s.id} style={{ borderBottom: i < spokes.length - 1 ? '1px solid var(--border)' : 'none' }}>
               <div
-                key={s.id}
                 style={{
                   display: 'grid', gridTemplateColumns: columns, gap: 12, padding: '10px 14px',
                   alignItems: 'center',
-                  borderBottom: i < spokes.length - 1 ? '1px solid var(--border)' : 'none',
+                  background: expanded ? 'color-mix(in srgb, var(--success) 5%, transparent)' : 'transparent',
                 }}
               >
                 <div style={{ minWidth: 0 }}>
@@ -497,6 +348,11 @@ function SpokeTable({ spokes, navigate, enhancedUrls = {} }) {
                   {st.fix && (
                     <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 1 }}>{st.fix}</div>
                   )}
+                  {enhancement && (
+                    <div style={{ marginTop: 5 }}>
+                      <EnhancementBadge enhancement={enhancement} open={Boolean(expanded)} onToggle={() => setOpenUrl(expanded ? null : s.url)} />
+                    </div>
+                  )}
                 </div>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-3)' }}>
                   {s.wordCount ? s.wordCount.toLocaleString() : '—'}
@@ -507,7 +363,18 @@ function SpokeTable({ spokes, navigate, enhancedUrls = {} }) {
                 <EnhanceButton
                   url={s.url} contentType="article" navigate={navigate} label="Enhance article"
                   viewRunId={enhancedUrls[s.url]?.runId || null}
+                  origin={origin} saved={Boolean(enhancement)}
                 />
+              </div>
+              {expanded && (
+                <div style={{ padding: '0 14px 12px' }}>
+                  <EnhancementPanel
+                    projectId={origin.caProjectId}
+                    url={enhancement.url}
+                    onReEnhance={() => navigate(enhanceHref(s.url, 'article', origin))}
+                  />
+                </div>
+              )}
               </div>
             );
           })}
@@ -517,9 +384,44 @@ function SpokeTable({ spokes, navigate, enhancedUrls = {} }) {
   );
 }
 
-function ClusterRow({ cluster, pageById, navigate, projectId, siteName, suggestions, onSuggestions, actionStatus }) {
+// This cluster's saved inline keyword research, by topic — fetched the first
+// time the row opens, and kept here (above the panels) so collapsing the row
+// does not lose a run that finished while it was open.
+function useClusterKeywordResearch(projectId, clusterId, open) {
+  const [byTopic, setByTopic] = useState({});
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    if (!open || loaded || !projectId) return;
+    let alive = true;
+    setLoaded(true);
+    ca.listKeywordResearch(projectId, clusterId)
+      .then(({ items }) => {
+        if (!alive) return;
+        // A run that finished before this load answered wins over the stored copy.
+        setByTopic((prev) => ({ ...Object.fromEntries(items.map((r) => [r.topic, r])), ...prev }));
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [open, loaded, projectId, clusterId]);
+  const remember = (record) => setByTopic((prev) => ({ ...prev, [record.topic]: record }));
+  return { byTopic, remember };
+}
+
+function ClusterRow({ cluster, pageById, navigate, projectId, kbClient, suggestions, onSuggestions, actionStatus, workIndex, onWorkChanged }) {
   const { enhancedUrls = {}, recommendedTopics = {} } = actionStatus || {};
   const [open, setOpen] = useState(false);
+  const [hubOpen, setHubOpen] = useState(false);
+  const keywordResearch = useClusterKeywordResearch(projectId, cluster.id, open);
+  const origin = { caProjectId: projectId, clusterId: cluster.id };
+  const tally = workIndex.tally(cluster, pageById);
+  // Topics with saved work that this row does not otherwise show — a
+  // suggestion replaced by Re-suggest keeps its keywords and drafts here.
+  const shownTopics = [
+    ...(cluster.isGap && cluster.gapSuggestion?.title ? [cluster.gapSuggestion.title] : []),
+    ...((suggestions?.suggestions || []).map((s) => s.title)),
+  ];
+  const earlier = open ? workIndex.earlierTopics(cluster.id, shownTopics) : [];
+  const topicProps = { cluster, projectId, kbClient, navigate, keywordResearch, workIndex, onWorkChanged, recommendedTopics };
   const state = hubState(cluster);
   const healthy = state.key === 'selected' || state.key === 'reference';
   const hub = cluster.hubPageId ? pageById.get(cluster.hubPageId) : null;
@@ -588,11 +490,13 @@ function ClusterRow({ cluster, pageById, navigate, projectId, siteName, suggesti
         {/* An established hub offers the action; a missing or unclear one states
             the verdict, because "create hub" is not something this screen can
             do for you. */}
-        <span style={{ marginLeft: 'auto' }}>
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+          <WorkTally tally={tally} />
           {healthy && hub ? (
             <EnhanceButton
               url={hub.url} contentType="hub" navigate={navigate} label="Enhance hub" outlined
               viewRunId={enhancedUrls[hub.url]?.runId || null}
+              origin={origin} saved={Boolean(workIndex.forPage(hub.url))}
             />
           ) : (
             <span
@@ -629,28 +533,37 @@ function ClusterRow({ cluster, pageById, navigate, projectId, siteName, suggesti
                 Would tie together {spokes.length} existing page{spokes.length === 1 ? '' : 's'} below.
               </div>
               {cluster.gapSuggestion?.title && (
-                <InlineKeywordResearch
-                  topic={cluster.gapSuggestion.title}
-                  client={siteName}
-                  navigate={navigate}
-                  viewRunId={recommendedTopics[cluster.gapSuggestion.title]?.runId || null}
-                />
+                <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid color-mix(in srgb, var(--danger) 25%, transparent)' }}>
+                  <TopicWorkFor topic={cluster.gapSuggestion.title} {...topicProps} />
+                </div>
               )}
             </div>
           ) : hub && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--r-md)', border: '1px solid var(--border)', background: 'var(--surface)' }}>
-              <Badge variant={cluster.ambiguous ? 'warning' : 'success'}>HUB</Badge>
-              <a
-                href={hub.url}
-                target="_blank"
-                rel="noreferrer"
-                style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-              >
-                {hub.title || hub.url}
-              </a>
-              <span style={{ marginLeft: 'auto', flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-3)' }}>
-                {hub.wordCount ? `${hub.wordCount.toLocaleString()} words` : '—'}
-              </span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--r-md)', border: '1px solid var(--border)', background: 'var(--surface)' }}>
+                <Badge variant={cluster.ambiguous ? 'warning' : 'success'}>HUB</Badge>
+                <a
+                  href={hub.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                >
+                  {hub.title || hub.url}
+                </a>
+                <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                  <EnhancementBadge enhancement={workIndex.forPage(hub.url)} open={hubOpen} onToggle={() => setHubOpen((v) => !v)} />
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-3)' }}>
+                    {hub.wordCount ? `${hub.wordCount.toLocaleString()} words` : '—'}
+                  </span>
+                </span>
+              </div>
+              {hubOpen && workIndex.forPage(hub.url) && (
+                <EnhancementPanel
+                  projectId={projectId}
+                  url={workIndex.forPage(hub.url).url}
+                  onReEnhance={() => navigate(enhanceHref(hub.url, 'hub', origin))}
+                />
+              )}
             </div>
           )}
           {!hub && cluster.referenceIndexUrl && (
@@ -667,17 +580,91 @@ function ClusterRow({ cluster, pageById, navigate, projectId, siteName, suggesti
             </div>
           )}
 
-          <SpokeTable spokes={spokes} navigate={navigate} enhancedUrls={enhancedUrls} />
+          <SpokeTable spokes={spokes} navigate={navigate} enhancedUrls={enhancedUrls} workIndex={workIndex} origin={origin} />
 
           <SuggestedSpokesPanel
             cluster={cluster}
             projectId={projectId}
-            siteName={siteName}
+            kbClient={kbClient}
             suggestions={suggestions}
             onSuggestions={onSuggestions}
             navigate={navigate}
             recommendedTopics={recommendedTopics}
+            keywordResearch={keywordResearch}
+            workIndex={workIndex}
+            onWorkChanged={onWorkChanged}
           />
+
+          {earlier.length > 0 && (
+            <div>
+              <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.05em', color: 'var(--text-3)' }}>
+                EARLIER TOPICS · {earlier.length}
+              </span>
+              <p style={{ margin: '4px 0 0', fontSize: 11.5, color: 'var(--text-3)' }}>
+                Topics no longer in the suggestions above, kept because work was saved for them.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+                {earlier.map((e) => (
+                  <div key={e.topic} style={{ padding: '10px 14px', borderRadius: 'var(--r-md)', border: '1px dashed var(--border-strong)' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>{e.topic}</div>
+                    <TopicWorkFor topic={e.topic} {...topicProps} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Work saved against clusters or pages this analysis no longer has — made
+// before a re-run regrouped the site. Read-only here: the topics' rails still
+// open their keywords, brief and draft, and enhancements still open.
+function EarlierWorkRow({ orphans, projectId, kbClient, navigate, workIndex, onWorkChanged }) {
+  const [open, setOpen] = useState(false);
+  const [openUrl, setOpenUrl] = useState(null);
+  const count = orphans.topics.length + orphans.enhancements.length;
+  return (
+    <div style={{ borderRadius: 'var(--r-lg)', background: 'var(--card)', border: '1px dashed var(--border-strong)', overflow: 'hidden' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 16, padding: '14px 18px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--font-sans)' }}
+      >
+        <span aria-hidden="true" style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, border: '2px dashed var(--text-3)', boxSizing: 'border-box' }} />
+        <span style={{ fontSize: 14.5, fontWeight: 500, color: 'var(--text)' }}>Work from an earlier analysis</span>
+        <span style={{ fontSize: 13, color: 'var(--primary-text)', textDecoration: 'underline', textUnderlineOffset: 2 }}>
+          {count} item{count === 1 ? '' : 's'} {open ? '▲' : '▾'}
+        </span>
+        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-3)' }}>Saved for clusters or pages this run no longer lists</span>
+      </button>
+      {open && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '14px 18px 16px 62px', borderTop: '1px solid var(--border)' }}>
+          {orphans.topics.map((e) => (
+            <div key={`${e.clusterId}:${e.topic}`} style={{ padding: '10px 14px', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>{e.topic}</div>
+              <TopicWork
+                projectId={projectId} clusterId={e.clusterId} topic={e.topic} client={kbClient} navigate={navigate}
+                entry={workIndex.forTopic(e.clusterId, e.topic)} saved={null} onWorkChanged={onWorkChanged}
+              />
+            </div>
+          ))}
+          {orphans.enhancements.map((en) => (
+            <div key={en.url} style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 14px', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 12.5, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{en.title || en.url}</span>
+                <span style={{ marginLeft: 'auto' }}>
+                  <EnhancementBadge enhancement={en} open={openUrl === en.url} onToggle={() => setOpenUrl(openUrl === en.url ? null : en.url)} />
+                </span>
+              </div>
+              {openUrl === en.url && (
+                <EnhancementPanel projectId={projectId} url={en.url} onReEnhance={() => navigate(enhanceHref(en.url, en.contentType || 'article', { caProjectId: projectId }))} />
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -752,7 +739,16 @@ const SectionLabel = ({ children, color }) => (
 
 // ── The report ──────────────────────────────────────────────────────────────
 
-export default function HubSpokeReport({ analysis, pageById, navigate, projectId, siteName, onSuggestions, actionStatus }) {
+// `kbClient` is the knowledge-base client slug for this site, or '' — sent to
+// Keyword Research and Content Writer only when the site really is one.
+// `work` is everything made from this report (GET /work); `onWorkChanged`
+// reloads it after a panel here saves something new.
+export default function HubSpokeReport({ analysis, pageById, navigate, projectId, kbClient = '', onSuggestions, actionStatus, work = null, onWorkChanged }) {
+  const workIndex = useMemo(() => indexWork(work), [work]);
+  const orphans = useMemo(() => workIndex.orphans(
+    (analysis.clusters || []).map((c) => c.id),
+    (analysis.clusters || []).flatMap((c) => [c.hubPageId, ...(c.spokeIds || [])]).map((id) => pageById.get(id)?.url).filter(Boolean),
+  ), [workIndex, analysis.clusters, pageById]);
   const clusters = analysis.clusters || [];
   const unassigned = analysis.unassignedPages || [];
   const spokeSuggestionsByCluster = analysis.spokeSuggestionsByCluster || {};
@@ -858,10 +854,12 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
                 pageById={pageById}
                 navigate={navigate}
                 projectId={projectId}
-                siteName={siteName}
+                kbClient={kbClient}
                 suggestions={spokeSuggestionsByCluster[c.id] || null}
                 onSuggestions={(result) => onSuggestions(c.id, result)}
                 actionStatus={actionStatus}
+                workIndex={workIndex}
+                onWorkChanged={onWorkChanged}
               />
             ))}
             {unassigned.length > 0 && <UnassignedRow pages={unassigned} />}
@@ -880,10 +878,12 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
                 pageById={pageById}
                 navigate={navigate}
                 projectId={projectId}
-                siteName={siteName}
+                kbClient={kbClient}
                 suggestions={spokeSuggestionsByCluster[c.id] || null}
                 onSuggestions={(result) => onSuggestions(c.id, result)}
                 actionStatus={actionStatus}
+                workIndex={workIndex}
+                onWorkChanged={onWorkChanged}
               />
             ))}
           </div>
@@ -894,6 +894,13 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
         <p style={{ margin: 0, fontSize: 13.5, color: 'var(--text-3)' }}>
           No clusters were found for this selection.
         </p>
+      )}
+
+      {orphans.topics.length + orphans.enhancements.length > 0 && (
+        <EarlierWorkRow
+          orphans={orphans} projectId={projectId} kbClient={kbClient} navigate={navigate}
+          workIndex={workIndex} onWorkChanged={onWorkChanged}
+        />
       )}
     </div>
   );

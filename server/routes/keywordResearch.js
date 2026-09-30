@@ -6,6 +6,7 @@ const { searchGoogle } = require('../services/googleSearch');
 const { getUrlKeywords } = require('../services/semrush');
 const { loadKBContext } = require('../services/kbLoader');
 const { getConversionIntentScore } = require('../services/intentVocabulary');
+const { seedFromTopic } = require('../services/topicSeed');
 
 // In-memory session store (token → params, expires in 2 min)
 const sessions = new Map();
@@ -114,15 +115,18 @@ async function cachedSearch(query) {
   return results;
 }
 
-// Step 1: Client POSTs keyword + optional client slug + intent, gets back a token
+// Step 1: Client POSTs keyword + optional client slug + intent, gets back a token.
+// Content Architect sends `topic` (an article title) instead of `keyword`; the
+// stream then derives the seed keyword from it first (services/topicSeed.js).
 router.post('/init', (req, res) => {
-  const { keyword, client, feedbackKbIds, intent } = req.body;
-  if (!keyword?.trim()) return res.status(400).json({ error: 'keyword is required' });
+  const { keyword, topic, client, feedbackKbIds, intent } = req.body;
+  if (!keyword?.trim() && !topic?.trim()) return res.status(400).json({ error: 'keyword is required' });
   if (!process.env.SEMRUSH_API_KEY) return res.status(500).json({ error: 'SEMrush API key not configured on server.' });
 
   const token = generateToken();
   sessions.set(token, {
-    keyword: keyword.trim(),
+    keyword: keyword?.trim() || '',
+    topic: keyword?.trim() ? null : topic.trim(),
     client: client || null,
     feedbackKbIds: feedbackKbIds || null,
     intent: intent === 'informational' ? 'informational' : 'commercial',
@@ -137,7 +141,8 @@ router.get('/stream/:token', async (req, res) => {
   if (!session) return res.status(404).json({ error: 'Session not found or expired. Please try again.' });
   sessions.delete(req.params.token);
 
-  const { keyword, client, feedbackKbIds, intent } = session;
+  const { topic, client, feedbackKbIds, intent } = session;
+  let { keyword } = session;
   const semrushKey = process.env.SEMRUSH_API_KEY;
 
   res.setHeader('Content-Type', 'text/event-stream');
@@ -158,6 +163,16 @@ router.get('/stream/:token', async (req, res) => {
 
   try {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+    // ── Stage -1: Seed keyword from a topic (Content Architect only) ─────
+    if (topic) {
+      emit('step', { id: 'seed', status: 'active', message: `Deriving a seed keyword from "${topic}"…` });
+      const seed = await seedFromTopic(openai, topic, intent);
+      if (!seed.keyword) throw new Error('Could not derive a seed keyword from this topic.');
+      keyword = seed.keyword;
+      emit('seed', { keyword, fromTopic: topic, source: seed.source });
+      emit('step', { id: 'seed', status: 'done', message: `Seed keyword: "${keyword}"` });
+    }
 
     // ── Stage 0: Generate intent-focused query variants ──────────────────
     emit('step', { id: 'variants', status: 'active', message: `Generating ${intent} query variants for "${keyword}"…` });

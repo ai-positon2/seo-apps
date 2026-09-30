@@ -1,9 +1,10 @@
 const db = require('../../services/db');
-const { editableSchema, exportableSchema, cleanHtml } = require('./document');
+const { editableSchema, exportableSchema, originSchema, cleanHtml } = require('./document');
 const conflict = () => Object.assign(new Error('This article changed in another session. Reopen the saved article before saving again. Your current text can still be exported.'), { status: 409 });
 async function list(projectId) {
   return db.rows(`select id, project_id, revision, updated_at, document->>'keyword' as keyword,
-    document->'brief'->>'title' as title, coalesce(length(document->>'draftHtml'),0)>0 as has_draft
+    document->'brief'->>'title' as title, coalesce(length(document->>'draftHtml'),0)>0 as has_draft,
+    document->'origin' as origin
     from content_writer_articles where project_id=$1 order by updated_at desc`, [projectId]);
 }
 async function get(projectId, id) {
@@ -18,9 +19,15 @@ function parse(schema, input) {
 }
 const editable = input => parse(editableSchema, input);
 const exportable = input => parse(exportableSchema, input);
+// An unreadable origin is dropped rather than refusing the article: it only
+// decides where else the article is listed.
+function originOf(input) {
+  const parsed = originSchema.safeParse(input?.origin);
+  return parsed.success ? { origin: parsed.data } : {};
+}
 async function create(projectId, input) {
   return db.one('insert into content_writer_articles(project_id, document) values($1,$2::jsonb) returning *',
-    [projectId, JSON.stringify(editable(input))]);
+    [projectId, JSON.stringify({ ...editable(input), ...originOf(input) })]);
 }
 async function save(projectId, id, revision, document) {
   const row = await db.maybeOne(`update content_writer_articles set document=$4::jsonb,

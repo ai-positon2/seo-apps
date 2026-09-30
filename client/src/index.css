@@ -384,6 +384,10 @@ textarea:focus-visible {
    own copy of the same keyframes; they keep working, and new code uses this. */
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Keyword Research's loading pulse (components/keywordResearch). Namespaced so
+   the views embedded in other tools cannot collide with a page's own "pulse". */
+@keyframes kr-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
 /* Reduced motion: stop loops and slides, keep colour and opacity changes.
    Before this only the body's theme cross-fade honoured the setting. */
 @media (prefers-reduced-motion: reduce) {

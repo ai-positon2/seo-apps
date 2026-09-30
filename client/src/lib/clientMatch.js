@@ -6,6 +6,15 @@
 // Competitor Analysis already matches its tracker clients. Pure and
 // dependency-free so it can be tested with the node runner.
 
+/**
+ * The client slugs knowledge-base/ has brand context for — the same list
+ * KBContextSelector and Content Writer offer. A tool matches a project to one
+ * of these before sending `client`, since any other value loads nothing.
+ */
+export const KB_CLIENT_SLUGS = [
+  'gentle-dental', 'great-lakes', 'riccobene', 'clear-behavioral-health', 'neuro-wellness-spa', 'new-life-house',
+];
+
 /** "Riccobene Associates" → "riccobene-associates"; "www.gentledental.com" → "gentledental". */
 export function slugify(value) {
   return String(value || '')

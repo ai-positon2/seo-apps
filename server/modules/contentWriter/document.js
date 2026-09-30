@@ -38,6 +38,16 @@ const editableSchema = z.object({
   keyword: z.string().trim().min(1).max(500), options: optionsSchema.default({}),
   brief: briefSchema.nullable().default(null), draftHtml: z.string().max(500000).default(''),
 });
+// Where an article was started from, when that was Content Architect's Hub &
+// Spoke report: the report lists the article beside its topic. Set once, on
+// create, and never edited — editableSchema does not carry it, so a PUT keeps
+// whatever the stored document already has.
+const originSchema = z.object({
+  tool: z.literal('content-architect'),
+  caProjectId: z.string().trim().min(1).max(100),
+  clusterId: z.string().trim().min(1).max(200),
+  topic: z.string().trim().min(1).max(1000),
+});
 // Exporting what is on screen only needs the content, so an empty keyword is
 // not a reason to refuse the download.
 const exportableSchema = editableSchema.extend({ keyword: z.string().trim().max(500).default('') });
@@ -83,4 +93,4 @@ function ensureFaqSection(brief) {
       '- Give every question its own complete answer of roughly 40-80 words.',
       '- Answer directly in the first sentence, then add the detail that qualifies it.'].join('\n') }] };
 }
-module.exports = { editableSchema, exportableSchema, cleanHtml, parseBrief, briefMarkdown, briefHash, ensureFaqSection, isFaq, foldText, LEVELS, FAQ_HEADING };
+module.exports = { editableSchema, exportableSchema, originSchema, cleanHtml, parseBrief, briefMarkdown, briefHash, ensureFaqSection, isFaq, foldText, LEVELS, FAQ_HEADING };

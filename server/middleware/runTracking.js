@@ -76,7 +76,7 @@ function requestInput(req) {
 
 // Keys worth showing in a runs list, most identifying first.
 const LABEL_KEYS = [
-  'url', 'targetUrl', 'keyword', 'brandName', 'domain', 'clientDomain',
+  'url', 'targetUrl', 'keyword', 'topic', 'brandName', 'domain', 'clientDomain',
   'name', 'clientId', 'client', 'serviceId', 'pageId', 'title', 'query',
 ];
 

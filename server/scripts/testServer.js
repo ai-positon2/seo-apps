@@ -56,6 +56,12 @@ const SUITES = [
   'modules/contentArchitect/__tests__/informationalDiscovery.test.js',
   'modules/contentArchitect/__tests__/sitemapDiscovery.test.js',
   'modules/contentArchitect/__tests__/clusterNaming.test.js',
+  // Inline keyword research in the Hub & Spoke report: the seed derived from a
+  // topic, and the per-topic saved run (real SQL; skips without a test DB).
+  'services/__tests__/topicSeed.test.js',
+  'modules/contentArchitect/__tests__/keywordResearchStore.test.js',
+  // Keyword sets, drafts and enhancements gathered back onto the report.
+  'modules/contentArchitect/__tests__/work.test.js',
   'modules/projects/__tests__/crawlToArchitect.test.js',
   'services/__tests__/llmProviders.test.js',
   'modules/projects/__tests__/moduleDetail.test.js',

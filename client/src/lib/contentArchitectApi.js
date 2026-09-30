@@ -50,6 +50,16 @@ export const ca = {
   // units + a search call, so it's its own explicit action, never automatic).
   suggestSpokes: (id, clusterId) => req(`/projects/${id}/clusters/${clusterId}/suggest-spokes`, { method: 'POST' }),
 
+  // Inline keyword research, saved per topic so it survives a collapse/reload.
+  listKeywordResearch: (id, clusterId) => req(`/projects/${id}/clusters/${clusterId}/keyword-research`),
+  saveKeywordResearch: (id, clusterId, body) => req(`/projects/${id}/clusters/${clusterId}/keyword-research`, { method: 'PUT', body: JSON.stringify(body) }),
+
+  // Everything made from the report (keyword sets, drafts, enhancements), as
+  // summaries; the full article or enhancement is fetched when opened.
+  getWork: (id) => req(`/projects/${id}/work`),
+  getWorkArticle: (id, articleId) => req(`/projects/${id}/work/articles/${articleId}`),
+  getWorkEnhancement: (id, url) => req(`/projects/${id}/work/enhancement?url=${encodeURIComponent(url)}`),
+
   // Stage 9 — file downloads return a binary blob, so they can't go through
   // the shared JSON req() helper above. Same blob + Content-Disposition
   // pattern as competitorTrackerApi.js's exportReport.
