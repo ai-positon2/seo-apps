@@ -21,7 +21,9 @@
 const STAT = {
   overview: (r) => r?.headline?.namedRate?.display ?? null,
   insights: (r) => r?.headline?.shareOfMentions?.display ?? null,
-  perception: (r, d) => (d?.attributes?.length ? String(d.attributes.length) : null),
+  // The same per-answer score the Sentiment report's gauge shows — not the
+  // older one-call reading in `described`, which is a different number.
+  perception: (r) => (r?.sentiment?.analysed ? `${r.sentiment.score.display}/100` : null),
   questions: (r) => (r?.byQuestion?.length ? String(r.byQuestion.length) : null),
   gaps: (r) => (r?.gaps ? String(r.gaps.total) : null),
   domains: (r) => (r?.sources ? String(r.sources.domains.length) : null),
@@ -42,9 +44,11 @@ export const REPORTS = [
     blurb: 'How the models compare, and how this is moving',
   },
   {
+    // Internal id kept as 'perception' so saved links and the page's routing
+    // keep working; only the name the reader sees changed.
     id: 'perception',
-    name: 'Perception',
-    blurb: 'What the models say about the brand, in their own words',
+    name: 'Sentiment',
+    blurb: 'How warmly the models speak about the brand, and why',
   },
   {
     id: 'questions',

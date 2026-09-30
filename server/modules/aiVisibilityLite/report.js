@@ -54,10 +54,11 @@
 //
 // NOT AVAILABLE HERE, and deliberately absent rather than approximated:
 //
-//   PER-PROMPT and PER-MODEL sentiment. describe.js is one call over the whole
-//   answer set, which is what makes it affordable; a per-prompt column would
-//   need a call per capture (~60 a run). The page-level score is real; a
-//   per-row one would be invented.
+//   PER-PROMPT sentiment SCORES. describe.js is one call over the whole
+//   answer set, which is what makes it affordable; a per-prompt score would
+//   need a call per capture (~60 a run). That same call does tag each answer
+//   positive/neutral/negative, and those counts (overall and per model) are
+//   read back from the run payload with the rest of `described`.
 //
 //   PROMPT TOPICS, SEARCH VOLUME, and any market/geography axis. No column
 //   holds them and nothing in this module collects them. scoring.groupByTopic
@@ -76,6 +77,7 @@ const period = require('../aiVisibility/metrics/period');
 const fmt = require('../aiVisibility/metrics/format');
 const { prominenceOf, namesBrand } = require('../aiVisibility/capture');
 const domainClassify = require('../aiVisibility/captureEngines/domainClassify');
+const { TONE_VERSION } = require('./describe');
 
 // A brand needs to appear in at least this many measured answers before it is
 // ranked against the others. Two answers is not a standing, and a competitor
@@ -272,6 +274,162 @@ function listPosition(answerText, client) {
     if (at !== -1) return { rank: at + 1, of: block.length };
   }
   return null;
+}
+
+// ── Sentiment ────────────────────────────────────────────────────────────────
+//
+// Every answer that named the client carries a tone (describe.classifyTones,
+// read back from run payloads) and a place in that answer's own list
+// (listPosition). The two combine into one 0-100 score per answer from a
+// fixed table, and the sentiment score is their mean.
+//
+// Position changes what a tone is worth because it changes who reads it. Being
+// recommended first is the strongest thing an answer can do for a business;
+// the same warm words at #6 are read by far fewer people. The same holds in
+// reverse: a criticism attached to the first name on the list is the most
+// damaging, so a negative at #1 scores LOWER than a negative further down.
+//
+// A fixed table, not a model's number: every score on the page traces back to
+// answers a reader can open, and the table itself is shown on the page.
+const POSITION_BUCKETS = ['first', 'top3', 'lower', 'text'];
+const SENTIMENT_SCORES = {
+  positive: { first: 100, top3: 85, lower: 75, text: 70 },
+  // Neutral stays inside the neutral band (40-59) wherever it is listed, so a
+  // factual mention at #1 can never read as "Positive" on the gauge.
+  neutral: { first: 58, top3: 55, lower: 50, text: 50 },
+  negative: { first: 10, top3: 20, lower: 25, text: 25 },
+};
+
+// Below this many analysed answers, the sentiment score does not feed the
+// headline composite: it falls back to the older one-call reading instead.
+const MIN_TONED_FOR_COMPOSITE = 3;
+
+const toneKey = (runId, promptId, engine) => `${runId || ''}|${promptId || ''}|${engine || ''}`;
+
+function positionBucket(rank) {
+  if (rank === null || rank === undefined) return 'text';
+  if (rank === 1) return 'first';
+  return rank <= 3 ? 'top3' : 'lower';
+}
+
+/** Counts, mean score and net sentiment over a set of analysed answers. */
+function sentimentSummary(entries) {
+  const toned = entries.filter((e) => e.tone);
+  const count = (t) => toned.filter((e) => e.tone === t).length;
+  const positive = count('positive');
+  const neutral = count('neutral');
+  const negative = count('negative');
+  const mean = toned.length ? toned.reduce((s, e) => s + e.score, 0) / toned.length : null;
+  // Net sentiment: share positive minus share negative, -100 to +100. The
+  // counts in one number, independent of position.
+  const net = toned.length ? Math.round(((positive - negative) / toned.length) * 100) : null;
+  return {
+    named: entries.length,
+    analysed: toned.length,
+    positive,
+    neutral,
+    negative,
+    score: fmt.metric(mean, 'score'),
+    net: { value: net, display: net === null ? '—' : `${net > 0 ? '+' : ''}${net}` },
+  };
+}
+
+function sentimentSentence(s, listedFirst) {
+  if (!s.analysed) return null;
+  const n = (count, one, many) => `${count} ${count === 1 ? one : many}`;
+  const parts = [
+    `${s.positive} ${s.positive === 1 ? 'praises' : 'praise'} you`,
+    `${s.neutral} ${s.neutral === 1 ? 'lists' : 'list'} you without praise`,
+    s.negative ? `${s.negative} ${s.negative === 1 ? 'criticises' : 'criticise'} you` : 'none criticise you',
+  ];
+  return `Of the ${n(s.analysed, 'answer', 'answers')} that mention you, ${parts[0]}, ${parts[1]}, and ${parts[2]}.`
+    + (listedFirst ? ` You were recommended first in ${listedFirst}.` : '');
+}
+
+/**
+ * The sentiment report over the period's answers that named the client.
+ *
+ * @param {object[]} measured   the period's measured captures
+ * @param {Map} toneMap         toneKey -> {tone, quote}
+ * @param {object} client       {name, domain, aliases}
+ * @param {object[]} prompts    the live prompt set, for prompt text
+ */
+function sentimentTable(measured, toneMap, client, prompts = []) {
+  const promptText = new Map(prompts.map((p) => [p.id, p.text]));
+
+  const all = measured
+    .filter((r) => r.mentioned === true)
+    .map((r) => {
+      const t = toneMap.get(toneKey(r.runId, r.promptId, r.engine)) || null;
+      const place = client?.name ? listPosition(r.answerText, client) : null;
+      const bucket = positionBucket(place ? place.rank : null);
+      return {
+        runId: r.runId || null,
+        promptId: r.promptId || null,
+        prompt: promptText.get(r.promptId) || r.prompt || null,
+        engine: r.engine,
+        at: r.capturedAt || null,
+        tone: t ? t.tone : null,
+        quote: t ? t.quote : null,
+        rank: place ? place.rank : null,
+        listed: place ? place.of : null,
+        bucket,
+        score: t && SENTIMENT_SCORES[t.tone] ? SENTIMENT_SCORES[t.tone][bucket] : null,
+      };
+    });
+
+  // Answers mention matching counted, but which the tone pass found are not
+  // about the client at all (an alias that is really a product name, a
+  // similarly named business). Left out of every count below, and reported,
+  // so the reader can see why "named" and "analysed" differ.
+  const entries = all.filter((e) => e.tone !== 'absent');
+
+  // Which of the client's names matched in those answers — so the page can
+  // say "they matched on Invisalign", which is what the reader needs to fix
+  // the name list, rather than only that they did not count.
+  const names = namesOf(client);
+  const notAboutYouMatched = {};
+  for (const e of all.filter((x) => x.tone === 'absent')) {
+    const row = measured.find((r) => r.runId === e.runId && r.promptId === e.promptId && r.engine === e.engine);
+    for (const n of names.filter((name) => namesBrand(row?.answerText || '', [name]))) {
+      notAboutYouMatched[n] = (notAboutYouMatched[n] || 0) + 1;
+    }
+  }
+
+  const engines = [...new Set(entries.map((e) => e.engine))].sort();
+  const promptIds = [...new Set(entries.map((e) => e.promptId))];
+  const overall = sentimentSummary(entries);
+
+  return {
+    ...overall,
+    // One sentence, from the same counts as the score — so the words beside
+    // the gauge can never disagree with the number on it.
+    summary: sentimentSentence(overall, entries.filter((e) => e.tone && e.bucket === 'first').length),
+    // Named answers with no backed tone yet — from runs before per-answer
+    // tones existed, or whose tone the model could not quote.
+    unanalysed: entries.filter((e) => !e.tone).length,
+    notAboutYou: all.length - entries.length,
+    notAboutYouMatched: Object.entries(notAboutYouMatched)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, answers]) => ({ name, answers })),
+    byEngine: engines.map((engine) => ({ engine, ...sentimentSummary(entries.filter((e) => e.engine === engine)) })),
+    byPrompt: promptIds
+      .map((promptId) => {
+        const rows = entries.filter((e) => e.promptId === promptId);
+        return { promptId, prompt: rows[0].prompt, ...sentimentSummary(rows), answers: rows };
+      })
+      .sort((a, b) => (a.score.value ?? 101) - (b.score.value ?? 101)),
+    // How tone and position combine across the period: count of answers in
+    // each cell of the scoring table.
+    matrix: Object.fromEntries(['positive', 'neutral', 'negative'].map((tone) => [
+      tone,
+      Object.fromEntries(POSITION_BUCKETS.map((b) => [b, entries.filter((e) => e.tone === tone && e.bucket === b).length])),
+    ])),
+    table: SENTIMENT_SCORES,
+    answers: entries
+      .filter((e) => e.tone)
+      .sort((a, b) => a.score - b.score),
+  };
 }
 
 /**
@@ -727,7 +885,9 @@ function urlTable(measured, client, competitors) {
  *   simply has no entry, and that run's score is reweighted across the other
  *   three factors exactly as the headline is (see compositeScore).
  */
-function trendByRun(inScope, { brand, competitors = [], runSentiment } = {}) {
+function trendByRun(inScope, {
+  brand, competitors = [], runSentiment, toneMap = new Map(),
+} = {}) {
   const runs = new Map();
   for (const row of inScope) {
     if (!row.runId) continue;
@@ -749,14 +909,15 @@ function trendByRun(inScope, { brand, competitors = [], runSentiment } = {}) {
       // factors, computed over just this run's rows, so avgScore below is a
       // mean of scores runs actually earned rather than of namedRate alone.
       let score = null;
+      let runSentimentScore = null;
       if (brand) {
         const runClientRow = brandTable(measured, brand, competitors).find((b) => b.isClient) || null;
         const citable = measured.filter((x) => x.cited !== null);
-        const sentiment = runSentiment?.get(r.runId) || null;
+        runSentimentScore = sentimentFor(sentimentTable(measured, toneMap, brand), runSentiment?.get(r.runId));
         score = compositeScore({
           named: shareScore(named, measured.length),
           rank: rankToScore(runClientRow ? runClientRow.mentionRank.value : null, trackedBrandCount),
-          perception: sentiment ? sentiment.score : null,
+          perception: runSentimentScore ? runSentimentScore.score : null,
           cited: shareScore(citable.filter((x) => x.cited).length, citable.length),
         });
       }
@@ -768,8 +929,20 @@ function trendByRun(inScope, { brand, competitors = [], runSentiment } = {}) {
         measured: measured.length,
         namedRate: fmt.metric(fmt.ratio(named, measured.length), 'percent'),
         score: fmt.metric(score, 'score'),
+        sentiment: fmt.metric(runSentimentScore ? runSentimentScore.score : null, 'score'),
       };
     });
+}
+
+/**
+ * The sentiment reading the composite uses: the per-answer score when enough
+ * answers have a tone, else the older one-call reading, else nothing.
+ */
+function sentimentFor(table, fallback) {
+  if (table && table.analysed >= MIN_TONED_FOR_COMPOSITE) {
+    return { score: table.score.value, at: null, analysed: table.analysed, source: 'answers' };
+  }
+  return fallback ? { ...fallback, source: 'run' } : null;
 }
 
 /**
@@ -791,7 +964,13 @@ function trendByRun(inScope, { brand, competitors = [], runSentiment } = {}) {
  */
 function build({
   captures = [], prompts = [], brand = {}, competitors = [], options = {}, runSentiment = null,
+  answerTones = [],
 }) {
+  // Only tones from the current instructions: older ones are re-read by the
+  // backfill (routes.js), and until then that answer counts as unanalysed.
+  const toneMap = new Map((answerTones || [])
+    .filter((t) => t.v === TONE_VERSION)
+    .map((t) => [toneKey(t.runId, t.promptId, t.engine), t]));
   // Only the questions the project currently asks. A deleted question is not
   // part of what we measure, so it is not part of what we report — including
   // its failures, which would otherwise drag coverage down after the question
@@ -851,9 +1030,13 @@ function build({
   // Perception, if any run has ever produced one — the MOST RECENT reading
   // regardless of the selected period, same convention the `described` panel
   // already uses (see routes.js and the runSentiment doc above).
-  const latestPerception = runSentiment && runSentiment.size
+  const latestRunReading = runSentiment && runSentiment.size
     ? [...runSentiment.values()].sort((a, b) => new Date(b.at) - new Date(a.at))[0]
     : null;
+  // The period's own per-answer sentiment when enough answers are analysed;
+  // otherwise the most recent run's one-call reading, as before.
+  const sentiment = sentimentTable(measured, toneMap, brand, prompts);
+  const latestPerception = sentimentFor(sentiment, latestRunReading);
 
   const currentRankScore = rankToScore(clientRow ? clientRow.mentionRank.value : null, trackedBrandCount);
   const currentCitedScore = shareScore(cited, citable.length);
@@ -886,12 +1069,14 @@ function build({
   const scoreParts = [];
   if (summary.score !== null) scoreParts.push(`named ${summary.score}`);
   if (currentRankScore !== null) scoreParts.push(`rank ${clientRow.mentionRank.display}`);
-  if (latestPerception) scoreParts.push(`perception ${Math.round(latestPerception.score)}`);
+  if (latestPerception) scoreParts.push(`sentiment ${Math.round(latestPerception.score)}`);
   if (currentCitedScore !== null) scoreParts.push(`cited ${Math.round(currentCitedScore)}%`);
   const scoreNote = !scoreParts.length
     ? 'Nothing was measured in this period.'
     : `Weighted from: ${scoreParts.join(', ')}.`
-      + (latestPerception ? ` Perception last measured ${new Date(latestPerception.at).toLocaleDateString()}.` : '');
+      + (latestPerception?.source === 'answers'
+        ? ` Sentiment over ${latestPerception.analysed} analysed answers.`
+        : (latestPerception?.at ? ` Sentiment last measured ${new Date(latestPerception.at).toLocaleDateString()}.` : ''));
 
   // The same four numbers as scoreNote, structured rather than prose — so a UI
   // can draw an actual per-factor breakdown (bars, an included/excluded state)
@@ -908,7 +1093,7 @@ function build({
       display: clientRow ? clientRow.mentionRank.display : null,
     },
     {
-      key: 'perception', label: 'How warmly you’re described', weight: SCORE_WEIGHTS.perception,
+      key: 'perception', label: 'Sentiment — how warmly you’re described', weight: SCORE_WEIGHTS.perception,
       included: Boolean(latestPerception), value: latestPerception ? latestPerception.score : null,
       display: latestPerception ? `${Math.round(latestPerception.score)}` : null,
       at: latestPerception ? latestPerception.at : null,
@@ -922,7 +1107,7 @@ function build({
 
   // Computed here, ahead of `headline`, so avgScore can be built from it — and
   // reused below for the `trendAllRuns` field rather than walked twice.
-  const allRunsTrend = trendByRun(inScope, { brand, competitors, runSentiment });
+  const allRunsTrend = trendByRun(inScope, { brand, competitors, runSentiment, toneMap });
   const scoredRuns = allRunsTrend.filter((r) => r.score.value !== null);
 
   const headline = {
@@ -1078,7 +1263,8 @@ function build({
     // KPI row above it described different periods, and a reader comparing the
     // headline against the last point of its own trend line would find they
     // disagreed with no way to tell which was wrong.
-    trend: trendByRun(split.current, { brand, competitors, runSentiment }),
+    trend: trendByRun(split.current, { brand, competitors, runSentiment, toneMap }),
+    sentiment,
     // The full history, kept separate and labelled as such. A project with two
     // runs outside the default 30-day window would otherwise show an empty
     // trend and no hint that history exists.
@@ -1094,4 +1280,5 @@ module.exports = {
   build, brandTable, sourceTable, gapTable, urlTable, questionTable,
   mentionOrder, trendByRun, MIN_ANSWERS_TO_RANK,
   compositeScore, rankToScore, shareScore, SCORE_WEIGHTS,
+  sentimentTable, listPosition, toneKey, SENTIMENT_SCORES,
 };

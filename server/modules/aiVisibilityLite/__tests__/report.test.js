@@ -453,7 +453,7 @@ test('all four factors combine by SCORE_WEIGHTS when every one is available', ()
   assert.strictEqual(out.headline.score.display, '67');
   assert.match(out.headline.score.note, /named 100/);
   assert.match(out.headline.score.note, /rank #2\.0/);
-  assert.match(out.headline.score.note, /perception 60/);
+  assert.match(out.headline.score.note, /sentiment 60/);
   assert.match(out.headline.score.note, /cited 100%/);
 });
 
@@ -556,6 +556,142 @@ test('a capture with no runId cannot be averaged — avgScore says so, not 0', (
   });
   assert.strictEqual(out.headline.avgScore.value, null);
   assert.ok(out.headline.avgScore.note, 'a null average must say why, same as any other em-dash');
+});
+
+section('Sentiment — tone per answer, weighted by position');
+
+const LISTED_FIRST = '1. Acme Dental\n2. Rival Dental\n3. Smile Co';
+const LISTED_FOURTH = '1. Rival Dental\n2. Smile Co\n3. Bright Teeth\n4. Acme Dental';
+const PROSE = 'Many people like Acme Dental for routine care.';
+const { TONE_VERSION } = require('../describe');
+const tone = (runId, engine, t, promptId = 'p1') => ({
+  runId, promptId, engine, tone: t, quote: 'q', v: TONE_VERSION,
+});
+
+test('tones from older instructions are ignored until re-read', () => {
+  const out = report.build({
+    captures: [cap({ runId: 'r1', engine: 'openai', answerText: LISTED_FIRST })],
+    prompts: PROMPTS,
+    brand: BRAND,
+    answerTones: [{ ...tone('r1', 'openai', 'positive'), v: undefined }],
+  });
+  assert.strictEqual(out.sentiment.analysed, 0);
+  assert.strictEqual(out.sentiment.unanalysed, 1);
+});
+
+test('each answer scores from the tone x position table, and the score is their mean', () => {
+  const out = report.build({
+    captures: [
+      cap({ runId: 'r1', engine: 'openai', answerText: LISTED_FIRST }),
+      cap({ runId: 'r1', engine: 'anthropic', answerText: LISTED_FOURTH }),
+      cap({ runId: 'r1', engine: 'google', answerText: PROSE }),
+    ],
+    prompts: PROMPTS,
+    brand: BRAND,
+    answerTones: [tone('r1', 'openai', 'positive'), tone('r1', 'anthropic', 'positive'), tone('r1', 'google', 'neutral')],
+  });
+  const byEngine = Object.fromEntries(out.sentiment.answers.map((a) => [a.engine, a]));
+  assert.strictEqual(byEngine.openai.score, report.SENTIMENT_SCORES.positive.first, 'positive at #1');
+  assert.strictEqual(byEngine.anthropic.score, report.SENTIMENT_SCORES.positive.lower, 'positive at #4');
+  assert.strictEqual(byEngine.google.score, report.SENTIMENT_SCORES.neutral.text, 'neutral, not in a list');
+  assert.strictEqual(out.sentiment.score.value, (100 + 75 + 50) / 3);
+  assert.deepStrictEqual([out.sentiment.positive, out.sentiment.neutral, out.sentiment.negative], [2, 1, 0]);
+  assert.strictEqual(out.sentiment.net.display, '+67');
+  assert.strictEqual(out.sentiment.summary,
+    'Of the 3 answers that mention you, 2 praise you, 1 lists you without praise, and none criticise you.'
+    + ' You were recommended first in 1.',
+    'the sentence beside the gauge is built from the same counts as the score');
+});
+
+test('every cell of the table stays inside its own tone\'s band on the gauge', () => {
+  const { positive, neutral, negative } = report.SENTIMENT_SCORES;
+  Object.values(positive).forEach((v) => assert.ok(v >= 60, `positive ${v} would read as neutral`));
+  Object.values(neutral).forEach((v) => assert.ok(v >= 40 && v < 60, `neutral ${v} would read as another tone`));
+  Object.values(negative).forEach((v) => assert.ok(v < 40, `negative ${v} would read as neutral`));
+});
+
+test('a negative at #1 is worse than a negative lower down', () => {
+  const { negative } = report.SENTIMENT_SCORES;
+  assert.ok(negative.first < negative.lower, 'the first name read is the most damaging place to be criticised');
+});
+
+test('named answers with no tone yet are counted as unanalysed, not scored', () => {
+  const out = report.build({
+    captures: [
+      cap({ runId: 'r1', engine: 'openai', answerText: LISTED_FIRST }),
+      cap({ runId: 'r1', engine: 'anthropic', answerText: LISTED_FIRST }),
+      cap({ runId: 'r1', engine: 'google', mentioned: false, answerText: 'Rival Dental only.' }),
+    ],
+    prompts: PROMPTS,
+    brand: BRAND,
+    answerTones: [tone('r1', 'openai', 'negative')],
+  });
+  assert.strictEqual(out.sentiment.named, 2, 'an answer that did not name you has no tone towards you');
+  assert.strictEqual(out.sentiment.analysed, 1);
+  assert.strictEqual(out.sentiment.unanalysed, 1);
+  assert.strictEqual(out.sentiment.score.value, report.SENTIMENT_SCORES.negative.first);
+});
+
+test('an answer found not to be about you leaves every count, and is reported', () => {
+  const out = report.build({
+    captures: [
+      cap({ runId: 'r1', engine: 'openai', answerText: LISTED_FIRST }),
+      cap({ runId: 'r1', engine: 'google', answerText: 'Acme Dental offers Invisalign.' }),
+    ],
+    prompts: PROMPTS,
+    brand: BRAND,
+    answerTones: [tone('r1', 'openai', 'positive'), { ...tone('r1', 'google', 'absent'), quote: null }],
+  });
+  assert.strictEqual(out.sentiment.notAboutYou, 1);
+  assert.deepStrictEqual(out.sentiment.notAboutYouMatched, [{ name: 'Acme Dental', answers: 1 }],
+    'says which name matched, so the reader can fix the name list');
+  assert.strictEqual(out.sentiment.named, 1);
+  assert.strictEqual(out.sentiment.analysed, 1);
+  assert.strictEqual(out.sentiment.score.value, 100);
+});
+
+test('the headline composite uses the answer-based score once 3+ answers are analysed', () => {
+  const captures = [
+    cap({ runId: 'r1', engine: 'openai', answerText: LISTED_FIRST }),
+    cap({ runId: 'r1', engine: 'anthropic', answerText: LISTED_FIRST }),
+    cap({ runId: 'r1', engine: 'google', answerText: LISTED_FIRST }),
+  ];
+  const runSentiment = new Map([['r1', { score: 20, at: ago(1) }]]);
+  const out = report.build({
+    captures,
+    prompts: PROMPTS,
+    brand: BRAND,
+    runSentiment,
+    answerTones: ['openai', 'anthropic', 'google'].map((e) => tone('r1', e, 'positive')),
+  });
+  const factor = out.headline.scoreBreakdown.find((f) => f.key === 'perception');
+  assert.strictEqual(factor.value, 100, 'three positive #1 answers, not the older one-call reading of 20');
+  assert.match(out.headline.score.note, /Sentiment over 3 analysed answers/);
+
+  const fewer = report.build({
+    captures, prompts: PROMPTS, brand: BRAND, runSentiment, answerTones: [tone('r1', 'openai', 'positive')],
+  });
+  assert.strictEqual(fewer.headline.scoreBreakdown.find((f) => f.key === 'perception').value, 20,
+    'below 3 analysed answers, the older reading is kept');
+});
+
+test('sentiment is split by model and by prompt', () => {
+  const out = report.build({
+    captures: [
+      cap({ runId: 'r1', engine: 'openai', answerText: LISTED_FIRST }),
+      cap({ runId: 'r1', engine: 'openai', promptId: 'p2', answerText: LISTED_FIRST }),
+      cap({ runId: 'r1', engine: 'anthropic', answerText: LISTED_FIRST }),
+    ],
+    prompts: PROMPTS,
+    brand: BRAND,
+    answerTones: [
+      tone('r1', 'openai', 'positive'), tone('r1', 'openai', 'negative', 'p2'), tone('r1', 'anthropic', 'neutral'),
+    ],
+  });
+  const openai = out.sentiment.byEngine.find((e) => e.engine === 'openai');
+  assert.deepStrictEqual([openai.positive, openai.negative, openai.analysed], [1, 1, 2]);
+  assert.strictEqual(out.sentiment.byPrompt.length, 2);
+  assert.strictEqual(out.sentiment.byPrompt[0].promptId, 'p2', 'worst prompt first');
 });
 
 section('Cost arithmetic');

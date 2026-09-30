@@ -30,7 +30,7 @@ import {
 import { ReportWarnings } from '../components/aiVisibility/reportPrimitives';
 import { REPORTS, REPORT_GROUPS, byId } from '../components/aiVisibilityLite/reportRegistry';
 import {
-  OverviewReport, InsightsReport, PerceptionReport, QuestionsReport,
+  OverviewReport, InsightsReport, SentimentReport, QuestionsReport,
   GapsReport, DomainsReport, UrlsReport, AnswersReport,
 } from '../components/aiVisibilityLite/reports';
 
@@ -108,7 +108,12 @@ function BudgetBar({ budget }) {
   );
 }
 
-function ProfileCard({ profile }) {
+const DROPPED_REASON = {
+  third_party: 'another company’s brand you offer',
+  generic: 'too generic to match safely',
+};
+
+function ProfileCard({ profile, nameCheck }) {
   if (!profile) return null;
   const list = (items) => (items || []).slice(0, 8).join(' · ');
   return (
@@ -117,7 +122,7 @@ function ProfileCard({ profile }) {
       {/* Deliberately framed as an input, not a finding. This is read from the
           client's own website and its only jobs are to write sensible prompts
           and to know which names count as a mention. What the MODELS say lives
-          in the Perception report, and conflating the two would present our
+          in the Sentiment report, and conflating the two would present our
           reading of someone's marketing copy as though it were a measurement. */}
       <Muted size={11}>
         Read from the client&apos;s own site to write the prompts and to know which names count
@@ -140,12 +145,30 @@ function ProfileCard({ profile }) {
             whose real name is missing here reads as never mentioned, and that
             failure is indistinguishable from a genuine zero unless somebody
             can see the list. */}
-        {profile.brandAliases?.length ? (
+        {(nameCheck?.kept?.length || profile.brandAliases?.length) ? (
           <div>
             <Muted size={11}>Names we look for in answers</Muted>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
-              {profile.brandAliases.map((a) => <Tag key={a} tone="muted">{a}</Tag>)}
+              {(nameCheck?.kept || profile.brandAliases).map((a) => <Tag key={a} tone="muted">{a}</Tag>)}
             </div>
+            {/* Names the site listed that are not the business: counting them
+                made answers about, say, Invisalign read as mentions of a
+                dental practice. Shown, not hidden, so a wrong call is visible. */}
+            {nameCheck?.dropped?.length ? (
+              <div style={{ marginTop: 8 }}>
+                <Muted size={11}>Not counted as you</Muted>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                  {nameCheck.dropped.map((d) => (
+                    <span key={d.name} title={DROPPED_REASON[d.kind] || d.kind}>
+                      <Tag tone="outline" style={{ textDecoration: 'line-through', opacity: 0.75 }}>{d.name}</Tag>
+                    </span>
+                  ))}
+                </div>
+                <Muted size={11} style={{ display: 'block', marginTop: 4 }}>
+                  {nameCheck.dropped.map((d) => `${d.name}: ${DROPPED_REASON[d.kind] || d.kind}`).join(' · ')}
+                </Muted>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -207,79 +230,191 @@ function PromptRow({ prompt, onSave, onDelete, busy }) {
 }
 
 // ── The rail ───────────────────────────────────────────────────────────────
+//
+// One dark bar. Every group collapses to a dot, its name and one number; the
+// group being read opens into a light panel showing its reports, the current
+// one as a solid pill. Setup & runs is the page's input, not a report, so it
+// sits apart on the right with the run budget drawn as a small pie. The line
+// along the bottom is how far through the reports the reader is.
+//
+// Fixed colours rather than theme tokens: the bar is dark in both themes, so
+// its text colours are chosen against that. Deep green, not near-black — the
+// app's own accent family, so the bar reads as part of the page (the same
+// green as its buttons and pills) instead of a black strip laid over it.
 
-function Rail({ active, onPick, report, described }) {
+const RAIL = {
+  bar: '#1F4239',
+  text: '#EEF4F1',
+  muted: '#A7C2B8',
+  dotDone: '#9FD8BD',
+  dotAhead: '#6E8F84',
+  panel: '#F3F1EC',
+  panelText: '#1D221F',
+  panelMuted: '#6B716B',
+  pill: '#2F5D50',
+  pillStat: '#BFE6D3',
+  line: '#9FD8BD',
+};
+
+// What a collapsed group is called, and whose number it shows. Groups read by
+// their own name ("Demand", "Evidence") except the first, which is the
+// overview itself; Sources shows how many sources, not the gap count.
+const GROUP_NAME = { 'START HERE': 'Overview' };
+const GROUP_STAT = { SOURCES: 'domains' };
+const titleCase = (label) => label.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+
+/** Runs used, as a small filled pie. */
+function BudgetPie({ used, cap, size = 18 }) {
+  const frac = cap ? Math.min(1, used / cap) : 0;
+  const r = size / 2 - 1.5;
+  const c = 2 * Math.PI * r;
   return (
-    <div style={{
-      display: 'flex', alignItems: 'stretch', flexWrap: 'wrap',
-      borderBottom: '1px solid var(--border)', marginBottom: 14,
-    }}
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={RAIL.dotAhead} strokeWidth="3" />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        fill="none"
+        stroke={RAIL.dotDone}
+        strokeWidth="3"
+        strokeDasharray={`${c * frac} ${c}`}
+        transform={`rotate(-90 ${size / 2} ${size / 2})`}
+      />
+    </svg>
+  );
+}
+
+function Rail({
+  active, onPick, report, described, budget,
+}) {
+  const statOf = (id) => (report ? byId(id).stat(report, described) : null);
+  const groups = REPORT_GROUPS
+    .map((g) => ({ ...g, ids: g.ids.filter((id) => id !== 'run') }))
+    .filter((g) => g.ids.length);
+  const activeGroup = groups.findIndex((g) => g.ids.includes(active));
+  const order = REPORTS.map((r) => r.id);
+  const progress = Math.max(0, order.indexOf(active) + 1) / order.length;
+
+  return (
+    <nav
+      aria-label="Reports"
+      style={{
+        position: 'relative', background: RAIL.bar, borderRadius: 16, padding: '8px 10px 13px',
+        marginBottom: 18, overflow: 'hidden',
+      }}
     >
-      {REPORT_GROUPS.map((g, gi) => (
-        <div
-          key={g.label}
-          style={{
-            display: 'flex', flexDirection: 'column', gap: 6,
-            padding: '2px 14px 0',
-            borderLeft: gi === 0 ? 'none' : '1px solid var(--neutral-800)',
-          }}
-        >
-          <div style={{
-            fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '.16em',
-            color: 'var(--text-3)', paddingLeft: 4,
-          }}
-          >
-            {g.label}
-          </div>
-          <div style={{ display: 'flex', gap: 2 }}>
-            {g.ids.map((id) => {
-              const r = byId(id);
-              const on = id === active;
-              const stat = report ? r.stat(report, described) : null;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => onPick(id)}
-                  aria-current={on ? 'page' : undefined}
-                  style={{
-                    display: 'flex', flexDirection: 'column', gap: 7,
-                    background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
-                    font: 'inherit', textAlign: 'left',
-                  }}
-                >
-                  <span style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    padding: '7px 10px', borderRadius: 'var(--r-md)',
-                    fontSize: 13, whiteSpace: 'nowrap',
-                    color: on ? 'var(--text)' : 'var(--text-3)',
-                    background: on ? 'var(--surface)' : 'transparent',
-                    fontWeight: on ? 500 : 400,
-                  }}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+        {groups.map((g, gi) => {
+          const open = gi === activeGroup;
+          if (!open) {
+            const first = g.ids[0];
+            const name = GROUP_NAME[g.label] || titleCase(g.label);
+            const stat = statOf(GROUP_STAT[g.label] || first);
+            return (
+              <button
+                key={g.label}
+                type="button"
+                onClick={() => onPick(first)}
+                title={g.ids.map((id) => byId(id).name).join(' · ')}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 11px',
+                  background: 'transparent', border: 'none', borderRadius: 10, cursor: 'pointer',
+                  font: 'inherit', color: RAIL.text, fontSize: 14, whiteSpace: 'nowrap',
+                }}
+              >
+                <span style={{
+                  width: 6, height: 6, borderRadius: '50%',
+                  background: (active === 'run' || gi < activeGroup) ? RAIL.dotDone : RAIL.dotAhead,
+                }}
+                />
+                {name}
+                {stat ? (
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: RAIL.muted }}>{stat}</span>
+                ) : null}
+              </button>
+            );
+          }
+          return (
+            <div
+              key={g.label}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4, padding: 5,
+                background: RAIL.panel, borderRadius: 12, flexWrap: 'wrap',
+              }}
+            >
+              <span style={{
+                fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '.1em',
+                color: RAIL.panelMuted, padding: '0 8px', whiteSpace: 'nowrap',
+              }}
+              >
+                {String(gi + 1).padStart(2, '0')} {g.label}
+              </span>
+              {g.ids.map((id) => {
+                const on = id === active;
+                const stat = statOf(id);
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => onPick(id)}
+                    aria-current={on ? 'page' : undefined}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 11px',
+                      border: 'none', borderRadius: 9, cursor: 'pointer', font: 'inherit',
+                      fontSize: 14, fontWeight: on ? 600 : 500, whiteSpace: 'nowrap',
+                      background: on ? RAIL.pill : 'transparent',
+                      color: on ? '#FFFFFF' : RAIL.panelText,
+                    }}
                   >
-                    {r.name}
+                    {byId(id).name}
                     {stat ? (
                       <span style={{
-                        fontFamily: 'var(--font-mono)', fontSize: 10.5,
-                        color: on ? 'var(--primary-text)' : 'var(--text-3)',
+                        fontFamily: 'var(--font-mono)', fontSize: 11.5,
+                        color: on ? RAIL.pillStat : RAIL.panelMuted,
                       }}
                       >
                         {stat}
                       </span>
                     ) : null}
-                  </span>
-                  <span style={{
-                    height: 2, borderRadius: '2px 2px 0 0',
-                    background: on ? 'var(--primary)' : 'transparent',
-                  }}
-                  />
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ))}
-    </div>
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })}
+
+        <button
+          type="button"
+          onClick={() => onPick('run')}
+          aria-current={active === 'run' ? 'page' : undefined}
+          style={{
+            marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 9,
+            padding: '8px 14px', borderRadius: 12, cursor: 'pointer', font: 'inherit',
+            fontSize: 14, whiteSpace: 'nowrap',
+            border: `1px solid ${active === 'run' ? RAIL.panel : 'rgba(255,255,255,.14)'}`,
+            background: active === 'run' ? RAIL.panel : 'rgba(255,255,255,.03)',
+            color: active === 'run' ? RAIL.panelText : RAIL.text,
+          }}
+        >
+          <BudgetPie used={budget?.used || 0} cap={budget?.cap || 0} />
+          Setup &amp; runs
+        </button>
+      </div>
+
+      {/* How far through the reports: the current one's place in the order. */}
+      <div style={{
+        position: 'absolute', left: 12, right: 12, bottom: 6, height: 3,
+        borderRadius: 2, background: 'rgba(255,255,255,.08)',
+      }}
+      >
+        <div style={{
+          width: `${progress * 100}%`, height: '100%', borderRadius: 2,
+          background: RAIL.line, transition: 'width 200ms ease',
+        }}
+        />
+      </div>
+    </nav>
   );
 }
 
@@ -316,6 +451,26 @@ export default function AiVisibilityLitePage() {
   }, [projectId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // While the server is tagging answers for sentiment in the background,
+  // re-read the report until it says it has finished, so the numbers fill in
+  // on their own. Bounded, so a job that never reports done cannot poll forever.
+  const sentimentAnalysing = Boolean(reportState.data?.sentimentAnalysing);
+  useEffect(() => {
+    if (!sentimentAnalysing || !projectId) return undefined;
+    let tries = 0;
+    const timer = setInterval(async () => {
+      tries += 1;
+      try {
+        const rep = await aivLiteApi.report(projectId);
+        setReportState({ loading: false, error: null, data: rep });
+        if (!rep.sentimentAnalysing || tries >= 30) clearInterval(timer);
+      } catch {
+        clearInterval(timer);
+      }
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [sentimentAnalysing, projectId]);
 
   const d = state.data;
   const report = reportState.data?.report || null;
@@ -521,14 +676,21 @@ export default function AiVisibilityLitePage() {
         )}
       </Card>
 
-      <ProfileCard profile={d.profile} />
+      <ProfileCard profile={d.profile} nameCheck={reportState.data?.nameCheck} />
     </div>
   );
 
   const body = () => {
     if (active === 'run') return setupBody;
     if (active === 'perception') {
-      return <PerceptionReport described={described} describedAt={reportState.data?.describedAt} />;
+      return (
+        <SentimentReport
+          report={report}
+          described={described}
+          describedAt={reportState.data?.describedAt}
+          analysing={sentimentAnalysing}
+        />
+      );
     }
     if (!report) {
       return (
@@ -555,7 +717,7 @@ export default function AiVisibilityLitePage() {
 
   return (
     <main style={PAGE_COLUMN}>
-      <Rail active={active} onPick={setActive} report={report} described={described} />
+      <Rail active={active} onPick={setActive} report={report} described={described} budget={d?.budget} />
 
       <div style={{
         display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',

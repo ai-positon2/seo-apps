@@ -365,28 +365,41 @@ const stageFor = (score) => (
   typeof score === 'number' ? SCORE_STAGES.find((s) => score <= s.max) : null
 );
 
-/** A plain checklist row: does this engine mention you at all, and how often. */
-function EngineChecklist({ byEngine }) {
+/**
+ * One card per model across every answer in the period — the same card look
+ * as a prompt's "Visibility by model", with the whole period's counts.
+ */
+function EngineOverviewCards({ byEngine }) {
   if (!byEngine.length) return null;
   return (
-    <div style={{ display: 'grid', gap: 8 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
       {byEngine.map((e) => {
-        const present = e.namedRate.value !== null && e.namedRate.value > 0;
+        const visual = ENGINE_VISUAL[e.engine] || DEFAULT_ENGINE_VISUAL;
+        const status = !e.measured
+          ? { text: 'Could not be measured', tone: 'muted' }
+          : (e.named === 0 ? { text: 'Never mentions you', tone: 'neg' } : { text: 'Mentions you', tone: 'accent' });
         return (
-          <div key={e.engine} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{
-              width: 18, height: 18, borderRadius: '50%', display: 'inline-flex',
-              alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700,
-              color: 'var(--card)', background: present ? 'var(--primary)' : 'var(--viz-neg)',
-              flexShrink: 0,
+          <div
+            key={e.engine}
+            style={{
+              border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', overflow: 'hidden', background: 'var(--card)',
             }}
-            >
-              {present ? '✓' : '✗'}
-            </span>
-            <span style={{ fontSize: 13, width: 90 }}>{engineLabel(e.engine)}</span>
-            <span style={{ fontSize: 12.5, color: 'var(--text-2)', fontFamily: 'var(--font-mono)' }}>
-              {e.namedRate.display}
-            </span>
+          >
+            <div style={{ background: visual.tint, padding: '18px 14px', display: 'flex', justifyContent: 'center' }}>
+              <EngineLogo engine={e.engine} visual={visual} />
+            </div>
+            <div style={{ padding: '12px 14px' }}>
+              <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text)', lineHeight: 1 }}>
+                {e.namedRate.display}
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 600, marginTop: 6 }}>{engineLabel(e.engine)}</div>
+              <div style={{ fontSize: 11.5, color: STATUS_TONE_COLOR[status.tone], marginTop: 2 }}>{status.text}</div>
+              {e.measured > 0 && (
+                <Muted size={11} style={{ display: 'block', marginTop: 2 }}>
+                  In {e.named} of {e.measured} answer{e.measured === 1 ? '' : 's'}
+                </Muted>
+              )}
+            </div>
           </div>
         );
       })}
@@ -479,7 +492,7 @@ export function OverviewReport({ report }) {
 
         <Kicker>Which AI tools mention you</Kicker>
         <div style={{ marginTop: 10 }}>
-          <EngineChecklist byEngine={report.byEngine} />
+          <EngineOverviewCards byEngine={report.byEngine} />
         </div>
 
         <FadingRule style={{ margin: '16px 0' }} />
@@ -656,92 +669,641 @@ export function InsightsReport({ report }) {
   );
 }
 
-// ── 3. Perception ──────────────────────────────────────────────────────────
+// ── 3. Sentiment ───────────────────────────────────────────────────────────
+//
+// The five bands are describe.js's own scale, word for word, so the gauge and
+// the prompt that produced the number cannot disagree about what 55 means.
 
-export function PerceptionReport({ described, describedAt }) {
-  if (!described?.attributes?.length) {
+const SENTIMENT_BANDS = [
+  { min: 0, max: 20, label: 'Warned against', color: '#B4483F', tone: 'negative' },
+  { min: 20, max: 40, label: 'Negative', color: '#E07A5F', tone: 'negative' },
+  { min: 40, max: 60, label: 'Neutral', color: '#B9B3A6', tone: 'neutral' },
+  { min: 60, max: 80, label: 'Positive', color: '#6FB38F', tone: 'positive' },
+  { min: 80, max: 101, label: 'Named the best choice', color: '#2F7D5B', tone: 'positive' },
+];
+const bandFor = (score) => SENTIMENT_BANDS.find((b) => score >= b.min && score < b.max) || SENTIMENT_BANDS[2];
+
+const TONE_STYLE = {
+  positive: { label: 'Positive', color: '#2F7D5B', bg: 'color-mix(in srgb, #2F7D5B 14%, transparent)' },
+  neutral: { label: 'Neutral', color: '#8A8478', bg: 'color-mix(in srgb, #8A8478 14%, transparent)' },
+  negative: { label: 'Negative', color: '#B4483F', bg: 'color-mix(in srgb, #B4483F 14%, transparent)' },
+};
+
+/** A face for a tone — smile, flat, frown — drawn, not an emoji, so it takes the tone's colour. */
+function ToneFace({ tone, size = 18 }) {
+  const color = TONE_STYLE[tone]?.color || 'var(--text-3)';
+  const mouth = {
+    positive: 'M8 14.5c1.2 1.6 2.5 2.3 4 2.3s2.8-.7 4-2.3',
+    neutral: 'M8.5 15.5h7',
+    negative: 'M8 16.8c1.2-1.6 2.5-2.3 4-2.3s2.8.7 4 2.3',
+  }[tone] || 'M8.5 15.5h7';
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-label={TONE_STYLE[tone]?.label} style={{ flexShrink: 0 }}>
+      <circle cx="12" cy="12" r="10" stroke={color} strokeWidth="2" fill={`color-mix(in srgb, ${color} 12%, transparent)`} />
+      <circle cx="9" cy="10" r="1.3" fill={color} />
+      <circle cx="15" cy="10" r="1.3" fill={color} />
+      <path d={mouth} stroke={color} strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** A half-circle meter: five coloured bands, a needle at the score. */
+function SentimentGauge({ score }) {
+  const cx = 110; const cy = 110; const r = 90;
+  const point = (value, radius) => {
+    const a = Math.PI * (1 - value / 100);
+    return [cx + radius * Math.cos(a), cy - radius * Math.sin(a)];
+  };
+  const arc = (from, to) => {
+    const [x1, y1] = point(from, r);
+    const [x2, y2] = point(to, r);
+    return `M ${x1} ${y1} A ${r} ${r} 0 0 1 ${x2} ${y2}`;
+  };
+  const [nx, ny] = point(score, r - 22);
+  return (
+    <svg viewBox="0 0 220 124" width="100%" style={{ maxWidth: 280, display: 'block' }} role="img" aria-label={`Sentiment ${score} out of 100`}>
+      {SENTIMENT_BANDS.map((b) => (
+        <path key={b.label} d={arc(b.min + 0.6, Math.min(b.max, 100) - 0.6)} stroke={b.color} strokeWidth="16" fill="none" />
+      ))}
+      <line x1={cx} y1={cy} x2={nx} y2={ny} stroke="var(--text)" strokeWidth="3.5" strokeLinecap="round" />
+      <circle cx={cx} cy={cy} r="7" fill="var(--text)" />
+      <text x={cx - r} y={cy + 14} fontSize="10" textAnchor="middle" fill="var(--text-3)">0</text>
+      <text x={cx + r} y={cy + 14} fontSize="10" textAnchor="middle" fill="var(--text-3)">100</text>
+    </svg>
+  );
+}
+
+/** Positive / neutral / negative as one stacked bar, proportional to answers. */
+function ToneBar({ counts, height = 12 }) {
+  const total = counts.classified || 0;
+  if (!total) return null;
+  return (
+    <div style={{ display: 'flex', height, borderRadius: height / 2, overflow: 'hidden', background: 'var(--neutral-800)' }}>
+      {['positive', 'neutral', 'negative'].map((t) => (counts[t] ? (
+        <div
+          key={t}
+          title={`${counts[t]} ${t}`}
+          style={{ width: `${(counts[t] / total) * 100}%`, background: TONE_STYLE[t].color }}
+        />
+      ) : null))}
+    </div>
+  );
+}
+
+const POSITION_LABELS = {
+  first: 'Listed #1', top3: 'Listed #2–3', lower: 'Listed #4+', text: 'In the text only',
+};
+const TONE_ORDER = ['positive', 'neutral', 'negative'];
+
+// Band colours are tuned for the gauge's arcs; as TEXT on a pale tint of
+// themselves they are too faint (the neutral grey especially), so text uses
+// a darker mix of the same colour.
+const inkFor = (color) => `color-mix(in srgb, ${color} 62%, #1B1F22)`;
+
+/** A prompt's score, big enough to read at a glance, coloured by its band. */
+function ScoreBadge({ value }) {
+  const band = bandFor(value);
+  return (
+    <div style={{
+      width: 64, flexShrink: 0, textAlign: 'center', padding: '8px 4px', borderRadius: 12,
+      background: `color-mix(in srgb, ${band.color} 14%, transparent)`,
+      border: `1px solid color-mix(in srgb, ${band.color} 40%, transparent)`,
+    }}
+    >
+      <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--font-mono)', color: inkFor(band.color), lineHeight: 1.1 }}>
+        {Math.round(value)}
+      </div>
+      <div style={{ fontSize: 9.5, fontWeight: 600, color: inkFor(band.color), marginTop: 2, lineHeight: 1.2 }}>
+        {band.label}
+      </div>
+    </div>
+  );
+}
+
+/** The tone a model mostly took on one prompt, across its answers — ties read as neutral. */
+function leadTone(answers) {
+  const counts = TONE_ORDER.map((t) => [t, answers.filter((a) => a.tone === t).length]);
+  const top = Math.max(...counts.map(([, n]) => n));
+  const leaders = counts.filter(([, n]) => n === top).map(([t]) => t);
+  return leaders.length === 1 ? leaders[0] : 'neutral';
+}
+
+/** One model on one prompt: its logo, the face of its usual tone, and how many answers. */
+function ModelToneChip({ engine, answers }) {
+  const visual = ENGINE_VISUAL[engine] || DEFAULT_ENGINE_VISUAL;
+  const tone = leadTone(answers);
+  return (
+    <span
+      title={`${engineLabel(engine)}: ${answers.map((a) => a.tone).join(', ')}`}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px 4px 5px',
+        borderRadius: 'var(--r-pill)', border: '1px solid var(--border)', background: 'var(--card)',
+      }}
+    >
+      <span style={{
+        width: 24, height: 24, borderRadius: '50%', background: visual.tint,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      }}
+      >
+        <EngineLogo engine={engine} visual={visual} size={15} />
+      </span>
+      <ToneFace tone={tone} size={18} />
+      {answers.length > 1 && (
+        <span style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>×{answers.length}</span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * One prompt: its score, the question, and each model's usual tone, closed to
+ * one scannable line. Opens onto every answer behind the score — tone, where
+ * it listed you, its score, and the words that decided it.
+ */
+function PromptSentimentRow({ p }) {
+  const [open, setOpen] = useState(false);
+  const toned = p.answers.filter((a) => a.tone);
+  const engines = [...new Set(toned.map((a) => a.engine))].sort();
+  const counts = TONE_ORDER
+    .filter((t) => p[t])
+    .map((t) => `${p[t]} ${TONE_STYLE[t].label.toLowerCase()}`)
+    .join(' · ');
+
+  return (
+    <div style={{ borderBottom: '1px solid var(--neutral-800)' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+          padding: '14px 4px', background: 'none', border: 'none', cursor: 'pointer',
+          font: 'inherit', color: 'inherit', textAlign: 'left',
+        }}
+      >
+        <ScoreBadge value={p.score.value} />
+        <span style={{ flex: 1, minWidth: 260 }}>
+          <span style={{ display: 'block', fontSize: 14.5, fontWeight: 500, lineHeight: 1.45 }}>{p.prompt}</span>
+          <span style={{ display: 'block', fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>
+            {p.analysed} answer{p.analysed === 1 ? '' : 's'}{counts ? ` · ${counts}` : ''}
+          </span>
+        </span>
+        <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {engines.map((engine) => (
+            <ModelToneChip key={engine} engine={engine} answers={toned.filter((a) => a.engine === engine)} />
+          ))}
+        </span>
+        <span style={{ fontSize: 12, color: 'var(--text-3)', width: 14, textAlign: 'center' }}>{open ? '▲' : '▾'}</span>
+      </button>
+
+      {open && (
+        <div style={{ display: 'grid', gap: 10, padding: '0 4px 16px 84px' }}>
+          {toned.map((a) => {
+            const visual = ENGINE_VISUAL[a.engine] || DEFAULT_ENGINE_VISUAL;
+            return (
+              <div
+                key={`${a.runId}-${a.engine}`}
+                style={{
+                  border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', padding: '12px 14px',
+                  borderLeft: `4px solid ${TONE_STYLE[a.tone].color}`, background: 'var(--card)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600 }}>
+                    <EngineLogo engine={a.engine} visual={visual} size={18} />
+                    {engineLabel(a.engine)}
+                  </span>
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600,
+                    color: TONE_STYLE[a.tone].color, background: TONE_STYLE[a.tone].bg,
+                    padding: '2px 10px 2px 6px', borderRadius: 'var(--r-pill)',
+                  }}
+                  >
+                    <ToneFace tone={a.tone} size={15} /> {TONE_STYLE[a.tone].label}
+                  </span>
+                  <span style={{ fontSize: 12, color: 'var(--text-2)' }}>
+                    {a.rank ? `Listed #${a.rank}${a.listed ? ` of ${a.listed}` : ''}` : 'Mentioned in the text, not in a list'}
+                  </span>
+                  <span style={{ marginLeft: 'auto' }}><ScorePill value={a.score} /></span>
+                </div>
+                {a.quote && (
+                  <div style={{ fontSize: 13.5, lineHeight: 1.55, marginTop: 8, color: 'var(--text)' }}>
+                    “{a.quote}”
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function placeLabel(a) {
+  if (a.rank) return `#${a.rank}${a.listed ? ` of ${a.listed}` : ''}`;
+  return 'in text';
+}
+
+/** A small coloured score pill, coloured by the same bands as the gauge. */
+function ScorePill({ value }) {
+  if (value === null || value === undefined) return null;
+  const band = bandFor(value);
+  return (
+    <span style={{
+      fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: inkFor(band.color),
+      background: `color-mix(in srgb, ${band.color} 14%, transparent)`, borderRadius: 'var(--r-pill)',
+      padding: '2px 9px', flexShrink: 0, alignSelf: 'center', lineHeight: 1.5,
+    }}
+    >
+      {Math.round(value)}
+    </span>
+  );
+}
+
+function ToneCount({ tone, count, total }) {
+  const pct = total ? Math.round((count / total) * 100) : 0;
+  return (
+    <div style={{
+      flex: 1, minWidth: 120, background: TONE_STYLE[tone].bg, borderRadius: 'var(--r-lg)', padding: '12px 14px',
+    }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <ToneFace tone={tone} size={24} />
+        <span style={{ fontSize: 26, fontWeight: 700, fontFamily: 'var(--font-mono)', color: TONE_STYLE[tone].color }}>
+          {count}
+        </span>
+      </div>
+      <div style={{ fontSize: 12.5, marginTop: 4 }}>
+        {TONE_STYLE[tone].label}
+        <span style={{ color: 'var(--text-3)' }}> · {pct}%</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Tagging runs on the server by itself (see routes.js) — this only says so,
+ * so a score that is about to change does not read as final.
+ */
+function AnalysingNote({ s, analysing }) {
+  if (!analysing && !s.unanalysed) return null;
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10, marginTop: 14,
+      padding: '10px 14px', borderRadius: 'var(--r-lg)', background: 'var(--surface)', border: '1px solid var(--border)',
+      fontSize: 12.5,
+    }}
+    >
+      {analysing ? (
+        <>
+          <span className="aiv-pulse" style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--primary)', flexShrink: 0 }} />
+          <span>
+            Reading {s.unanalysed} answer{s.unanalysed === 1 ? '' : 's'} that mention you — the score fills in by
+            itself in a moment.
+          </span>
+          <style>{'@keyframes aiv-pulse{0%,100%{opacity:.25}50%{opacity:1}}.aiv-pulse{animation:aiv-pulse 1.2s ease-in-out infinite}'}</style>
+        </>
+      ) : (
+        <span style={{ color: 'var(--text-2)' }}>
+          {s.unanalysed} answer{s.unanalysed === 1 ? '' : 's'} that mention you could not be classified — the
+          model found no quote about you to back a tone — so {s.unanalysed === 1 ? 'it is' : 'they are'} left out of the score.
+        </span>
+      )}
+    </div>
+  );
+}
+
+export function SentimentReport({
+  report, described, describedAt, analysing = false,
+}) {
+  const s = report?.sentiment;
+  const attributes = described?.attributes || [];
+  const [filter, setFilter] = useState('all');
+
+  // The report came back without a sentiment section at all — a server still
+  // on older code. That is not "nobody mentions you", and must not say so.
+  if (!s) {
     return (
       <Empty
-        title="Nothing to describe yet"
-        detail="This reads the answers that named the brand. Until at least three answers name it,
-                there is nothing to characterise — and inventing something would be worse than
-                saying so."
+        title="Sentiment could not be loaded"
+        detail="This report did not include the sentiment reading. Refresh the page to load it again."
       />
     );
   }
 
-  const max = Math.max(...described.attributes.map((a) => a.answers), 1);
+  const matchedNames = (s.notAboutYouMatched || [])
+    .map((m) => `“${m.name}” (${m.answers})`)
+    .join(', ');
+
+  // Every answer that mention matching counted turned out not to be about
+  // the client. Say exactly that, and what matched — "nothing mentions you"
+  // would contradict the Answers tab, which still counts them.
+  if (!s.named && s.notAboutYou > 0) {
+    return (
+      <Card style={{ padding: 22 }}>
+        <SectionHead title="None of the matched answers are actually about you" />
+        <div style={{ fontSize: 13.5, lineHeight: 1.6, marginTop: 8 }}>
+          {s.notAboutYou} answer{s.notAboutYou === 1 ? ' was' : 's were'} counted as mentioning you, but on reading
+          {s.notAboutYou === 1 ? ' it' : ' them'}, none talk about your business. They matched on other names in your
+          name list{matchedNames ? <> — <strong>{matchedNames}</strong></> : null}.
+        </div>
+        <Muted size={12} style={{ display: 'block', marginTop: 10 }}>
+          Those look like products or payment plans you offer rather than names for your business. Removing them
+          from &ldquo;Names we look for in answers&rdquo; (Setup &amp; runs) stops them being counted as mentions of you
+          across the whole report.
+        </Muted>
+      </Card>
+    );
+  }
+
+  if (!s.named && !attributes.length) {
+    return (
+      <Empty
+        title="No sentiment reading yet"
+        detail="Sentiment is read from the answers that mention you. None of the answers in this
+                period do yet — once they do, each one is analysed here."
+      />
+    );
+  }
+
+  const score = s.score.value;
+  const band = score === null ? null : bandFor(score);
+  const answers = filter === 'all' ? s.answers : s.answers.filter((a) => a.tone === filter);
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
-      {described.sentiment ? (
-        <Card style={{ padding: 20 }}>
-          <SectionHead title="How warmly the models speak about it" />
-          <div style={{ display: 'flex', gap: 20, alignItems: 'baseline', marginTop: 8, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 38, fontWeight: 500, letterSpacing: '-.03em' }}>
-              {described.sentiment.score}
-              <span style={{ fontSize: 16, color: 'var(--text-3)' }}>/100</span>
+      {/* ── The score ── */}
+      <Card style={{ padding: 22 }}>
+        <SectionHead title="How AI talks about you" />
+        {score === null ? (
+          <Muted size={12} style={{ display: 'block', marginTop: 8 }}>
+            {analysing
+              ? `${s.named} answer${s.named === 1 ? '' : 's'} mention you. Their tone is being read now.`
+              : 'None of the answers that mention you could be classified yet, so there is no score.'}
+          </Muted>
+        ) : (
+          <div style={{ display: 'flex', gap: 28, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+            <div style={{ width: 260, maxWidth: '100%', textAlign: 'center' }}>
+              <SentimentGauge score={Math.round(score)} />
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                <ToneFace tone={band.tone} size={26} />
+                <span style={{ fontSize: 32, fontWeight: 700, fontFamily: 'var(--font-mono)', color: band.color }}>
+                  {s.score.display}
+                </span>
+                <span style={{ fontSize: 14, color: 'var(--text-3)' }}>/100</span>
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: band.color, marginTop: 2 }}>{band.label}</div>
             </div>
-            <div style={{ flex: 1, minWidth: 260 }}>
-              <div style={{ fontSize: 13 }}>{described.sentiment.rationale}</div>
-              <Muted size={11}>
-                Over {described.sentiment.basis} answers that named the brand. 50 is a neutral
-                listing; above 60 is genuine praise.
-              </Muted>
+            <div style={{ flex: 1, minWidth: 280 }}>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                {TONE_ORDER.map((t) => <ToneCount key={t} tone={t} count={s[t]} total={s.analysed} />)}
+              </div>
+              <div style={{ marginTop: 12 }}><ToneBar counts={{ ...s, classified: s.analysed }} height={10} /></div>
+              <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 12, fontSize: 12.5 }}>
+                <span>
+                  Net sentiment{' '}
+                  <strong style={{ fontFamily: 'var(--font-mono)', color: (s.net.value ?? 0) >= 0 ? TONE_STYLE.positive.color : TONE_STYLE.negative.color }}>
+                    {s.net.display}
+                  </strong>
+                  <Muted size={11}> (positive % minus negative %)</Muted>
+                </span>
+                <span style={{ color: 'var(--text-2)' }}>
+                  Based on {s.analysed} of {s.named} answer{s.named === 1 ? '' : 's'} that mention you
+                </span>
+              </div>
+              {s.summary && (
+                <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-2)', borderLeft: `3px solid ${band.color}`, paddingLeft: 10 }}>
+                  {s.summary}
+                </div>
+              )}
             </div>
           </div>
-          <FadingRule style={{ margin: '14px 0 10px' }} />
-          {described.sentiment.quotes.map((q) => (
-            <Muted key={q} size={12} style={{ display: 'block', fontStyle: 'italic' }}>“{q}”</Muted>
-          ))}
+        )}
+        <AnalysingNote s={s} analysing={analysing} />
+        {s.notAboutYou > 0 && (
+          <Muted size={11} style={{ display: 'block', marginTop: 10 }}>
+            {s.notAboutYou} answer{s.notAboutYou === 1 ? ' was' : 's were'} counted as mentioning you but
+            {s.notAboutYou === 1 ? ' is' : ' are'} not actually about you
+            {matchedNames ? <> — {s.notAboutYou === 1 ? 'it' : 'they'} matched on {matchedNames}</> : null}.
+            {s.notAboutYou === 1 ? ' It is' : ' They are'} left out of the score.
+          </Muted>
+        )}
+      </Card>
+
+      {/* ── How the score is worked out ── */}
+      {s.analysed > 0 && (
+        <Card style={{ padding: 18 }}>
+          <SectionHead title="How the score is worked out" />
+          <Muted size={11}>
+            Each answer gets a score from its tone and where it placed you. Being recommended first
+            counts most; a criticism of the first name on the list does the most damage. The overall
+            score is the average across answers. Counts show how many of your answers fell in each cell.
+          </Muted>
+          <div style={{ overflowX: 'auto', marginTop: 12 }}>
+            <table style={{ borderCollapse: 'separate', borderSpacing: 6, minWidth: 520 }}>
+              <thead>
+                <tr>
+                  <th />
+                  {POSITION_BUCKETS_UI.map((b) => (
+                    <th key={b} style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-3)', textAlign: 'center', padding: '0 6px' }}>
+                      {POSITION_LABELS[b]}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {TONE_ORDER.map((t) => (
+                  <tr key={t}>
+                    <td style={{ fontSize: 12.5, paddingRight: 8 }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <ToneFace tone={t} size={16} /> {TONE_STYLE[t].label}
+                      </span>
+                    </td>
+                    {POSITION_BUCKETS_UI.map((b) => {
+                      const n = s.matrix[t][b];
+                      const value = s.table[t][b];
+                      const c = bandFor(value).color;
+                      return (
+                        <td
+                          key={b}
+                          style={{
+                            textAlign: 'center', padding: '8px 10px', borderRadius: 8,
+                            background: `color-mix(in srgb, ${c} ${n ? 22 : 7}%, transparent)`,
+                            border: n ? `1px solid color-mix(in srgb, ${c} 45%, transparent)` : '1px solid transparent',
+                          }}
+                        >
+                          <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: c }}>{value}</div>
+                          <div style={{ fontSize: 10.5, color: n ? 'var(--text)' : 'var(--text-3)' }}>
+                            {n} answer{n === 1 ? '' : 's'}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
-      ) : null}
+      )}
 
-      <Card style={{ padding: 18 }}>
-        <SectionHead title="What they say it is" />
-        <Muted size={11}>
-          Taken from the {described.basis} answers that named the brand. Every line is backed by a
-          verbatim quote — hover to read it.
-        </Muted>
-        <div style={{ marginTop: 12 }}>
-          {described.attributes.map((a) => (
-            <div key={a.label} title={a.quotes.join('\n\n')}>
-              <FilledLabelBar
-                label={a.label}
-                value={a.answers}
-                max={max}
-                display={`${a.answers} of ${described.basis}`}
-              />
-            </div>
-          ))}
-        </div>
-      </Card>
+      {/* ── By model ── */}
+      {s.byEngine.length > 0 && s.analysed > 0 && (
+        <Card style={{ padding: 18 }}>
+          <SectionHead title="By AI model" />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginTop: 8 }}>
+            {s.byEngine.map((e) => {
+              const visual = ENGINE_VISUAL[e.engine] || DEFAULT_ENGINE_VISUAL;
+              const eBand = e.score.value === null ? null : bandFor(e.score.value);
+              return (
+                <div key={e.engine} style={{ border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', overflow: 'hidden' }}>
+                  <div style={{ background: visual.tint, padding: 14, display: 'flex', justifyContent: 'center' }}>
+                    <EngineLogo engine={e.engine} visual={visual} />
+                  </div>
+                  <div style={{ padding: '12px 14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>{engineLabel(e.engine)}</span>
+                      {eBand && <ToneFace tone={eBand.tone} size={20} />}
+                    </div>
+                    {e.analysed ? (
+                      <>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 6 }}>
+                          <span style={{ fontSize: 24, fontWeight: 700, fontFamily: 'var(--font-mono)', color: eBand.color }}>{e.score.display}</span>
+                          <span style={{ fontSize: 12, color: eBand.color, fontWeight: 600 }}>{eBand.label}</span>
+                        </div>
+                        <div style={{ marginTop: 8 }}><ToneBar counts={{ ...e, classified: e.analysed }} height={8} /></div>
+                        <Muted size={11} style={{ display: 'block', marginTop: 6 }}>
+                          {e.positive} positive · {e.neutral} neutral · {e.negative} negative
+                        </Muted>
+                      </>
+                    ) : (
+                      <Muted size={11} style={{ display: 'block', marginTop: 6 }}>Not analysed yet.</Muted>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
 
-      <Card style={{ padding: 18 }}>
-        <SectionHead title="Their exact words" />
-        <Muted size={11}>
-          Copied from the answers, not paraphrased. A description whose quote was not a literal
-          span of some answer was discarded before it reached this page.
-        </Muted>
-        <div style={{ marginTop: 10 }}>
-          {described.attributes.flatMap((a) => a.quotes.map((q) => (
-            <div key={`${a.label}:${q}`} style={{ padding: '8px 0', borderBottom: '1px solid var(--neutral-800)' }}>
-              <div style={{ fontSize: 13 }}>“{q}”</div>
-              <Muted size={11}>{a.label}</Muted>
-            </div>
-          )))}
-        </div>
-        <Basis>
-          {described.discarded
-            ? `${described.discarded} suggested description${described.discarded === 1 ? ' was' : 's were'} dropped for having no quote in the answers. `
-            : ''}
-          {describedAt ? `From the run of ${new Date(describedAt).toLocaleString()}. ` : ''}
-          This panel is a snapshot of one run, so it does not follow the period filter.
-        </Basis>
-      </Card>
+      {/* ── By prompt ── */}
+      {s.byPrompt.some((p) => p.analysed) && (
+        <Card style={{ padding: 18 }}>
+          <SectionHead title="By prompt" />
+          <Muted size={11}>
+            Weakest first — the prompts where AI speaks least warmly about you. Click a prompt to see
+            every answer behind its score.
+          </Muted>
+          <div style={{ marginTop: 10 }}>
+            <ShowMore
+              items={s.byPrompt.filter((p) => p.analysed)}
+              initial={8}
+              noun="more prompts"
+              render={(p) => <PromptSentimentRow key={p.promptId || p.prompt} p={p} />}
+            />
+          </div>
+        </Card>
+      )}
+
+      {/* ── Every answer ── */}
+      {s.answers.length > 0 && (
+        <Card style={{ padding: 18 }}>
+          <SectionHead title="Every answer, with its evidence" />
+          <Muted size={11}>
+            The words each answer used about you, copied exactly — the quote is what decided its tone.
+          </Muted>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+            {['all', ...TONE_ORDER].map((t) => {
+              const n = t === 'all' ? s.answers.length : s.answers.filter((a) => a.tone === t).length;
+              const on = filter === t;
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setFilter(t)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', font: 'inherit', fontSize: 12,
+                    padding: '4px 12px', borderRadius: 'var(--r-pill)',
+                    border: on ? '1px solid var(--primary)' : '1px solid var(--border)',
+                    background: on ? 'color-mix(in srgb, var(--primary) 10%, transparent)' : 'transparent', color: 'inherit',
+                  }}
+                >
+                  {t !== 'all' && <ToneFace tone={t} size={14} />}
+                  {t === 'all' ? 'All' : TONE_STYLE[t].label} ({n})
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <ShowMore
+              key={filter}
+              items={answers}
+              initial={8}
+              noun="more answers"
+              render={(a) => (
+                <div key={`${a.runId}-${a.promptId}-${a.engine}`} style={{ display: 'flex', gap: 12, padding: '12px 0', borderBottom: '1px solid var(--neutral-800)' }}>
+                  <ToneFace tone={a.tone} size={22} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontStyle: 'italic', borderLeft: `3px solid ${TONE_STYLE[a.tone].color}`, paddingLeft: 10 }}>
+                      “{a.quote}”
+                    </div>
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 6, fontSize: 11.5, color: 'var(--text-3)' }}>
+                      <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{engineLabel(a.engine)}</span>
+                      <span>{a.rank ? `Listed ${placeLabel(a)}` : 'Mentioned in the text, not listed'}</span>
+                      {a.prompt && <span>· {a.prompt}</span>}
+                    </div>
+                  </div>
+                  <ScorePill value={a.score} />
+                </div>
+              )}
+            />
+          </div>
+        </Card>
+      )}
+
+      {/* ── What they say you are ── */}
+      {attributes.length > 0 && (
+        <Card style={{ padding: 18 }}>
+          <SectionHead title="What they say you are" />
+          <Muted size={11}>
+            The qualities the answers attribute to you, coloured by tone. Hover a phrase to read the
+            quotes behind it.
+          </Muted>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+            {attributes.map((a) => {
+              const tone = TONE_STYLE[a.tone] ? a.tone : 'neutral';
+              return (
+                <span
+                  key={a.label}
+                  title={a.quotes.join('\n\n')}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+                    borderRadius: 'var(--r-pill)', background: TONE_STYLE[tone].bg, fontSize: 13,
+                    border: `1px solid color-mix(in srgb, ${TONE_STYLE[tone].color} 35%, transparent)`,
+                  }}
+                >
+                  <ToneFace tone={tone} size={16} />
+                  {a.label}
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-3)' }}>
+                    {a.answers}/{described.basis}
+                  </span>
+                </span>
+              );
+            })}
+          </div>
+          <Basis>
+            {describedAt ? `From the run of ${new Date(describedAt).toLocaleString()}. ` : ''}
+            These phrases come from one run, so they do not follow the period filter.
+          </Basis>
+        </Card>
+      )}
     </div>
   );
 }
+
+const POSITION_BUCKETS_UI = ['first', 'top3', 'lower', 'text'];
 
 // ── 4. Prompts ─────────────────────────────────────────────────────────────
 
@@ -1114,22 +1676,22 @@ const ENGINE_VISUAL = {
 };
 const DEFAULT_ENGINE_VISUAL = { tint: 'var(--surface)', logo: null };
 
-function EngineLogo({ engine, visual }) {
+function EngineLogo({ engine, visual, size = LOGO_SIZE }) {
   if (!visual.logo) {
     return (
-      <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-3)', lineHeight: `${LOGO_SIZE}px` }}>
+      <span style={{ fontSize: size / 2, fontWeight: 700, color: 'var(--text-3)', lineHeight: `${size}px` }}>
         {engineLabel(engine).charAt(0)}
       </span>
     );
   }
   return (
-    <span style={{ width: LOGO_SIZE, height: LOGO_SIZE, overflow: 'hidden', display: 'block' }}>
+    <span style={{ width: size, height: size, overflow: 'hidden', display: 'block', flexShrink: 0 }}>
       <img
         src={visual.logo}
         alt={engineLabel(engine)}
         style={visual.cropLeftSquare
-          ? { height: LOGO_SIZE, width: 'auto', maxWidth: 'none', display: 'block' }
-          : { width: LOGO_SIZE, height: LOGO_SIZE, objectFit: 'contain', display: 'block' }}
+          ? { height: size, width: 'auto', maxWidth: 'none', display: 'block' }
+          : { width: size, height: size, objectFit: 'contain', display: 'block' }}
       />
     </span>
   );

@@ -589,9 +589,36 @@ async function runBudget(projectId) {
   };
 }
 
+/**
+ * Add per-answer tones to a finished run's payload, for runs measured before
+ * tones were classified at run time. Appended, not replaced; the caller only
+ * sends answers that have none yet. Scoped to this project and this module,
+ * so a run id from elsewhere changes nothing.
+ *
+ * @returns {Promise<boolean>} whether a run row was updated
+ */
+async function appendRunTones(projectId, runId, tones) {
+  requireDb();
+  if (!tones?.length) return false;
+  try {
+    const updated = await db.rows(
+      `update project_module_runs
+          set payload = coalesce(payload, '{}'::jsonb)
+                || jsonb_build_object('answerTones', coalesce(payload->'answerTones', '[]'::jsonb) || $3::jsonb)
+        where project_id = $1 and id = $2 and module_key = 'ai_visibility_lite'
+        returning id`,
+      [projectId, runId, JSON.stringify(tones)],
+    );
+    return updated.length > 0;
+  } catch (error) {
+    return fail('appendRunTones', error);
+  }
+}
+
 module.exports = {
   ACTIONS,
   isMissingTable,
+  appendRunTones,
   migrationNeeded,
   notConfigured,
   getProfile,

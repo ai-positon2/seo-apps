@@ -26,60 +26,15 @@
 
 const moduleEvidence = require('../projects/moduleEvidence');
 const scoring = require('../aiVisibility/scoring');
-const { describe } = require('./describe');
-const { brandFrom, competitorsFrom } = require('../aiVisibility/run');
+const { describe, classifyTones } = require('./describe');
+// The identity to measure — name plus only the aliases that really are the
+// business or its own brands. See brandNames.js for why that needs checking.
+const { identityFor } = require('./brandNames');
 const { measure } = require('./measure');
 const surfacesLib = require('./surfaces');
 const store = require('./store');
 
 const MODULE_KEY = 'ai_visibility_lite';
-
-/**
- * The identity to measure, from the project AND the profile.
- *
- * v1's `brandFrom` reads the project row — name, domain, any aliases somebody
- * configured by hand. The profile adds what the SITE says the business calls
- * itself, which is usually the one a model actually writes. Neither alone is
- * enough: the project row knows the domain, the profile knows the name.
- *
- * Merged rather than replaced, and deduplicated case-insensitively so
- * "Brush and Floss" and "brush and floss" do not both get a matcher.
- */
-function identityFor(project, profile) {
-  const base = brandFrom(project);
-  const seen = new Set([base.name, ...base.aliases].map((a) => String(a).toLowerCase()));
-  const aliases = [...base.aliases];
-
-  for (const alias of profile?.brandAliases || []) {
-    const key = String(alias).toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    aliases.push(alias);
-  }
-
-  const brand = {
-    // The site's own name wins over the project label: a project somebody named
-    // "Dentist — NC" measures nothing, and the profile read the real one off the
-    // homepage.
-    name: profile?.businessName || base.name,
-    domain: base.domain,
-    aliases,
-  };
-
-  // Competitors from project_domains, plus any the profile found named on the
-  // site. Domain-derived stems are a poor substitute for a real name — v1's
-  // competitorsFrom says so itself — so the profile's names are additive.
-  const configured = competitorsFrom(project);
-  const known = new Set(configured.map((c) => String(c.name).toLowerCase()));
-  const competitors = [...configured];
-  for (const name of profile?.competitors || []) {
-    if (known.has(String(name).toLowerCase())) continue;
-    known.add(String(name).toLowerCase());
-    competitors.push({ name, domain: null, aliases: [] });
-  }
-
-  return { brand, competitors };
-}
 
 /**
  * Check the run budget and the provider keys before anything is spent.
@@ -176,7 +131,7 @@ async function execute({ access, project, run }) {
     }
 
     const profile = await store.getProfile(projectId);
-    const { brand, competitors } = identityFor(project, profile);
+    const { brand, competitors } = await identityFor(project, profile);
 
     const rows = [];
 
@@ -202,13 +157,19 @@ async function execute({ access, project, run }) {
     const summary = scoring.summarise(rows, { name: brand.name, domain: brand.domain });
 
     // What the answers SAID about the brand, as opposed to whether they named
-    // it. One model call over the whole set — see describe.js. Never fatal: a
-    // descriptor panel is not worth losing a run's captures over, and every
-    // number above is already computed.
-    const described = await describe({ rows, brand }).catch((e) => {
-      console.warn(`[aiVisibilityLite] run ${run.id}: descriptors skipped (${e.message})`);
-      return null;
-    });
+    // it: descriptors, and the tone of EVERY answer that named the brand — the
+    // tones are what the sentiment score is computed from (report.js). Both
+    // never fatal.
+    const [described, answerTones] = await Promise.all([
+      describe({ rows, brand }).catch((e) => {
+        console.warn(`[aiVisibilityLite] run ${run.id}: descriptors skipped (${e.message})`);
+        return null;
+      }),
+      classifyTones({ rows: rows.map((r) => ({ ...r, runId: run.id })), brand }).catch((e) => {
+        console.warn(`[aiVisibilityLite] run ${run.id}: answer tones skipped (${e.message})`);
+        return [];
+      }),
+    ]);
 
     const budget = await store.runBudget(projectId);
 
@@ -231,6 +192,9 @@ async function execute({ access, project, run }) {
         // How the models described the brand, with the verbatim quotes that
         // back each descriptor. Null when too few answers named it.
         described,
+        // One {runId, promptId, engine, tone, quote} per named answer whose
+        // tone was backed by a quote from that answer.
+        answerTones,
         budget,
       },
     };
