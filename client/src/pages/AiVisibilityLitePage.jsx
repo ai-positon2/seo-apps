@@ -231,7 +231,8 @@ function PromptRow({ prompt, onSave, onDelete, busy }) {
 
 // ── The rail ───────────────────────────────────────────────────────────────
 //
-// One dark bar. Every group collapses to a dot, its name and one number; the
+// One dark bar. Every group collapses to a dot, its name and one number, and
+// opens a menu of its reports when clicked; the
 // group being read opens into a light panel showing its reports, the current
 // one as a solid pill. Setup & runs is the page's input, not a report, so it
 // sits apart on the right with the run budget drawn as a small pie. The line
@@ -285,9 +286,106 @@ function BudgetPie({ used, cap, size = 18 }) {
   );
 }
 
+/**
+ * A collapsed group, as a menu of its reports — so a reader can see what is
+ * inside "Sources" before choosing, rather than being dropped on its first
+ * report. Each entry carries its number and the one-line description the
+ * page header uses.
+ */
+function GroupMenu({
+  group, name, stat, done, active, onPick, statOf, open, onToggle, onClose,
+}) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const outside = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    const escape = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('mousedown', outside);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('mousedown', outside);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [open, onClose]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 11px',
+          background: open ? 'rgba(255,255,255,.10)' : 'transparent', border: 'none', borderRadius: 10,
+          cursor: 'pointer', font: 'inherit', color: RAIL.text, fontSize: 14, whiteSpace: 'nowrap',
+        }}
+      >
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: done ? RAIL.dotDone : RAIL.dotAhead }} />
+        {name}
+        {stat ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: RAIL.muted }}>{stat}</span> : null}
+        <span style={{ fontSize: 10, color: RAIL.muted, marginLeft: 1 }}>{open ? '▴' : '▾'}</span>
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          style={{
+            position: 'absolute', top: 'calc(100% + 8px)', left: 0, zIndex: 30, minWidth: 290,
+            background: '#FFFFFF', borderRadius: 14, padding: 6,
+            boxShadow: '0 12px 32px rgba(20, 30, 25, .18), 0 2px 6px rgba(20, 30, 25, .08)',
+            border: '1px solid #E4E0D8',
+          }}
+        >
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '.12em', color: '#7A807A',
+            padding: '8px 12px 6px',
+          }}
+          >
+            {group.label}
+          </div>
+          {group.ids.map((id) => {
+            const r = byId(id);
+            const itemStat = statOf(id);
+            const on = id === active;
+            return (
+              <button
+                key={id}
+                type="button"
+                role="menuitem"
+                onClick={() => { onPick(id); onClose(); }}
+                style={{
+                  display: 'block', width: '100%', textAlign: 'left', padding: '10px 12px',
+                  border: 'none', borderRadius: 10, cursor: 'pointer', font: 'inherit',
+                  background: on ? '#EEF3F0' : 'transparent', color: '#1D221F',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#F3F1EC'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = on ? '#EEF3F0' : 'transparent'; }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600 }}>{r.name}</span>
+                  {itemStat ? (
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: '#2F5D50', fontWeight: 600 }}>{itemStat}</span>
+                  ) : null}
+                </span>
+                <span style={{ display: 'block', fontSize: 12, color: '#6B716B', marginTop: 2, lineHeight: 1.4 }}>
+                  {r.blurb}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Rail({
   active, onPick, report, described, budget,
 }) {
+  const [menu, setMenu] = useState(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
   const statOf = (id) => (report ? byId(id).stat(report, described) : null);
   const groups = REPORT_GROUPS
     .map((g) => ({ ...g, ids: g.ids.filter((id) => id !== 'run') }))
@@ -301,7 +399,7 @@ function Rail({
       aria-label="Reports"
       style={{
         position: 'relative', background: RAIL.bar, borderRadius: 16, padding: '8px 10px 13px',
-        marginBottom: 18, overflow: 'hidden',
+        marginBottom: 18,
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
@@ -309,30 +407,20 @@ function Rail({
           const open = gi === activeGroup;
           if (!open) {
             const first = g.ids[0];
-            const name = GROUP_NAME[g.label] || titleCase(g.label);
-            const stat = statOf(GROUP_STAT[g.label] || first);
             return (
-              <button
+              <GroupMenu
                 key={g.label}
-                type="button"
-                onClick={() => onPick(first)}
-                title={g.ids.map((id) => byId(id).name).join(' · ')}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 11px',
-                  background: 'transparent', border: 'none', borderRadius: 10, cursor: 'pointer',
-                  font: 'inherit', color: RAIL.text, fontSize: 14, whiteSpace: 'nowrap',
-                }}
-              >
-                <span style={{
-                  width: 6, height: 6, borderRadius: '50%',
-                  background: (active === 'run' || gi < activeGroup) ? RAIL.dotDone : RAIL.dotAhead,
-                }}
-                />
-                {name}
-                {stat ? (
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: RAIL.muted }}>{stat}</span>
-                ) : null}
-              </button>
+                group={g}
+                name={GROUP_NAME[g.label] || titleCase(g.label)}
+                stat={statOf(GROUP_STAT[g.label] || first)}
+                done={active === 'run' || gi < activeGroup}
+                active={active}
+                onPick={onPick}
+                statOf={statOf}
+                open={menu === g.label}
+                onToggle={() => setMenu((m) => (m === g.label ? null : g.label))}
+                onClose={closeMenu}
+              />
             );
           }
           return (
