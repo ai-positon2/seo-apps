@@ -160,7 +160,8 @@ module.exports = {
   // The trade-off, measured: on a health system asking for 10 seconds this
   // reads 48 pages instead of 800, and far fewer clusters form. false restores
   // the old pace (4 at a time, 150ms apart) whatever robots.txt asks.
-  DISCOVERY_HONOUR_CRAWL_DELAY: true,
+  // Off by choice (2026-09-30): complete clusters matter more than the delay.
+  DISCOVERY_HONOUR_CRAWL_DELAY: false,
   DISCOVERY_MAX_CRAWL_DELAY_MS: 60000,
   DISCOVERY_LISTING_BUDGET_MS: 3 * 60 * 1000,
   DISCOVERY_FETCH_BUDGET_MS: 8 * 60 * 1000,

@@ -360,13 +360,18 @@ test("robots.txt's Crawl-delay paces the listing walk, and the walk stops at its
   assert.equal(walk.pagesWalked, 1, 'the first page is read; the next would pass the deadline');
   assert.equal(walk.stoppedBecause, 'stopped at the time limit');
 
-  const result = await d.discoverInformationalCandidates(ORIGIN, {
+  const politeSite = {
     sitemapDiscover: async () => ({ mode: 'sitemap', urls: [{ url: `${ORIGIN}/post-a` }] }),
     fetchHtml: async (url) => (url.endsWith('/robots.txt') ? 'User-agent: *\nCrawl-delay: 5\n' : html('<main></main>')),
     listingDelayMs: 0,
-  });
+  };
+  const result = await d.discoverInformationalCandidates(ORIGIN, { ...politeSite, honourCrawlDelay: true });
   assert.equal(result.crawlDelayMs, 5000);
   assert.ok(result.limitations.some((l) => /5 second\(s\) between requests/.test(l)));
+
+  // Off by default (config DISCOVERY_HONOUR_CRAWL_DELAY): the old pace, no delay.
+  const fast = await d.discoverInformationalCandidates(ORIGIN, politeSite);
+  assert.equal(fast.crawlDelayMs, 0);
 });
 
 test('under the read limit, every section is represented, newest first — not the alphabetical head', () => {
