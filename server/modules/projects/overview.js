@@ -351,56 +351,58 @@ async function findingInstancesForRun(runId, { cache = true } = {}) {
   // many pages exist, so the rest are fetched AT ONCE and the trailing empty
   // probe is not needed at all. A 10,000-finding run goes from eleven round
   // trips in series to one, then nine in parallel.
+  //
+  // The pages start AT an id rather than after an OFFSET. The count used to
+  // ride on page 0 as count(*) over (), which built every row's projection
+  // before page 0 could come back (0028 measured that spilling 19 MB to
+  // disk), and each OFFSET page then re-walked every row before it. Now one
+  // index-only pass over (run_id, id) returns the count and each page's first
+  // id, and a page is `id >= start and id < next start`: the same rows in the
+  // same order, found by seeking.
   const PAGE = 1_000;
   const CAP = 50_000;
 
-  const readPage = async (offset) => {
+  const read = async (sql, params) => {
     try {
-      // count(*) over () rides along with the first page, which is what
-      // PostgREST's { count: 'exact' } gave and what makes the remaining
-      // offsets computable in one go.
-      const rows = await db.rows(
-        `select ${select}${offset === 0 ? ', count(*) over () as _total' : ''}
-           from crawl_run_finding_instances
-          where run_id = $1
-          order by id asc
-          limit $2 offset $3`,
-        [runId, PAGE, offset]
-      );
-      const count = offset === 0
-        ? (rows.length ? Number(rows[0]._total) : 0)
-        : undefined;
-      for (const row of rows) delete row._total;
-      return { rows, count };
+      return await db.rows(sql, params);
     } catch (error) {
       throw new Error(`[projects.overview.findingInstancesForRun] ${error.message}`);
     }
   };
 
-  const first = await readPage(0);
-  const all = [...first.rows];
+  const starts = await read(
+    `select id, n from (
+       select id, row_number() over (order by id) as n
+         from crawl_run_finding_instances
+        where run_id = $1
+     ) s
+      where (n - 1) % $2 = 0 and n <= $3
+      order by id asc`,
+    [runId, PAGE, CAP]
+  );
 
-  // `count` is the number of rows matching the filter, not the number returned,
-  // so it is the only trustworthy statement of how much is left. Falling back to
-  // the sequential walk if the server declined to count keeps this correct
-  // rather than truncating silently, which is the failure this whole comment
-  // block exists because of.
-  if (Number.isFinite(first.count)) {
-    const total = Math.min(first.count, CAP);
-    const offsets = [];
-    for (let o = all.length; o < total; o += PAGE) offsets.push(o);
-    const pages = await Promise.all(offsets.map((o) => readPage(o)));
-    for (const page of pages) all.push(...page.rows);
-  } else if (first.rows.length) {
-    let offset = all.length;
-    while (offset < CAP) {
-      // eslint-disable-next-line no-await-in-loop
-      const next = await readPage(offset);
-      if (!next.rows.length) break;
-      all.push(...next.rows);
-      offset += next.rows.length;
-    }
-  }
+  const pages = await Promise.all(starts.map((start, i) => {
+    const following = starts[i + 1];
+    return following
+      ? read(
+        `select ${select}
+           from crawl_run_finding_instances
+          where run_id = $1 and id >= $2 and id < $3
+          order by id asc`,
+        [runId, start.id, following.id]
+      )
+      // The last page has no next start; it ends at PAGE rows or the cap.
+      : read(
+        `select ${select}
+           from crawl_run_finding_instances
+          where run_id = $1 and id >= $2
+          order by id asc
+          limit $3`,
+        [runId, start.id, Math.min(PAGE, CAP - (Number(start.n) - 1))]
+      );
+  }));
+  const all = [];
+  for (const page of pages) all.push(...page);
 
   if (all.length) {
     if (cache) cacheInstances(cacheKey, all);

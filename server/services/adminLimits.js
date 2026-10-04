@@ -192,10 +192,15 @@ async function latestPolicy(scope, scopeRef = null) {
   if (!db.isDatabaseConfigured()) return null;
   try {
     // `is not distinct from` covers both branches at once: a platform policy
-    // has scope_ref NULL, where `=` would never match.
+    // has scope_ref NULL, where `=` would never match. The coalesce line is the
+    // same test spelled the way uq_admin_limit_policies_version is keyed, so the
+    // index can find the row; the original line stays so a scope_ref of '' is
+    // still not confused with NULL.
     return await db.maybeOne(
       `select * from admin_limit_policies
-        where scope = $1 and scope_ref is not distinct from $2
+        where scope = $1
+          and coalesce(scope_ref, '') = coalesce($2::text, '')
+          and scope_ref is not distinct from $2
         order by version desc
         limit 1`,
       [scope, scopeRef]

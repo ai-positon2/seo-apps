@@ -120,6 +120,37 @@ async function readAll(sql, params, label) {
   return rows;
 }
 
+// readAll for a whole project's pages in id order, by keyset instead of OFFSET.
+// `where` is everything after FROM project_pages WHERE, with `columns` naming
+// what to select (id is always added for the cursor). Each page seeks to
+// `id > last` on (project_id, id) rather than sorting and skipping every row
+// before it, and returns the same rows in the same order readAll did.
+async function readAllPagesById(columns, where, params, label) {
+  const rows = [];
+  let last = null;
+  for (;;) {
+    const cursor = last === null ? '' : ` and id > $${params.length + 2}`;
+    let data;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      data = await db.rows(
+        `select id, ${columns} from project_pages
+          where ${where}${cursor}
+          order by id asc
+          limit $${params.length + 1}`,
+        last === null ? [...params, READ_PAGE] : [...params, READ_PAGE, last],
+      );
+    } catch (error) {
+      if (isMissingTable(error)) { warnMissingOnce(); return []; }
+      fail(label, error);
+    }
+    rows.push(...data);
+    if (data.length < READ_PAGE) break;
+    last = data[data.length - 1].id;
+  }
+  return rows;
+}
+
 /**
  * Bring the page inventory in line with one completed crawl.
  *
@@ -188,10 +219,9 @@ async function syncFromCrawl({ access, crawlRunId = null }) {
   const seenAt = crawl.crawl.finished_at || crawl.crawl.created_at || new Date().toISOString();
 
   // Existing rows, so created-vs-updated is a real count rather than a guess.
-  const existing = await readAll(
-    `select id, canonical_key, retired_at from project_pages
-      where project_id = $1
-      order by id asc`,
+  const existing = await readAllPagesById(
+    'canonical_key, retired_at',
+    'project_id = $1',
     [projectId],
     'syncFromCrawl.existing',
   );
@@ -394,10 +424,9 @@ async function findByUrl(projectId, url) {
 
 /** canonical key → page id, for resolving a run's findings onto pages. */
 async function keyToId(projectId) {
-  const rows = await readAll(
-    `select id, canonical_key from project_pages
-      where project_id = $1
-      order by id asc`,
+  const rows = await readAllPagesById(
+    'canonical_key',
+    'project_id = $1',
     [projectId],
     'keyToId',
   );

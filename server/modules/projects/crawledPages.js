@@ -20,7 +20,12 @@ const adminLimits = require('../../services/adminLimits');
 // (id > lastSeenId) costs the same per page regardless of how many pages came
 // before it, so `sql` must select `id` and end in "order by id asc" with no
 // LIMIT/OFFSET of its own — this appends the cursor condition and the window.
-const PAGE_SIZE = 500;
+//
+// 5,000 rather than the 500 that suited PostgREST: talking to Postgres directly
+// there is no transport row ceiling, and every page is a full round trip, so a
+// million-edge graph was 2,000 of them in series. Keyset pages of any size
+// return the same rows in the same order.
+const PAGE_SIZE = 5_000;
 
 function notConfigured() {
   return Object.assign(

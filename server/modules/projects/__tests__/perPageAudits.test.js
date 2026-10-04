@@ -211,10 +211,12 @@ test('the input array is not mutated', () => {
   assert.strictEqual(rows[0].url, '/b');
 });
 
-test('reads a page at a time in PostgREST-sized pages', () => {
-  // PostgREST caps a response at 1,000 rows whatever .limit() says. A page size
-  // above that would silently read a fraction of a large crawl.
-  assert.ok(crawledPages.PAGE_SIZE <= 1000, `PAGE_SIZE=${crawledPages.PAGE_SIZE} exceeds the PostgREST cap`);
+test('reads a page at a time, in bounded pages', () => {
+  // This used to require <= 1,000, PostgREST's response ceiling. The app talks
+  // to Postgres directly now, which returns exactly the LIMIT asked for, so the
+  // bound is about memory per round trip rather than a transport cap.
+  assert.ok(crawledPages.PAGE_SIZE >= 1, 'a page size below 1 would read nothing');
+  assert.ok(crawledPages.PAGE_SIZE <= 10_000, `PAGE_SIZE=${crawledPages.PAGE_SIZE} holds too many rows per page`);
 });
 
 // ── The page budget ─────────────────────────────────────────────────────────

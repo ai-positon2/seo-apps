@@ -1112,15 +1112,32 @@ async function listAllRunFindingInstances(client, runId, { cap = FINDINGS_READ_C
   // array. That last part is the point — every caller sees exactly what it saw
   // before, so this is a transport change, not a contract change. Keep it that
   // way: if you add a field here, it must be reassembled here too.
+  //
+  //   3. Each page starts AT an id rather than after an OFFSET. OFFSET still
+  //      reads, projects and hashes every row it skips, so the last page of a
+  //      240,000-instance run walked 235,000 rows to return 5,000. The page
+  //      start ids come from one index-only pass over (run_id, id), and a page
+  //      is then `id >= start and id < next start` — the same rows the OFFSET
+  //      page held, found by seeking. 46s -> 5s for that run in PGlite.
   const PAGE = 5_000;
   // Bounded so one large report cannot take the whole pool (DATABASE_POOL_MAX
   // defaults to 10) and stall every other request while it loads.
   const CONCURRENCY = 4;
 
-  const [countRow, texts] = await Promise.all([
+  const [starts, texts] = await Promise.all([
+    // Row n of every page (n = 1, PAGE + 1, ...) up to the cap, each carrying
+    // the run's full count. Ids only, so nothing here touches `data`.
     client.rows(
-      `select count(*)::int as n from crawl_run_finding_instances where run_id = $1`,
-      [runId],
+      `select id, n, total from (
+         select id,
+                row_number() over (order by id) as n,
+                count(*) over ()                as total
+           from crawl_run_finding_instances
+          where run_id = $1
+       ) s
+        where (n - 1) % $2 = 0 and n <= $3
+        order by id asc`,
+      [runId, PAGE, cap],
     ),
     client.rows(
       `select distinct
@@ -1136,37 +1153,46 @@ async function listAllRunFindingInstances(client, runId, { cap = FINDINGS_READ_C
 
   // `meta.total` is how many the run holds, which a caller compares with what
   // came back to know whether the cap cut the list short.
-  if (meta) meta.total = Number(countRow[0]?.n) || 0;
-  const total = Math.min(Number(countRow[0]?.n) || 0, cap);
+  const runTotal = Number(starts[0]?.total) || 0;
+  if (meta) meta.total = runTotal;
+  const total = Math.min(runTotal, cap);
   if (!total) return [];
 
   const recommendationFor = new Map(texts.map((t) => [t.rk, t.rec]));
   const descriptionFor = new Map(texts.map((t) => [t.dk, t.descr]));
 
-  const offsets = [];
-  for (let o = 0; o < total; o += PAGE) offsets.push(o);
+  const PAGE_COLUMNS = `(data - 'recommendation' - 'description')          as d,
+                left(md5(coalesce(data->>'recommendation','')), 8) as rk,
+                left(md5(coalesce(data->>'description','')), 8)    as dk`;
 
-  const pages = new Array(offsets.length);
+  const pages = new Array(starts.length);
   let next = 0;
   const worker = async () => {
     for (;;) {
       const i = next++;
-      if (i >= offsets.length) return;
-      const offset = offsets[i];
+      if (i >= starts.length) return;
+      const following = starts[i + 1];
       // eslint-disable-next-line no-await-in-loop
-      pages[i] = await client.rows(
-        `select (data - 'recommendation' - 'description')          as d,
-                left(md5(coalesce(data->>'recommendation','')), 8) as rk,
-                left(md5(coalesce(data->>'description','')), 8)    as dk
-           from crawl_run_finding_instances
-          where run_id = $1
-          order by id asc
-          limit $2 offset $3`,
-        [runId, Math.min(PAGE, total - offset), offset],
-      );
+      pages[i] = following
+        ? await client.rows(
+          `select ${PAGE_COLUMNS}
+             from crawl_run_finding_instances
+            where run_id = $1 and id >= $2 and id < $3
+            order by id asc`,
+          [runId, starts[i].id, following.id],
+        )
+        // The last page has no next start, so the cap bounds it instead.
+        : await client.rows(
+          `select ${PAGE_COLUMNS}
+             from crawl_run_finding_instances
+            where run_id = $1 and id >= $2
+            order by id asc
+            limit $3`,
+          [runId, starts[i].id, total - (Number(starts[i].n) - 1)],
+        );
     }
   };
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, offsets.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, starts.length) }, worker));
 
   // Reassembled in page order, so the result is still ordered by id.
   const all = [];

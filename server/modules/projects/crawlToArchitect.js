@@ -69,8 +69,10 @@ const MIN_PAGES_TO_ANALYZE = 5;
 // past the halfway point even paginated. Keyset costs the same per page
 // regardless of how many pages came before it, so `sql` must select `id` and
 // end in "order by id asc" with no LIMIT/OFFSET of its own — this appends the
-// cursor condition and the window.
-const PAGE_SIZE = 500;
+// cursor condition and the window. 5,000 per page for the reason given in
+// crawledPages.js: no transport ceiling now, and each page is a round trip.
+// The 500,000-row cap below is a multiple of it, so the cap still lands exactly.
+const PAGE_SIZE = 5_000;
 
 const ORDER_CLAUSE = 'order by id asc';
 

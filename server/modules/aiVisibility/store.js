@@ -1348,12 +1348,18 @@ async function capturesForPeriod(projectId, { from, to, pageSize = 1000 } = {}) 
   // MAX_PAGES is a guard against a provider that never returns a short page,
   // not an expected limit: 200 x 1000 is far beyond any real period.
   const MAX_PAGES = 200;
+  // Keyset, not OFFSET: each page resumes after the last (captured_at, id) it
+  // saw, which is the same order the pages are sorted in, so the rows and
+  // their order are exactly what OFFSET paging returned. OFFSET re-read every
+  // earlier capture for each page, and a 30-day report is ~84 pages deep.
+  // captured_at comes back as full-precision ISO text (services/db.js), so it
+  // round-trips into the comparison exactly.
+  let after = null;
   for (let page = 0; ; page += 1) {
     if (page >= MAX_PAGES) {
       throw new Error(`[aiVisibility.store] capturesForPeriod exceeded ${MAX_PAGES} pages `
         + `for project ${projectId} — refusing to report on a partial read.`);
     }
-    const offset = page * pageSize;
     const params = [projectId];
     const where = ['project_id = $1'];
     if (from) {
@@ -1364,7 +1370,11 @@ async function capturesForPeriod(projectId, { from, to, pageSize = 1000 } = {}) 
       params.push(`${String(to).slice(0, 10)}T23:59:59.999Z`);
       where.push(`captured_at <= $${params.length}`);
     }
-    params.push(pageSize, offset);
+    if (after) {
+      params.push(after.captured_at, after.id);
+      where.push(`(captured_at, id) > ($${params.length - 1}::timestamptz, $${params.length}::uuid)`);
+    }
+    params.push(pageSize);
 
     let data;
     try {
@@ -1378,7 +1388,7 @@ async function capturesForPeriod(projectId, { from, to, pageSize = 1000 } = {}) 
           -- among equal sort keys, so a page boundary landing inside a tie
           -- could drop or duplicate captures, silently moving every denominator.
           order by captured_at asc, id asc
-          limit $${params.length - 1} offset $${params.length}`,
+          limit $${params.length}`,
         params
       );
     } catch (error) {
@@ -1387,6 +1397,7 @@ async function capturesForPeriod(projectId, { from, to, pageSize = 1000 } = {}) 
     }
     rows.push(...data);
     if (data.length < pageSize) break;
+    after = data[data.length - 1];
   }
 
   return rows.map((row) => ({
