@@ -1,9 +1,8 @@
 const express = require('express');
 const monitorStore = require('./monitorStore');
-const { runMonitorCheck, getStatus, formatRunId } = require('./monitorRunner');
+const { runMonitorCheck, getStatus } = require('./monitorRunner');
 const { reinitScheduler } = require('./monitorScheduler');
 const { sendTestMessage } = require('./slackNotifier');
-const { redactDomain, redactClient, resolveAuthUpdate } = require('./domainAuth');
 
 const router = express.Router();
 
@@ -39,7 +38,7 @@ function isValidScheduleTime(t) {
 
 router.get('/clients', async (req, res) => {
   try {
-    res.json((await monitorStore.getClients()).map(redactClient));
+    res.json(await monitorStore.getClients());
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -59,7 +58,7 @@ router.patch('/clients/:clientId', async (req, res) => {
   const { name } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: 'name is required' });
   try {
-    res.json(redactClient(await monitorStore.updateClient(req.params.clientId, { name: name.trim() })));
+    res.json(await monitorStore.updateClient(req.params.clientId, { name: name.trim() }));
   } catch (err) {
     res.status(err.message.includes('not found') ? 404 : 500).json({ error: err.message });
   }
@@ -94,7 +93,7 @@ router.post('/clients/:clientId/domains', async (req, res) => {
       env,
       auth: auth ? { username: auth.username.trim(), password: auth.password } : null,
     });
-    res.status(201).json(redactDomain(domain));
+    res.status(201).json(domain);
   } catch (err) {
     res.status(err.message.includes('not found') ? 404 : 500).json({ error: err.message });
   }
@@ -113,17 +112,17 @@ router.patch('/clients/:clientId/domains/:domainId', async (req, res) => {
     if (!['production', 'staging'].includes(env)) return res.status(400).json({ error: 'env must be "production" or "staging"' });
     fields.env = env;
   }
+  if (auth !== undefined) {
+    if (auth && (!auth.username || !auth.password)) {
+      return res.status(400).json({ error: 'auth.username and auth.password must be non-empty' });
+    }
+    fields.auth = auth || null;
+  }
   if (enabled !== undefined) fields.enabled = Boolean(enabled);
 
   try {
-    // The saved password is never sent to the browser, so a blank one here means
-    // "keep it" — and it may not follow the domain to a different host.
-    const existing = await monitorStore.getDomain(req.params.clientId, req.params.domainId);
-    const nextAuth = resolveAuthUpdate({ existing, url: fields.url, auth });
-    if (nextAuth !== undefined) fields.auth = nextAuth;
-    res.json(redactDomain(await monitorStore.updateDomain(req.params.clientId, req.params.domainId, fields)));
+    res.json(await monitorStore.updateDomain(req.params.clientId, req.params.domainId, fields));
   } catch (err) {
-    if (err.status) return res.status(err.status).json({ error: err.message });
     res.status(err.message.includes('not found') ? 404 : 500).json({ error: err.message });
   }
 });
@@ -203,35 +202,23 @@ router.post('/slack-config/test', async (req, res) => {
 // ── Run control ───────────────────────────────────────────────────────────────
 
 router.post('/run', async (req, res) => {
-  // The id is worked out here, the same way the runner names a scheduled run,
-  // and handed to the runner, so the id answered is the one the run is stored
-  // under (it used to be a placeholder no history entry ever carried).
-  let slackConfig;
-  try {
-    slackConfig = await monitorStore.getSlackConfig();
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
+  const status = getStatus();
+  if (status.isRunning) {
+    return res.status(409).json({ error: 'RUN_IN_PROGRESS', message: 'A run is already in progress' });
   }
 
-  // Checked after the await and followed by a synchronous start: the runner
-  // marks itself running before its own first await, so two requests cannot
-  // both get past this point.
-  if (getStatus().isRunning) {
-    return res.status(409).json({ error: 'A run is already in progress.', code: 'run_in_progress' });
-  }
-
-  const runId = formatRunId(new Date(), slackConfig.timezone);
+  // Generate a placeholder runId immediately so client can track
+  const runId = 'run_manual_' + Date.now().toString(36);
   const run = req.run; // tracked run, closed out when the check really finishes
+  res.json({ ok: true, runId });
 
   // Run async — do not await
-  runMonitorCheck({ triggeredBy: 'manual', runId }).then(result => {
+  runMonitorCheck({ triggeredBy: 'manual' }).then(result => {
     run?.finish({ output: { runId: result?.runId || runId, summary: result?.summary || null, durationMs: result?.durationMs ?? null } });
   }).catch(err => {
     console.error('[RobotsMonitor] Manual run failed:', err.message);
     run?.fail(err.message);
   });
-
-  res.status(202).json({ ok: true, runId, run: { id: runId, status: 'running' } });
 });
 
 router.get('/run/status', (req, res) => {

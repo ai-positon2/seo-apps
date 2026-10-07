@@ -1,6 +1,6 @@
 import { Card } from '../../../ui';
 import {
-  Metric, MetricStrip, FilledLabelBar, ReportWarnings, ReviewBrandsButton,
+  Metric, MetricStrip, FilledLabelBar, ReportWarnings,
 } from '../reportPrimitives';
 import { LineChart } from '../reportCharts';
 import { ReportTable, MetricCell } from '../ReportTable';
@@ -31,7 +31,7 @@ function FirstNamedGrid({ rows }) {
               <th
                 key={n}
                 style={{
-                  fontSize: 12,
+                  fontSize: 10.5,
                   fontFamily: 'var(--font-mono)',
                   fontWeight: 500,
                   color: 'var(--text-3)',
@@ -57,7 +57,7 @@ function FirstNamedGrid({ rows }) {
                   <div style={{
                     padding: '6px 10px',
                     borderRadius: 'var(--r-sm)',
-                    fontSize: 12,
+                    fontSize: 11.5,
                     textAlign: 'center',
                     whiteSpace: 'nowrap',
                     // The client gets the brand tint; everyone else is quiet.
@@ -80,27 +80,22 @@ function FirstNamedGrid({ rows }) {
   );
 }
 
-export function InsightsReport({ envelope, project, onOpenReport }) {
+export function InsightsReport({ envelope }) {
   const { data, meta, warnings } = envelope;
   const kpis = data.kpis;
 
   if (!kpis) {
     return (
       <>
-        {/* The card says what the brand warning would, so it is not repeated. */}
-        <ReportWarnings
-          warnings={warnings}
-          meta={meta}
-          onOpenReport={onOpenReport}
-          clientName={project?.name}
-          omit={['no_client_brand', 'no_approved_brands']}
-        />
+        <ReportWarnings warnings={warnings} meta={meta} />
         <Card>
           <div style={{ fontSize: 13.5, color: 'var(--text)' }}>
-            No results yet. Confirm which brand names belong to {project?.name || 'this client'} to
-            start measuring.
+            Nothing can be computed without an approved client brand.
           </div>
-          <ReviewBrandsButton onOpenReport={onOpenReport} style={{ marginTop: 8 }} />
+          <div style={{ ...muted, marginTop: 6 }}>
+            Every metric on this report is about one brand. Approve the measured set on the
+            Brands screen and this fills in.
+          </div>
         </Card>
       </>
     );
@@ -111,7 +106,7 @@ export function InsightsReport({ envelope, project, onOpenReport }) {
 
   return (
     <>
-      <ReportWarnings warnings={warnings} meta={meta} onOpenReport={onOpenReport} clientName={project?.name} />
+      <ReportWarnings warnings={warnings} meta={meta} />
 
       <MetricStrip>
         <Metric label="Visibility" metric={kpis.visibility} />
@@ -199,7 +194,7 @@ export function InsightsReport({ envelope, project, onOpenReport }) {
               sortValue: (r) => (r.rankable ? 1 : 0),
               title: 'A model needs 20+ captures in the period before it can be called strongest or weakest — below that the winner is noise.',
               render: (r) => (
-                <span style={{ fontSize: 12, color: r.rankable ? 'var(--text-2)' : 'var(--text-3)' }}>
+                <span style={{ fontSize: 11.5, color: r.rankable ? 'var(--text-2)' : 'var(--text-3)' }}>
                   {r.rankable ? 'yes' : 'too few captures'}
                 </span>
               ),

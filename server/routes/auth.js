@@ -395,9 +395,6 @@ module.exports = {
   requireSeo,
   COOKIE_OPTIONS,
   WORKSPACE_COOKIE,
-  // server.js's global rate limiter redirects a throttled sign-in navigation to
-  // /login?error=busy, and must land on the same origin these routes do.
-  POST_LOGIN_ORIGIN,
   // Exposed for the tests in ./__tests__/auth.test.js. These are the two gates
   // that decide whether an anonymous caller becomes an authenticated one, and
   // both previously failed open, so they are worth asserting on directly.

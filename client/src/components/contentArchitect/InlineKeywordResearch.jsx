@@ -99,7 +99,7 @@ export default function InlineKeywordResearch({ projectId, clusterId, topic, cli
   const asideNode = (
     <>
       {saved?.updatedAt && !state.running && state.result && (
-        <span style={{ fontSize: 12, color: 'var(--text-3)' }} title={new Date(saved.updatedAt).toLocaleString()}>
+        <span style={{ fontSize: 11, color: 'var(--text-3)' }} title={new Date(saved.updatedAt).toLocaleString()}>
           Saved {savedAgo(saved.updatedAt)}
         </span>
       )}
@@ -123,7 +123,7 @@ export default function InlineKeywordResearch({ projectId, clusterId, topic, cli
       aria-selected={tab === id}
       onClick={() => setTab(id)}
       style={{
-        fontSize: 12, fontWeight: 600, padding: '6px 2px', marginRight: 14, background: 'none', border: 'none', cursor: 'pointer',
+        fontSize: 11.5, fontWeight: 600, padding: '6px 2px', marginRight: 14, background: 'none', border: 'none', cursor: 'pointer',
         color: tab === id ? 'var(--text)' : 'var(--text-3)',
         borderBottom: `2px solid ${tab === id ? 'var(--primary)' : 'transparent'}`,
       }}
@@ -144,7 +144,7 @@ export default function InlineKeywordResearch({ projectId, clusterId, topic, cli
         <div style={{ fontSize: 12, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 8 }}>
           {state.error}
           {!state.running && (
-            <button type="button" onClick={generate} style={{ fontSize: 12, color: 'var(--text-2)', background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 8px', cursor: 'pointer' }}>
+            <button type="button" onClick={generate} style={{ fontSize: 11, color: 'var(--text-2)', background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 8px', cursor: 'pointer' }}>
               Retry
             </button>
           )}
@@ -164,7 +164,7 @@ export default function InlineKeywordResearch({ projectId, clusterId, topic, cli
             </div>
           </div>
           <KrToolbar density="compact" kr={kr} client={client} navigate={navigate} origin={{ caProjectId: projectId, clusterId, topic }} />
-          {saveError && <div style={{ fontSize: 12, color: 'var(--warning)' }}>{saveError}</div>}
+          {saveError && <div style={{ fontSize: 11, color: 'var(--warning)' }}>{saveError}</div>}
         </>
       )}
     </div>

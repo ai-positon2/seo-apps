@@ -2,8 +2,6 @@ import { useEffect, useState } from 'react';
 import { Badge, Drawer } from '../ui';
 import { fetchRun, formatDuration, STATUS_VARIANT, toolLabel, actionLabel } from '../lib/runsApi';
 import { useProjectNames, humanRunLabel } from '../lib/runLabel';
-import { humanRunStatus, humanRunAction } from '../lib/humanRunLabel';
-import { friendlyError, errorDetail } from '../lib/friendlyError';
 
 // One run, in full: the summary the list already had plus the sanitized input
 // and output, fetched on open. Shared by /runs and the per-module run panels so
@@ -17,13 +15,13 @@ function JsonBlock({ value, truncated, emptyText }) {
     <>
       <pre style={{
         margin: 0, padding: 12, borderRadius: 8, background: 'var(--surface)',
-        border: '1px solid var(--border)', fontSize: 12, lineHeight: 1.5,
+        border: '1px solid var(--border)', fontSize: 11, lineHeight: 1.5,
         color: 'var(--text-2)', overflowX: 'auto', maxHeight: 320,
       }}>
         {JSON.stringify(value, null, 2)}
       </pre>
       {truncated && (
-        <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>
+        <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
           Shortened — large payloads are summarized rather than stored in full.
         </div>
       )}
@@ -48,22 +46,21 @@ function DetailRow({ label, children }) {
  */
 export default function RunDetailDrawer({ run, onClose, workspaceName }) {
   const [detail, setDetail] = useState(null);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState('');
   const projectNames = useProjectNames();
 
   useEffect(() => {
     if (!run) return;
     let live = true;
     setDetail(null);
-    setError(null);
+    setError('');
     fetchRun(run.id)
       .then(d => { if (live) setDetail(d.run); })
-      .catch(e => { if (live) setError(e); });
+      .catch(e => { if (live) setError(e.message); });
     return () => { live = false; };
   }, [run?.id]);
 
-  const action = run && actionLabel(run.action) ? humanRunAction(run.action) : '';
-  const runErrorDetail = run?.error ? errorDetail(run.error) : null;
+  const action = run ? actionLabel(run.action) : '';
 
   return (
     <Drawer
@@ -76,7 +73,7 @@ export default function RunDetailDrawer({ run, onClose, workspaceName }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           <div>
             <DetailRow label="Status">
-              <Badge variant={STATUS_VARIANT[run.status] || 'neutral'}>{humanRunStatus(run.status)}</Badge>
+              <Badge variant={STATUS_VARIANT[run.status] || 'neutral'}>{run.status}</Badge>
             </DetailRow>
             <DetailRow label="Ran on">{humanRunLabel(run.label, projectNames) || '—'}</DetailRow>
             <DetailRow label="Who">{run.actor_email || 'unknown'}</DetailRow>
@@ -87,14 +84,8 @@ export default function RunDetailDrawer({ run, onClose, workspaceName }) {
             </DetailRow>
             <DetailRow label="Duration">{formatDuration(run.duration_ms)}</DetailRow>
             {run.error && (
-              <DetailRow label="What went wrong">
-                <span style={{ color: 'var(--danger)' }}>{friendlyError(run.error)}</span>
-                {runErrorDetail && (
-                  <details style={{ marginTop: 4 }}>
-                    <summary style={{ cursor: 'pointer', color: 'var(--text-3)' }}>Show details</summary>
-                    <div style={{ color: 'var(--text-3)', marginTop: 4 }}>{runErrorDetail}</div>
-                  </details>
-                )}
+              <DetailRow label="Error">
+                <span style={{ color: 'var(--danger)' }}>{run.error}</span>
               </DetailRow>
             )}
           </div>
@@ -109,13 +100,7 @@ export default function RunDetailDrawer({ run, onClose, workspaceName }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18, marginTop: 12 }}>
               {error && (
                 <div style={{ fontSize: 12, color: 'var(--danger)' }}>
-                  Could not load this run’s details. {friendlyError(error)}
-                  {errorDetail(error) && (
-                    <details style={{ marginTop: 4 }}>
-                      <summary style={{ cursor: 'pointer', color: 'var(--text-3)' }}>Show details</summary>
-                      <div style={{ color: 'var(--text-3)', marginTop: 4 }}>{errorDetail(error)}</div>
-                    </details>
-                  )}
+                  Could not load this run’s details: {error}
                 </div>
               )}
               <div>
@@ -133,7 +118,7 @@ export default function RunDetailDrawer({ run, onClose, workspaceName }) {
               </div>
 
               {(run.request_method || run.request_path) && (
-                <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
                   Request: {run.request_method} {run.request_path}
                 </div>
               )}

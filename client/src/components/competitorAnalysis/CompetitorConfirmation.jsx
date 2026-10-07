@@ -10,7 +10,7 @@ function TypeBadge({ type }) {
   const style = map[type] || { bg: 'var(--surface)', color: 'var(--text-2)', label: type || 'Unknown' };
   return (
     <span style={{
-      fontSize: 12, fontWeight: 500, padding: '2px 8px', borderRadius: 4,
+      fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 4,
       background: style.bg, color: style.color,
     }}>
       {style.label}

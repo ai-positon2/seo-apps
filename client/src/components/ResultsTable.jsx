@@ -8,8 +8,7 @@ function ResultsTable({ keyword, analysis }) {
       {/* Title Banner */}
       <div style={{
         background: 'linear-gradient(90deg, var(--nav-bg-top) 0%, var(--nav-bg-bot) 100%)',
-        // Was #fff: the gradient is near-white in light theme (as CtaBand found).
-        color: 'var(--text)',
+        color: '#fff',
         fontWeight: 600,
         textAlign: 'center',
         padding: '10px 20px',

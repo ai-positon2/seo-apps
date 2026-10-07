@@ -49,7 +49,7 @@ const volumeText = (v) => (v > 0 ? v.toLocaleString() : '—');
 
 function FullPicks({ kr, editMode }) {
   const { primary, secondary } = kr.state;
-  const th = { textAlign: 'left', color: 'var(--text)', fontWeight: 600, padding: '12px 16px', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em' };
+  const th = { textAlign: 'left', color: '#fff', fontWeight: 600, padding: '12px 16px', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em' };
 
   return (
     <>

@@ -27,7 +27,7 @@ export function TopicResults({ byTopic }) {
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <span style={{ fontSize: 13, color: 'var(--text)', fontWeight: 600 }}>{t.topic}</span>
               {t.targetUrl && (
-                <a href={t.targetUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--primary-text, var(--primary))' }}>
+                <a href={t.targetUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, color: 'var(--primary-text, var(--primary))' }}>
                   page →
                 </a>
               )}

@@ -46,7 +46,7 @@ export default function AssumptionsDrawer({ open, onClose, assumptions, onChange
                   {isPct && <span style={{ fontSize: 13, color: 'var(--text-3)' }}>%</span>}
                 </div>
               </div>
-              <div style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5 }}>{d.hint}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.5 }}>{d.hint}</div>
             </div>
           );
         })}

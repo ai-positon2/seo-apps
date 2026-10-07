@@ -1,10 +1,16 @@
-import { requestRaw } from './apiRequest';
-
 const BASE = '/api/market-potential';
 
-// Raw rather than requestJson: a non-JSON success body resolves as text.
-async function req(path, options) {
-  const res = await requestRaw(`${BASE}${path}`, options);
+async function req(path, options = {}) {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    ...options,
+  });
+  if (!res.ok) {
+    let msg = `Request failed (${res.status})`;
+    try { msg = (await res.json()).error || msg; } catch { /* ignore */ }
+    throw new Error(msg);
+  }
   const ct = res.headers.get('content-type') || '';
   return ct.includes('application/json') ? res.json() : res.text();
 }

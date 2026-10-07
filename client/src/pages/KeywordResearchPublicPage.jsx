@@ -334,17 +334,17 @@ export default function KeywordResearchPublicPage() {
                     textAlign: 'left',
                     padding: '12px 16px',
                     borderRadius: 8,
-                    border: `2px solid ${isSelected ? 'var(--primary)' : 'var(--border)'}`,
-                    background: isSelected ? 'var(--primary)' : 'var(--card)',
+                    border: `2px solid ${isSelected ? 'var(--nav-bg-top)' : 'var(--border)'}`,
+                    background: isSelected ? 'var(--nav-bg-top)' : 'var(--card)',
                     cursor: running ? 'not-allowed' : 'pointer',
                     opacity: running ? 0.5 : 1,
                     transition: 'all 0.15s',
                   }}
                 >
-                  <div style={{ fontSize: 14, fontWeight: 600, color: isSelected ? 'var(--text-on-primary)' : 'var(--text)' }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: isSelected ? '#fff' : 'var(--text)' }}>
                     {opt.label}
                   </div>
-                  <div style={{ fontSize: 12, marginTop: 2, color: isSelected ? 'var(--text-on-primary)' : 'var(--text-2)', opacity: isSelected ? 0.75 : 1 }}>
+                  <div style={{ fontSize: 12, marginTop: 2, color: isSelected ? 'rgba(255,255,255,0.65)' : 'var(--text-2)' }}>
                     {opt.desc}
                   </div>
                 </button>
@@ -365,8 +365,8 @@ export default function KeywordResearchPublicPage() {
               borderRadius: 8,
               fontSize: 14,
               fontWeight: 600,
-              color: 'var(--text-on-primary)',
-              background: 'var(--primary)',
+              color: '#fff',
+              background: 'var(--nav-bg-top)',
               border: 'none',
               cursor: canStart ? 'pointer' : 'not-allowed',
               opacity: canStart ? 1 : 0.5,
@@ -761,9 +761,9 @@ export default function KeywordResearchPublicPage() {
               <table style={{ width: '100%', fontSize: 14, borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ background: 'var(--nav-bg-top)' }}>
-                    <th style={{ textAlign: 'left', color: 'var(--text)', fontWeight: 600, padding: '12px 16px', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>#</th>
-                    <th style={{ textAlign: 'left', color: 'var(--text)', fontWeight: 600, padding: '12px 16px', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Keyword</th>
-                    <th style={{ textAlign: 'left', color: 'var(--text)', fontWeight: 600, padding: '12px 16px', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Volume</th>
+                    <th style={{ textAlign: 'left', color: '#fff', fontWeight: 600, padding: '12px 16px', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>#</th>
+                    <th style={{ textAlign: 'left', color: '#fff', fontWeight: 600, padding: '12px 16px', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Keyword</th>
+                    <th style={{ textAlign: 'left', color: '#fff', fontWeight: 600, padding: '12px 16px', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Volume</th>
                     {editMode && <th style={{ padding: '12px 16px', width: 48 }}></th>}
                   </tr>
                 </thead>

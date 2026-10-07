@@ -197,12 +197,9 @@ export default function ContentArchitectProjectPage() {
           if (!startedRef.current) { startedRef.current = true; startDiscovery(); }
         } else {
           setVertical(proj.vertical);
-          // Independent reads — fetched together rather than one after the other.
-          const [existing, existingAnalysis] = await Promise.all([
-            ca.getPatterns(id).catch(() => null),
-            ca.getFullAnalysis(id).catch(() => null),
-          ]);
+          const existing = await ca.getPatterns(id).catch(() => null);
           setPatterns(existing || []);
+          const existingAnalysis = await ca.getFullAnalysis(id).catch(() => null);
           if (existingAnalysis) {
             setAnalysis(existingAnalysis);
             setScreen('results');
@@ -488,7 +485,7 @@ export default function ContentArchitectProjectPage() {
                 key: 'examples', label: 'Examples', sortable: false, maxWidth: 380, wrap: true,
                 render: (v) => (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    {(v || []).map((u) => <span key={u} style={{ fontSize: 12, color: 'var(--text-3)' }}>{u}</span>)}
+                    {(v || []).map((u) => <span key={u} style={{ fontSize: 11, color: 'var(--text-3)' }}>{u}</span>)}
                   </div>
                 ),
               },
@@ -543,23 +540,23 @@ export default function ContentArchitectProjectPage() {
                     )}
                   </div>
                   {selectionSummary ? (
-                    <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 6 }}>
+                    <div style={{ fontSize: 11.5, color: 'var(--text-2)', marginTop: 6 }}>
                       Informational pages only: {selectionSummary.analysedPageCount} of {selectionSummary.crawledPageCount} found in its sitemaps and listings.
                       {leftOut ? ` Left out: ${leftOut}.` : ''}
                     </div>
                   ) : project?.platformProjectId ? (
-                    <div role="note" style={{ fontSize: 12, color: 'var(--warning)', marginTop: 6 }}>
+                    <div role="note" style={{ fontSize: 11.5, color: 'var(--warning)', marginTop: 6 }}>
                       This analysis includes every crawled page. Re-run it to cluster informational pages only.
                     </div>
                   ) : null}
-                  <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
                     {estimatedCount > 0
                       ? `${estimatedCount} page(s) were estimated from their URL rather than crawled.`
                       : 'Every page in this selection was fully crawled.'}
                   </div>
                   {/* The health number appears on every row below, so what it
                       measures is said once, here, rather than nowhere. */}
-                  <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6, maxWidth: 460 }}>
+                  <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 6, maxWidth: 460 }}>
                     <strong>Health</strong> (0-100, averaged across clusters) scores whether a cluster has a hub page, how well that hub covers the topic, a healthy spoke count, internal link density, and how many clicks its pages sit from the homepage.
                   </div>
                 </div>
@@ -586,7 +583,7 @@ export default function ContentArchitectProjectPage() {
                 style={{ flex: '1 1 260px', minWidth: 200, fontSize: 12, padding: '5px 8px', borderRadius: 'var(--r-md)', border: '1px solid var(--border-strong)', background: 'var(--card)', color: 'var(--text)' }}
               />
               <Button variant="secondary" size="sm" onClick={saveCompetitors} loading={savingCompetitors}>Save</Button>
-              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
+              <span style={{ fontSize: 10.5, color: 'var(--text-3)' }}>
                 {competitorsFromProject
                   ? 'Filled in from this client’s competitor list. Save to use them for "Suggest new spokes" below.'
                   : 'Set once — used automatically by "Suggest new spokes" below, no need to re-enter.'}
@@ -618,7 +615,7 @@ export default function ContentArchitectProjectPage() {
             }))}
           />
 
-          <div style={{ fontSize: 12, color: 'var(--text-3)', textAlign: 'center' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', textAlign: 'center' }}>
             For the full retire/refresh reasoning, excluded-page detail, and every column, download the Excel above.
           </div>
         </div>
@@ -647,7 +644,7 @@ function HealthDonut({ value }) {
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
       }}>
         <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', lineHeight: 1 }}>{value}</span>
-        <span style={{ fontSize: 12, letterSpacing: '.08em', color: 'var(--text-3)' }}>HEALTH</span>
+        <span style={{ fontSize: 9, letterSpacing: '.08em', color: 'var(--text-3)' }}>HEALTH</span>
       </div>
     </div>
   );

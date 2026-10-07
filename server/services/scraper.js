@@ -1,7 +1,6 @@
 const puppeteer = require('puppeteer-core');
 const chromium = require('@sparticuz/chromium');
 const fs = require('fs');
-const { assertPublicUrl, guardPage } = require('./safeEgress');
 
 function findLocalBrowser() {
   const candidates = [
@@ -43,23 +42,25 @@ async function runWithConcurrency(items, maxConcurrency, fn) {
   return results;
 }
 
-// Images, fonts and media are skipped to speed up scraping.
-const blockHeavyAssets = (req) => ['image', 'stylesheet', 'font', 'media'].includes(req.resourceType());
-
 async function scrapeSinglePage(browser, url) {
   let page;
   try {
-    // Checked before Chromium sees it: handed a file:// URL, the browser read
-    // the local disk and this returned the text. guardPage then checks every
-    // request the page makes, redirects included.
-    await assertPublicUrl(url);
     page = await browser.newPage();
 
     await page.setUserAgent(USER_AGENT);
     await page.setDefaultNavigationTimeout(PAGE_TIMEOUT);
     await page.setDefaultTimeout(PAGE_TIMEOUT);
 
-    await guardPage(page, { block: blockHeavyAssets });
+    // Block images, fonts, media to speed up scraping
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      const type = req.resourceType();
+      if (['image', 'stylesheet', 'font', 'media'].includes(type)) {
+        req.abort();
+      } else {
+        req.continue();
+      }
+    });
 
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: PAGE_TIMEOUT });
 
@@ -184,14 +185,20 @@ async function scrapeUrls(urls) {
 async function scrapeSinglePageDetailed(browser, url) {
   let page;
   try {
-    // Same guard as scrapeSinglePage.
-    await assertPublicUrl(url);
     page = await browser.newPage();
     await page.setUserAgent(USER_AGENT);
     await page.setDefaultNavigationTimeout(PAGE_TIMEOUT);
     await page.setDefaultTimeout(PAGE_TIMEOUT);
 
-    await guardPage(page, { block: blockHeavyAssets });
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      const type = req.resourceType();
+      if (['image', 'stylesheet', 'font', 'media'].includes(type)) {
+        req.abort();
+      } else {
+        req.continue();
+      }
+    });
 
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: PAGE_TIMEOUT });
 
@@ -279,5 +286,3 @@ async function scrapeUrlsDetailed(urls, onProgress) {
 }
 
 module.exports = { scrapeUrls, scrapeUrlsDetailed };
-// Exposed for routes/__tests__/egressWiring.test.js.
-module.exports.__testables = { scrapeSinglePage, scrapeSinglePageDetailed };

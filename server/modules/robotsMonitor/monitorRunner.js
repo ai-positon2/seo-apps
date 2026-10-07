@@ -33,24 +33,13 @@ function formatRunId(date, timezone) {
   }
 }
 
-// `runId` is optional: the manual-run route works it out first (from the same
-// formatRunId and timezone) so the id it answers with is the one stored here.
-async function runMonitorCheck({ triggeredBy = 'scheduler', runId: givenRunId } = {}) {
+async function runMonitorCheck({ triggeredBy = 'scheduler' } = {}) {
   if (isRunning) throw new Error('RUN_IN_PROGRESS');
   isRunning = true;
-  // Set before the first await, so getStatus() names the run straight away.
-  if (givenRunId) currentRunId = givenRunId;
 
   const startedAt = new Date();
-  let slackConfig;
-  try {
-    slackConfig = await monitorStore.getSlackConfig();
-  } catch (err) {
-    isRunning = false;
-    currentRunId = null;
-    throw err;
-  }
-  const runId = givenRunId || formatRunId(startedAt, slackConfig.timezone);
+  const slackConfig = await monitorStore.getSlackConfig();
+  const runId = formatRunId(startedAt, slackConfig.timezone);
   currentRunId = runId;
 
   try {
@@ -186,4 +175,4 @@ function getStatus() {
   return { isRunning, currentRunId };
 }
 
-module.exports = { runMonitorCheck, getStatus, formatRunId };
+module.exports = { runMonitorCheck, getStatus };

@@ -27,53 +27,20 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
 
 const SUITES = [
-  // The shared API kit: error bodies, validation, paging, SSE.
-  'utils/api/__tests__/api.test.js',
   'modules/contentWriter/__tests__/contentWriter.test.js',
   'routes/__tests__/auth.test.js',
   'routes/__tests__/workspaces.test.js',
-  // Data-isolation audit fixes (2026-10): saved staging passwords never leave
-  // the server, KB/module files stay under their roots, the readiness PDF
-  // escapes caller fields, an audit only follows its own project's crawl, and
-  // a new Content Architect project belongs to a workspace.
-  'modules/robotsMonitor/__tests__/domainAuth.test.js',
-  // Robots Monitor routes: no password in any response, a blank one keeps the
-  // saved one, and POST /run answers with the id the run is stored under.
-  'modules/robotsMonitor/__tests__/routes.test.js',
-  // Market Potential: only a scenario's owner can delete it.
-  'modules/marketPotential/__tests__/scenarioOwner.test.js',
-  // A non-UUID project id is a 404 not_found, not a 500 from the uuid cast.
-  'services/__tests__/projectAccessUuid.test.js',
-  'services/__tests__/kbStorePaths.test.js',
-  // Outbound fetches to a user's URL refuse private hosts on every hop, and
-  // the headless browser never opens file:// or an internal address.
-  'services/__tests__/safeEgress.test.js',
-  'routes/__tests__/egressWiring.test.js',
-  // Revoking a platform administrator works, and survives a restart. Skips
-  // without TEST_DATABASE_URL.
-  'services/__tests__/platformAdminDb.test.js',
-  // Queued and scheduled module runs stop for a deleted project. Skips without
-  // TEST_DATABASE_URL.
-  'services/__tests__/deletedProjectJobsDb.test.js',
-  'routes/__tests__/agentReadinessPdf.test.js',
-  'modules/projects/__tests__/crawlOwnership.test.js',
-  'modules/contentArchitect/__tests__/newProjectWorkspace.test.js',
   'services/__tests__/teamWorkspace.test.js',
   'locationPageBuilder/__tests__/run.js',
   'locationPageBuilder/__tests__/lsPages.test.js',
   'middleware/__tests__/runTracking.test.js',
   'services/__tests__/runStore.test.js',
-  // Durable jobs and the /api/runs events, result and cancel endpoints (real SQL;
-  // skips without TEST_DATABASE_URL).
-  'services/__tests__/jobs.test.js',
   'services/__tests__/platformFoundation.test.js',
   'services/__tests__/projectAccessDb.test.js',
   'modules/projects/__tests__/projects.test.js',
   'modules/projects/__tests__/competitorProposals.test.js',
   'modules/projects/__tests__/contentArchitect.test.js',
   'modules/projects/__tests__/homepageAutostart.test.js',
-  // A new project's initial crawl gets its stored options and its workspace's limits.
-  'modules/projects/__tests__/createInitialCrawl.test.js',
   // Site Crawler routes that attach a crawl to a project or edit one go through
   // the project's own access check.
   'modules/projects/__tests__/crawlRouteAccess.test.js',

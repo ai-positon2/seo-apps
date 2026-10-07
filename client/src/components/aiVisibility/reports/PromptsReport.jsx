@@ -12,7 +12,7 @@ import { muted } from '../promptHelpers';
 // The weak-markets list is the SAME query sorted ascending, not a second
 // definition. Two definitions of "weak" would eventually disagree.
 
-export function PromptsReport({ envelope, project, onOpenReport }) {
+export function PromptsReport({ envelope }) {
   const { data, meta, warnings } = envelope;
   const rows = data.rows || [];
 
@@ -21,7 +21,7 @@ export function PromptsReport({ envelope, project, onOpenReport }) {
 
   return (
     <>
-      <ReportWarnings warnings={warnings} meta={meta} onOpenReport={onOpenReport} clientName={project?.name} />
+      <ReportWarnings warnings={warnings} meta={meta} />
 
       <MetricStrip>
         <Metric
@@ -75,7 +75,7 @@ export function PromptsReport({ envelope, project, onOpenReport }) {
                 <div>
                   <div style={{ color: 'var(--text)', lineHeight: 1.4 }}>{r.text || '—'}</div>
                   {r.location && (
-                    <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{r.location}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{r.location}</div>
                   )}
                 </div>
               ),
@@ -92,7 +92,7 @@ export function PromptsReport({ envelope, project, onOpenReport }) {
                       target="_blank"
                       rel="noreferrer"
                       onClick={(e) => e.stopPropagation()}
-                      style={{ fontSize: 12, color: 'var(--primary-text)' }}
+                      style={{ fontSize: 11, color: 'var(--primary-text)' }}
                     >
                       the page this should win
                     </a>

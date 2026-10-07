@@ -190,16 +190,6 @@ async function getClientRecord(clientId) {
   return row ? row.data : null;
 }
 
-// One domain as stored, credentials included — for the route that has to merge
-// an edit with what is saved. Never sent to the browser as-is (domainAuth.js).
-async function getDomain(clientId, domainId) {
-  const client = await getClientRecord(clientId);
-  if (!client) throw new Error(`Client "${clientId}" not found`);
-  const domain = (client.domains || []).find((d) => d.id === domainId);
-  if (!domain) throw new Error(`Domain "${domainId}" not found`);
-  return domain;
-}
-
 // ── Slack config ──────────────────────────────────────────────────────────────
 
 async function getSlackConfig() {
@@ -261,7 +251,7 @@ async function pruneHistory(daysToKeep = 90) {
 module.exports = {
   init,
   getClients, saveClients, addClient, updateClient, deleteClient,
-  addDomain, updateDomain, deleteDomain, getDomain,
+  addDomain, updateDomain, deleteDomain,
   getSlackConfig, saveSlackConfig,
   saveRunHistory, getRunHistory, getRunById, pruneHistory,
 };

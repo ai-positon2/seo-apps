@@ -13,13 +13,29 @@
 //     rather than an exception so the caller can offer "use it anyway".
 
 import { notifyProjectsChanged } from './activeProject';
-import { requestJson } from './apiRequest';
 
 const BASE = '/api/projects';
 const ADMIN = '/api/admin';
 
-// Errors carry status, code and the parsed body (see apiRequest.js).
-const req = (path, options) => requestJson(path, options);
+async function req(path, options = {}) {
+  const res = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    ...options,
+  });
+
+  let body = null;
+  try { body = await res.json(); } catch { /* empty or non-JSON body */ }
+
+  if (!res.ok) {
+    const error = new Error(body?.error || `Request failed (${res.status})`);
+    error.status = res.status;
+    error.code = body?.code;
+    error.body = body;
+    throw error;
+  }
+  return body;
+}
 
 export const projectsApi = {
   // ── Projects ──────────────────────────────────────────────────────────────

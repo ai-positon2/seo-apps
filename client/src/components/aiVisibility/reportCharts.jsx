@@ -76,7 +76,7 @@ export function LineChart({
           justifyContent: 'space-between',
           height,
           paddingBottom: 2,
-          fontSize: 12,
+          fontSize: 10.5,
           fontFamily: 'var(--font-mono)',
           color: 'var(--text-3)',
           textAlign: 'right',
@@ -172,7 +172,7 @@ export function LineChart({
           justifyContent: 'space-between',
           marginLeft: 46,
           marginTop: 6,
-          fontSize: 12,
+          fontSize: 10.5,
           fontFamily: 'var(--font-mono)',
           color: 'var(--text-3)',
         }}
@@ -200,7 +200,7 @@ export function LineChart({
                 alignItems: 'center',
                 gap: 6,
                 padding: '2px 8px',
-                fontSize: 12,
+                fontSize: 11.5,
                 background: 'transparent',
                 border: '1px solid var(--border)',
                 borderRadius: 'var(--r-pill)',
@@ -251,7 +251,7 @@ export function Heatmap({ rows = [], columns = [], format = (v) => String(v) }) 
               <th
                 key={c.key}
                 style={{
-                  fontSize: 12,
+                  fontSize: 10.5,
                   fontFamily: 'var(--font-mono)',
                   fontWeight: 500,
                   letterSpacing: '.04em',
@@ -291,7 +291,7 @@ export function Heatmap({ rows = [], columns = [], format = (v) => String(v) }) 
                       height: 34,
                       textAlign: 'center',
                       borderRadius: 'var(--r-md)',
-                      fontSize: 12,
+                      fontSize: 11.5,
                       fontFamily: 'var(--font-mono)',
                       background: `color-mix(in srgb, var(--primary) ${(0.08 + t * 0.5) * 100}%, transparent)`,
                       color: t > 0.65 ? 'var(--primary-text)' : 'var(--text-2)',

@@ -1,10 +1,13 @@
-import { requestJson, requestRaw } from './apiRequest';
-
 const base = projectId => `/api/content-writer/projects/${encodeURIComponent(projectId)}/articles`;
-// A proxy or gateway can answer with HTML, so an ok response may still not parse.
-async function request(url, options) {
-  const data = await requestJson(url, options);
-  if (!data) throw new Error('The server returned an unreadable response.');
+// A proxy or gateway can answer with HTML, so never assume the body parses.
+async function readJson(response) {
+  try { return await response.json(); } catch { return null; }
+}
+async function request(url, options = {}) {
+  const response = await fetch(url, { credentials: 'include', headers: { 'Content-Type': 'application/json' }, ...options });
+  const data = await readJson(response);
+  if (!response.ok) throw Object.assign(new Error(data?.error || `Request failed (${response.status})`), { status: response.status });
+  if (!data) throw Object.assign(new Error('The server returned an unreadable response.'), { status: response.status });
   return data;
 }
 export const contentWriterApi = {
@@ -13,8 +16,9 @@ export const contentWriterApi = {
   create: (projectId, document) => request(base(projectId), { method: 'POST', body: JSON.stringify(document) }),
   save: (projectId, id, revision, document) => request(`${base(projectId)}/${id}`, { method: 'PUT', body: JSON.stringify({ revision, document }) }),
   async generate(projectId, id, revision, stage, onEvent, signal) {
-    const response = await requestRaw(`${base(projectId)}/${id}/${stage}`,
-      { method: 'POST', body: JSON.stringify({ revision }), signal }, 'Generation failed');
+    const response = await fetch(`${base(projectId)}/${id}/${stage}`, { method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision }), signal });
+    if (!response.ok) { const data = await readJson(response); throw new Error(data?.error || `Generation failed (${response.status}).`); }
     const reader = response.body.getReader(), decoder = new TextDecoder();
     let buffer = '', result = null;
     try {

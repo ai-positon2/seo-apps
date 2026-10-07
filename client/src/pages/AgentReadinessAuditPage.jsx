@@ -144,7 +144,7 @@ function CodeSnippet({ code }) {
         type="button"
         onClick={copy}
         aria-label="Copy code snippet"
-        style={{ position: 'absolute', top: 8, right: 8, background: copied ? 'var(--success)' : 'var(--text)', color: '#fff', border: 'none', borderRadius: 5, padding: '3px 8px', fontSize: 12, cursor: 'pointer' }}
+        style={{ position: 'absolute', top: 8, right: 8, background: copied ? 'var(--success)' : 'var(--text)', color: '#fff', border: 'none', borderRadius: 5, padding: '3px 8px', fontSize: 11, cursor: 'pointer' }}
       >
         {copied ? '✓ Copied' : '⎘ Copy'}
       </button>
@@ -215,7 +215,7 @@ function CatBar({ cat }) {
       <div style={{ height: 6, borderRadius: 3, background: 'var(--border)', overflow: 'hidden' }}>
         <div style={{ height: '100%', width: `${cat.score}%`, background: barColor, borderRadius: 3 }} />
       </div>
-      <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 3 }}>{cat.passed} of {cat.total} checks passed</div>
+      <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>{cat.passed} of {cat.total} checks passed</div>
     </div>
   );
 }
@@ -239,14 +239,14 @@ function CheckRow({ check, open, onToggle, isLast }) {
         }}
       >
         <span
-          style={{ flexShrink: 0, fontSize: 12, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: badge.bg, color: badge.color }}
+          style={{ flexShrink: 0, fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: badge.bg, color: badge.color }}
           title={isFlag ? 'Advisory — this check is informational and does not affect your score.' : undefined}
         >
           {badge.icon} {badgeLabel}
         </span>
         <span style={{ flex: 1, fontSize: 14, color: 'var(--text)' }}>{check.label}</span>
-        <span style={{ flexShrink: 0, fontSize: 12, color: 'var(--text-3)', marginRight: 2 }}>{check.cat}</span>
-        <span style={{ flexShrink: 0, fontSize: 12, color: e.color, border: `0.5px solid ${e.color}`, padding: '2px 7px', borderRadius: 4 }}>
+        <span style={{ flexShrink: 0, fontSize: 11, color: 'var(--text-3)', marginRight: 2 }}>{check.cat}</span>
+        <span style={{ flexShrink: 0, fontSize: 11, color: e.color, border: `0.5px solid ${e.color}`, padding: '2px 7px', borderRadius: 4 }}>
           {e.label}
         </span>
         <span style={{ color: 'var(--text-3)', fontSize: 12, marginLeft: 2 }}>{open ? '▲' : '▼'}</span>
@@ -256,7 +256,7 @@ function CheckRow({ check, open, onToggle, isLast }) {
         <div style={{ paddingBottom: 16 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
             <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '10px 12px' }}>
-              <div style={{ fontSize: 12, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5, fontWeight: 500 }}>
+              <div style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5, fontWeight: 500 }}>
                 Technical finding
               </div>
               <p style={{ fontSize: 12, color: 'var(--text-2)', margin: 0, fontFamily: 'var(--font-mono)', lineHeight: 1.6 }}>
@@ -264,7 +264,7 @@ function CheckRow({ check, open, onToggle, isLast }) {
               </p>
             </div>
             <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '10px 12px' }}>
-              <div style={{ fontSize: 12, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5, fontWeight: 500 }}>
+              <div style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5, fontWeight: 500 }}>
                 Business impact
               </div>
               <p style={{ fontSize: 12, color: 'var(--text)', margin: 0, lineHeight: 1.6 }}>
@@ -275,7 +275,7 @@ function CheckRow({ check, open, onToggle, isLast }) {
 
           {check.status !== 'pass' && check.detail && check.detail !== check.tech && (
             <div style={{ background: 'var(--warning-soft)', borderRadius: 8, padding: '10px 12px', marginBottom: 10, borderLeft: '3px solid var(--warning)' }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--warning)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--warning)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
                 Specific issues found
               </div>
               <p style={{ fontSize: 12, color: 'var(--text)', margin: 0, lineHeight: 1.6, fontFamily: 'var(--font-mono)' }}>{check.detail}</p>
@@ -284,7 +284,7 @@ function CheckRow({ check, open, onToggle, isLast }) {
 
           {check.action && (
             <div style={{ background: 'var(--info-soft)', borderRadius: 8, padding: '10px 12px', borderLeft: '3px solid var(--info)' }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--info)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--info)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
                 Recommended action
               </div>
               <p style={{ fontSize: 12, color: 'var(--text)', margin: 0, lineHeight: 1.6 }}>{check.action}</p>
@@ -602,7 +602,7 @@ export default function AgentReadinessAuditPage() {
           <form onSubmit={handleAudit}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
               <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   Homepage <span style={{ color: 'var(--danger)' }}>*</span>
                 </label>
                 <input
@@ -628,7 +628,7 @@ export default function AgentReadinessAuditPage() {
                   }}
                 />
                 {discoverLoading && (
-                  <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                     <span style={{ display: 'inline-block', width: 10, height: 10, border: '1.5px solid var(--primary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
                     Discovering links…
                   </div>
@@ -636,8 +636,8 @@ export default function AgentReadinessAuditPage() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }} className="ara-form-grid">
                 <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Key action page <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-3)', textTransform: 'none' }}>optional — product / service page</span>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Key action page <span style={{ fontSize: 10, fontWeight: 400, color: 'var(--text-3)', textTransform: 'none' }}>optional — product / service page</span>
                   </label>
                   <input
                     type="text"
@@ -658,7 +658,7 @@ export default function AgentReadinessAuditPage() {
                       {actionSuggestions.map(s => (
                         <button key={s.full} type="button"
                           onClick={() => setUrlAction(s.full)}
-                          style={{ fontSize: 12, color: 'var(--primary-text)', background: 'var(--primary-soft)', border: '0.5px solid var(--primary)', borderRadius: 20, padding: '3px 10px', cursor: 'pointer' }}>
+                          style={{ fontSize: 11, color: 'var(--primary-text)', background: 'var(--primary-soft)', border: '0.5px solid var(--primary)', borderRadius: 20, padding: '3px 10px', cursor: 'pointer' }}>
                           → {s.path} <span style={{ opacity: 0.6, marginLeft: 3 }}>suggested</span>
                         </button>
                       ))}
@@ -666,8 +666,8 @@ export default function AgentReadinessAuditPage() {
                   )}
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Form / checkout page <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-3)', textTransform: 'none' }}>optional — contact / checkout</span>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Form / checkout page <span style={{ fontSize: 10, fontWeight: 400, color: 'var(--text-3)', textTransform: 'none' }}>optional — contact / checkout</span>
                   </label>
                   <input
                     type="text"
@@ -688,7 +688,7 @@ export default function AgentReadinessAuditPage() {
                       {formSuggestions.map(s => (
                         <button key={s.full} type="button"
                           onClick={() => setUrlForm(s.full)}
-                          style={{ fontSize: 12, color: 'var(--primary-text)', background: 'var(--primary-soft)', border: '0.5px solid var(--primary)', borderRadius: 20, padding: '3px 10px', cursor: 'pointer' }}>
+                          style={{ fontSize: 11, color: 'var(--primary-text)', background: 'var(--primary-soft)', border: '0.5px solid var(--primary)', borderRadius: 20, padding: '3px 10px', cursor: 'pointer' }}>
                           → {s.path} <span style={{ opacity: 0.6, marginLeft: 3 }}>suggested</span>
                         </button>
                       ))}
@@ -745,7 +745,7 @@ export default function AgentReadinessAuditPage() {
                 with a finished one: take it elsewhere, or open the page. */}
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }} className="ara-header-row">
               <div>
-                <div style={{ fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 600, color: 'var(--primary-text)', marginBottom: 5 }}>
+                <div style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 600, color: 'var(--primary-text)', marginBottom: 5 }}>
                   Agent Readiness Audit
                 </div>
                 <h1 style={{ fontSize: 28, fontWeight: 500, letterSpacing: '-0.02em', margin: '0 0 4px', color: 'var(--text)' }}>
@@ -760,11 +760,11 @@ export default function AgentReadinessAuditPage() {
                     {result.site.level}
                   </span>
                   &nbsp;&middot;&nbsp; Scanned {result.site.date}
-                  {hasOnPage && <span style={{ marginLeft: 6, fontSize: 12, background: 'var(--primary-soft)', color: 'var(--primary-text)', padding: '1px 7px', borderRadius: 10 }}>+10 on-page checks</span>}
+                  {hasOnPage && <span style={{ marginLeft: 6, fontSize: 11, background: 'var(--primary-soft)', color: 'var(--primary-text)', padding: '1px 7px', borderRadius: 10 }}>+10 on-page checks</span>}
                   {levelTooltipOpen && (
                     <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, background: 'var(--card)', border: '0.5px solid var(--border)', borderRadius: 8, padding: '8px 12px', zIndex: 50, boxShadow: 'var(--shadow-md)', minWidth: 220 }}>
                       {LEVELS.map(l => (
-                        <div key={l.level} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0', color: result.site.level.includes(l.label) ? 'var(--primary)' : 'var(--text-2)', fontWeight: result.site.level.includes(l.label) ? 600 : 400 }}>
+                        <div key={l.level} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: result.site.level.includes(l.label) ? 'var(--primary)' : 'var(--text-2)', fontWeight: result.site.level.includes(l.label) ? 600 : 400 }}>
                           <span>Level {l.level} &mdash; {l.label}</span>
                           <span style={{ color: 'var(--text-3)' }}>{l.score}</span>
                         </div>
@@ -829,12 +829,12 @@ export default function AgentReadinessAuditPage() {
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 20, borderRadius: 14, background: 'var(--card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-md)' }}>
                     <ScoreRing score={result.site.score} checkCount={checkCount} size={140} />
                     <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{result.site.level}</span>
-                    <span style={{ fontSize: 12, color: 'var(--text-3)', textAlign: 'center' }}>
+                    <span style={{ fontSize: 11, color: 'var(--text-3)', textAlign: 'center' }}>
                       Based on {hasOnPage ? '23 checks across 6 categories' : '13 HTTP checks across 4 categories'}
                     </span>
                     {/* Movement since the last audit of this host. */}
                     {delta && (
-                      <div style={{ marginTop: 2, width: '100%', fontSize: 12, padding: '3px 8px', borderRadius: 6,
+                      <div style={{ marginTop: 2, width: '100%', fontSize: 11, padding: '3px 8px', borderRadius: 6,
                         background: delta.diff > 0 ? 'var(--success-soft)' : delta.diff < 0 ? 'var(--warning-soft)' : 'var(--surface)',
                         color: delta.diff > 0 ? 'var(--success)' : delta.diff < 0 ? 'var(--warning)' : 'var(--text-2)',
                         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
@@ -852,7 +852,7 @@ export default function AgentReadinessAuditPage() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 12, padding: '22px 26px', borderRadius: 14, background: 'var(--primary)', boxShadow: 'var(--shadow-md)' }}>
-                    <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--text-on-primary)', opacity: 0.85 }}>
+                    <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--text-on-primary)', opacity: 0.85 }}>
                       Why this matters
                     </span>
                     <p style={{ margin: 0, fontSize: 15, color: 'var(--text-on-primary)', lineHeight: 1.55 }}>
@@ -865,12 +865,12 @@ export default function AgentReadinessAuditPage() {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '24px 26px', borderRadius: 14, background: 'var(--card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--primary-text)' }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--primary-text)' }}>
                       Executive summary
                     </span>
                     {result.cmoBrief && (
                       <button type="button" onClick={shareSummary} className="ara-share-btn"
-                        style={{ fontSize: 12, color: 'var(--primary-text)', background: 'transparent', border: '1px solid var(--primary)', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>
+                        style={{ fontSize: 11, color: 'var(--primary-text)', background: 'transparent', border: '1px solid var(--primary)', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>
                         {sharedBrief ? '✓ Link copied!' : 'Share summary'}
                       </button>
                     )}
@@ -885,15 +885,15 @@ export default function AgentReadinessAuditPage() {
                       </p>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginTop: 4 }} className="ara-brief-grid">
                         <div style={{ padding: '14px 16px', borderRadius: 10, background: 'color-mix(in srgb, var(--danger) 14%, transparent)', border: '1px solid color-mix(in srgb, var(--danger) 35%, transparent)' }}>
-                          <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--danger)' }}>Top risk</span>
+                          <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--danger)' }}>Top risk</span>
                           <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text)', lineHeight: 1.55 }}>{result.cmoBrief.risk}</p>
                         </div>
                         <div style={{ padding: '14px 16px', borderRadius: 10, background: 'color-mix(in srgb, var(--primary) 14%, transparent)', border: '1px solid color-mix(in srgb, var(--primary) 35%, transparent)' }}>
-                          <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--primary-text)' }}>60-day opportunity</span>
+                          <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--primary-text)' }}>60-day opportunity</span>
                           <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text)', lineHeight: 1.55 }}>{result.cmoBrief.opportunity}</p>
                         </div>
                         <div style={{ padding: '14px 16px', borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border)' }}>
-                          <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-3)' }}>Competitive context</span>
+                          <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-3)' }}>Competitive context</span>
                           <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text)', lineHeight: 1.55 }}>{result.cmoBrief.competitive}</p>
                         </div>
                       </div>
@@ -938,7 +938,7 @@ export default function AgentReadinessAuditPage() {
                     { label: 'Advisory flags', value: infoCount, color: 'var(--warning)' },
                   ].map(t => (
                     <div key={t.label} style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 18, borderRadius: 12, background: 'var(--card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
-                      <span style={{ fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-3)' }}>{t.label}</span>
+                      <span style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-3)' }}>{t.label}</span>
                       <span style={{ fontSize: 28, fontWeight: 700, color: t.color, fontFamily: 'var(--font-mono)' }}>{t.value}</span>
                     </div>
                   ))}
@@ -954,21 +954,21 @@ export default function AgentReadinessAuditPage() {
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }} className="ara-sub-scores">
                     <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-3)' }}>HTTP readiness</span>
+                        <span style={{ fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-3)' }}>HTTP readiness</span>
                         <span style={{ fontSize: 22, fontWeight: 700, color: result.site.httpScore >= 70 ? 'var(--success)' : result.site.httpScore >= 45 ? 'var(--warning)' : 'var(--danger)' }}>
                           {result.site.httpScore}<span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-3)' }}>/100</span>
                         </span>
                       </div>
-                      <span style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5 }}>robots, sitemap, headers, bot access, MCP/OAuth</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5 }}>robots, sitemap, headers, bot access, MCP/OAuth</span>
                     </div>
                     <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-3)' }}>On-page readiness</span>
+                        <span style={{ fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-3)' }}>On-page readiness</span>
                         <span style={{ fontSize: 22, fontWeight: 700, color: result.site.onPageScore >= 70 ? 'var(--success)' : result.site.onPageScore >= 45 ? 'var(--warning)' : 'var(--danger)' }}>
                           {result.site.onPageScore}<span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-3)' }}>/100</span>
                         </span>
                       </div>
-                      <span style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5 }}>forms, schema, CAPTCHA, rendering, interactivity</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5 }}>forms, schema, CAPTCHA, rendering, interactivity</span>
                     </div>
                   </div>
                 )}
@@ -993,7 +993,7 @@ export default function AgentReadinessAuditPage() {
                       <strong>How this score is calculated</strong><br />
                       The overall score combines up to 23 checks across 6 categories. Each check carries a weight based on its business impact. HTTP checks (13 total) run on every audit and form the foundation score. On-page checks (10 additional) only run when an action page or form URL is provided.
                     </p>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 10 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, marginBottom: 10 }}>
                       <thead>
                         <tr>{['Category', 'Checks', 'Total Weight'].map(h => <th key={h} style={{ textAlign: 'left', padding: '4px 8px', borderBottom: '1px solid var(--border)', color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>)}</tr>
                       </thead>
@@ -1007,7 +1007,7 @@ export default function AgentReadinessAuditPage() {
                         ))}
                       </tbody>
                     </table>
-                    <p style={{ fontSize: 12, color: 'var(--text-3)', margin: 0 }}>On-page checks add up to 63 points of possible additional signal. Add your action and form URLs to unlock the full audit.</p>
+                    <p style={{ fontSize: 11, color: 'var(--text-3)', margin: 0 }}>On-page checks add up to 63 points of possible additional signal. Add your action and form URLs to unlock the full audit.</p>
                   </div>
                 )}
 
@@ -1041,7 +1041,7 @@ export default function AgentReadinessAuditPage() {
                   <div style={{ display: 'flex', gap: 4 }}>
                     {[['priority', 'By priority'], ['category', 'By category']].map(([mode, label]) => (
                       <button key={mode} type="button" onClick={() => setSortMode(mode)}
-                        style={{ fontSize: 12, padding: '3px 9px', borderRadius: 6, border: '0.5px solid var(--border)', cursor: 'pointer',
+                        style={{ fontSize: 11, padding: '3px 9px', borderRadius: 6, border: '0.5px solid var(--border)', cursor: 'pointer',
                           background: sortMode === mode ? 'var(--text)' : 'var(--surface)', color: sortMode === mode ? '#fff' : 'var(--text-2)' }}>
                         {label}
                       </button>
@@ -1057,7 +1057,7 @@ export default function AgentReadinessAuditPage() {
                     { bg: 'var(--warning-soft)', color: 'var(--warning)', label: 'Flag (advisory)' },
                     { bg: 'var(--warning-soft)', color: 'var(--warning)', label: 'Info' },
                   ].map(b => (
-                    <span key={b.label} style={{ fontSize: 12, background: b.bg, color: b.color, padding: '2px 7px', borderRadius: 4, fontWeight: 500 }}>
+                    <span key={b.label} style={{ fontSize: 10, background: b.bg, color: b.color, padding: '2px 7px', borderRadius: 4, fontWeight: 500 }}>
                       {b.label}
                     </span>
                   ))}
@@ -1066,7 +1066,7 @@ export default function AgentReadinessAuditPage() {
                 {/* Agentic Protocol callout (when all failing) */}
                 {agenticAllFailing && (filterCat === 'all' || filterCat === 'API / Auth / MCP') && (
                   <div style={{ background: 'var(--warning-soft)', border: '0.5px solid var(--warning)', borderRadius: 8, padding: '10px 14px', marginBottom: 10, borderLeft: '3px solid var(--warning)' }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--warning)', marginBottom: 4 }}>Agentic Protocol Setup — None configured</div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--warning)', marginBottom: 4 }}>Agentic Protocol Setup — None configured</div>
                     <p style={{ fontSize: 12, color: 'var(--text)', margin: 0, lineHeight: 1.6 }}>
                       <strong>None of these protocols are configured.</strong> These are emerging standards for AI agent integration. They're not required today, but sites that adopt them early will have a significant advantage as agent traffic grows. Start with API catalog — it's a medium lift and unlocks the most downstream value.
                     </p>
@@ -1128,7 +1128,7 @@ export default function AgentReadinessAuditPage() {
                               borderBottom: i < tierChecks.length - 1 ? '0.5px solid var(--border)' : 'none',
                             }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                                <span style={{ fontSize: 12, padding: '1px 6px', borderRadius: 3, background: SC[check.status]?.bg, color: SC[check.status]?.color }}>
+                                <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 3, background: SC[check.status]?.bg, color: SC[check.status]?.color }}>
                                   {check.status === 'pass' ? '✓ Done' : check.flagOnly ? '⚑ Flag' : '✗ Missing'}
                                 </span>
                                 <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{check.label}</span>
@@ -1138,13 +1138,13 @@ export default function AgentReadinessAuditPage() {
                               </div>
                               <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 5, flexWrap: 'wrap' }}>
                                 {check.status === 'pass' ? (
-                                  <span style={{ fontSize: 12, color: 'var(--success)', background: 'var(--success-soft)', padding: '2px 7px', borderRadius: 3 }}>✓ Done</span>
+                                  <span style={{ fontSize: 11, color: 'var(--success)', background: 'var(--success-soft)', padding: '2px 7px', borderRadius: 3 }}>✓ Done</span>
                                 ) : (
                                   <>
-                                    <span style={{ fontSize: 12, color: tier.color, background: tier.bg, padding: '2px 7px', borderRadius: 3 }}>
+                                    <span style={{ fontSize: 11, color: tier.color, background: tier.bg, padding: '2px 7px', borderRadius: 3 }}>
                                       {EC[check.effort]?.label || 'Medium lift'} · {EFFORT_TIME[check.effort] || tier.efforts[check.id] || '–'}
                                     </span>
-                                    <span style={{ fontSize: 12, color: 'var(--text-2)', background: 'var(--surface)', padding: '2px 7px', borderRadius: 10 }}>
+                                    <span style={{ fontSize: 10, color: 'var(--text-2)', background: 'var(--surface)', padding: '2px 7px', borderRadius: 10 }}>
                                       {ROLE_MAP[check.id] || 'Team'}
                                     </span>
                                   </>

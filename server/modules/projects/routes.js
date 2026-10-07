@@ -295,13 +295,12 @@ router.post('/', async (req, res) => {
     // no crawl yet is the actual reason those cards used to sit on "no data
     // yet" forever.
     crawlAutostart.scheduleInitialCrawl({
-        // The options as the project stored them. `project` is store.projectView's
-        // camelCase shape, so they are `crawlOptions` (this used to read
-        // `project.options`, which a view does not have, so the crawl ignored
-        // them). They are clamped to the workspace's admin policy inside
-        // scheduleInitialCrawl (resolveLimits + parseCrawlRequest), not by
-        // createProject, which stores what was asked for.
-        project, domains, ownerId: identity.userId, crawlOptions: project.crawlOptions,
+        // project.options, not the raw request-body crawlOptions above: that
+        // value has already been through store.createProject's clamp to the
+        // workspace's admin-policy maxUrlsPerCrawl (and maxCrawlDepth). Passing
+        // the unclamped body here let the initial crawl bypass the policy limit
+        // entirely and fall back to parseCrawlRequest's own default.
+        project, domains, ownerId: identity.userId, crawlOptions: project.options,
       })
       .catch((e) => {
         console.error('[projects.create] initial crawl autostart skipped:', e.message);
@@ -1311,13 +1310,6 @@ router.post('/:projectId/audit', async (req, res) => {
     // instead of reading the previous crawl's stored pages — which is what this
     // route used to do, silently reporting last week's pages as today's audit.
     const crawlRunId = req.body?.crawlRunId || null;
-    // The project was access-checked above; the crawl id came with it from the
-    // body and was not. Following another project's crawl would audit its pages
-    // into this one, so it answers the same "not found" a foreign project does.
-    if (crawlRunId
-        && !(await require('./streamingAudit').crawlBelongsToProject(crawlRunId, access.project.id))) {
-      return res.status(404).json({ error: 'Crawl not found.' });
-    }
 
     // The long ones go on the queue and leave this loop alone.
     //

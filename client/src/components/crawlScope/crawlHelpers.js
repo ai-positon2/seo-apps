@@ -1403,28 +1403,6 @@ export function runStatusVariant(status) {
   return 'neutral';
 }
 
-// ── robots.txt, as a sentence ───────────────────────────────────────────────
-// The crawler stores what it made of robots.txt as a short code-ish string
-// (crawler.js: "Respected", "No crawl rules", "Not found (404)",
-// "Unavailable (503) — treating as Disallow: /", "Not checked"). The report
-// header showed it raw — "robots.txt: Respected". Same facts, plain words.
-// `respected` is the run's respectRobots option: robots.txt is also read for
-// sitemap discovery, so "Respected" can be stored for a crawl told to ignore it.
-export function describeRobotsStatus(status, respected = true) {
-  const s = String(status || '').trim();
-  if (!s) return '';
-  if (s === 'Respected') {
-    return respected ? "Followed the site's crawler rules" : "Ignored the site's crawler rules, as set for this crawl";
-  }
-  if (s === 'No crawl rules') return 'The site sets no crawler rules';
-  if (s === 'Not checked') return "Didn't check the site's crawler rules";
-  if (/^not found/i.test(s)) return 'The site has no crawler rules file (robots.txt)';
-  if (/^unavailable/i.test(s)) {
-    return "Couldn't read the site's crawler rules, so treated every page as off-limits";
-  }
-  return `Crawler rules: ${s}`;
-}
-
 // Crawls with these triggers are executed by the worker, so they are the ones
 // that produce an emailed report.
 export const WORKER_EXECUTED_TRIGGERS = ['schedule', 'initial'];

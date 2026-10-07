@@ -248,7 +248,7 @@ export default function ContentArchitectPage() {
               </div>
               <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>{p.domain}</div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 10, borderTop: '1px solid var(--border)' }}>
-                <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{new Date(p.createdAt).toLocaleDateString()}</span>
+                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{new Date(p.createdAt).toLocaleDateString()}</span>
                 <Button variant="ghost" size="sm" onClick={(e) => handleDelete(p.id, e)}>Delete</Button>
               </div>
             </Card>

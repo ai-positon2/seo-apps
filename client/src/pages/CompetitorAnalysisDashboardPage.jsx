@@ -61,7 +61,7 @@ function SourcePill({ tone, children }) {
     <span
       style={{
         display: 'inline-flex', alignItems: 'center', flexShrink: 0, whiteSpace: 'nowrap',
-        fontSize: 12, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',
+        fontSize: 10.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',
         padding: '3px 9px', borderRadius: 999,
         background: tone === 'live' ? 'var(--primary)' : 'var(--viz-warn)',
         color: 'var(--text-on-primary)',
@@ -89,7 +89,7 @@ function RunStat({ label, value, badge, badgeTone }) {
     >
       <span
         style={{
-          fontSize: 12, fontFamily: 'var(--font-mono)', fontWeight: 500,
+          fontSize: 10.5, fontFamily: 'var(--font-mono)', fontWeight: 500,
           textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)',
         }}
       >
@@ -108,7 +108,7 @@ function RunStat({ label, value, badge, badgeTone }) {
           <span
             style={{
               display: 'inline-flex', alignItems: 'center', padding: '2px 8px',
-              borderRadius: 999, fontSize: 12, fontFamily: 'var(--font-mono)', fontWeight: 500,
+              borderRadius: 999, fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 500,
               background: badgeTone === 'warn'
                 ? 'color-mix(in srgb, var(--viz-warn) 20%, transparent)'
                 : 'color-mix(in srgb, var(--primary) 20%, transparent)',
@@ -804,7 +804,7 @@ export default function CompetitorAnalysisDashboardPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span
             style={{
-              fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase',
+              fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase',
               fontWeight: 600, color: 'var(--primary-text)',
             }}
           >

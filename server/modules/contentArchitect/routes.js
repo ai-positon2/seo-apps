@@ -43,7 +43,7 @@ const { topTermsForCluster } = require('./clusterEngine');
 
 const analyzeSessions = new Map();
 // Access follows the record's link — see access.js.
-const { authorize, workspaceForNewProject } = require('./access');
+const { authorize } = require('./access');
 
 router.param('id', async (req, res, next, id) => {
   try {
@@ -91,17 +91,13 @@ router.post('/projects', async (req, res) => {
   const { domain } = req.body || {};
   if (!domain || !String(domain).trim()) return res.status(400).json({ error: 'Domain is required.' });
   try {
-    // Authorized before the domain is resolved: resolving makes outbound
-    // requests, and a caller who may not create a project should not get them.
-    const workspaceId = await workspaceForNewProject(req);
     const { canonicalOrigin, host } = await resolveDomain(domain);
-    const project = await store.createProject({ domain: canonicalOrigin, host, workspaceId });
+    const project = await store.createProject({ domain: canonicalOrigin, host });
     res.json(project);
   } catch (err) {
     if (err instanceof UnreachableDomainError || err instanceof UnsafeUrlError) {
       return res.status(400).json({ error: err.message });
     }
-    if (err.status) return res.status(err.status).json({ error: err.message });
     // The two cases above are the caller's problem and say so. Anything else is
     // ours, and its message is not the caller's to read: createProject()'s
     // errors are raw database ones, which name tables, columns and constraints

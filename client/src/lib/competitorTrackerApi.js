@@ -1,8 +1,18 @@
-import { requestJson, requestRaw } from './apiRequest';
-
 const BASE = '/api/competitor-tracker';
 
-const req = (path, options) => requestJson(`${BASE}${path}`, options);
+async function req(path, options = {}) {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    ...options,
+  });
+  if (!res.ok) {
+    let msg = `Request failed (${res.status})`;
+    try { msg = (await res.json()).error || msg; } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  return res.json();
+}
 
 export const ct = {
   meta: () => req('/meta'),
@@ -49,7 +59,12 @@ export const ct = {
   // Downloads a PDF report — returns a binary blob, so it can't go through
   // the shared JSON req() helper above.
   exportReport: async (clientId) => {
-    const res = await requestRaw(`${BASE}/clients/${clientId}/export`, { method: 'POST' }, 'Export failed');
+    const res = await fetch(`${BASE}/clients/${clientId}/export`, { method: 'POST', credentials: 'include' });
+    if (!res.ok) {
+      let msg = `Export failed (${res.status})`;
+      try { msg = (await res.json()).error || msg; } catch { /* ignore */ }
+      throw new Error(msg);
+    }
     const blob = await res.blob();
     const match = (res.headers.get('Content-Disposition') || '').match(/filename="?([^"]+)"?/);
     return { blob, filename: match ? match[1] : 'Competitor_Analysis.pdf' };

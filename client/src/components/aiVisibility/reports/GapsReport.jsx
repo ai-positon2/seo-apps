@@ -15,7 +15,7 @@ import { muted } from '../promptHelpers';
 // produced each score so a reader can judge it, and stops there. The remedy is
 // a conversation, not a table cell.
 
-export function GapsReport({ envelope, project, onOpenReport }) {
+export function GapsReport({ envelope }) {
   const { data, meta, warnings } = envelope;
   const rows = data.rows || [];
   const withGap = rows.filter((r) => (r.gapCaptures.value ?? 0) > 0);
@@ -23,7 +23,7 @@ export function GapsReport({ envelope, project, onOpenReport }) {
 
   return (
     <>
-      <ReportWarnings warnings={warnings} meta={meta} onOpenReport={onOpenReport} clientName={project?.name} />
+      <ReportWarnings warnings={warnings} meta={meta} />
 
       <MetricStrip>
         <Metric

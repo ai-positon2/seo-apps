@@ -27,7 +27,6 @@
 //      per the permission matrix in PRD §7.2.
 
 const db = require('./db');
-const { isUuid } = require('../utils/api/validate');
 
 // ── Roles ───────────────────────────────────────────────────────────────────
 // 0008 shipped 'owner' | 'member'. The product needs four roles; 'member' rows
@@ -285,9 +284,6 @@ async function requireProject(req, projectId, capability, { includeDeleted = fal
   const userId = req.user?.userId;
   if (!userId) throw forbidden('This session has no linked user account.');
   if (!projectId) throw notFound();
-  // crawl_projects.id is a uuid: anything else cannot name a project, and
-  // handing it to the query made Postgres's cast error a 500.
-  if (!isUuid(projectId)) throw notFound();
 
   let project;
   try {

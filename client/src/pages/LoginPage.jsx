@@ -1,31 +1,16 @@
 const params = new URLSearchParams(window.location.search);
-// Every ?error= the server sends here (server/routes/auth.js callback, and the
-// rate limiter in server/server.js). Each says what happened and what to do.
 const ERROR_MESSAGES = {
-  // The user backed out on Google's screen, or the round trip could not be tied
-  // to this browser (state cookie expired after 10 minutes, or the flow was
-  // started in another tab/browser). Both are fixed by starting again.
-  access_denied: "Google sign-in was cancelled or didn't finish. Try again.",
-  unauthorized:
-    "That Google account doesn't have access to SEO Studio. Sign in with your Position2 Google account, or ask an admin for access.",
-  login_failed: "We couldn't sign you in with Google. Use your Position2 Google account, then try again.",
+  access_denied: 'Sign-in was cancelled.',
+  unauthorized: "That Google account isn't authorized for this app.",
+  login_failed: 'Something went wrong signing you in. Please try again.',
   // Deliberately does NOT say "try again": this fires when the database is
   // unreachable, and retrying cannot help until it comes back.
   service_unavailable:
     'Sign-in is temporarily unavailable — we could not reach the database. This is not a problem with your account. Please wait a few minutes and reload.',
-  // The sign-in routes share the global 20/min limit; the limiter sends a
-  // throttled sign-in here instead of showing raw JSON.
-  busy: 'Sign-in is busy right now. Wait a few seconds, then try again.',
 };
-// For a code this page does not know (an older or newer server), still say
-// something rather than silently showing a clean sign-in form.
-const UNKNOWN_ERROR = "We couldn't sign you in. Try again.";
 
 export default function LoginPage() {
-  const code = params.get('error');
-  const error = code
-    ? (Object.prototype.hasOwnProperty.call(ERROR_MESSAGES, code) ? ERROR_MESSAGES[code] : UNKNOWN_ERROR)
-    : null;
+  const error = ERROR_MESSAGES[params.get('error')];
 
   // Local-dev-only escape hatch — see server/routes/auth.js POST /dev-login.
   // import.meta.env.DEV is Vite's own dev-vs-build flag, so this never

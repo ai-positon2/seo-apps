@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
+const axios = require('axios');
 const cheerio = require('cheerio');
 // SSRF guard, shared with contentArchitect rather than reimplemented (see call site).
 const { assertPublicHost } = require('../modules/contentArchitect/urlSafety');
-const { safeGet } = require('../services/safeEgress');
 const ExcelJS = require('exceljs');
 const OpenAI = require('openai');
 
@@ -442,7 +442,7 @@ async function processUrl(pageUrl, config, openai) {
   };
 
   try {
-    const response = await safeGet(pageUrl, {
+    const response = await axios.get(pageUrl, {
       timeout: 15000,
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AltTagAudit/1.0; +https://arena.position2.com)', Accept: 'text/html' },
       maxRedirects: 5,
@@ -891,5 +891,3 @@ router.get('/download/:token', (req, res) => {
 });
 
 module.exports = router;
-// Exposed for routes/__tests__/egressWiring.test.js.
-module.exports._private = { processUrl };

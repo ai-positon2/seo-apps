@@ -47,7 +47,7 @@ export const bandColor = (score) => (
 export const Eyebrow = ({ children, tone = 'muted', style }) => (
   <span
     style={{
-      fontSize: 12,
+      fontSize: 10,
       letterSpacing: '0.1em',
       textTransform: 'uppercase',
       fontWeight: 600,
@@ -146,7 +146,7 @@ export const MiniStat = ({ label, value, color = 'var(--text)' }) => (
   >
     <span
       style={{
-        fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase',
+        fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase',
         color: 'var(--text-3)', fontWeight: 600,
       }}
     >
@@ -167,7 +167,7 @@ export const CountTile = ({ label, value, color = 'var(--text)' }) => (
   >
     <span
       style={{
-        fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase',
+        fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase',
         color: 'var(--text-3)', fontWeight: 600,
       }}
     >
@@ -180,7 +180,7 @@ export const CountTile = ({ label, value, color = 'var(--text)' }) => (
 export const Chip = ({ children, bg = 'var(--neutral-800)', fg = 'var(--neutral-200)', mono = false }) => (
   <span
     style={{
-      display: 'inline-flex', alignItems: 'center', fontSize: 12, padding: '2px 9px',
+      display: 'inline-flex', alignItems: 'center', fontSize: 11, padding: '2px 9px',
       borderRadius: 999, whiteSpace: 'nowrap', background: bg, color: fg,
       fontFamily: mono ? 'var(--font-mono)' : 'var(--font-sans)',
     }}
@@ -226,7 +226,7 @@ export function Donut({ score, size = 168, stroke = 9, numberSize = 42, label = 
         >
           {has ? score : '—'}
         </span>
-        {label && <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{label}</span>}
+        {label && <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{label}</span>}
       </div>
     </div>
   );
@@ -242,7 +242,7 @@ export const MeterRow = ({ label, value, pct, sub, color = 'var(--primary)' }) =
     <div style={{ height: 6, borderRadius: 999, background: 'var(--surface)', overflow: 'hidden' }}>
       <div style={{ height: '100%', borderRadius: 999, width: pct, background: color }} />
     </div>
-    {sub && <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{sub}</span>}
+    {sub && <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{sub}</span>}
   </div>
 );
 
@@ -255,7 +255,7 @@ export const TableFrame = ({ children }) => (
 export const Th = ({ children, align = 'left' }) => (
   <th
     style={{
-      padding: '10px 12px', textAlign: align, fontSize: 12, fontWeight: 700,
+      padding: '10px 12px', textAlign: align, fontSize: 10, fontWeight: 700,
       textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-3)',
       borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap',
     }}

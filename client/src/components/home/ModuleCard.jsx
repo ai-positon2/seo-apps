@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Muted, Tag, TAG_TONES } from '../studio/primitives';
-import ModuleIcon, { plainModuleName } from './moduleIcons';
+import ModuleIcon from './moduleIcons';
 import { MODULE_STATUS_LABEL, MODULE_STATUS_TONE, relativeTime, isModuleInFlight, scoreVerdict } from '../../lib/projectsApi';
-import { friendlyError, errorDetail } from '../../lib/friendlyError';
 import { moduleReportRoute } from '../../lib/moduleReportRoute';
 // Same dictionary the sidebar reads (toolsMeta.js) — one source of truth for
 // a tag shown on both surfaces, per that file's own header comment.
@@ -24,7 +23,7 @@ import { TAGS } from '../../toolsMeta';
 //   scored          the module's own 0-100, banded green/amber/red, with a bar
 //   findings only   the finding count and the word "findings" — no bar, because
 //                   there is no scale for one to be a fraction of
-//   no evidence     an em dash, "No result yet", and a line saying what would put
+//   no evidence     an em dash, "no data yet", and a line saying what would put
 //                   a number there
 //
 // The third shape is the point of the component. A dashboard that renders a
@@ -68,13 +67,8 @@ function headlineNumber(module) {
       barWidth: null,
     };
   }
-  return { text: '—', unit: 'No result yet', color: 'var(--text-3)', barWidth: null };
+  return { text: '—', unit: 'no data yet', color: 'var(--text-3)', barWidth: null };
 }
-
-// The server's queue wording ("Waiting for a worker to pick it up", "Waiting
-// for a crawl worker…") describes the job system. The reader needs to know
-// only that it has not started yet and that nobody has to do anything.
-const QUEUE_JARGON = /waiting for (?:a |the )?(?:crawl )?worker to pick it up\.?(?:.*)$/i;
 
 /**
  * The sentence under the number: what this module found, and what it read.
@@ -89,26 +83,11 @@ function blurbLines(module) {
   if (module.status === 'not_run' && !module.evidence) {
     return {
       lead: module.headline || 'Never run for this client',
-      // No roadmap language ("arrives with a later phase"): the reader cannot
-      // act on a phase name, but they can open the tool.
       support: module.runnable
-        ? 'Not run yet. Run it to see a score here.'
+        ? 'No stored evidence yet — run it to populate this card.'
         : module.live
-          ? 'Not run for this client yet.'
-          : 'Open the tool to run it for this client.',
-    };
-  }
-  // Queued: one plain sentence in place of "<Label> queued · Waiting for a
-  // worker to pick it up." Any other note the server wrote (an auto-started run
-  // says why it started) is a human sentence and is kept.
-  const detail = typeof module.detail === 'string' ? module.detail : '';
-  if (module.status === 'queued' || QUEUE_JARGON.test(detail)) {
-    const support = detail.replace(QUEUE_JARGON, '').trim() || null;
-    return {
-      lead: module.status === 'queued'
-        ? `${plainModuleName(module)} check is queued and will start shortly.`
-        : module.headline,
-      support: module.status === 'queued' ? support : (support || 'It will start shortly.'),
+          ? 'No stored evidence for this client yet.'
+          : `Runs standalone today. Client-scoped evidence arrives with ${module.pendingPhase || 'a later phase'}.`,
     };
   }
   return { lead: module.headline, support: module.detail };
@@ -150,9 +129,7 @@ export default function ModuleCard({ module, onRun }) {
     try {
       await onRun(module.key);
     } catch (err) {
-      // The error itself, not its message: friendlyError and errorDetail read
-      // the status code off it, which a bare string has lost.
-      setRunError(err);
+      setRunError(err.message);
     } finally {
       setBusy(false);
     }
@@ -207,11 +184,8 @@ export default function ModuleCard({ module, onRun }) {
       />
 
       {/* Header: the module's mark and name, and how its last run went. */}
-      {/* Wraps as a row: when the card is too narrow for the name and the
-          badges side by side, the badges drop under the name rather than
-          squeezing it. */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, flex: '1 1 160px', minWidth: 160 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
           <span
             style={{
               flexShrink: 0, width: 44, height: 44, borderRadius: 10,
@@ -223,15 +197,12 @@ export default function ModuleCard({ module, onRun }) {
           </span>
           {/* Wraps to a second line instead of truncating: at a normal laptop
               width the badges left room for "SEO &…" and "Agent …", so the
-              reader could not tell which module a card was.
-              Wraps at word boundaries only. `overflow-wrap: anywhere` let a
-              squeezed column break a word in half ("Comp / etitor"); the
-              column's min-width above is what makes whole words always fit. */}
+              reader could not tell which module a card was. */}
           <span
             style={{
-              fontSize: 14, fontWeight: 500, color: 'var(--text)', lineHeight: 1.25,
+              fontSize: 13.5, fontWeight: 500, color: 'var(--text)', lineHeight: 1.25,
               overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-              overflowWrap: 'normal', wordBreak: 'normal', hyphens: 'manual', minWidth: 0,
+              overflowWrap: 'anywhere',
             }}
           >
             {module.label}
@@ -243,8 +214,10 @@ export default function ModuleCard({ module, onRun }) {
               wherever a reader meets it. */}
           {module.tag && TAGS[module.tag] && (
             <span title={TAGS[module.tag].label} style={{
-              fontSize: 12,
-              fontWeight: 600,
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: '.04em',
+              textTransform: 'uppercase',
               padding: '2px 6px',
               borderRadius: 4,
               whiteSpace: 'nowrap',
@@ -264,17 +237,13 @@ export default function ModuleCard({ module, onRun }) {
 
       {/* The number. */}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
-        {/* Body font with tabular figures rather than monospace — aligned
-            digits without the number reading as code. */}
         <span
-          style={{
-            fontSize: 28, fontWeight: 600, lineHeight: 1, color: number.color,
-            fontVariantNumeric: 'tabular-nums',
-          }}
+          className="num"
+          style={{ fontSize: 40, fontWeight: 600, lineHeight: 1, color: number.color }}
         >
           {number.text}
         </span>
-        <span style={{ fontSize: 13, color: 'var(--text-3)' }}>{number.unit}</span>
+        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{number.unit}</span>
       </div>
 
       {/* The bar is a fraction of 100, so only a scored module gets one. The
@@ -293,14 +262,14 @@ export default function ModuleCard({ module, onRun }) {
       {/* What it found, and what it read to find it. */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
         {blurb.lead && (
-          <span style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.45 }}>
+          <span style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.45 }}>
             {blurb.lead}
           </span>
         )}
         {blurb.support && (
           <span
             style={{
-              fontSize: 12, color: 'var(--text-3)', lineHeight: 1.45,
+              fontSize: 11, color: 'var(--text-3)', lineHeight: 1.45,
               display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
               overflow: 'hidden',
             }}
@@ -316,26 +285,13 @@ export default function ModuleCard({ module, onRun }) {
       {(module.error || runError) && (
         <div
           style={{
-            padding: '9px 11px', borderRadius: 'var(--r-sm)', fontSize: 13, lineHeight: 1.5,
+            padding: '9px 11px', borderRadius: 'var(--r-sm)', fontSize: 11.5, lineHeight: 1.5,
             background: 'color-mix(in srgb, var(--viz-neg) 10%, transparent)',
             border: '1px solid color-mix(in srgb, var(--viz-neg) 32%, transparent)',
             color: 'var(--viz-neg)',
           }}
         >
-          {/* The reader's version first. A server-written sentence passes
-              through friendlyError unchanged; a bare status code or setup
-              instruction is replaced, and kept behind "Show details" for
-              whoever has to debug it. */}
-          {friendlyError(runError || module.error)}
-          {errorDetail(runError || module.error) && (
-            <details
-              // Above the stretched link, or opening it navigates to the report.
-              style={{ position: 'relative', zIndex: 2, marginTop: 4, fontSize: 12, color: 'var(--text-3)' }}
-            >
-              <summary style={{ cursor: 'pointer' }}>Show details</summary>
-              {errorDetail(runError || module.error)}
-            </details>
-          )}
+          {runError || module.error}
         </div>
       )}
 
@@ -345,7 +301,7 @@ export default function ModuleCard({ module, onRun }) {
           gap: 8, marginTop: 'auto',
         }}
       >
-        <Muted size={12}>
+        <Muted>
           {module.updatedAt ? `Updated ${relativeTime(module.updatedAt)}` : 'Never run for this client'}
         </Muted>
         {/* Kept from the card this replaces. The design's footer is the updated
@@ -363,7 +319,7 @@ export default function ModuleCard({ module, onRun }) {
               position: 'relative', zIndex: 2,
               padding: 0, border: 'none', background: 'none', flexShrink: 0,
               cursor: running ? 'default' : 'pointer',
-              fontFamily: 'var(--font-sans)', fontSize: 13,
+              fontFamily: 'var(--font-sans)', fontSize: 11.5,
               color: running ? 'var(--text-3)' : 'var(--primary-text)',
             }}
           >

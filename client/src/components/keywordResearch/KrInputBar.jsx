@@ -25,11 +25,10 @@ function FullInputBar({ kr }) {
   return (
     <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', padding: 24, boxShadow: cardShadow }}>
       <div style={{ maxWidth: 448 }}>
-        <label htmlFor="kr-seed-keyword" style={{ display: 'block', fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>
+        <label style={{ display: 'block', fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>
           Seed Keyword
         </label>
         <input
-          id="kr-seed-keyword"
           type="text"
           value={keyword}
           onChange={(e) => kr.setKeyword(e.target.value)}
@@ -61,15 +60,13 @@ function FullInputBar({ kr }) {
                 onClick={() => kr.setIntent(opt.value)}
                 style={{
                   flex: 1, textAlign: 'left', padding: '12px 16px', borderRadius: 8,
-                  // --primary, as the compact switch below uses: --nav-bg-top is
-                  // near-white in light theme, so the selected card read as disabled.
-                  border: `2px solid ${isSelected ? 'var(--primary)' : 'var(--border)'}`,
-                  background: isSelected ? 'var(--primary)' : 'var(--card)',
+                  border: `2px solid ${isSelected ? 'var(--nav-bg-top)' : 'var(--border)'}`,
+                  background: isSelected ? 'var(--nav-bg-top)' : 'var(--card)',
                   cursor: running ? 'not-allowed' : 'pointer', opacity: running ? 0.5 : 1, transition: 'all 0.15s',
                 }}
               >
-                <div style={{ fontSize: 14, fontWeight: 600, color: isSelected ? 'var(--text-on-primary)' : 'var(--text)' }}>{opt.label}</div>
-                <div style={{ fontSize: 12, marginTop: 2, color: isSelected ? 'var(--text-on-primary)' : 'var(--text-2)', opacity: isSelected ? 0.75 : 1 }}>{opt.desc}</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: isSelected ? '#fff' : 'var(--text)' }}>{opt.label}</div>
+                <div style={{ fontSize: 12, marginTop: 2, color: isSelected ? 'rgba(255,255,255,0.65)' : 'var(--text-2)' }}>{opt.desc}</div>
               </button>
             );
           })}
@@ -82,7 +79,7 @@ function FullInputBar({ kr }) {
           disabled={!canStart}
           style={{
             display: 'flex', alignItems: 'center', gap: 8, padding: '10px 24px', borderRadius: 8,
-            fontSize: 14, fontWeight: 600, color: 'var(--text-on-primary)', background: 'var(--primary)', border: 'none',
+            fontSize: 14, fontWeight: 600, color: '#fff', background: 'var(--nav-bg-top)', border: 'none',
             cursor: canStart ? 'pointer' : 'not-allowed', opacity: canStart ? 1 : 0.5, transition: 'opacity 0.15s',
           }}
         >

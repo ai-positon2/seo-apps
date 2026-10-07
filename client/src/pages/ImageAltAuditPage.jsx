@@ -249,14 +249,13 @@ export default function ImageAltAuditPage() {
           boxShadow: '0 1px 3px rgba(0,0,0,0.07)',
         }}>
           <div style={{ marginBottom: 16 }}>
-            <label htmlFor="image-alt-urls" style={{ display: 'block', fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>
+            <label style={{ display: 'block', fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>
               Page URLs
             </label>
             <p style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 8 }}>
               One URL per line. Paste directly or upload a .txt / .csv file.
             </p>
             <textarea
-              id="image-alt-urls"
               value={urlInput}
               onChange={e => setUrlInput(e.target.value)}
               disabled={running}

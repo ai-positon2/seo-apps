@@ -6,8 +6,7 @@ const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
 
-const { router: authRouter, requireAuth, requireSeo, POST_LOGIN_ORIGIN } = require('./routes/auth');
-const { sendError } = require('./utils/api');
+const { router: authRouter, requireAuth, requireSeo } = require('./routes/auth');
 const searchRoutes = require('./routes/search');
 const scrapeRoutes = require('./routes/scrape');
 const analyzeRoutes = require('./routes/analyze');
@@ -103,15 +102,6 @@ app.use(compression({
 // each one is claiming; the drift itself is still only prevented by keeping this
 // list in step with the mounts below, so add the prefix here when you add a
 // mount that takes kbLimiter or lpbLimiter.
-//
-// Entries match the way app.use() matches a mount: the path itself or anything
-// below it ('/api/auth/verify', '/api/auth/verify/...'), never a longer sibling
-// that merely shares the letters ('/api/auth/verifyx'). Plain startsWith() used
-// to be enough because every entry was a whole router, but /api/auth/verify is
-// one route inside a router whose other routes must stay on the 20/min cap, so
-// an entry now exempts exactly what its own limiter's mount covers and no more.
-// That is also why /api/crawl-scope-report is listed in its own right: it used
-// to ride on the '/api/crawl-scope' prefix by accident of spelling.
 const OWN_LIMITER_PREFIXES = [
   '/api/kb',                     // kbLimiter — editor auto-saves
   '/api/modules',                // kbLimiter
@@ -124,32 +114,12 @@ const OWN_LIMITER_PREFIXES = [
   '/api/competitor-tracker',     // lpbLimiter
   '/api/content-architect',      // lpbLimiter
   '/api/crawl-scope',            // lpbLimiter
-  '/api/crawl-scope-report',     // lpbLimiter — emailed report downloads
   '/api/ai-visibility',          // lpbLimiter
   '/api/ai-visibility-lite',     // lpbLimiter
   '/api/projects',               // lpbLimiter — home loads list + per-project overview
   '/api/runs',                   // kbLimiter
   '/api/admin',                  // kbLimiter
-  // authVerifyLimiter. ONLY verify: the rest of /api/auth (Google sign-in, its
-  // callback, dev-login, logout) stays on the 20/min cap, which is what protects
-  // sign-in. Verify is a cheap session read the client makes on every full page
-  // load, and sharing 20/min with /api/semrush, /api/workspaces etc. (the Team
-  // page alone spends 6) meant a busy user got a 429 here — which the client
-  // read as "signed out" and showed the sign-in screen to someone signed in.
-  '/api/auth/verify',
 ];
-
-function hasOwnLimiter(req) {
-  const p = (req.originalUrl || req.url || '').split('?')[0];
-  return OWN_LIMITER_PREFIXES.some((prefix) => p === prefix || p.startsWith(prefix + '/'));
-}
-
-// Sign-in steps the browser reaches by navigating, not by fetch(): the "Sign in
-// with Google" link and Google's redirect back. A 429 JSON body there is not
-// read by any code — it is painted as raw text in the tab, and the user has no
-// way back but the address bar. Those two get sent to the login page with a
-// message instead; every other caller still gets the JSON it can parse.
-const SIGN_IN_NAVIGATIONS = new Set(['/api/auth/google', '/api/auth/google/callback']);
 
 const limiter = rateLimit({
   windowMs: 60 * 1000,
@@ -157,31 +127,10 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests. Please wait a moment and try again.' },
-  skip: hasOwnLimiter,
-  // Same as the library default (status + message) except for the two sign-in
-  // navigations above. Still counted and still refused — the redirect replaces
-  // the error page, not the limit. POST_LOGIN_ORIGIN is the same origin
-  // auth.js sends its own post-login redirects to (the Vite server in dev).
-  handler: (req, res, next, options) => {
-    const p = (req.originalUrl || req.url || '').split('?')[0].replace(/\/+$/, '');
-    if (req.method === 'GET' && SIGN_IN_NAVIGATIONS.has(p)) {
-      return res.redirect(`${POST_LOGIN_ORIGIN}/login?error=busy`);
-    }
-    res.status(options.statusCode).send(options.message);
+  skip: (req) => {
+    const u = req.originalUrl || req.url || '';
+    return OWN_LIMITER_PREFIXES.some((prefix) => u.startsWith(prefix));
   },
-});
-
-// /api/auth/verify: 120 requests per minute. Every full page load and every tab
-// asks it once, and the client retries it with backoff when it fails, so it needs
-// headroom the shared 20/min cap cannot give. It verifies a cookie, makes two
-// small identity lookups and issues nothing, so a higher ceiling here does not
-// loosen sign-in: minting a session still goes through the 20/min routes.
-const authVerifyLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 120,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many session checks. Please wait a moment and try again.' },
 });
 
 // KB rate limit: 100 requests per minute (editor auto-saves)
@@ -211,9 +160,6 @@ app.use('/api/', limiter);
 app.use(express.json({ limit: '20mb' }));
 
 // ── Public routes (no auth required) ────────────────────────────────────────
-// Mounted with app.use so it covers exactly the paths hasOwnLimiter() exempts
-// from the global cap for '/api/auth/verify' (see OWN_LIMITER_PREFIXES).
-app.use('/api/auth/verify', authVerifyLimiter);
 app.use('/api/auth', authRouter);
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
@@ -345,7 +291,6 @@ app.get('/favicon.ico', (req, res) => res.status(204).end());
 app.use('/api', (req, res) => {
   res.status(404).json({
     error: `Unknown API endpoint: ${req.method} ${(req.originalUrl || '').split('?')[0]}`,
-    code: 'unknown_endpoint',
   });
 });
 
@@ -360,14 +305,24 @@ app.get('*', (req, res) => {
 // On an /api call that means the client again gets HTML where it expects JSON,
 // and the stack — absolute paths, module layout, sometimes query values — is
 // echoed to whoever made the request. Must stay last.
-//
-// The body is the standard { error, code, details? } (utils/api/errors.js): a
-// 4xx says what was wrong; a 5xx that is not an ApiError never shows its
-// message, which can carry connection strings and upstream credentials.
-// sendError skips the write once headers are out (SSE, file download).
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  sendError(res, err, `${req.method} ${req.originalUrl}`);
+  const status = err.status || err.statusCode || 500;
+  // A body that was too large or malformed is the caller's problem, and saying so
+  // is more useful than "Internal server error".
+  const isClientError = status >= 400 && status < 500;
+  console.error('[error]', req.method, req.originalUrl, '->', status, err.message);
+  if (status >= 500) console.error(err.stack);
+
+  if (res.headersSent) return; // response already streaming (SSE, file download)
+
+  res.status(status).json({
+    error: isClientError
+      ? (err.message || 'Bad request.')
+      // Never the stack, and never err.message for a 500: these can carry
+      // connection strings and upstream credentials.
+      : 'Internal server error.',
+  });
 });
 
 // ── Platform administrator bootstrap (PRD §7.3, AC-002) ──────────────────────
@@ -560,21 +515,6 @@ function sweepStaleRuns() {
 }
 sweepStaleRuns();
 setInterval(sweepStaleRuns, STALE_RUN_SWEEP_MS).unref();
-
-// Durable jobs (services/jobs.js) heartbeat every 15 s, so a job whose process
-// died — a deploy mid-run — is failed as 'interrupted' within a couple of
-// minutes rather than at the hourly sweep above. Replay events of runs that
-// ended over 30 days ago are dropped on the hourly cadence; the run row stays.
-const jobs = require('./services/jobs');
-const JOB_SWEEP_MS = 60 * 1000;
-function sweepJobs() {
-  jobs.sweepInterrupted().then((count) => {
-    if (count) console.log(`[jobs] Failed ${count} interrupted job(s).`);
-  });
-}
-sweepJobs();
-setInterval(sweepJobs, JOB_SWEEP_MS).unref();
-setInterval(() => { jobs.pruneEvents({ days: 30 }); }, STALE_RUN_SWEEP_MS).unref();
 
 const server = app.listen(PORT, () => {
   console.log(`✅ Server running at http://localhost:${PORT}`);

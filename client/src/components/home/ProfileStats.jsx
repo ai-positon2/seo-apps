@@ -1,7 +1,4 @@
-import { relativeTime, isModuleInFlight, scoreVerdict } from '../../lib/projectsApi';
-import { friendlyError, errorDetail } from '../../lib/friendlyError';
-import { Tag } from '../studio/primitives';
-import { plainModuleName } from './moduleIcons';
+import { relativeTime } from '../../lib/projectsApi';
 
 // ── The four numbers the top of the dashboard leads with ────────────────────
 //
@@ -29,17 +26,10 @@ const BAND = [
 
 const bandColor = (score) => (BAND.find((b) => score >= b.min) || BAND[2]).color;
 
-// Sentence case at a readable size, not the 10px letter-spaced capitals the
-// `eyebrow` class draws. Still smaller and quieter than the figure under it, so
-// the hierarchy holds; it just no longer has to be deciphered.
-const LABEL = { fontSize: 13, fontWeight: 500, color: 'var(--text-2)' };
-
-/** "AI search and Competitor comparison", each named once. */
-function listNames(names) {
-  const unique = [...new Set(names)];
-  if (unique.length <= 1) return unique.join('');
-  return `${unique.slice(0, -1).join(', ')} and ${unique[unique.length - 1]}`;
-}
+const COMPOSITE_STATUS = {
+  complete: 'complete',
+  partial: 'partial',
+};
 
 /**
  * @param {object}   props
@@ -49,10 +39,9 @@ function listNames(names) {
  * @param {boolean}  props.insightsLoading
  * @param {Error?}   props.insightsError     so a failed read is not reported as
  *                                           a clean bill of health
- * @param {boolean}  props.crawling          a crawl of this client is running now
  */
 export default function ProfileStats({
-  composite, modules = [], insights, insightsLoading, insightsError, crawling = false,
+  composite, modules = [], insights, insightsLoading, insightsError,
 }) {
   // The overview read failed, so there is no profile to summarise. Four em
   // dashes would be four separate claims that this client has been measured and
@@ -60,8 +49,8 @@ export default function ProfileStats({
   if (!modules.length) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={LABEL}>Audit profile</span>
-        <span style={{ fontSize: 13, color: 'var(--text-2)' }}>
+        <span className="eyebrow">Audit profile</span>
+        <span style={{ fontSize: 12, color: 'var(--text-2)' }}>
           The audit profile could not be read. The section below says why.
         </span>
       </div>
@@ -71,8 +60,6 @@ export default function ProfileStats({
   // ── Composite ─────────────────────────────────────────────────────────────
   const compositeValue = Number.isFinite(composite?.value) ? composite.value : null;
   const scoredCount = composite?.scoredModules || 0;
-  const totalCount = composite?.totalModules ?? modules.length;
-  const compositeVerdict = scoreVerdict(compositeValue);
 
   // ── To fix ────────────────────────────────────────────────────────────────
   const totals = insights?.backlog?.totals || null;
@@ -106,20 +93,12 @@ export default function ProfileStats({
     : null;
   const pages = cardPages === null ? storedPages : cardPages;
 
-  // A scan under way changes what every empty state here means. "No completed
-  // crawl for this client yet" under a banner showing 9,000 pages being crawled
-  // read as the dashboard contradicting itself; the honest sentence is that the
-  // scan is happening and these fill in when it ends. Either signal counts: the
-  // shell's crawl status, or the Tech Audit card reporting a crawl in flight.
-  const scanning = Boolean(crawling) || isModuleInFlight(technical?.status);
-
   // ── Coverage ──────────────────────────────────────────────────────────────
   // "Has this module produced anything for this client", which is not the same
   // question as "did it score" — Hub and Spoke reports findings and has no
   // rubric, and counting it as uncovered would be wrong.
   const neverRun = modules.filter((m) => m.status === 'not_run');
   const covered = modules.length - neverRun.length;
-  const neverRunNames = neverRun.map(plainModuleName);
 
   return (
     <div
@@ -130,24 +109,14 @@ export default function ProfileStats({
       }}
     >
       <Stat
-        label="Overall score"
+        label="Composite score"
         value={compositeValue === null ? '—' : String(compositeValue)}
         unit={compositeValue === null ? null : '/ 100'}
         color={compositeValue === null ? 'var(--text-3)' : bandColor(compositeValue)}
-        // The word the number earns, on the bands it is coloured by — the same
-        // word the module cards and the summary use, so a reader never has to
-        // decide for themselves whether 64 is good.
-        badge={compositeVerdict && (
-          <Tag tone={compositeVerdict.tone} style={{ fontSize: 12 }}>{compositeVerdict.label}</Tag>
-        )}
-        // "Scored", not "checked": Hub and Spoke runs without producing a
-        // score, so the areas checked can outnumber the ones averaged here, and
-        // the Coverage tile beside this counts the former.
         foot={compositeValue === null
-          ? 'No area has produced a score for this client yet'
-          : scoredCount >= totalCount
-            ? `Average of all ${scoredCount} areas`
-            : `Average of the ${scoredCount} of ${totalCount} areas scored so far`}
+          ? 'No module has produced a score for this client yet'
+          : `Mean of the ${scoredCount} module${scoredCount === 1 ? '' : 's'} that scored`
+            + `${COMPOSITE_STATUS[composite?.status] ? ` · ${COMPOSITE_STATUS[composite.status]}` : ''}`}
       />
 
       <Stat
@@ -168,14 +137,12 @@ export default function ProfileStats({
         // than no link.
         foot={actions === null
           ? insightsError
-            ? <ErrorFoot err={insightsError} />
+            ? 'The ranked backlog could not be read'
             : insightsLoading
               ? 'Reading the stored evidence…'
-              : scanning
-                ? 'Fixes appear here when the scan finishes'
-                : 'Nothing has been measured for this client yet'
+              : 'Nothing has been measured for this client yet'
           : !actions
-            ? (scanning ? 'Fixes appear here when the scan finishes' : 'No fixes listed yet')
+            ? 'Nothing actionable is stored yet'
             : templateWide
               ? `${templateWide} of them ${templateWide === 1 ? 'is' : 'are'} one template change`
               : pagesAffected
@@ -188,69 +155,46 @@ export default function ProfileStats({
         value={pages === null ? '—' : pages.toLocaleString('en-US')}
         color={pages === null ? 'var(--text-3)' : 'var(--text)'}
         foot={pages === null
-          ? (scanning ? 'First scan in progress' : 'No completed scan for this client yet')
+          ? 'No completed crawl for this client yet'
           : cardPages === null
             // The card's own count is missing, so `updatedAt` is the running
             // crawl's start time and dating this figure with it would attribute
             // the last crawl's pages to the one still going.
-            ? (scanning ? 'From the last completed scan · new scan in progress' : 'From the last completed scan')
+            ? 'From the last completed crawl'
             : technical?.updatedAt
-              ? `Last scan ${relativeTime(technical.updatedAt)}`
+              ? `Last crawl ${relativeTime(technical.updatedAt)}`
               : null}
       />
 
       <Stat
         label="Coverage"
         value={String(covered)}
-        unit={`of ${modules.length} area${modules.length === 1 ? '' : 's'}`}
+        unit={`of ${modules.length} module${modules.length === 1 ? '' : 's'}`}
         color={covered === 0 ? 'var(--text-3)' : 'var(--text)'}
         foot={neverRun.length
           // Named, because "5 of 6" without saying which one is missing sends the
-          // reader hunting through the cards for the gap. Named in plain words
-          // (moduleIcons.jsx), and once each: the two AI Visibility modules
-          // answer one question and would otherwise read as a duplicate.
-          ? `${listNames(neverRunNames)} ${new Set(neverRunNames).size === 1 ? 'check' : 'checks'} not run yet`
-          : 'Every area has been checked'}
+          // reader hunting through the cards for the gap.
+          ? `${neverRun.map((m) => m.label).join(', ')} not run yet`
+          : 'Every module has produced evidence'}
       />
     </div>
   );
 }
 
-/** A failed read, in words the reader can act on, with the original kept one click away. */
-function ErrorFoot({ err }) {
-  const detail = errorDetail(err);
+function Stat({ label, value, unit, color, foot }) {
   return (
-    <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <span>The fix list could not be read. {friendlyError(err)}</span>
-      {detail && (
-        <details style={{ fontSize: 12, color: 'var(--text-3)' }}>
-          <summary style={{ cursor: 'pointer' }}>Show details</summary>
-          {detail}
-        </details>
-      )}
-    </span>
-  );
-}
-
-function Stat({ label, value, unit, color, foot, badge }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <span style={LABEL}>{label}</span>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
-        {/* The body font with tabular figures, not monospace: the digits still
-            line up across the row, without the figure reading as code. */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <span className="eyebrow">{label}</span>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
         <span
-          style={{
-            fontSize: 28, fontWeight: 600, lineHeight: 1, color,
-            fontVariantNumeric: 'tabular-nums',
-          }}
+          className="num"
+          style={{ fontSize: 34, fontWeight: 600, lineHeight: 1, color }}
         >
           {value}
         </span>
-        {unit && <span style={{ fontSize: 13, color: 'var(--text-3)' }}>{unit}</span>}
-        {badge && <span style={{ alignSelf: 'center', marginLeft: 4 }}>{badge}</span>}
+        {unit && <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{unit}</span>}
       </div>
-      {foot && <span style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.4 }}>{foot}</span>}
+      {foot && <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{foot}</span>}
     </div>
   );
 }

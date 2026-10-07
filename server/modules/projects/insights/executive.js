@@ -75,42 +75,6 @@ function lastEvidenceAt(modules) {
   return times.length ? new Date(Math.max(...times)).toISOString() : null;
 }
 
-/**
- * The lowest-scoring areas, worst first — the part of a mean the reader needs
- * named. "64 out of 100" says how much is wrong; "Agent Readiness (33)" says
- * where. Only modules that actually scored and sit below the healthy band are
- * named: an unscored module is not weak, it is unmeasured (§16.11), and naming a
- * module at 85 as a "weakest area" would be a criticism no band supports.
- */
-function weakestAreas(modules = [], limit = 2) {
-  return modules
-    .filter((m) => m && m.scored && Number.isFinite(m.score) && m.score < HEALTHY_AT)
-    .map((m) => ({ label: m.label, score: Math.round(m.score) }))
-    .sort((a, b) => a.score - b.score)
-    .slice(0, limit);
-}
-
-/** " Weakest areas: A (33) and B (57)." — or '' when nothing scored below par. */
-function weakestClause(modules) {
-  const weak = weakestAreas(modules);
-  if (!weak.length) return '';
-  const named = weak.map((w) => `${w.label} (${w.score})`).join(' and ');
-  return ` Weakest area${weak.length === 1 ? '' : 's'}: ${named}.`;
-}
-
-/**
- * Error-level findings the module cards report, summed.
- *
- * The verdict's state is decided by the backlog, as it always was. This is only
- * consulted before a sentence claims nothing is broken: the backlog can be empty
- * — still being built, or a module's findings not yet indexed — while a card on
- * the same screen says "1 error", and a summary that announced "no errors"
- * beside it is the contradiction the reader notices first.
- */
-function moduleErrorCount(modules = []) {
-  return modules.reduce((sum, m) => sum + (Number(m?.counts?.error) || 0), 0);
-}
-
 // ── 1. The verdict ───────────────────────────────────────────────────────────
 //
 // Four states, in the order a reader needs them settled. The order matters more
@@ -118,30 +82,20 @@ function moduleErrorCount(modules = []) {
 // is a mean and a mean hides a broken thing. A site scoring 84 with eleven pages
 // returning 5xx is not "healthy", and a summary that said so would be worse than
 // no summary.
-//
-// Every sentence states a count only when it is above zero. "0 issues are
-// holding the site at 64" was the old middle-band sentence on a project whose
-// backlog was still empty — a number that explained nothing and contradicted
-// the score beside it.
-function buildVerdict({ composite, totals, scoredModules, everRun, modules = [] }) {
+function buildVerdict({ composite, totals, scoredModules, everRun }) {
   if (!everRun) {
     return {
       state: NOT_MEASURED,
       headline: 'Not audited yet',
-      sentence: 'Nothing has been checked for this site yet, so there is nothing to report. '
-        + 'Run Full Audit to score it.',
+      sentence: 'No module has produced evidence for this site, so there is nothing to report. '
+        + 'Run the audit and this fills in.',
       basis: 'No stored module run for this project.',
     };
   }
 
   const errors = totals?.bySeverity?.error || 0;
   const warnings = totals?.bySeverity?.warning || 0;
-  const open = totals?.actions || 0;
   const score = Number.isFinite(composite) ? composite : null;
-  // "Nothing is broken" may only be said when neither the backlog nor any card
-  // reports an error. See moduleErrorCount.
-  const noErrorsAnywhere = !errors && !moduleErrorCount(modules);
-  const weakest = weakestClause(modules);
 
   if (errors) {
     const pages = totals?.pagesWithErrors || 0;
@@ -161,11 +115,8 @@ function buildVerdict({ composite, totals, scoredModules, everRun, modules = [] 
     return {
       state: 'healthy',
       headline: 'In good shape',
-      sentence: (noErrorsAnywhere
-        ? `Nothing found is serious enough to be losing search visibility, and the audit `
-          + `scores the site ${score} out of 100.`
-        : `The audit scores the site ${score} out of 100.`)
-        + weakest
+      sentence: `Nothing found is serious enough to be losing search visibility, and the audit `
+        + `scores the site ${score} out of 100.`
         + (warnings
           ? ` ${plural(warnings, 'improvement is', 'improvements are')} worth making when there is capacity.`
           : ''),
@@ -177,42 +128,25 @@ function buildVerdict({ composite, totals, scoredModules, everRun, modules = [] 
     return {
       state: 'needs_attention',
       headline: 'Below where it should be',
-      sentence: `${noErrorsAnywhere ? 'Nothing is broken outright, but the' : 'The'} audit scores `
-        + `the site ${score} out of 100 — far enough below par that competitors with cleaner `
-        + 'sites will out-rank it on equal content.'
-        + weakest
+      sentence: `Nothing is broken outright, but the audit scores the site ${score} out of 100 — `
+        + `far enough below par that competitors with cleaner sites will out-rank it on equal content.`
         + (warnings ? ` ${plural(warnings, 'issue', 'issues')} to work through.` : ''),
       basis: 'Composite below 60, with no error-severity finding.',
     };
   }
 
   // Scored in the middle band, or not scored at all but with findings stored.
-  //
-  // The headline matches the word the score tile above it shows for the same
-  // band (client/src/lib/scoreVerdict.js: 60-79 is "Needs attention"), so the
-  // two do not read as two different opinions about one number.
-  if (score === null) {
-    return {
-      state: 'needs_attention',
-      headline: 'Needs attention',
-      sentence: open
-        ? `${plural(open, 'issue is', 'issues are')} open. No area has produced a score yet, so `
-          + 'there is no overall number to put against them.'
-        : 'Checks have started, but no area has produced a score or a fix yet. '
-          + 'This fills in as they finish.',
-      basis: 'Findings are stored, but no module has produced a score.',
-    };
-  }
-
-  // Leads with the number and where it is lost, which is the answer; the count
-  // of open items follows only when there is one to state.
   return {
     state: 'needs_attention',
-    headline: 'Needs attention',
-    sentence: `Overall ${score}/100.`
-      + weakest
-      + (open ? ` ${plural(open, 'issue', 'issues')} to work through.` : ''),
-    basis: 'Composite between 60 and 80, with no error-severity finding.',
+    headline: 'Worth attention',
+    sentence: score === null
+      ? `${plural(totals?.actions || 0, 'issue is', 'issues are')} open. No module has produced a `
+        + 'score yet, so there is no overall number to put against them.'
+      : `No errors, but ${plural(warnings || totals?.actions || 0, 'issue is', 'issues are')} `
+        + `holding the site at ${score} out of 100.`,
+    basis: score === null
+      ? 'Findings are stored, but no module has produced a score.'
+      : 'Composite between 60 and 80, with no error-severity finding.',
   };
 }
 
@@ -488,7 +422,7 @@ function buildExecutiveSummary({ overview, backlog }) {
   const lastAt = lastEvidenceAt(modules);
 
   return {
-    verdict: buildVerdict({ composite, totals, scoredModules, everRun, modules }),
+    verdict: buildVerdict({ composite, totals, scoredModules, everRun }),
     standing: {
       // Echoed, never recomputed. §6.2: the composite is the server's own mean of
       // the modules that scored, and a second arithmetic here would eventually
@@ -520,7 +454,6 @@ module.exports = {
   buildPriorities,
   buildConfidence,
   lastEvidenceAt,
-  weakestAreas,
   HEALTHY_AT,
   WATCH_AT,
   STALE_AFTER_MS,

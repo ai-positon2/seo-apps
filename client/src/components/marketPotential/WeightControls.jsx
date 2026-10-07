@@ -50,7 +50,7 @@ export default function WeightControls({ weights, onChange, compact = false }) {
             );
           })}
           {active == null && (
-            <span style={{ fontSize: 12, color: 'var(--text-3)', alignSelf: 'center' }}>Custom</span>
+            <span style={{ fontSize: 11, color: 'var(--text-3)', alignSelf: 'center' }}>Custom</span>
           )}
         </div>
       </div>

@@ -37,7 +37,7 @@ export function KpiScorecard({ label, stat, formatValue = fmtCompact }) {
       background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)',
       padding: 16, display: 'flex', flexDirection: 'column', gap: 8,
     }}>
-      <div style={{ fontSize: 12, fontFamily: 'var(--font-mono)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)' }}>
+      <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)' }}>
         {label}
       </div>
 
@@ -53,7 +53,7 @@ export function KpiScorecard({ label, stat, formatValue = fmtCompact }) {
       <span style={{
         alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center',
         padding: '2px 8px', borderRadius: 'var(--r-pill)',
-        fontSize: 12, fontFamily: 'var(--font-mono)', fontWeight: 500,
+        fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 500,
         background: dc.bg, color: dc.fg,
       }}>
         {deltaText}

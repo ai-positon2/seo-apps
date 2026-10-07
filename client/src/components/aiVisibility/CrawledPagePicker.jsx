@@ -3,7 +3,6 @@ import {
   Card, Button, Badge, useToast,
 } from '../../ui';
 import { aiVisibilityApi } from '../../lib/aiVisibilityApi';
-import { friendlyError, errorDetail } from '../../lib/friendlyError';
 import { muted } from './promptHelpers';
 
 // ── Choose pages, get questions ─────────────────────────────────────────────
@@ -136,7 +135,7 @@ export function CrawledPagePicker({ project, budget = 20, onGenerated }) {
       await load();
       onGenerated?.();
     } catch (e) {
-      toast.add({ title: 'Could not start', description: friendlyError(e), variant: 'danger' });
+      toast.add({ title: 'Could not start', description: e.message, variant: 'danger' });
     } finally {
       setBusy(false);
     }
@@ -148,13 +147,7 @@ export function CrawledPagePicker({ project, budget = 20, onGenerated }) {
   if (state.error) {
     return (
       <Card title="From your pages">
-        <div style={{ fontSize: 13, color: 'var(--text)' }}>{friendlyError(state.error)}</div>
-        {errorDetail(state.error) && (
-          <details style={{ ...muted, marginTop: 6 }}>
-            <summary>Show details</summary>
-            {errorDetail(state.error)}
-          </details>
-        )}
+        <div style={{ fontSize: 13, color: 'var(--text)' }}>{state.error.message}</div>
       </Card>
     );
   }
@@ -212,13 +205,13 @@ export function CrawledPagePicker({ project, budget = 20, onGenerated }) {
                 <span
                   className="eyebrow"
                   style={{
-                    fontSize: 12, fontFamily: 'var(--font-mono)', letterSpacing: '.16em',
+                    fontSize: 9.5, fontFamily: 'var(--font-mono)', letterSpacing: '.16em',
                     color: 'var(--text-3)', textTransform: 'uppercase', flex: 1,
                   }}
                 >
                   {group}
                 </span>
-                <span className="num" style={{ fontSize: 12, color: 'var(--text-3)' }}>{rows.length}</span>
+                <span className="num" style={{ fontSize: 11, color: 'var(--text-3)' }}>{rows.length}</span>
               </div>
 
               {GROUP_NOTE[group] && (
@@ -262,7 +255,7 @@ export function CrawledPagePicker({ project, budget = 20, onGenerated }) {
                       <span
                         className="num"
                         style={{
-                          display: 'block', fontSize: 12, color: 'var(--text-3)',
+                          display: 'block', fontSize: 11, color: 'var(--text-3)',
                           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                         }}
                       >

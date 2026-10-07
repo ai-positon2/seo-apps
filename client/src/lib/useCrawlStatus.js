@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { projectsApi } from './projectsApi';
 import { useActiveProjectId } from './activeProject';
 
@@ -99,10 +99,7 @@ export function useCrawlStatus({ enabled = true } = {}) {
     return next;
   }, [poll, projectId]);
 
-  // Stable identity: the shell hands this object to every page as outlet
-  // context, so a fresh one per shell render (each sidebar-search keystroke)
-  // re-rendered whichever page was open.
-  return useMemo(() => ({ status, refresh, projectId }), [status, refresh, projectId]);
+  return { status, refresh, projectId };
 }
 
 export default useCrawlStatus;

@@ -18,7 +18,6 @@ import { PromptSetTab } from '../components/aiVisibility/PromptSetTab';
 import { BrandsPanel } from '../components/aiVisibility/BrandsPanel';
 import { SourcesScreen } from '../components/aiVisibility/reports/SourcesScreen';
 import { muted } from '../components/aiVisibility/promptHelpers';
-import { friendlyError, errorDetail } from '../lib/friendlyError';
 
 // ── AI Visibility ───────────────────────────────────────────────────────────
 //
@@ -213,7 +212,7 @@ export default function AiVisibilityPage() {
             aria-label="needs attention"
             style={{
               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              width: 15, height: 15, borderRadius: '50%', fontSize: 12, fontWeight: 700,
+              width: 15, height: 15, borderRadius: '50%', fontSize: 10, fontWeight: 700,
               background: 'var(--viz-warn)', color: 'var(--bg)',
             }}
           >
@@ -231,24 +230,13 @@ export default function AiVisibilityPage() {
   // worse than a shorter one.
   const m = envelope.data?.meta;
   const periodLabel = formatPeriod(m?.period);
-  // Plain counts first; the coverage and ruleset stamp follow as a small
-  // trailing detail for whoever needs to audit a number.
-  const hasCounts = Number.isFinite(m?.captures) && Number.isFinite(m?.promptCount);
-  const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
-  let countsLine = null;
-  if (hasCounts && m.captures === 0) countsLine = 'No answers collected yet.';
-  else if (hasCounts) {
-    countsLine = `${plural(m.captures, 'answer')} to ${plural(m.promptCount, 'question')}`
-      + `${periodLabel ? `, ${periodLabel}` : ''}.`;
-  }
   const basisLine = [
-    `How AI assistants describe ${project?.name || 'this client'}.`,
-    countsLine,
+    `What answer engines say about ${project?.name || 'this client'}`,
+    m?.basis ? `— ${m.basis}` : null,
+    periodLabel ? `· ${periodLabel}` : null,
+    m?.coverageLabel ? `· ${m.coverageLabel}` : null,
+    m?.rulesetVersion ? `· ruleset ${m.rulesetVersion}` : null,
   ].filter(Boolean).join(' ');
-  const basisDetail = [
-    hasCounts && m.captures > 0 ? m?.coverageLabel : null,
-    m?.rulesetVersion ? `ruleset ${m.rulesetVersion}` : null,
-  ].filter(Boolean).join(' · ');
 
   const orderedIds = useMemo(() => (catalogue || []).map((r) => r.id), [catalogue]);
   const index = orderedIds.indexOf(reportId);
@@ -295,7 +283,7 @@ export default function AiVisibilityPage() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <span
           style={{
-            fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase',
+            fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase',
             fontWeight: 600, color: 'var(--primary-text)',
           }}
         >
@@ -311,11 +299,6 @@ export default function AiVisibilityPage() {
         </h1>
         <span style={{ fontSize: 13.5, color: 'var(--text-3)', lineHeight: 1.5 }}>
           {basisLine}
-          {basisDetail && (
-            <span style={{ fontSize: 12, color: 'var(--text-3)', opacity: 0.8 }}>
-              {' · '}{basisDetail}
-            </span>
-          )}
         </span>
       </div>
 
@@ -337,15 +320,10 @@ export default function AiVisibilityPage() {
               marginBottom: 16,
             }}
             >
-              <div style={{ fontSize: 13, color: 'var(--text)' }}>
-                AI Visibility isn&apos;t set up on this server yet. Ask an admin to finish the setup.
+              <div style={{ fontSize: 13, color: 'var(--text)' }}>{migrationError.message}</div>
+              <div style={{ ...muted, marginTop: 6 }}>
+                Apply <code>supabase/migrations/0018_ai_visibility_entities.sql</code>, then reload.
               </div>
-              {migrationError.message && (
-                <details style={{ ...muted, marginTop: 6 }}>
-                  <summary>Show details</summary>
-                  {migrationError.message}
-                </details>
-              )}
             </div>
           )}
 
@@ -369,13 +347,7 @@ export default function AiVisibilityPage() {
               padding: 18,
             }}
             >
-              <div style={{ fontSize: 13, color: 'var(--text)' }}>{friendlyError(envelope.error)}</div>
-              {errorDetail(envelope.error) && (
-                <details style={{ ...muted, marginTop: 6 }}>
-                  <summary>Show details</summary>
-                  {errorDetail(envelope.error)}
-                </details>
-              )}
+              <div style={{ fontSize: 13, color: 'var(--text)' }}>{envelope.error.message}</div>
             </div>
           )}
 

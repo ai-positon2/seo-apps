@@ -36,7 +36,6 @@ const {
   deduplicateAdditions,
   buildDocx,
 } = require('./articleEnhancement').helpers;
-const { assertPublicHost } = require('../modules/contentArchitect/urlSafety');
 
 const sessions = new Map();
 function generateToken() { return crypto.randomBytes(16).toString('hex'); }
@@ -44,20 +43,12 @@ function generateToken() { return crypto.randomBytes(16).toString('hex'); }
 // ── POST /init ─────────────────────────────────────────────────────────────────
 const VALID_CONTENT_TYPES = new Set(['article', 'hub', 'thin-content']);
 
-router.post('/init', async (req, res) => {
+router.post('/init', (req, res) => {
   const { url, kbId, manualContent, contentType, models } = req.body;
   if (!url?.trim()) return res.status(400).json({ error: 'url is required' });
   let parsedUrl;
   try { parsedUrl = new URL(url.trim()); }
   catch { return res.status(400).json({ error: 'Invalid URL format' }); }
-
-  // The stream this token unlocks fetches the URL, so the host is checked
-  // before a token is minted — as the full route's /init already does.
-  try {
-    await assertPublicHost(parsedUrl.hostname);
-  } catch (e) {
-    return res.status(400).json({ error: e.message });
-  }
 
   const token = generateToken();
   sessions.set(token, {

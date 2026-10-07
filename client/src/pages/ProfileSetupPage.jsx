@@ -102,7 +102,7 @@ export default function ProfileSetupPage() {
           style={{ ...inputStyle, ...(companyLocked ? { opacity: 0.65, cursor: 'not-allowed' } : {}) }}
         />
         {companyLocked && (
-          <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
             Locked to Position2 for @position2.com accounts.
           </div>
         )}

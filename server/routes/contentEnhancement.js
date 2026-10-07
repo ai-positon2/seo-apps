@@ -1,10 +1,10 @@
 'use strict';
 
 const express = require('express');
+const axios = require('axios');
 const cheerio = require('cheerio');
 // SSRF guard, shared with contentArchitect rather than reimplemented (see call site).
 const { assertPublicHost } = require('../modules/contentArchitect/urlSafety');
-const { safeGet } = require('../services/safeEgress');
 const OpenAI = require('openai');
 const { runContentEnhancementChecks } = require('../checks/contentEnhancementChecks');
 const { searchGoogle } = require('../services/googleSearch');
@@ -28,7 +28,7 @@ function normalizeUrl(value) {
 
 async function fetchHtml(url) {
   const started = Date.now();
-  const response = await safeGet(url, {
+  const response = await axios.get(url, {
     timeout: 20000,
     maxRedirects: 5,
     validateStatus: () => true,
@@ -79,7 +79,7 @@ function extractPassages(text, patterns, limit = 3) {
 
 async function enrichEvidenceResult(result, type) {
   try {
-    const response = await safeGet(result.url, {
+    const response = await axios.get(result.url, {
       timeout: 10000,
       maxRedirects: 3,
       validateStatus: status => status >= 200 && status < 400,
@@ -1078,8 +1078,6 @@ router.post('/run', async (req, res) => {
 
 module.exports = router;
 module.exports._private = {
-  fetchHtml,
-  enrichEvidenceResult,
   buildBaselineRecommendations,
   mergeRecommendations,
   isWeakText,

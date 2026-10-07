@@ -160,7 +160,7 @@ export function TypeChip({ type, title }) {
         alignItems: 'center',
         padding: '1px 7px',
         borderRadius: 'var(--r-pill)',
-        fontSize: 12,
+        fontSize: 10.5,
         fontFamily: 'var(--font-mono)',
         letterSpacing: '.04em',
         color: type ? tone : 'var(--text-3)',
@@ -199,7 +199,7 @@ export function ShowMore({ items, initial = 8, render, noun = 'more' }) {
           style={{
             marginTop: 8,
             padding: '5px 9px',
-            fontSize: 12,
+            fontSize: 11.5,
             color: 'var(--text-2)',
             background: 'transparent',
             border: '1px solid var(--border)',
@@ -225,7 +225,7 @@ export function EmptyMetric({ reason }) {
   return (
     <span style={{ color: 'var(--text-3)' }}>
       <span className="num">—</span>
-      {reason && <span style={{ fontSize: 12, marginLeft: 6 }}>{reason}</span>}
+      {reason && <span style={{ fontSize: 11.5, marginLeft: 6 }}>{reason}</span>}
     </span>
   );
 }
@@ -250,19 +250,16 @@ const WARNING_COPY = {
   },
   no_comparable_period: {
     tone: 'muted',
-    text: 'This is the first period, so there’s nothing to compare against yet.',
+    text: 'No earlier period to compare against yet, so no deltas are shown.',
   },
-  // Both brand warnings carry the Brands screen as their action when the
-  // report can navigate (see ReportWarnings below).
   no_client_brand: {
     tone: 'danger',
-    text: (client) => `Confirm which brand names belong to ${client} to start measuring.`,
-    action: 'brands',
+    text: 'No approved client brand. Nothing can be measured until the measured set is '
+      + 'reviewed on the Brands screen.',
   },
   no_approved_brands: {
     tone: 'danger',
-    text: (client) => `Confirm which brand names belong to ${client} to start measuring.`,
-    action: 'brands',
+    text: 'No approved brands for this client. Derive and approve the measured set first.',
   },
   captures_not_extracted: {
     tone: 'warning',
@@ -286,47 +283,15 @@ const WARNING_TONE = {
   muted: { fg: 'var(--text-3)', bg: 'var(--surface)', border: 'var(--border)' },
 };
 
-/** The "Review brands" link the brand warnings and empty states share. */
-export function ReviewBrandsButton({ onOpenReport, style }) {
-  if (!onOpenReport) return null;
-  return (
-    <button
-      type="button"
-      onClick={() => onOpenReport('brands')}
-      style={{
-        fontSize: 12,
-        fontWeight: 600,
-        color: 'var(--primary-text)',
-        background: 'transparent',
-        border: 'none',
-        cursor: 'pointer',
-        padding: 0,
-        whiteSpace: 'nowrap',
-        ...style,
-      }}
-    >
-      Review brands →
-    </button>
-  );
-}
-
-/**
- * Every warning the report carried, spelled out rather than left as a code.
- * `onOpenReport` and `clientName` are optional: with them the brand warnings
- * name the client and link to the Brands screen.
- */
-export function ReportWarnings({
-  warnings = [], meta, onOpenReport, clientName, omit = [],
-}) {
-  const known = warnings.filter((w) => WARNING_COPY[w] && !omit.includes(w));
+/** Every warning the report carried, spelled out rather than left as a code. */
+export function ReportWarnings({ warnings = [], meta }) {
+  const known = warnings.filter((w) => WARNING_COPY[w]);
   if (!known.length) return null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
       {known.map((w) => {
-        const { tone, action } = WARNING_COPY[w];
-        const raw = WARNING_COPY[w].text;
-        const text = typeof raw === 'function' ? raw(clientName || 'this client') : raw;
+        const { tone, text } = WARNING_COPY[w];
         const c = WARNING_TONE[tone];
         const extra = w === 'captures_not_extracted' && meta?.unextracted
           ? ` ${meta.unextracted} capture(s) affected.`
@@ -351,8 +316,7 @@ export function ReportWarnings({
             }}
           >
             <span style={{ color: c.fg, fontWeight: 700, flexShrink: 0 }}>!</span>
-            <span style={{ flex: 1 }}>{text}{extra}{note}</span>
-            {action === 'brands' && <ReviewBrandsButton onOpenReport={onOpenReport} />}
+            <span>{text}{extra}{note}</span>
           </div>
         );
       })}

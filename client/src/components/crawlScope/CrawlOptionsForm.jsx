@@ -16,19 +16,19 @@ const NUMBERS = [
     helper: 'Stop after this many URLs.' },
   { key: 'maxExternalUrls', label: 'Max external URLs', min: 0, max: 500, step: 1,
     helper: 'External links checked for a status code. 0 to skip.' },
-  { key: 'concurrency', label: 'Pages fetched at once', min: 1, max: 8, step: 1,
+  { key: 'concurrency', label: 'Concurrency', min: 1, max: 8, step: 1,
     limitKey: 'maxCrawlConcurrency',
-    helper: 'Higher is faster but puts more load on the site.' },
-  { key: 'timeout', label: 'Give up on a page after (ms)', min: 3000, max: 30000, step: 500,
+    helper: 'Requests in flight at once.' },
+  { key: 'timeout', label: 'Request timeout (ms)', min: 3000, max: 30000, step: 500,
     limitKey: 'requestTimeoutMs',
-    helper: 'How long to wait for one page to respond before moving on.' },
-  { key: 'perHostDelay', label: 'Pause between requests (ms)', min: 0, max: 60000, step: 50,
-    helper: 'Time to wait between requests to the same site, to avoid overloading it.' },
+    helper: 'Give up on a single response after this long.' },
+  { key: 'perHostDelay', label: 'Per-host delay (ms)', min: 0, max: 60000, step: 50,
+    helper: 'Politeness gap between requests to the same host.' },
 ];
 
 const TOGGLES = [
   { key: 'respectRobots', label: 'Respect robots.txt',
-    helper: 'Follow the site’s crawler rules for our crawler (“CrawlScope”). Blocked pages are reported the way Google reads those rules.' },
+    helper: 'Obeys the rules for CrawlScope. Blocked pages are reported as Googlebot reads robots.txt.' },
   { key: 'discoverSitemaps', label: 'Discover sitemaps',
     helper: 'Seed the crawl from sitemap.xml as well as links.' },
   { key: 'includeSubdomains', label: 'Include subdomains',
@@ -167,7 +167,7 @@ export default function CrawlOptionsForm({
             />
             <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{t.label}</span>
-              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{inert(t.key) || t.helper}</span>
+              <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{inert(t.key) || t.helper}</span>
             </span>
           </label>
         ))}
@@ -193,7 +193,7 @@ export default function CrawlOptionsForm({
         <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>
           Audit thresholds
         </summary>
-        <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '6px 0 12px' }}>
+        <p style={{ fontSize: 11, color: 'var(--text-3)', margin: '6px 0 12px' }}>
           The limits pages are judged by. A finding measured against a changed limit says which limit it used.
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>

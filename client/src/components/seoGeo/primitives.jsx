@@ -58,7 +58,7 @@ export function PipMeter({ parts }) {
             }}>
               <div style={{ height: '100%', width: `${Math.round(ratio * 100)}%`, background: color, borderRadius: 999 }} />
             </div>
-            <div style={{ fontSize: 12, fontWeight: 700, color, textAlign: 'center', marginTop: 3, fontFamily: 'var(--font-mono)' }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color, textAlign: 'center', marginTop: 3, fontFamily: 'var(--font-mono)' }}>
               {p.key}
             </div>
           </div>
@@ -106,17 +106,6 @@ export const BUCKET_ORDER = [
   ['keyword',           'Keyword Targeting'],
 ];
 
-// What a reader sees for a bucket. The server's labels ("GEO Signals",
-// "E-E-A-T") are industry shorthand; these say the same thing in plain words.
-// Scores and keys are untouched — this only renames the label on screen.
-const PLAIN_BUCKET_LABEL = {
-  geo_signals: 'Visibility in AI search',
-  eeat:        'Credibility (E-E-A-T)',
-};
-export function plainBucketLabel(bucket) {
-  return PLAIN_BUCKET_LABEL[bucket?.key] || bucket?.label || '';
-}
-
 // Back-compat: prefer the server-supplied breakdown (which carries checks_scored,
 // effective_weight and points_lost); fall back to the flat keys for older runs so
 // the bars still render instead of showing "undefined".
@@ -163,7 +152,7 @@ export function StepBar({ steps }) {
               <span style={{
                 width: 20, height: 20, borderRadius: '50%',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                flexShrink: 0, backgroundColor: dotBg, color: dotColor, fontSize: 12,
+                flexShrink: 0, backgroundColor: dotBg, color: dotColor, fontSize: 11,
               }}>
                 {isDone ? '✓' : isActive ? (
                   <svg style={{ width: 12, height: 12, animation: 'spin 1s linear infinite' }} viewBox="0 0 24 24" fill="none">
@@ -213,7 +202,7 @@ export function ScoreBar({ label, score, checksScored, effectiveWeight, onClick,
           {label}
         </span>
         {meta.length > 0 && (
-          <span style={{ display: 'block', fontSize: 12, color: 'var(--text-3)', marginTop: 1 }}>{meta.join(' · ')}</span>
+          <span style={{ display: 'block', fontSize: 10, color: 'var(--text-3)', marginTop: 1 }}>{meta.join(' · ')}</span>
         )}
       </div>
       <div style={{ flex: 1, height: 8, background: 'var(--surface)', borderRadius: 999, overflow: 'hidden' }}>

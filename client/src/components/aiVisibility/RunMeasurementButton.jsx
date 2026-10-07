@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, useToast } from '../../ui';
 import { projectsApi } from '../../lib/projectsApi';
-import { friendlyError } from '../../lib/friendlyError';
 import { muted } from './promptHelpers';
 
 // ── Measure the questions ───────────────────────────────────────────────────
@@ -138,7 +137,7 @@ export function RunMeasurementButton({
       });
       await follow(Date.now());
     } catch (e) {
-      toast.add({ title: 'Could not start measuring', description: friendlyError(e), variant: 'danger' });
+      toast.add({ title: 'Could not start measuring', description: e.message, variant: 'danger' });
       setState('idle');
     }
   }

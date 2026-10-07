@@ -31,7 +31,7 @@ router.put('/:id', async (req, res) => {
     const updated = await store.writeKB(req.params.id, meta, body, changeNote || 'Updated');
     res.json({ ok: true, meta: updated });
   } catch (err) {
-    res.status(err.status || (err.message.includes('not found') ? 404 : 500)).json({ error: err.message });
+    res.status(err.message.includes('not found') ? 404 : 500).json({ error: err.message });
   }
 });
 
@@ -41,7 +41,7 @@ router.post('/', async (req, res) => {
     const result = await store.createKB(req.body);
     res.status(201).json(result);
   } catch (err) {
-    res.status(err.status || (err.message.includes('already exists') ? 409 : 500)).json({ error: err.message });
+    res.status(err.message.includes('already exists') ? 409 : 500).json({ error: err.message });
   }
 });
 
@@ -51,7 +51,7 @@ router.delete('/:id', async (req, res) => {
     await store.deleteKB(req.params.id);
     res.json({ ok: true });
   } catch (err) {
-    res.status(err.status || (err.message.includes('not found') ? 404 : 500)).json({ error: err.message });
+    res.status(err.message.includes('not found') ? 404 : 500).json({ error: err.message });
   }
 });
 
@@ -61,7 +61,7 @@ router.patch('/:id/toggle', async (req, res) => {
     const nowActive = await store.toggleActive(req.params.id);
     res.json({ ok: true, active: nowActive });
   } catch (err) {
-    res.status(err.status || (err.message.includes('not found') ? 404 : 500)).json({ error: err.message });
+    res.status(err.message.includes('not found') ? 404 : 500).json({ error: err.message });
   }
 });
 

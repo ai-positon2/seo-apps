@@ -232,14 +232,14 @@ function SuggestedSpokesPanel({ cluster, projectId, kbClient, suggestions, onSug
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.05em', color: 'var(--text-3)' }}>
+        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.05em', color: 'var(--text-3)' }}>
           {isGap ? 'SUPPORTING TOPICS' : 'SUGGESTED SPOKES'}{suggestions ? ` · ${suggestions.suggestions.length}` : ''}
         </span>
         <Button variant="secondary" size="sm" onClick={run} disabled={loading}>
           {loading ? 'Finding topics…' : suggestions ? 'Re-suggest' : (isGap ? 'Suggest supporting topics' : 'Suggest new spokes')}
         </Button>
       </div>
-      <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-3)' }}>
+      <p style={{ margin: '4px 0 0', fontSize: 11.5, color: 'var(--text-3)' }}>
         {isGap
           ? "Keyword and question research for this topic — use it to plan the hub above and its spokes together, since neither is written yet."
           : "Topics this hub doesn't cover yet — not pages that exist and need linking, new content ideas."}
@@ -273,22 +273,22 @@ function SuggestedSpokesPanel({ cluster, projectId, kbClient, suggestions, onSug
             </div>
           ))}
           {!suggestions.signals.llmAvailable && (
-            <div style={{ fontSize: 12, color: 'var(--text-3)' }}>OPENAI_API_KEY not configured — showing keyword ideas as-is rather than AI-shaped topics. Use Keyword Research on any of these to take it further.</div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>OPENAI_API_KEY not configured — showing keyword ideas as-is rather than AI-shaped topics. Use Keyword Research on any of these to take it further.</div>
           )}
           {!suggestions.signals.semrushAvailable && (
-            <div style={{ fontSize: 12, color: 'var(--text-3)' }}>SEMRUSH_API_KEY not configured — no real search-volume signal was available.</div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>SEMRUSH_API_KEY not configured — no real search-volume signal was available.</div>
           )}
           {!suggestions.signals.paaIsReal && suggestions.signals.paaQuestionCount > 0 && (
-            <div style={{ fontSize: 12, color: 'var(--text-3)' }}>No "People also ask" data for this search — questions shown are AI-inferred, not real search behavior.</div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>No "People also ask" data for this search — questions shown are AI-inferred, not real search behavior.</div>
           )}
           {suggestions.signals.competitorsQueried?.length > 0 && (
-            <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
               Checked against {suggestions.signals.competitorsQueried.join(', ')} for competitor keyword gaps
               {suggestions.signals.competitorGapCandidateCount === 0 ? ' — none relevant to this specific topic.' : '.'}
             </div>
           )}
           {!suggestions.signals.competitorsQueried?.length && suggestions.signals.competitorDomains?.length === 0 && (
-            <div style={{ fontSize: 12, color: 'var(--text-3)' }}>No competitor domains set for this project — add some above to include competitor keyword gaps here.</div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>No competitor domains set for this project — add some above to include competitor keyword gaps here.</div>
           )}
         </div>
       )}
@@ -303,7 +303,7 @@ function SpokeTable({ spokes, navigate, enhancedUrls = {}, workIndex, origin }) 
   const [openUrl, setOpenUrl] = useState(null);
   return (
     <div>
-      <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.05em', color: 'var(--text-3)' }}>
+      <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.05em', color: 'var(--text-3)' }}>
         SPOKES · {spokes.length}
       </span>
       {spokes.length === 0 ? (
@@ -312,7 +312,7 @@ function SpokeTable({ spokes, navigate, enhancedUrls = {}, workIndex, origin }) 
         <div style={{ borderRadius: 'var(--r-md)', border: '1px solid var(--border)', overflow: 'hidden', marginTop: 8 }}>
           <div style={{ display: 'grid', gridTemplateColumns: columns, gap: 12, padding: '8px 14px', background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
             {['SPOKE PAGE', 'WORDS', 'STATUS', 'ACTION'].map((h) => (
-              <span key={h} style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.06em', color: 'var(--text-3)' }}>{h}</span>
+              <span key={h} style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.06em', color: 'var(--text-3)' }}>{h}</span>
             ))}
           </div>
           {spokes.map((s, i) => {
@@ -341,12 +341,12 @@ function SpokeTable({ spokes, navigate, enhancedUrls = {}, workIndex, origin }) 
                       near-identical location pages the title is not enough to
                       tell two spokes apart. */}
                   <div
-                    style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                   >
                     {s.url}
                   </div>
                   {st.fix && (
-                    <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 1 }}>{st.fix}</div>
+                    <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 1 }}>{st.fix}</div>
                   )}
                   {enhancement && (
                     <div style={{ marginTop: 5 }}>
@@ -520,12 +520,12 @@ function ClusterRow({ cluster, pageById, navigate, projectId, kbClient, suggesti
 
           {cluster.isGap ? (
             <div style={{ padding: 14, borderRadius: 'var(--r-md)', border: '1px solid var(--danger)', background: 'var(--danger-soft)' }}>
-              <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.06em', color: 'var(--text-3)' }}>SUGGESTED NEW PAGE</div>
+              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', color: 'var(--text-3)' }}>SUGGESTED NEW PAGE</div>
               <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)', marginTop: 4 }}>
                 {cluster.gapSuggestion?.title || cluster.name}
               </div>
               {cluster.gapSuggestion?.slug && (
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-3)', marginTop: 2 }}>
                   {cluster.gapSuggestion.slug}
                 </div>
               )}
@@ -552,7 +552,7 @@ function ClusterRow({ cluster, pageById, navigate, projectId, kbClient, suggesti
                 </a>
                 <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
                   <EnhancementBadge enhancement={workIndex.forPage(hub.url)} open={hubOpen} onToggle={() => setHubOpen((v) => !v)} />
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-3)' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-3)' }}>
                     {hub.wordCount ? `${hub.wordCount.toLocaleString()} words` : '—'}
                   </span>
                 </span>
@@ -597,10 +597,10 @@ function ClusterRow({ cluster, pageById, navigate, projectId, kbClient, suggesti
 
           {earlier.length > 0 && (
             <div>
-              <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.05em', color: 'var(--text-3)' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.05em', color: 'var(--text-3)' }}>
                 EARLIER TOPICS · {earlier.length}
               </span>
-              <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-3)' }}>
+              <p style={{ margin: '4px 0 0', fontSize: 11.5, color: 'var(--text-3)' }}>
                 Topics no longer in the suggestions above, kept because work was saved for them.
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
@@ -719,7 +719,7 @@ function UnassignedRow({ pages }) {
               {/* The cluster it came closest to joining. An unassigned page with
                   no explanation just looks like a mistake. */}
               {p.nearestCluster && (
-                <span style={{ fontSize: 12, color: 'var(--text-3)', flexShrink: 0 }}>
+                <span style={{ fontSize: 11, color: 'var(--text-3)', flexShrink: 0 }}>
                   closest: {p.nearestCluster.clusterName} ({Math.round(p.nearestCluster.similarity * 100)}%)
                 </span>
               )}
@@ -766,7 +766,7 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <span style={{ fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 600, color: 'var(--primary-text)' }}>
+        <span style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 600, color: 'var(--primary-text)' }}>
           Hub and Spoke
         </span>
         <h2 style={{ margin: 0, fontSize: 30, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--text)' }}>

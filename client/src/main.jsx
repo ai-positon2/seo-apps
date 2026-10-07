@@ -4,7 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { prefetchHome } from './lib/homePrefetch'
 import './index.css'
-import App, { preloadRoute } from './App.jsx'
+import App from './App.jsx'
 
 
 // Embedded in the Position2 Intelligence Platform iframe.
@@ -20,10 +20,6 @@ if (window.self !== window.top) {
 // is still being verified rather than queued behind it. Does nothing unless this
 // browser has looked at a client before — see lib/homePrefetch.js.
 prefetchHome();
-
-// Same reasoning for the page's code: start its chunk now, next to verify,
-// rather than after it.
-preloadRoute(window.location.pathname);
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

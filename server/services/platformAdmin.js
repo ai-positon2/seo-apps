@@ -77,18 +77,6 @@ function fail(op, error) {
 
 // ── Grant records ───────────────────────────────────────────────────────────
 
-/** Whether this address has ever held a grant, active or revoked. */
-async function hasGrantHistory(normalizedEmail) {
-  try {
-    return Boolean(await db.maybeOne(
-      `select 1 from platform_admin_grants where normalized_email = $1 limit 1`,
-      [normalizedEmail]
-    ));
-  } catch (error) {
-    fail('hasGrantHistory', error);
-  }
-}
-
 async function findActiveGrant(normalizedEmail) {
   try {
     return await db.maybeOne(
@@ -115,10 +103,8 @@ async function ensureBootstrapGrants() {
 
   for (const email of bootstrapEmails()) {
     try {
-      // Any grant row at all, revoked included, means this address has already
-      // been through the grants table. Re-seeding only when there was no ACTIVE
-      // grant undid every revoke of a bootstrap administrator at the next boot.
-      if (await hasGrantHistory(email)) { result.skipped.push(email); continue; }
+      const existing = await findActiveGrant(email);
+      if (existing) { result.skipped.push(email); continue; }
 
       try {
         await db.insertOne('platform_admin_grants', {
@@ -334,12 +320,9 @@ async function revokeAdmin({ grantId, actorUserId, actorEmail, reason }) {
       if (!found) throw Object.assign(new Error('Grant not found.'), { status: 404 });
       if (found.status === 'revoked') return { grant: found, data: found };
 
-      // The rows are locked and then counted here. Postgres refuses FOR UPDATE
-      // next to an aggregate, so `select count(*) … for update` failed every
-      // revoke, including the ones this guard allows.
-      const active = await t.rows(
-        `select id from platform_admin_grants where status = 'active' for update`);
-      if (active.length <= 1) {
+      const active = await t.value(
+        `select count(*) from platform_admin_grants where status = 'active' for update`);
+      if (Number(active || 0) <= 1) {
         throw Object.assign(
           new Error('This is the last platform administrator — grant another one before revoking this.'),
           { status: 400 },

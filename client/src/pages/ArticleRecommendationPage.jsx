@@ -372,11 +372,10 @@ export default function ArticleRecommendationPage() {
         boxShadow: '0 1px 3px rgba(0,0,0,0.07)',
       }}>
         <div style={{ maxWidth: 448 }}>
-          <label htmlFor="ar-primary-keyword" style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>
+          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>
             Primary Keyword
           </label>
           <input
-            id="ar-primary-keyword"
             type="text"
             value={keyword}
             onChange={e => setKeyword(e.target.value)}

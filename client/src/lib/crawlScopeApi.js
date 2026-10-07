@@ -5,11 +5,21 @@
 // EventSource cannot set headers. Here the session is the app's httpOnly cookie,
 // which EventSource sends on its own, so the stream URL carries no credentials.
 
-import { requestJson, requestRaw } from './apiRequest';
-
 const BASE = '/api/crawl-scope';
 
-const req = (path, options) => requestJson(`${BASE}${path}`, options);
+async function req(path, options = {}) {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    ...options,
+  });
+  if (!res.ok) {
+    let msg = `Request failed (${res.status})`;
+    try { msg = (await res.json()).error || msg; } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  return res.json();
+}
 
 export const cs = {
   // Static reference data: the rule catalog (id, title, category, severity,
@@ -86,7 +96,12 @@ export const cs = {
   // the redirect either way, so both land here as a blob.
   reportUrl: (id) => `${BASE}/runs/${id}/report.xlsx`,
   downloadReport: async (id) => {
-    const res = await requestRaw(`${BASE}/runs/${id}/report.xlsx`, {}, 'Download failed');
+    const res = await fetch(`${BASE}/runs/${id}/report.xlsx`, { credentials: 'include' });
+    if (!res.ok) {
+      let msg = `Download failed (${res.status})`;
+      try { msg = (await res.json()).error || msg; } catch { /* ignore */ }
+      throw new Error(msg);
+    }
     const blob = await res.blob();
     const match = (res.headers.get('Content-Disposition') || '').match(/filename="?([^"]+)"?/);
     return { blob, filename: match ? match[1] : 'crawlscope-audit.xlsx' };

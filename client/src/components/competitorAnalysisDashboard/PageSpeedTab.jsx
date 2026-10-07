@@ -15,18 +15,18 @@ function StrategyRow({ label, data }) {
         <div style={{
           width: 64, height: 64, borderRadius: '50%', border: '2px dashed var(--border)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-3)',
+          fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-3)',
         }}>
           N/A
         </div>
-        <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-3)' }}>{label}</span>
+        <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-3)' }}>{label}</span>
       </div>
     );
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
       <ScoreRing score={data.score} size={64} label={label} />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-3)', textAlign: 'center' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-3)', textAlign: 'center' }}>
         <span>LCP {data.lcp}</span>
         <span>CLS {data.cls}</span>
         <span>INP {data.inp}</span>
@@ -212,7 +212,7 @@ export default function PageSpeedTab({ snapshot, running = false, disabled = fal
                   </div>
                   <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
                     <CwvVerdict pageSpeed={d.pageSpeed} />
-                    {ago && <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Checked {ago}</span>}
+                    {ago && <span style={{ fontSize: 10, color: 'var(--text-3)' }}>Checked {ago}</span>}
                   </div>
                 </>
               ) : (

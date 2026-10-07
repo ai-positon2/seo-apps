@@ -3,13 +3,19 @@
 // separate from lpbApi's `lpb` object, which is already two engines' worth of
 // endpoints; the shared reference-data reads (clients, services, locations)
 // still come from `lpb`, since those are the module's, not this engine's.
-import { requestRaw } from './apiRequest';
-
 const BASE = '/api/location-page-builder/ls';
 
-// Raw rather than requestJson: a non-JSON success body resolves as text.
-async function req(path, options) {
-  const res = await requestRaw(`${BASE}${path}`, options);
+async function req(path, options = {}) {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    ...options,
+  });
+  if (!res.ok) {
+    let msg = `Request failed (${res.status})`;
+    try { msg = (await res.json()).error || msg; } catch { /* non-JSON error body */ }
+    throw new Error(msg);
+  }
   const ct = res.headers.get('content-type') || '';
   return ct.includes('application/json') ? res.json() : res.text();
 }
@@ -53,13 +59,20 @@ export const lsPages = {
     req('/qc/check', { method: 'POST', body: JSON.stringify({ page, pageId, clientId, id, checks }) }),
 
   // Exports come back as a binary or text body, which the shared `req` helper
-  // would mangle, so these read the raw response. They POST the on-screen page
+  // would mangle, so these drive fetch directly. They POST the on-screen page
   // so unsaved edits are in the document.
   download: async (format, page) => {
-    const res = await requestRaw(`${BASE}/export/${format}`, {
+    const res = await fetch(`${BASE}/export/${format}`, {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ page }),
-    }, 'Export failed');
+    });
+    if (!res.ok) {
+      let msg = `Export failed (${res.status})`;
+      try { msg = (await res.json()).error || msg; } catch { /* non-JSON error body */ }
+      throw new Error(msg);
+    }
     const disposition = res.headers.get('content-disposition') || '';
     const named = /filename="?([^";]+)"?/i.exec(disposition);
     return { blob: await res.blob(), filename: named ? named[1] : `location-service-page.${format}` };

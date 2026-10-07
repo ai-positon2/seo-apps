@@ -19,7 +19,6 @@ import {
   DAY_NAMES, TIMEZONES, hour12Label, parseWeeklyCron, DEFAULT_OPTIONS, dayAndHourInTimezone,
 } from './crawlHelpers';
 import { cs } from '../../lib/crawlScopeApi';
-import { friendlyError } from '../../lib/friendlyError';
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 const DEFAULT_TIMEZONE = 'America/Chicago';
@@ -112,7 +111,7 @@ export default function ProjectForm({ open, project, initialUrl, initialAt, onCl
       });
       onClose();
     } catch (e) {
-      setError(friendlyError(e));
+      setError(e.message);
     } finally {
       setSaving(false);
     }
@@ -139,7 +138,7 @@ export default function ProjectForm({ open, project, initialUrl, initialAt, onCl
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         <div>
           <div style={{
-            fontSize: 12, fontWeight: 700, letterSpacing: '0.04em',
+            fontSize: 11, fontWeight: 700, letterSpacing: '0.04em',
             textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 8,
           }}
           >
@@ -176,7 +175,7 @@ export default function ProjectForm({ open, project, initialUrl, initialAt, onCl
                 >
                   {label}
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{blurb}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 2 }}>{blurb}</div>
               </button>
             ))}
           </div>
@@ -219,7 +218,7 @@ export default function ProjectForm({ open, project, initialUrl, initialAt, onCl
         </div>
 
         <div>
-          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 8 }}>
             Schedule
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
@@ -257,7 +256,7 @@ export default function ProjectForm({ open, project, initialUrl, initialAt, onCl
         </label>
 
         <div>
-          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 8 }}>
             Crawl settings
           </div>
           <CrawlOptionsForm options={options} onChange={setOptions} mode={mode} limits={limits} />

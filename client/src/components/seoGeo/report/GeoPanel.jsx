@@ -122,7 +122,7 @@ export default function GeoPanel({ findings, ai }) {
                     {r.priority && (
                       <span
                         style={{
-                          fontSize: 12, fontWeight: 600,
+                          fontSize: 11.5, fontWeight: 600,
                           color: /high/i.test(r.priority) ? 'var(--viz-neg)'
                             : /med/i.test(r.priority) ? 'var(--viz-warn)' : 'var(--text-3)',
                         }}

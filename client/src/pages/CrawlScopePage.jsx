@@ -17,8 +17,6 @@ import {
   TERMINAL_STATUSES, WORKER_EXECUTED_TRIGGERS, formatDuration, describeBudgetSource,
 } from '../components/crawlScope/crawlHelpers';
 import { cs } from '../lib/crawlScopeApi';
-import { friendlyError, errorDetail } from '../lib/friendlyError';
-import { humanRunStatus } from '../lib/humanRunLabel';
 
 const TABS = [
   { id: 'crawl', label: 'New crawl' },
@@ -78,7 +76,7 @@ function NewCrawl({ onStarted, onScheduleInstead }) {
       }
       onStarted(run);
     } catch (e) {
-      toast.add({ variant: 'error', title: friendlyError(e) });
+      toast.add({ variant: 'error', title: e.message });
     } finally {
       setStarting(false);
     }
@@ -111,7 +109,7 @@ function NewCrawl({ onStarted, onScheduleInstead }) {
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && canStart && !starting) start(); }}
-          helper="Only crawl sites you are authorised to audit. Our crawler identifies itself to websites as “CrawlScope”."
+          helper="Only crawl sites you are authorised to audit. The crawler identifies itself to sites as “CrawlScope”."
         />
       ) : (
         <Field
@@ -176,7 +174,7 @@ function NewCrawl({ onStarted, onScheduleInstead }) {
               for the per-host delay. */}
           <CrawlOptionsForm options={options} onChange={setOptions} mode={mode} limits={limits} />
           {mode === 'list' && (
-            <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 10 }}>
+            <p style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 10 }}>
               In list mode the crawl visits exactly the URLs above, so the discovery limits don't apply.
             </p>
           )}
@@ -212,7 +210,7 @@ function Projects({
       await reload();
       toast.add({ title: message });
     } catch (e) {
-      toast.add({ variant: 'error', title: friendlyError(e) });
+      toast.add({ variant: 'error', title: e.message });
     } finally {
       setBusy('');
     }
@@ -248,11 +246,11 @@ function Projects({
                     <span>Last: {formatInTimezone(p.last_run_at, p.timezone)}</span>
                   </div>
                   {p.recipients?.length ? (
-                    <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>
+                    <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 6 }}>
                       Emails: {p.recipients.join(', ')}
                     </div>
                   ) : (
-                    <div style={{ fontSize: 12, color: 'var(--warning)', marginTop: 6 }}>
+                    <div style={{ fontSize: 11.5, color: 'var(--warning)', marginTop: 6 }}>
                       No recipients — the report is stored but not emailed.
                     </div>
                   )}
@@ -315,7 +313,7 @@ function History({ runs, loading, onOpenRun }) {
           <tr style={{ background: 'var(--surface)' }}>
             {['Started', 'Site', 'Trigger', 'Status', 'URLs', 'Duration', ''].map((h) => (
               <th key={h} style={{
-                padding: '9px 10px', textAlign: 'left', fontSize: 12, fontWeight: 700,
+                padding: '9px 10px', textAlign: 'left', fontSize: 11, fontWeight: 700,
                 letterSpacing: '0.03em', textTransform: 'uppercase', color: 'var(--text-3)',
                 borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap',
               }}>{h}</th>
@@ -344,9 +342,9 @@ function History({ runs, loading, onOpenRun }) {
                   {WORKER_EXECUTED_TRIGGERS.includes(run.trigger) ? 'Scheduled' : 'Manual'}
                 </td>
                 <td style={{ padding: '8px 10px' }}>
-                  <Badge variant={runStatusVariant(run.status)}>{humanRunStatus(run.status)}</Badge>
+                  <Badge variant={runStatusVariant(run.status)}>{run.status}</Badge>
                 </td>
-                <td style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--text-2)', fontVariantNumeric: 'tabular-nums' }}>
+                <td style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--text-2)' }}>
                   {run.summary?.resultCount ?? run.progress?.crawled ?? '—'}
                 </td>
                 <td style={{ padding: '8px 10px', color: 'var(--text-2)' }}>{duration}</td>
@@ -374,7 +372,7 @@ export default function CrawlScopePage() {
   const [projects, setProjects] = useState([]);
   const [runs, setRuns] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState('');
 
   // Schedule-form state lives here, not inside Projects, so it can be opened
   // from the New Crawl tab's cross-link and from CrawlScopeRunPage's
@@ -413,9 +411,9 @@ export default function CrawlScopePage() {
       const [p, r] = await Promise.all([cs.projects(), cs.runs({ limit: 50 })]);
       setProjects(p.projects || []);
       setRuns(r.runs || []);
-      setError(null);
+      setError('');
     } catch (e) {
-      setError(e);
+      setError(e.message);
     } finally {
       setLoading(false);
     }
@@ -429,18 +427,12 @@ export default function CrawlScopePage() {
     <main style={{ padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
       <SectionHeader
         title="Site Crawler"
-        subtitle="Scan a whole website for technical problems that hurt search rankings, and get the report emailed on a schedule."
+        subtitle="Crawl a site, audit every URL against 100+ technical SEO checks, and schedule the whole thing to re-run and email itself."
       />
 
       {error && (
         <Card style={{ borderColor: 'var(--danger)' }}>
-          <div style={{ fontSize: 13, color: 'var(--danger)' }}>{friendlyError(error)}</div>
-          {errorDetail(error) && (
-            <details style={{ marginTop: 6, fontSize: 12, color: 'var(--text-3)' }}>
-              <summary style={{ cursor: 'pointer' }}>Show details</summary>
-              <div style={{ marginTop: 4 }}>{errorDetail(error)}</div>
-            </details>
-          )}
+          <div style={{ fontSize: 13, color: 'var(--danger)' }}>{error}</div>
         </Card>
       )}
 

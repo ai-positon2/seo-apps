@@ -14,12 +14,6 @@ export const TAGS = {
   soon:     { label: 'Coming Soon',      short: 'Soon', badge: 'Soon', ...QUIET },
 };
 
-// Labels are written to FIT the sidebar on one line, beside a Beta pill and in
-// the bold active state — roughly 20 characters at most. Truncated names
-// ("Enhance Existing Arti…", "Location + Service Pa…") made the menu read as
-// broken. They are also plain words rather than trade acronyms (GEO, Agent
-// Readiness), since the people reading this menu include executives who do
-// not live in SEO. toolCatalog.js must use the same label for the same id.
 export const TOOL_GROUPS = [
   {
     label: 'Research',
@@ -34,7 +28,7 @@ export const TOOL_GROUPS = [
   {
     label: 'Optimize',
     tools: [
-      { id: 'article-enhancement',    path: '/article-enhancement',    label: 'Enhance an Article', icon: '✍️', tag: 'internal' },
+      { id: 'article-enhancement',    path: '/article-enhancement',    label: 'Enhance Existing Article', icon: '✍️', tag: 'internal' },
       { id: 'article-enhancement-lite', path: '/article-enhancement-lite', label: 'Article Enhancer', icon: '📝', hidden: true },
       { id: 'ai-visibility-lite',     path: '/ai-visibility-lite',     label: 'AI Visibility',          icon: '📡', tag: 'beta' },
       // The scraped module. Hidden from the sidebar for now (still fully
@@ -43,8 +37,8 @@ export const TOOL_GROUPS = [
       // it broke the in-flight-run poll). Not a removal — just off the nav
       // until it's wanted again.
       { id: 'ai-visibility',          path: '/ai-visibility',          label: 'AI Visibility (scraped)', icon: '🛰️', tag: 'beta', hidden: true },
-      { id: 'seo-geo-audit',          path: '/seo-geo-audit',          label: 'SEO & AI Audit',         icon: '🌐', tag: 'beta' },
-      { id: 'agent-readiness-audit',  path: '/agent-readiness-audit',  label: 'AI Agent Readiness',     icon: '🤖' },
+      { id: 'seo-geo-audit',          path: '/seo-geo-audit',          label: 'SEO & GEO Audit',        icon: '🌐', tag: 'beta' },
+      { id: 'agent-readiness-audit',  path: '/agent-readiness-audit',  label: 'Agent Readiness Audit',  icon: '🤖' },
       { id: 'image-alt-audit',        path: '/image-alt-audit',        label: 'Image Alt Tag Audit',    icon: '🖼️', tag: 'beta' },
     ],
   },
@@ -52,7 +46,7 @@ export const TOOL_GROUPS = [
     label: 'Build',
     tools: [
       { id: 'content-writer', path: '/content-writer', label: 'Content Writer', icon: '✍' },
-      { id: 'location-page-builder',  path: '/location-page-builder',  label: 'Location Pages',         icon: '📍', tag: 'testing' },
+      { id: 'location-page-builder',  path: '/location-page-builder',  label: 'Location + Service Pages', icon: '📍', tag: 'testing' },
       { id: 'content-architect',      path: '/content-architect',      label: 'Content Architect',      icon: '🗺️', tag: 'testing' },
       { id: 'knowledge-base',         path: '/kb',                     label: 'Knowledge Base',         icon: '📚', tag: 'internal' },
     ],

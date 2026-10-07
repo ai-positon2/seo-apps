@@ -17,23 +17,4 @@ async function authorize(req, project, capability) {
   }
 }
 
-// The workspace a project created from the tool page belongs to. These used to
-// be stored with neither link, which authorize() above reads as "open to anyone
-// signed in" — so every new analysis was readable, editable and deletable by
-// every user. A new one now lands in the creator's home workspace (the one team
-// workspace, for Position2 staff), and creating it is authorized the way
-// creating any project is. Records already stored without a workspace are left
-// to the backfill; authorize() keeps reading them as before.
-async function workspaceForNewProject(req, {
-  resolveIdentity = require('../../services/workspaceContext').resolveIdentity,
-  requireWorkspace = projectAccess.requireWorkspace,
-} = {}) {
-  const { workspaceId } = await resolveIdentity(req);
-  if (!workspaceId) {
-    throw Object.assign(new Error('No workspace is available for this session.'), { status: 403 });
-  }
-  await requireWorkspace(req, workspaceId, 'createProject');
-  return workspaceId;
-}
-
-module.exports = { authorize, workspaceForNewProject };
+module.exports = { authorize };

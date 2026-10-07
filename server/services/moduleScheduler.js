@@ -152,10 +152,7 @@ async function getSchedule(projectId, moduleKey) {
   }
 }
 
-/**
- * Schedules whose time has come. A deleted project's schedules are left out:
- * deletion is a soft delete that does not touch them, so they kept firing.
- */
+/** Schedules whose time has come. */
 async function due({ limit = 50, now = new Date() } = {}) {
   if (!db.isDatabaseConfigured()) return [];
   try {
@@ -164,10 +161,6 @@ async function due({ limit = 50, now = new Date() } = {}) {
         where enabled = true
           and next_run_at is not null
           and next_run_at <= $1
-          and not exists (
-            select 1 from crawl_projects p
-             where p.id = project_module_schedules.project_id
-               and p.lifecycle_status = 'deleted')
         order by next_run_at asc
         limit $2`,
       [now.toISOString(), limit]

@@ -1,5 +1,5 @@
+const axios = require('axios');
 const cheerio = require('cheerio');
-const { safeGet } = require('../services/safeEgress');
 
 const ACTION_TERMS = ['services', 'appointments', 'book', 'schedule', 'treatments', 'procedures', 'pricing', 'locations', 'location', 'about', 'products', 'shop', 'store', 'solutions', 'packages'];
 const FORM_TERMS  = ['contact', 'request', 'form', 'consultation', 'get-started', 'apply', 'checkout', 'intake', 'enquiry', 'inquiry', 'quote', 'demo', 'trial', 'signup', 'sign-up', 'register'];
@@ -9,7 +9,7 @@ async function discoverLinks(homepageUrl) {
     const parsed = new URL(homepageUrl);
     const origin = parsed.origin;
 
-    const response = await safeGet(homepageUrl, {
+    const response = await axios.get(homepageUrl, {
       timeout: 6000,
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AgentReadinessBot/1.0)' },
       validateStatus: () => true,

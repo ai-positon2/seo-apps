@@ -112,13 +112,13 @@ export default function UrlsTable({ pages, onOpen }) {
                       that opens an empty detail view is a dead end dressed as
                       an action. */}
                   {count === 0 ? (
-                    <span style={{ fontSize: 13, color: 'var(--text-3)', fontVariantNumeric: 'tabular-nums' }}>0</span>
+                    <span className="num" style={{ fontSize: 13, color: 'var(--text-3)' }}>0</span>
                   ) : (
                     <button
                       type="button"
                       onClick={() => onOpen(p.url)}
                       style={{
-                        fontFamily: 'var(--font-sans)', fontVariantNumeric: 'tabular-nums', fontSize: 13, fontWeight: 600,
+                        fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600,
                         color: count >= 3 ? 'var(--viz-neg)' : 'var(--viz-warn)',
                         background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
                         textDecoration: 'underline', textUnderlineOffset: 2,
