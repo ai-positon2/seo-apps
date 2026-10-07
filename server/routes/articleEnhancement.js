@@ -5,6 +5,7 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 // SSRF guard, shared with contentArchitect rather than reimplemented (see call site).
 const { assertPublicHost } = require('../modules/contentArchitect/urlSafety');
+const { safeGet } = require('../services/safeEgress');
 const OpenAI = require('openai');
 const { Document, Packer, Paragraph, TextRun, BorderStyle, AlignmentType, Table, TableRow, TableCell, WidthType, ShadingType } = require('docx');
 const store = require('../services/kbStore');
@@ -558,7 +559,7 @@ Return JSON: { "boilerplate_blocks": [integer indices of blocks that are boilerp
 
 // ── fetchArticle ───────────────────────────────────────────────────────────────
 async function fetchArticle(url) {
-  const response = await axios.get(url, {
+  const response = await safeGet(url, {
     timeout: 20000,
     maxRedirects: 5,
     headers: {
@@ -2136,6 +2137,8 @@ async function buildDocx({ articleMeta, themeData, llmResults, recommendations, 
 }
 
 module.exports = router;
+// Exposed for routes/__tests__/egressWiring.test.js.
+module.exports._private = { fetchArticle };
 
 // ── Reusable helpers for the Lite variant (article-enhancement-lite) ─────────────
 // Additive export only — attaches the shared, side-effect-free helpers to the

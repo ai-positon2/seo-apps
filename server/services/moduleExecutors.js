@@ -15,6 +15,23 @@
 const moduleEvidence = require('../modules/projects/moduleEvidence');
 
 /**
+ * The run's project, or a thrown error the worker records as the run failing.
+ *
+ * A deleted project is refused here, before any module body runs. Deletion is
+ * a soft delete, and only the homepage audits used to check it: a queued AI
+ * Visibility, Competitor or Hub & Spoke run for a project someone had just
+ * deleted still executed, spending metered budget on work nobody could see.
+ */
+async function loadActiveProject(projectId) {
+  const db = require('./db');
+  const project = await db.maybeOne(`select * from crawl_projects where id = $1`, [projectId]);
+  if (!project || project.lifecycle_status === 'deleted') {
+    throw new Error(`Project ${projectId} is no longer active.`);
+  }
+  return project;
+}
+
+/**
  * Run AI Visibility for a claimed row.
  *
  * The run row already exists and is already `running` — the worker's claim did
@@ -27,12 +44,9 @@ const moduleEvidence = require('../modules/projects/moduleEvidence');
  */
 async function runAiVisibility(run, { isStillOurs } = {}) {
   const { runAiVisibility: execute } = require('../modules/aiVisibility/run');
-  const db = require('./db');
   const projectsStore = require('../modules/projects/store');
 
-  const project = await db.maybeOne(
-    `select * from crawl_projects where id = $1`, [run.project_id]);
-  if (!project) throw new Error(`Project ${run.project_id} no longer exists.`);
+  const project = await loadActiveProject(run.project_id);
 
   const domains = await projectsStore.listDomains(run.project_id).catch(() => []);
 
@@ -81,14 +95,11 @@ async function runAiVisibility(run, { isStillOurs } = {}) {
  * process quietly granting itself rights.
  */
 async function runCompetitor(run, { isStillOurs } = {}) {
-  const db = require('./db');
   const projectAccess = require('./projectAccess');
   const projectsStore = require('../modules/projects/store');
   const moduleRunners = require('../modules/projects/moduleRunners');
 
-  const project = await db.maybeOne(
-    `select * from crawl_projects where id = $1`, [run.project_id]);
-  if (!project) throw new Error(`Project ${run.project_id} no longer exists.`);
+  const project = await loadActiveProject(run.project_id);
 
   const domains = await projectsStore.listDomains(run.project_id).catch(() => []);
 
@@ -141,13 +152,10 @@ async function runCompetitor(run, { isStillOurs } = {}) {
  * check later is denied rather than reading `undefined` as permission.
  */
 async function runHubSpoke(run, { isStillOurs } = {}) {
-  const db = require('./db');
   const projectsStore = require('../modules/projects/store');
   const moduleRunners = require('../modules/projects/moduleRunners');
 
-  const project = await db.maybeOne(
-    `select * from crawl_projects where id = $1`, [run.project_id]);
-  if (!project) throw new Error(`Project ${run.project_id} no longer exists.`);
+  const project = await loadActiveProject(run.project_id);
 
   const domains = await projectsStore.listDomains(run.project_id).catch(() => []);
 
@@ -174,12 +182,7 @@ async function runHubSpoke(run, { isStillOurs } = {}) {
 }
 
 async function runHomepageAudit(run, { isStillOurs } = {}) {
-  const db = require('./db');
-  const project = await db.maybeOne(
-    `select * from crawl_projects where id = $1`, [run.project_id]);
-  if (!project || project.lifecycle_status === 'deleted') {
-    throw new Error(`Project ${run.project_id} is no longer active.`);
-  }
+  const project = await loadActiveProject(run.project_id);
   const access = {
     project, workspaceId: project.workspace_id || null,
     userId: run.created_by || null, can: () => false,
@@ -198,12 +201,9 @@ async function runHomepageAudit(run, { isStillOurs } = {}) {
  */
 async function runAiVisibilityLite(run, { isStillOurs } = {}) {
   const { execute } = require('../modules/aiVisibilityLite/run');
-  const db = require('./db');
   const projectsStore = require('../modules/projects/store');
 
-  const project = await db.maybeOne(
-    `select * from crawl_projects where id = $1`, [run.project_id]);
-  if (!project) throw new Error(`Project ${run.project_id} no longer exists.`);
+  const project = await loadActiveProject(run.project_id);
 
   const domains = await projectsStore.listDomains(run.project_id).catch(() => []);
   // A projectView, not the raw row — run.js reads camelCase primaryDomain and

@@ -30,6 +30,16 @@ const SUITES = [
   'modules/contentWriter/__tests__/contentWriter.test.js',
   'routes/__tests__/auth.test.js',
   'routes/__tests__/workspaces.test.js',
+  // Outbound fetches to a user's URL refuse private hosts on every hop, and
+  // the headless browser never opens file:// or an internal address.
+  'services/__tests__/safeEgress.test.js',
+  'routes/__tests__/egressWiring.test.js',
+  // Revoking a platform administrator works, and survives a restart. Skips
+  // without TEST_DATABASE_URL.
+  'services/__tests__/platformAdminDb.test.js',
+  // Queued and scheduled module runs stop for a deleted project. Skips without
+  // TEST_DATABASE_URL.
+  'services/__tests__/deletedProjectJobsDb.test.js',
   'services/__tests__/teamWorkspace.test.js',
   'locationPageBuilder/__tests__/run.js',
   'locationPageBuilder/__tests__/lsPages.test.js',

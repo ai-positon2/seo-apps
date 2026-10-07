@@ -1,6 +1,5 @@
 const express = require('express');
 const router = express.Router();
-const axios = require('axios');
 const { createLlmClient } = require('../services/llmProviders');
 const puppeteer = require('puppeteer-core');
 const chromium = require('@sparticuz/chromium');
@@ -11,6 +10,7 @@ const { discoverLinks } = require('../utils/linkDiscovery');
 // first, but it is generic (assertPublicHost / isBlockedIp / UnsafeUrlError) and
 // is imported here rather than reimplemented — see the note at its call site.
 const { assertPublicHost } = require('../modules/contentArchitect/urlSafety');
+const { safeGet } = require('../services/safeEgress');
 
 function findLocalBrowser() {
   const candidates = [
@@ -101,7 +101,7 @@ function levelFromScore(score) {
 
 async function safeFetch(url, opts = {}) {
   try {
-    const r = await axios.get(url, {
+    const r = await safeGet(url, {
       timeout: 8000,
       validateStatus: () => true,
       maxRedirects: 3,
@@ -602,6 +602,8 @@ router.get('/discover-links', async (req, res) => {
     let parsed;
     try { parsed = new URL(url.startsWith('http') ? url : `https://${url}`); }
     catch { return res.status(400).json({ error: 'Invalid URL' }); }
+    try { await assertPublicHost(parsed.hostname); }
+    catch (e) { return res.status(400).json({ error: e.message }); }
     const result = await discoverLinks(parsed.href);
     res.json(result);
   } catch (e) {
@@ -664,9 +666,9 @@ async function runAgentReadiness({ url, url_homepage, url_action, url_form, skip
   // implementation — the repo already has that one and crawlScope's
   // net/guard.js, both tested. It resolves the name and rejects if ANY returned
   // address is private, which a hostname allowlist alone would not catch.
-  // Redirects remain a gap here: axios follows up to 3 hops itself, so a public
-  // host that 302s to a private one is still reachable. Closing that needs
-  // fetchSafe()'s per-hop validation, which is a larger change to safeFetch().
+  // This answers a bad first host with a 400. Redirect hops are covered further
+  // down: safeFetch() goes through services/safeEgress, which re-checks every
+  // hop and every connect, and the on-page browser checks each request it makes.
   await Promise.all(
     Object.values(urls).filter(Boolean).map(async (u) => {
       try {
@@ -787,6 +789,23 @@ router.post('/stream', async (req, res) => {
   let parsedUrl;
   try { parsedUrl = new URL(homepageRaw.startsWith('http') ? homepageRaw : `https://${homepageRaw}`); }
   catch { res.status(400).json({ error: 'Invalid URL' }); return; }
+
+  // The same host check runAgentReadiness() applies, made before the stream
+  // opens so a refusal can still be an ordinary 400.
+  // An unparseable optional URL is skipped below, as it always was.
+  const streamHosts = [parsedUrl.href, url_action, url_form]
+    .map((u) => {
+      if (!u || !String(u).trim()) return null;
+      try { return new URL(String(u).startsWith('http') ? u : `https://${u}`).hostname; }
+      catch { return null; }
+    })
+    .filter(Boolean);
+  try {
+    await Promise.all(streamHosts.map((host) => assertPublicHost(host)));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+    return;
+  }
 
   res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
   res.flushHeaders();
@@ -971,3 +990,5 @@ module.exports = router;
 // so server.js's `app.use(...)` keeps working unchanged.
 module.exports.runAgentReadiness = runAgentReadiness;
 module.exports.levelFromScore = levelFromScore;
+// Exposed for routes/__tests__/egressWiring.test.js.
+module.exports._private = { safeFetch };
