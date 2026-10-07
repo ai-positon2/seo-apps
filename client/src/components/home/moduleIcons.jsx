@@ -73,6 +73,31 @@ const FALLBACK = (
   </>
 );
 
+// ── What each module checks, in the reader's words ──────────────────────────
+//
+// The module labels ("Hub and Spoke", "AI Visibility (scraped)") are product
+// names, which is right on the card that links to that tool and wrong in a
+// sentence written to an executive: "AI Visibility (scraped) not run yet" names
+// an implementation, "AI search check not run yet" names what is missing. Kept
+// beside the icons because both are keyed the same way and both are how Home
+// presents a module rather than what the module is.
+const PLAIN_NAME = {
+  technical: 'Site health',
+  hub_spoke: 'Content structure',
+  competitor: 'Competitor comparison',
+  seo_geo: 'Search readiness',
+  on_page: 'Page content',
+  // Two modules, one question — so one name, and a list built from both says it once.
+  ai_visibility: 'AI search',
+  ai_visibility_lite: 'AI search',
+  agent_readiness: 'AI agent access',
+};
+
+/** "Content structure" for hub_spoke; the module's own label for anything unmapped. */
+export function plainModuleName(module) {
+  return PLAIN_NAME[module?.key] || module?.label || 'This';
+}
+
 export default function ModuleIcon({ moduleKey, size = 24 }) {
   return (
     <svg

@@ -74,7 +74,7 @@ export function ReportTable({
                   textAlign: c.align || 'left',
                   padding: '8px 10px',
                   borderBottom: '1px solid var(--border)',
-                  fontSize: 10.5,
+                  fontSize: 12,
                   fontFamily: 'var(--font-mono)',
                   fontWeight: 500,
                   letterSpacing: '.08em',

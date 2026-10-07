@@ -49,7 +49,7 @@ function Row({ label, value, sub }) {
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '7px 0', borderBottom: '1px solid var(--border)' }}>
       <div>
         <div style={{ fontSize: 13, color: 'var(--text-2)' }}>{label}</div>
-        {sub && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{sub}</div>}
+        {sub && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{sub}</div>}
       </div>
       <div className="num" style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap', marginLeft: 12 }}>{value}</div>
     </div>
@@ -59,7 +59,7 @@ function Row({ label, value, sub }) {
 function SectionTitle({ children, right }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '22px 0 8px' }}>
-      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)' }}>{children}</div>
+      <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)' }}>{children}</div>
       {right}
     </div>
   );
@@ -104,14 +104,14 @@ export default function MarketDrawer({ open, row, result, assumptions, onClose, 
       {/* Seasonality */}
       <SectionTitle>12-month seasonality</SectionTitle>
       <Seasonality series={row.monthlyTotals} />
-      <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
+      <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>
         {row.yoyPct == null ? 'Trend unavailable' : `${row.yoyPct > 0 ? '+' : ''}${row.yoyPct}% year over year`}
       </div>
 
       {/* Term contribution */}
       <SectionTitle>What's driving demand</SectionTitle>
       {skewed && (
-        <div style={{ fontSize: 11.5, color: 'var(--warning)', background: 'var(--warning-soft)', borderRadius: 'var(--r-sm)', padding: '6px 9px', marginBottom: 8 }}>
+        <div style={{ fontSize: 12, color: 'var(--warning)', background: 'var(--warning-soft)', borderRadius: 'var(--r-sm)', padding: '6px 9px', marginBottom: 8 }}>
           Driven mainly by one phrase — a fragile signal.
         </div>
       )}
@@ -156,7 +156,7 @@ export default function MarketDrawer({ open, row, result, assumptions, onClose, 
       )}
 
       {/* Directional dollars */}
-      <SectionTitle right={<button onClick={onOpenAssumptions} style={{ fontSize: 11, background: 'none', border: 'none', color: 'var(--primary-text)', cursor: 'pointer', textTransform: 'none', letterSpacing: 0 }}>Edit assumptions</button>}>
+      <SectionTitle right={<button onClick={onOpenAssumptions} style={{ fontSize: 12, background: 'none', border: 'none', color: 'var(--primary-text)', cursor: 'pointer', textTransform: 'none', letterSpacing: 0 }}>Edit assumptions</button>}>
         Directional value <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--text-3)' }}>· estimates, not a forecast</span>
       </SectionTitle>
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', padding: '4px 12px' }}>
@@ -166,12 +166,12 @@ export default function MarketDrawer({ open, row, result, assumptions, onClose, 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '7px 0' }}>
           <div>
             <div style={{ fontSize: 13, color: 'var(--text-2)' }}>Est. SEM budget / mo</div>
-            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{fmt(dollars.searches)} searches × {Math.round(assumptions.paidCtrShare * 100)}% × ${row.medianCpc.toFixed(2)} CPC</div>
+            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{fmt(dollars.searches)} searches × {Math.round(assumptions.paidCtrShare * 100)}% × ${row.medianCpc.toFixed(2)} CPC</div>
           </div>
           <div className="num" style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', marginLeft: 12 }}>{moneyExact(dollars.estMonthlySemBudget)}</div>
         </div>
       </div>
-      <p style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5, marginTop: 10 }}>
+      <p style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5, marginTop: 10 }}>
         These count only searchers who typed the city name — true demand is a multiple of this. Read them as a
         comparative floor between markets, not a forecast.
       </p>

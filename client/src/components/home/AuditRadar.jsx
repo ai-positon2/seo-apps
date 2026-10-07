@@ -244,7 +244,10 @@ export default function AuditRadar({ modules = [], size = 258 }) {
               dominantBaseline="middle"
               fontSize={scoreSize}
               fontWeight={600}
-              fontFamily="var(--font-mono)"
+              // The body font with tabular figures, as everywhere else on Home:
+              // monospace made a score read as a code value.
+              fontFamily="var(--font-sans)"
+              style={{ fontVariantNumeric: 'tabular-nums' }}
               fill={axis.score === null ? 'var(--text-3)' : bandColor(axis.score)}
             >
               {axis.score === null ? '—' : axis.score}

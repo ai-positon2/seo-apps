@@ -568,7 +568,7 @@ function AddPagePanel({ crawled, already, busy, error, onSubmit, onClose }) {
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', color: 'var(--text-3)' }}>
+        <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.06em', color: 'var(--text-3)' }}>
           ADD A PAGE TO THIS REPORT
         </span>
         <button
@@ -691,10 +691,10 @@ function PagePicker({ pages, selectedId, onPick }) {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, padding: '2px 4px 8px' }}>
-        <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)' }}>
+        <span style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)' }}>
           Pages · worst first
         </span>
-        <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{pages.length} audited</span>
+        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{pages.length} audited</span>
       </div>
 
       {pages.length > 8 && (
@@ -739,7 +739,7 @@ function PagePicker({ pages, selectedId, onPick }) {
               <span style={{ fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {pathOf(page.url)}
               </span>
-              <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
                 {page.status === 'failed'
                   ? (page.error ? `failed — ${page.error}` : 'failed')
                   : [
@@ -783,7 +783,7 @@ function ScoreChip({ score, status, band }) {
       style={{
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         minWidth: 30, height: 20, padding: '0 6px', flexShrink: 0,
-        borderRadius: 'var(--r-pill)', fontSize: 11, fontWeight: 600,
+        borderRadius: 'var(--r-pill)', fontSize: 12, fontWeight: 600,
         fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums',
         color: tone, background: `color-mix(in srgb, ${tone} 14%, transparent)`,
       }}
@@ -832,7 +832,7 @@ const Group = ({ children }) => (
 );
 
 const Eyebrow = ({ children }) => (
-  <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text-3)' }}>
+  <span style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text-3)' }}>
     {children}
   </span>
 );
@@ -842,7 +842,7 @@ const Text = ({ children }) => (
 );
 
 const Dim = ({ children }) => (
-  <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{children}</span>
+  <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{children}</span>
 );
 
 const ErrorText = ({ children }) => (

@@ -2,11 +2,11 @@
 
 const express = require('express');
 const router = express.Router();
-const axios = require('axios');
 const { createLlmClient } = require('../services/llmProviders');
 const { runAllChecks } = require('../checks/seoGeoChecks');
 // SSRF guard, shared with contentArchitect rather than reimplemented (see call site).
 const { assertPublicHost } = require('../modules/contentArchitect/urlSafety');
+const { safeGet } = require('../services/safeEgress');
 
 // Claude Sonnet through the shared provider factory, which handles the one
 // behavioural difference that matters here: Anthropic's OpenAI-compatible
@@ -355,7 +355,7 @@ function scrubModelNames(msg) {
 }
 
 async function fetchUrl(url) {
-  const resp = await axios.get(url, {
+  const resp = await safeGet(url, {
     timeout: 15000,
     maxRedirects: 5,
     headers: {
@@ -705,3 +705,5 @@ router.post('/run', async (req, res) => {
 module.exports = router;
 // Named export for the project-scoped runner (modules/projects/moduleRunners.js).
 module.exports.runSeoGeoAudit = runSeoGeoAudit;
+// Exposed for routes/__tests__/egressWiring.test.js.
+module.exports._private = { fetchUrl };

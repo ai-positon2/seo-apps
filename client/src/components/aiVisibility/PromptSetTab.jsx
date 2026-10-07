@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, EmptyState, useToast } from '../../ui';
 import { aiVisibilityApi } from '../../lib/aiVisibilityApi';
+import { friendlyError, errorDetail } from '../../lib/friendlyError';
 import { CrawledPagePicker } from './CrawledPagePicker';
 import { RunMeasurementButton } from './RunMeasurementButton';
 import { QuestionRow } from './QuestionRow';
@@ -18,7 +19,7 @@ import { card, muted } from './promptHelpers';
 // them called the same endpoint without saying so. All of that is gone.
 
 const SECTION_TITLE = {
-  fontSize: 11,
+  fontSize: 12,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
   color: 'var(--text-3)',
@@ -56,7 +57,7 @@ export function PromptSetTab({ project }) {
       if (ok) toast.add({ title: ok, variant: 'success' });
       await load();
     } catch (e) {
-      toast.add({ title: 'That did not work', description: e.message, variant: 'danger' });
+      toast.add({ title: 'That did not work', description: friendlyError(e), variant: 'danger' });
     } finally {
       setBusy(false);
     }
@@ -69,7 +70,13 @@ export function PromptSetTab({ project }) {
   if (state.error) {
     return (
       <div style={{ ...card, marginTop: 16, borderColor: 'var(--danger)' }}>
-        <div style={{ fontSize: 13, color: 'var(--text)' }}>{state.error.message}</div>
+        <div style={{ fontSize: 13, color: 'var(--text)' }}>{friendlyError(state.error)}</div>
+        {errorDetail(state.error) && (
+          <details style={{ ...muted, marginTop: 6 }}>
+            <summary>Show details</summary>
+            {errorDetail(state.error)}
+          </details>
+        )}
       </div>
     );
   }

@@ -166,6 +166,9 @@ async function finishRun(runId, { status, output, error, durationMs, label } = {
 // A run whose process died mid-flight (deploy, restart, crash) would sit at
 // 'running' forever. Swept on an interval from server.js so the runs list only
 // ever shows genuinely in-flight work as running.
+//
+// Jobs (services/jobs.js) are left out: they heartbeat, so jobs.sweepInterrupted
+// catches a dead one within minutes, and a healthy job may run past this cutoff.
 async function sweepStaleRuns({ olderThanMinutes = 120 } = {}) {
   if (!db.isDatabaseConfigured()) return 0;
   const cutoff = new Date(Date.now() - olderThanMinutes * 60 * 1000).toISOString();
@@ -177,7 +180,7 @@ async function sweepStaleRuns({ olderThanMinutes = 120 } = {}) {
               error = 'Run never reported completion (server restart or timeout).',
               completed_at = $1,
               updated_at = $1
-        where status = 'running' and created_at < $2
+        where status = 'running' and created_at < $2 and not is_job
         returning id`,
       [now, cutoff]
     );

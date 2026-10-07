@@ -162,7 +162,7 @@ export default function IssuesPanel({ findings, ai }) {
                 const tone = sevTone(c.status);
                 return (
                   <tr key={c.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ padding: '9px 12px', fontFamily: 'var(--font-mono)', color: 'var(--text-3)', fontSize: 11.5 }}>
+                    <td style={{ padding: '9px 12px', fontFamily: 'var(--font-mono)', color: 'var(--text-3)', fontSize: 12 }}>
                       {c.id}
                     </td>
                     <td style={{ padding: '9px 12px', color: 'var(--text-2)' }}>{c.category || '—'}</td>
@@ -171,7 +171,7 @@ export default function IssuesPanel({ findings, ai }) {
                     <td
                       style={{
                         padding: '9px 12px', color: 'var(--text-3)', fontFamily: 'var(--font-mono)',
-                        fontSize: 11.5, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis',
+                        fontSize: 12, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
                       }}
                       title={c.evidence || c.detail || undefined}
@@ -186,7 +186,7 @@ export default function IssuesPanel({ findings, ai }) {
           {/* The design says "full list in the downloadable Excel report" under a
               truncated table. This one is not truncated — every check is here —
               so it says what the numbers mean instead. */}
-          <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
+          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
             {scoredChecks.length} of {checks.length} checks are scored. The rest are marked not
             applicable for this page’s intent, or informational, and are excluded from every score
             on this page.
@@ -216,7 +216,7 @@ function IssueRow({ issue, open, onToggle }) {
       >
         <span
           style={{
-            flexShrink: 0, fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
+            flexShrink: 0, fontSize: 12, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
             background: tone.bg, color: tone.fg,
           }}
         >
@@ -227,14 +227,14 @@ function IssueRow({ issue, open, onToggle }) {
         {issue.effort && (
           <span
             style={{
-              flexShrink: 0, fontSize: 11.5, color: 'var(--text-2)', padding: '2px 8px',
+              flexShrink: 0, fontSize: 12, color: 'var(--text-2)', padding: '2px 8px',
               borderRadius: 4, background: 'var(--surface)',
             }}
           >
             {issue.effort}
           </span>
         )}
-        <span style={{ color: 'var(--text-3)', fontSize: 10, flexShrink: 0 }}>{open ? '▲' : '▼'}</span>
+        <span style={{ color: 'var(--text-3)', fontSize: 12, flexShrink: 0 }}>{open ? '▲' : '▼'}</span>
       </button>
 
       {open && (
@@ -280,7 +280,7 @@ function IssueRow({ issue, open, onToggle }) {
           {issue.code_example && (
             <pre
               style={{
-                margin: 0, fontSize: 11.5, background: '#0F1416', color: '#DCEFE8',
+                margin: 0, fontSize: 12, background: '#0F1416', color: '#DCEFE8',
                 borderRadius: 8, padding: 12, overflowX: 'auto', whiteSpace: 'pre-wrap',
                 fontFamily: 'var(--font-mono)',
               }}
@@ -289,7 +289,7 @@ function IssueRow({ issue, open, onToggle }) {
             </pre>
           )}
           {issue.context_note && (
-            <span style={{ fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.5 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5 }}>
               {asText(issue.context_note)}
             </span>
           )}

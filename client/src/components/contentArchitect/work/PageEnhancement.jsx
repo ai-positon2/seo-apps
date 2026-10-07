@@ -20,7 +20,7 @@ export function EnhancementBadge({ enhancement, open, onToggle }) {
       title={`Enhanced ${new Date(enhancement.updatedAt).toLocaleString()}${enhancement.createdBy ? ` by ${enhancement.createdBy}` : ''}`}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, cursor: 'pointer',
-        fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 'var(--r-pill)',
+        fontSize: 12, fontWeight: 600, padding: '2px 8px', borderRadius: 'var(--r-pill)',
         border: `1px solid ${open ? 'var(--success)' : 'color-mix(in srgb, var(--success) 45%, var(--border))'}`,
         background: open ? 'var(--success-soft)' : 'transparent', color: 'var(--success)', whiteSpace: 'nowrap',
       }}
@@ -80,7 +80,7 @@ export function EnhancementPanel({ projectId, url, onReEnhance }) {
               aria-selected={tab === t.id}
               onClick={() => setTab(t.id)}
               style={{
-                fontSize: 11.5, fontWeight: 600, padding: '4px 0', background: 'none', border: 'none', cursor: 'pointer',
+                fontSize: 12, fontWeight: 600, padding: '4px 0', background: 'none', border: 'none', cursor: 'pointer',
                 color: tab === t.id ? 'var(--text)' : 'var(--text-3)', borderBottom: `2px solid ${tab === t.id ? 'var(--success)' : 'transparent'}`,
               }}
             >
@@ -89,7 +89,7 @@ export function EnhancementPanel({ projectId, url, onReEnhance }) {
           ))}
         </div>
         {data && (
-          <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
             {r.articleMeta?.wordCount ? `${r.articleMeta.wordCount.toLocaleString('en-US')} words originally · ` : ''}
             {data.contentType === 'hub' ? 'enhanced as a hub' : 'enhanced as an article'}
             {data.createdBy ? ` · by ${data.createdBy}` : ''}
@@ -107,7 +107,7 @@ export function EnhancementPanel({ projectId, url, onReEnhance }) {
         {error && <div style={{ fontSize: 12, color: 'var(--danger)', padding: '8px 0' }}>{error}</div>}
         {!data && !error && <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '8px 0' }}>Loading the saved enhancement…</div>}
         {data && tab === 'enhanced' && r.enhancedText && (
-          <div style={{ fontSize: 11.5, color: 'var(--text-3)', padding: '6px 0 2px' }}>
+          <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '6px 0 2px' }}>
             New content is <mark style={{ background: 'var(--success-soft)', color: 'var(--success)', padding: '0 5px', borderRadius: 3 }}>highlighted in green</mark>
           </div>
         )}
@@ -121,7 +121,7 @@ export function EnhancementPanel({ projectId, url, onReEnhance }) {
 
 function miniButton(active) {
   return {
-    fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap',
+    fontSize: 12, fontWeight: 600, padding: '3px 9px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap',
     border: `1px solid ${active ? 'var(--success)' : 'var(--border)'}`,
     background: active ? 'var(--success-soft)' : 'var(--card)', color: active ? 'var(--success)' : 'var(--text-2)',
   };

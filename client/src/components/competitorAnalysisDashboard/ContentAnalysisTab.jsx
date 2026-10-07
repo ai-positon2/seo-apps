@@ -144,7 +144,7 @@ function SummaryCard({ title, summary, onRegenerate, regenerating, disabled }) {
         <div style={{ fontSize: 12, color: 'var(--text-3)' }}>No summary yet.</div>
       )}
       {summary?.generatedAt && (
-        <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-3)' }}>Generated {new Date(summary.generatedAt).toLocaleString()}</div>
+        <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-3)' }}>Generated {new Date(summary.generatedAt).toLocaleString()}</div>
       )}
     </Card>
   );
@@ -215,7 +215,7 @@ function FolderMappingCard({ folderMap = [], onSave, saving, disabled }) {
           <span style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 400 }}>({folderMap.length} patterns)</span>
         </button>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {dirtyCount > 0 && <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{dirtyCount} unsaved</span>}
+          {dirtyCount > 0 && <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{dirtyCount} unsaved</span>}
           <button
             onClick={save}
             disabled={!dirtyCount || saving || disabled}
@@ -239,7 +239,7 @@ function FolderMappingCard({ folderMap = [], onSave, saving, disabled }) {
                     <th
                       key={col.key}
                       onClick={() => toggleSort(col.key)}
-                      style={{ textAlign: col.align, padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-2)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}
+                      style={{ textAlign: col.align, padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-2)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}
                     >
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexDirection: col.align === 'right' ? 'row-reverse' : 'row' }}>
                         {col.label}
@@ -417,7 +417,7 @@ export default function ContentAnalysisTab({
             >
               <TypeCountsTable domains={topPagesDomains} countsKey="contentTypeCounts" presentTypes={topPagesTypes} />
               {classifier && (
-                <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 8, lineHeight: 1.5 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 8, lineHeight: 1.5 }}>
                   {classifier.error
                     ? `Page-level classification failed (${classifier.error}) — these types fall back to the folder mapping.`
                     : `${classifier.classified} of ${classifier.of} pages typed by ${classifier.model}.`}
@@ -442,7 +442,7 @@ export default function ContentAnalysisTab({
                           render: (v, row) => (
                             <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 1 }}>
                               <span>{CONTENT_TYPE_LABELS[v] || v}</span>
-                              <span style={{ fontSize: 10.5, color: 'var(--text-3)' }}>
+                              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
                                 {FAMILY_OF_SUBTYPE[v] || ''}
                                 {typeof row?.confidence === 'number' && row.confidence < 0.6
                                   ? ` · low confidence${row?.subtype_secondary ? `, maybe ${CONTENT_TYPE_LABELS[row.subtype_secondary] || row.subtype_secondary}` : ''}`
@@ -484,10 +484,10 @@ export default function ContentAnalysisTab({
               {(noSitemap.length > 0 || cappedSitemaps.length > 0) && (
                 <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
                   {noSitemap.map((d) => (
-                    <span key={d.domain} style={{ fontSize: 11, color: 'var(--text-3)' }}>{domainLabel(d)}: no accessible sitemap found.</span>
+                    <span key={d.domain} style={{ fontSize: 12, color: 'var(--text-3)' }}>{domainLabel(d)}: no accessible sitemap found.</span>
                   ))}
                   {cappedSitemaps.map((d) => (
-                    <span key={`${d.domain}-capped`} style={{ fontSize: 11, color: 'var(--warning)' }}>{domainLabel(d)}: sitemap crawl limit reached — counts are a partial sample.</span>
+                    <span key={`${d.domain}-capped`} style={{ fontSize: 12, color: 'var(--warning)' }}>{domainLabel(d)}: sitemap crawl limit reached — counts are a partial sample.</span>
                   ))}
                 </div>
               )}

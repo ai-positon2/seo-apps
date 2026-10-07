@@ -48,11 +48,11 @@ export const REVIEW_TONE = {
   Resolved: { bg: 'var(--accent-800)', fg: 'var(--accent-100)' },
 };
 
-/** The report's 10px uppercase label. */
+/** The report's 12px uppercase label. */
 export const Eyebrow = ({ children, tone = 'muted', style }) => (
   <span
     style={{
-      fontSize: 10,
+      fontSize: 12,
       letterSpacing: '0.1em',
       textTransform: 'uppercase',
       fontWeight: 600,
@@ -146,13 +146,13 @@ export const Tile = ({ label, value, sub, color = 'var(--text)', size = 28 }) =>
   >
     <span
       style={{
-        fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase',
+        fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase',
         fontWeight: 600, color: 'var(--text-3)',
       }}
     >
       {label}
     </span>
-    <span className="num" style={{ fontSize: size, fontWeight: 600, lineHeight: 1, color }}>
+    <span style={{ fontSize: size, fontWeight: 600, lineHeight: 1, color, fontVariantNumeric: 'tabular-nums' }}>
       {value}
     </span>
     {sub && <span style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.4 }}>{sub}</span>}
@@ -163,7 +163,7 @@ export const Tile = ({ label, value, sub, color = 'var(--text)', size = 28 }) =>
 export const Chip = ({ children, bg = 'var(--neutral-800)', fg = 'var(--neutral-200)' }) => (
   <span
     style={{
-      display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11,
+      display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12,
       padding: '3px 10px', borderRadius: 6, whiteSpace: 'nowrap',
       background: bg, color: fg,
     }}
@@ -233,7 +233,7 @@ export const TableFrame = ({ children }) => (
 export const Th = ({ children, align = 'left', nowrap = false }) => (
   <th
     style={{
-      padding: '11px 14px', textAlign: align, fontSize: 10.5, fontWeight: 700,
+      padding: '11px 14px', textAlign: align, fontSize: 12, fontWeight: 700,
       letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-3)',
       borderBottom: '1px solid var(--border)',
       whiteSpace: nowrap ? 'nowrap' : undefined,
@@ -318,13 +318,13 @@ export const AnalyzingNotice = ({ crawled = null }) => (
       </span>
     </div>
     <span style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.55 }}>
-      The full audit runs over every page once the crawl reaches a terminal state.
+      The full audit runs over every page once the crawl finishes.
       {crawled ? ` ${crawled.toLocaleString()} pages have been fetched so far.` : ''}
       {' '}
       Nothing is listed until all of it has run: a partial list would understate what is wrong,
       and an empty one would read as a clean site.
     </span>
-    <span style={{ fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.5 }}>
+    <span style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5 }}>
       Pages appear in “All Pages” as they are fetched, with the status code and redirect checks
       the crawler runs live.
     </span>

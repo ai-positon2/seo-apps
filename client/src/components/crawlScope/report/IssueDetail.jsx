@@ -246,7 +246,7 @@ export default function IssueDetail({
                       {titleByUrl.get(f.url) && (
                         <span
                           style={{
-                            fontSize: 11.5, color: 'var(--text-3)', overflow: 'hidden',
+                            fontSize: 12, color: 'var(--text-3)', overflow: 'hidden',
                             textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           }}
                         >
@@ -260,7 +260,7 @@ export default function IssueDetail({
                       {f.targetUrl && (
                         <span
                           style={{
-                            fontSize: 11.5, color: 'var(--text-3)', fontFamily: 'var(--font-mono)',
+                            fontSize: 12, color: 'var(--text-3)', fontFamily: 'var(--font-mono)',
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           }}
                         >
@@ -329,7 +329,7 @@ export default function IssueDetail({
                       onChange={(e) => onReview(f.id, e.target.value)}
                       aria-label={`Review status for ${f.url}`}
                       style={{
-                        fontFamily: 'var(--font-sans)', fontSize: 11, padding: '3px 8px',
+                        fontFamily: 'var(--font-sans)', fontSize: 12, padding: '3px 8px',
                         borderRadius: 6, cursor: 'pointer', border: '1px solid transparent',
                         background: tone.bg, color: tone.fg,
                       }}

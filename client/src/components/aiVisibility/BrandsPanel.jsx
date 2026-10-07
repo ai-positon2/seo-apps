@@ -3,6 +3,7 @@ import {
   Card, Button, Badge, EmptyState, useToast,
 } from '../../ui';
 import { aiVisibilityApi } from '../../lib/aiVisibilityApi';
+import { friendlyError, errorDetail } from '../../lib/friendlyError';
 import { muted } from './promptHelpers';
 
 // ── The measured set ────────────────────────────────────────────────────────
@@ -53,7 +54,7 @@ export function BrandsPanel({ project, onChange }) {
       await load();
       onChange?.();
     } catch (e) {
-      toast.show(e.message, 'error');
+      toast.show(friendlyError(e), 'error');
     } finally {
       setBusy(null);
     }
@@ -66,7 +67,7 @@ export function BrandsPanel({ project, onChange }) {
       await load();
       onChange?.();
     } catch (e) {
-      toast.show(e.message, 'error');
+      toast.show(friendlyError(e), 'error');
     } finally {
       setBusy(null);
     }
@@ -79,11 +80,16 @@ export function BrandsPanel({ project, onChange }) {
   if (state.error) {
     return (
       <Card style={{ borderColor: 'var(--danger)' }}>
-        <div style={{ fontSize: 13, color: 'var(--text)' }}>{state.error.message}</div>
-        {state.error.code === 'migration_needed' && (
-          <div style={{ ...muted, marginTop: 6 }}>
-            Apply <code>supabase/migrations/0018_ai_visibility_entities.sql</code>, then reload.
-          </div>
+        <div style={{ fontSize: 13, color: 'var(--text)' }}>
+          {state.error.code === 'migration_needed'
+            ? 'AI Visibility isn’t set up on this server yet. Ask an admin to finish the setup.'
+            : friendlyError(state.error)}
+        </div>
+        {(state.error.code === 'migration_needed' ? state.error.message : errorDetail(state.error)) && (
+          <details style={{ ...muted, marginTop: 6 }}>
+            <summary>Show details</summary>
+            {state.error.code === 'migration_needed' ? state.error.message : errorDetail(state.error)}
+          </details>
         )}
       </Card>
     );
@@ -99,12 +105,11 @@ export function BrandsPanel({ project, onChange }) {
       {!state.data?.hasApprovedClient && (
         <Card style={{ borderColor: 'var(--danger)', marginBottom: 16 }}>
           <div style={{ fontSize: 13.5, color: 'var(--text)' }}>
-            No approved client brand, so nothing can be measured yet.
+            Confirm which brand names belong to {project?.name || 'this client'} to start measuring.
           </div>
           <div style={{ ...muted, marginTop: 6 }}>
-            Every report will show an em-dash until the client brand below is approved. That is
-            deliberate — an unreviewed alias set would rather report nothing than report a
-            number built on a matcher nobody checked.
+            Every report stays blank until the client brand below is approved, so no number is
+            ever built on brand names nobody has checked.
           </div>
         </Card>
       )}
@@ -140,7 +145,7 @@ export function BrandsPanel({ project, onChange }) {
               <div
                 className="eyebrow"
                 style={{
-                  fontSize: 9.5,
+                  fontSize: 12,
                   fontFamily: 'var(--font-mono)',
                   letterSpacing: '.18em',
                   color: 'var(--text-3)',
@@ -169,7 +174,7 @@ export function BrandsPanel({ project, onChange }) {
                       {brand.isClient && <Badge variant="info">client</Badge>}
                       <Badge variant={STATUS_VARIANT[brand.status] || 'neutral'}>{brand.status}</Badge>
                       {brand.domain && (
-                        <span className="num" style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
+                        <span className="num" style={{ fontSize: 12, color: 'var(--text-3)' }}>
                           {brand.domain}
                         </span>
                       )}
@@ -180,7 +185,7 @@ export function BrandsPanel({ project, onChange }) {
                         <span
                           key={a}
                           style={{
-                            fontSize: 11,
+                            fontSize: 12,
                             fontFamily: 'var(--font-mono)',
                             padding: '1px 6px',
                             borderRadius: 'var(--r-sm)',

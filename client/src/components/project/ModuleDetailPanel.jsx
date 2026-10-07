@@ -272,12 +272,12 @@ export default function ModuleDetailPanel({ moduleKey, onOpenReport }) {
             <span style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.55 }}>{card.detail}</span>
             {/* A number is only defensible if you can say what produced it. */}
             {scored && card.scoreBasis && (
-              <span style={{ fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.5 }}>
+              <span style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5 }}>
                 {card.scoreBasis}
               </span>
             )}
             {!scored && findings.length > 0 && (
-              <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
                 This module reports findings, not a 0–100 score.
               </span>
             )}
@@ -373,7 +373,7 @@ export default function ModuleDetailPanel({ moduleKey, onOpenReport }) {
           />
         )}
 
-        <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
           Read from {module.evidenceSource}
           {module.dependsOn ? ` · needs ${module.dependsOn}` : ''}
         </span>

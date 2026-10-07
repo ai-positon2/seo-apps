@@ -71,7 +71,7 @@ export default function TopicWork({ projectId, clusterId, topic, client, navigat
               type="button"
               onClick={next.go}
               style={{
-                fontSize: 11.5, fontWeight: 600, padding: '5px 11px', borderRadius: 7, cursor: 'pointer',
+                fontSize: 12, fontWeight: 600, padding: '5px 11px', borderRadius: 7, cursor: 'pointer',
                 border: '1px solid var(--primary)', background: 'var(--primary)', color: 'var(--text-on-primary)',
                 maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}
@@ -151,8 +151,8 @@ function Rail({ stages, open, onPick }) {
                 )}
               </span>
               <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1.15 }}>
-                <span style={{ fontSize: 11.5, fontWeight: 600, color: s.done ? 'var(--text)' : 'var(--text-2)' }}>{s.label}</span>
-                <span style={{ fontSize: 10, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>{s.meta}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: s.done ? 'var(--text)' : 'var(--text-2)' }}>{s.label}</span>
+                <span style={{ fontSize: 12, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>{s.meta}</span>
               </span>
             </button>
           </div>
@@ -183,7 +183,7 @@ function ArticlePanel({ projectId, article, view, articles, index, onIndex, navi
         <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 420 }}>
           {article.title || article.keyword}
         </span>
-        <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
           for “{article.keyword}” · saved {timeAgo(article.updatedAt)}
           {article.linkedBy === 'keyword' ? ' · matched by keyword' : ''}
         </span>
@@ -192,7 +192,7 @@ function ArticlePanel({ projectId, article, view, articles, index, onIndex, navi
             value={index}
             onChange={(e) => onIndex(Number(e.target.value))}
             aria-label="Which article"
-            style={{ fontSize: 11, padding: '2px 4px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--text-2)' }}
+            style={{ fontSize: 12, padding: '2px 4px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--text-2)' }}
           >
             {articles.map((a, i) => <option key={a.id} value={i}>Article {i + 1} of {articles.length} · {a.keyword}</option>)}
           </select>
@@ -200,7 +200,7 @@ function ArticlePanel({ projectId, article, view, articles, index, onIndex, navi
         <button
           type="button"
           onClick={() => navigate(articleHref(article))}
-          style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--text-2)', cursor: 'pointer' }}
+          style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 600, padding: '3px 9px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--text-2)', cursor: 'pointer' }}
         >
           Open in Content Writer ↗
         </button>
@@ -225,7 +225,7 @@ function BriefOutline({ article }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div>
-        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.06em', color: 'var(--text-3)' }}>H1</div>
+        <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.06em', color: 'var(--text-3)' }}>H1</div>
         <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>{brief.title}</div>
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
@@ -239,11 +239,11 @@ function BriefOutline({ article }) {
           return (
             <li key={s.id} style={{ marginLeft: depth * 18, paddingLeft: 10, borderLeft: `2px solid ${depth ? 'var(--border)' : 'var(--primary)'}` }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                <span style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>{s.level}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>{s.level}</span>
                 <span style={{ fontSize: 13, fontWeight: depth ? 500 : 600, color: 'var(--text)' }}>{s.heading}</span>
               </div>
               {s.guidance && (
-                <div style={{ fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                <div style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                   {s.guidance}
                 </div>
               )}
@@ -272,7 +272,7 @@ function DraftReader({ article }) {
 
 function chip(primary) {
   return {
-    fontSize: 11, padding: '2px 8px', borderRadius: 99,
+    fontSize: 12, padding: '2px 8px', borderRadius: 99,
     background: primary ? 'var(--primary-soft)' : 'var(--surface)', color: primary ? 'var(--primary)' : 'var(--text-2)',
     fontWeight: primary ? 600 : 500,
   };

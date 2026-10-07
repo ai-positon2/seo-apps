@@ -57,7 +57,7 @@ function Caveats({ items }) {
         gap: 6,
       }}
     >
-      <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)' }}>
+      <strong style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)' }}>
         What this run could not check
       </strong>
       {items.map((item, i) => <span key={i}>{item}</span>)}

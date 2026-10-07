@@ -1,7 +1,7 @@
 const puppeteer = require('puppeteer-core');
 const chromium = require('@sparticuz/chromium');
-const axios = require('axios');
 const cheerio = require('cheerio');
+const { safeGet, assertPublicUrl, guardPage } = require('../services/safeEgress');
 const fs = require('fs');
 
 function findLocalBrowser() {
@@ -291,7 +291,7 @@ async function checkCookieBanner(page) {
 
 async function checkJsRendering(url, page) {
   try {
-    const rawResp = await axios.get(url, {
+    const rawResp = await safeGet(url, {
       timeout: 8000,
       headers: { 'User-Agent': 'Screaming Frog SEO Spider/23.1' },
       validateStatus: () => true,
@@ -385,6 +385,24 @@ const CHECK_FNS = {
 
 // ── Main runner ───────────────────────────────────────────────────────────────
 
+// Opens one slot's URL. The URL is checked before Chromium sees it (a file://
+// would otherwise read the local disk), and every request the page then makes
+// — redirects, iframes, XHRs — is checked again by guardPage.
+async function openSlotPage(browser, url) {
+  await assertPublicUrl(url);
+  const page = await browser.newPage();
+  try {
+    await guardPage(page);
+    await page.setUserAgent('Screaming Frog SEO Spider/23.1');
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 25000 });
+    return page;
+  } catch (e) {
+    // The caller never receives a page that failed to load, so it cannot close it.
+    await page.close().catch(() => {});
+    throw e;
+  }
+}
+
 async function runOnPageChecks(urls) {
   const localBrowser = findLocalBrowser();
   let browser;
@@ -412,9 +430,7 @@ async function runOnPageChecks(urls) {
 
     let page;
     try {
-      page = await browser.newPage();
-      await page.setUserAgent('Screaming Frog SEO Spider/23.1');
-      await page.goto(url, { waitUntil: 'networkidle2', timeout: 25000 });
+      page = await openSlotPage(browser, url);
       slotData[slot] = {};
       for (const checkId of checksForSlot) {
         slotData[slot][checkId] = await CHECK_FNS[checkId](url, page);
@@ -462,3 +478,5 @@ async function runOnPageChecks(urls) {
 }
 
 module.exports = { runOnPageChecks, ONPAGE_META };
+// Exposed for routes/__tests__/egressWiring.test.js.
+module.exports._private = { checkJsRendering, openSlotPage };

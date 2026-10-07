@@ -2,7 +2,30 @@ import {
   Panel, PanelTitle, Eyebrow, Chip, CountTile, Donut,
   PLATFORM_TONE, bandColor, splitVerdict,
 } from './reportKit';
-import { resolveBreakdown } from '../primitives';
+import { resolveBreakdown, plainBucketLabel } from '../primitives';
+
+// The model writes `priority_verdict` (max 12 words) and tends to fall back on
+// shorthand — "GEO signals weak: no schema NAP, hours, reviews, or Q&A
+// structure". That one shape recurs, so it is restated in plain words, naming
+// only the items the verdict itself listed; any other verdict is the model's
+// own sentence and is shown as written.
+const GEO_SIGNALS_WEAK = /^\s*GEO signals?\s+(?:are\s+)?weak\b/i;
+const GEO_ITEMS = [
+  [/\bNAP\b|address/i, 'address'],
+  [/hours/i, 'opening hours'],
+  [/review/i, 'reviews'],
+  [/Q&A|FAQ/i, 'FAQs'],
+];
+function plainVerdict(text) {
+  const s = String(text ?? '');
+  if (!GEO_SIGNALS_WEAK.test(s)) return s;
+  const items = GEO_ITEMS.filter(([re]) => re.test(s)).map(([, word]) => word);
+  if (!items.length) return s;
+  const list = items.length === 1 ? items[0]
+    : `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`;
+  return `AI search tools can’t read your ${list}. Add ${items.length === 1 ? 'it' : 'them'} `
+    + 'in a machine-readable format.';
+}
 
 // ── The answer, before the audit ────────────────────────────────────────────
 //
@@ -79,9 +102,9 @@ export default function SummaryView({ findings, ai, onOpenDetails }) {
   const bandBlurb = typeof scores.band === 'object' ? scores.band?.blurb || null : null;
 
   const capNote = cap?.applied
-    ? `Capped at ${cap.value} by a blocking issue: ${cap.reason}.`
-      + (composite !== null ? ` Uncapped composite is ${composite}.` : '')
-    : 'No blocking cap applied.';
+    ? `Score held at ${cap.value} by a blocking issue: ${cap.reason}.`
+      + (composite !== null ? ` Without it, the score would be ${composite}.` : '')
+    : 'No blocking issue is holding the score down.';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
@@ -120,15 +143,15 @@ export default function SummaryView({ findings, ai, onOpenDetails }) {
           >
             <span
               style={{
-                fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
+                fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)',
                 letterSpacing: '0.15em', textTransform: 'uppercase',
                 color: 'var(--text-on-primary)', opacity: 0.85,
               }}
             >
-              Priority verdict
+              What to fix first
             </span>
             <p style={{ margin: 0, fontSize: 13.5, color: 'var(--text-on-primary)', lineHeight: 1.55 }}>
-              {summary.priority_verdict}
+              {plainVerdict(summary.priority_verdict)}
             </p>
 
             <div
@@ -146,7 +169,7 @@ export default function SummaryView({ findings, ai, onOpenDetails }) {
                 <OnAccent label="Blocking the score" value={cap.reason} />
               )}
               {weakest && (
-                <OnAccent label="Weakest bucket" value={`${weakest.label} — ${weakest.score}`} />
+                <OnAccent label="Weakest area" value={`${plainBucketLabel(weakest)} (${weakest.score}/100)`} />
               )}
               {cap?.applied && composite !== null && (
                 <OnAccent label="Once fixed" value={`Score reaches ${composite}`} />
@@ -162,11 +185,11 @@ export default function SummaryView({ findings, ai, onOpenDetails }) {
               >
                 <span
                   style={{
-                    fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
+                    fontSize: 12, fontWeight: 700, textTransform: 'uppercase',
                     letterSpacing: '0.06em', color: 'var(--text-on-primary)', opacity: 0.75,
                   }}
                 >
-                  Top GEO fix
+                  Top fix for AI search
                 </span>
                 <p
                   style={{
@@ -181,10 +204,10 @@ export default function SummaryView({ findings, ai, onOpenDetails }) {
           </div>
         ) : (
           <Panel>
-            <Eyebrow>Priority verdict</Eyebrow>
+            <Eyebrow>What to fix first</Eyebrow>
             <span style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.5 }}>
-              The AI analysis did not complete for this page, so there is no ranked verdict. The
-              check results are all in “More Tech Details”.
+              The AI analysis didn’t finish for this page, so there’s no ranked list of fixes. Every
+              check result is under “More Tech Details”.
             </span>
           </Panel>
         )}
@@ -219,7 +242,7 @@ export default function SummaryView({ findings, ai, onOpenDetails }) {
                       the whole content of the field — without it the six tiles
                       say "partial" five times and give nobody anything to do. */}
                   {reason && (
-                    <span style={{ fontSize: 11.5, color: 'var(--text-2)', lineHeight: 1.45 }}>
+                    <span style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.45 }}>
                       {reason}
                     </span>
                   )}
@@ -246,7 +269,7 @@ export default function SummaryView({ findings, ai, onOpenDetails }) {
                 style={{
                   flexShrink: 0, width: 20, height: 20, borderRadius: '50%',
                   background: 'color-mix(in srgb, var(--primary) 20%, transparent)',
-                  color: 'var(--primary-text)', fontSize: 11, fontWeight: 700,
+                  color: 'var(--primary-text)', fontSize: 12, fontWeight: 700,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1,
                 }}
               >
@@ -288,7 +311,7 @@ const OnAccent = ({ label, value }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
     <span
       style={{
-        fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+        fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
         color: 'var(--text-on-primary)', opacity: 0.75,
       }}
     >

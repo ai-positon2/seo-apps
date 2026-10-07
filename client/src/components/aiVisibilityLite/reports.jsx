@@ -35,7 +35,7 @@ import {
 /** A caption that has to travel with a number, not float beside it. */
 function Basis({ children }) {
   if (!children) return null;
-  return <Muted size={11} style={{ display: 'block', marginTop: 6 }}>{children}</Muted>;
+  return <Muted size={12} style={{ display: 'block', marginTop: 6 }}>{children}</Muted>;
 }
 
 /** An empty state that says WHY, so it cannot be mistaken for a broken page. */
@@ -59,7 +59,7 @@ function Table({ head, children }) {
           padding: '0 0 8px',
           borderBottom: '1px solid var(--border)',
           fontFamily: 'var(--font-mono)',
-          fontSize: 10.5,
+          fontSize: 12,
           letterSpacing: '.08em',
           textTransform: 'uppercase',
           color: 'var(--text-3)',
@@ -98,7 +98,7 @@ function Row({ cols, cells, strong = false, note = null }) {
           </span>
         ))}
       </div>
-      {note ? <Muted size={11}>{note}</Muted> : null}
+      {note ? <Muted size={12}>{note}</Muted> : null}
     </div>
   );
 }
@@ -185,14 +185,14 @@ function metricDetail(key, report) {
             </div>
           ))}
           {report.headline.score.note && (
-            <Muted size={11} style={{ display: 'block', marginTop: 8 }}>{report.headline.score.note}</Muted>
+            <Muted size={12} style={{ display: 'block', marginTop: 8 }}>{report.headline.score.note}</Muted>
           )}
         </div>
       );
     }
     case 'avgScore': {
       const runs = [...(report.trendAllRuns || [])].reverse().slice(0, 8);
-      if (!runs.length) return <Muted size={12}>No completed run has a score yet.</Muted>;
+      if (!runs.length) return <Muted size={12}>No scores yet. Run a measurement from Setup &amp; runs.</Muted>;
       return (
         <div>
           {runs.map((r) => (
@@ -204,7 +204,7 @@ function metricDetail(key, report) {
     case 'namedRate':
     case 'groundedRate': {
       const rows = report.byEngine || [];
-      if (!rows.length) return <Muted size={12}>Nothing measured in this period.</Muted>;
+      if (!rows.length) return <Muted size={12}>No results in this period. Run a measurement from Setup &amp; runs.</Muted>;
       return (
         <div>
           {rows.map((e) => (
@@ -223,7 +223,7 @@ function metricDetail(key, report) {
         .sort((a, b) => (key === 'mentionRank'
           ? (a.mentionRank.value ?? 99) - (b.mentionRank.value ?? 99)
           : (b.shareOfMentions.value ?? -1) - (a.shareOfMentions.value ?? -1)));
-      if (!brands.length) return <Muted size={12}>Nothing measured in this period.</Muted>;
+      if (!brands.length) return <Muted size={12}>No results in this period. Run a measurement from Setup &amp; runs.</Muted>;
       return (
         <div>
           {brands.map((b) => (
@@ -281,13 +281,13 @@ function ExpandableTile({ tileKey, label, metric, selected, onSelect }) {
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
         <span style={{
-          fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 500,
+          fontSize: 12, fontFamily: 'var(--font-mono)', fontWeight: 500,
           textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)',
         }}
         >
           {label}
         </span>
-        <span style={{ fontSize: 10, color: selected ? 'var(--primary)' : 'var(--text-3)' }}>
+        <span style={{ fontSize: 12, color: selected ? 'var(--primary)' : 'var(--text-3)' }}>
           {selected ? '▲' : '▾'}
         </span>
       </div>
@@ -299,7 +299,7 @@ function ExpandableTile({ tileKey, label, metric, selected, onSelect }) {
         {metric ? metric.display : '—'}
       </span>
       {metric?.note && (
-        <span style={{ fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.35 }}>{metric.note}</span>
+        <span style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.35 }}>{metric.note}</span>
       )}
     </button>
   );
@@ -337,7 +337,7 @@ function ExpandableMetricStrip({ tiles, report, min = 190 }) {
         >
           <div style={{ fontSize: 13, fontWeight: 600 }}>{active.label}</div>
           {METRIC_INFO[active.key] && (
-            <Muted size={11.5} style={{ display: 'block', marginTop: 3, marginBottom: 8 }}>
+            <Muted size={12} style={{ display: 'block', marginTop: 3, marginBottom: 8 }}>
               {METRIC_INFO[active.key]}
             </Muted>
           )}
@@ -393,9 +393,9 @@ function EngineOverviewCards({ byEngine }) {
                 {e.namedRate.display}
               </div>
               <div style={{ fontSize: 13, fontWeight: 600, marginTop: 6 }}>{engineLabel(e.engine)}</div>
-              <div style={{ fontSize: 11.5, color: STATUS_TONE_COLOR[status.tone], marginTop: 2 }}>{status.text}</div>
+              <div style={{ fontSize: 12, color: STATUS_TONE_COLOR[status.tone], marginTop: 2 }}>{status.text}</div>
               {e.measured > 0 && (
-                <Muted size={11} style={{ display: 'block', marginTop: 2 }}>
+                <Muted size={12} style={{ display: 'block', marginTop: 2 }}>
                   In {e.named} of {e.measured} answer{e.measured === 1 ? '' : 's'}
                 </Muted>
               )}
@@ -442,7 +442,7 @@ export function OverviewReport({ report }) {
       <Card style={{ padding: 22 }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           {verdict ? <Tag tone={verdict === 'BEHIND' ? 'neg' : 'accent'}>{verdict}</Tag> : null}
-          <Muted size={11} style={{ fontFamily: 'var(--font-mono)', letterSpacing: '.1em' }}>
+          <Muted size={12} style={{ fontFamily: 'var(--font-mono)', letterSpacing: '.1em' }}>
             {report.meta.answersMeasured} ANSWERS MEASURED
             {report.meta.answers !== report.meta.answersMeasured
               ? ` OF ${report.meta.answers} ATTEMPTED` : ''}
@@ -518,7 +518,7 @@ export function OverviewReport({ report }) {
       {ranked.length >= 2 ? (
         <Card style={{ padding: 18 }}>
           <SectionHead title="Against the brands this project tracks" />
-          <Muted size={11}>
+          <Muted size={12}>
             Counted in answers, not occurrences. Bars are relative to the brand named most.
           </Muted>
           <div style={{ marginTop: 12 }}>
@@ -539,25 +539,25 @@ export function OverviewReport({ report }) {
       <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))' }}>
         <Card style={{ padding: 18 }}>
           <SectionHead title="Prompts where you are least visible" />
-          <Muted size={11}>
+          <Muted size={12}>
             Ranked by how often the models named you. Facts only — no recommendation.
           </Muted>
           <div style={{ marginTop: 10 }}>
             {weakest.length ? weakest.map((q) => (
               <div key={q.promptId || q.text} style={{ padding: '9px 0', borderBottom: '1px solid var(--neutral-800)' }}>
                 <div style={{ fontSize: 13 }}>{q.text}</div>
-                <Muted size={11}>
+                <Muted size={12}>
                   named in {q.named} of {q.measured} answers
                   {q.competitors.length ? ` · models named ${q.competitors.slice(0, 3).join(', ')} instead` : ''}
                 </Muted>
               </div>
-            )) : <Muted size={12}>Nothing measured in this period.</Muted>}
+            )) : <Muted size={12}>No results in this period. Run a measurement from Setup &amp; runs.</Muted>}
           </div>
         </Card>
 
         <Card style={{ padding: 18 }}>
-          <SectionHead title="Sources feeding competitors" right={<Muted size={11}>{report.gaps.total} total</Muted>} />
-          <Muted size={11}>
+          <SectionHead title="Sources feeding competitors" right={<Muted size={12}>{report.gaps.total} total</Muted>} />
+          <Muted size={12}>
             Sites the models read for answers that named a competitor and not you.
           </Muted>
           <div style={{ marginTop: 10 }}>
@@ -565,11 +565,11 @@ export function OverviewReport({ report }) {
               <div key={g.domain} style={{ padding: '9px 0', borderBottom: '1px solid var(--neutral-800)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
                   <span style={{ fontSize: 13 }}>{g.domain}</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-3)' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-3)' }}>
                     priority {g.gapScore}
                   </span>
                 </div>
-                <Muted size={11}>
+                <Muted size={12}>
                   {SOURCE_TYPE_LABELS[g.sourceType] || g.sourceType}
                   {' · named a competitor in '}{g.namedCompetitor} of {g.answers} answers that used it
                   {' · named you in '}{g.namedYou}
@@ -597,7 +597,7 @@ export function InsightsReport({ report }) {
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       <Card style={{ padding: 20 }}>
-        <SectionHead title="Headline" right={<Muted size={11}>click a number for the evidence</Muted>} />
+        <SectionHead title="Headline" right={<Muted size={12}>click a number for the evidence</Muted>} />
         <ExpandableMetricStrip
           report={report}
           tiles={[
@@ -617,13 +617,13 @@ export function InsightsReport({ report }) {
         <SectionHead
           title="By model"
           right={report.modelStrength.strongest ? (
-            <Muted size={11}>
+            <Muted size={12}>
               strongest {engineLabel(report.modelStrength.strongest.engine)}
               {' · weakest '}{engineLabel(report.modelStrength.weakest.engine)}
             </Muted>
           ) : null}
         />
-        <Muted size={11}>
+        <Muted size={12}>
           {report.modelStrength.note
             || 'The same prompts, asked of each model.'}
         </Muted>
@@ -643,7 +643,7 @@ export function InsightsReport({ report }) {
       {trend?.length > 1 ? (
         <Card style={{ padding: 18 }}>
           <SectionHead title="Across runs" />
-          <Muted size={11}>
+          <Muted size={12}>
             One point per measurement run — the unit that asked the whole prompt set at one
             moment. {scoped ? '' : 'Showing every run, including runs outside the selected period.'}
           </Muted>
@@ -661,8 +661,8 @@ export function InsightsReport({ report }) {
       ) : (
         <Empty
           title="No trend yet"
-          detail="A trend needs at least two measurement runs. Runs are manual on this project, so
-                  this fills in as you measure again."
+          detail="A trend needs at least two measurements. Run another from Setup & runs and
+                  this fills in."
         />
       )}
     </div>
@@ -773,7 +773,7 @@ function ScoreBadge({ value }) {
       <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--font-mono)', color: inkFor(band.color), lineHeight: 1.1 }}>
         {Math.round(value)}
       </div>
-      <div style={{ fontSize: 9.5, fontWeight: 600, color: inkFor(band.color), marginTop: 2, lineHeight: 1.2 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: inkFor(band.color), marginTop: 2, lineHeight: 1.2 }}>
         {band.label}
       </div>
     </div>
@@ -809,7 +809,7 @@ function ModelToneChip({ engine, answers }) {
       </span>
       <ToneFace tone={tone} size={18} />
       {answers.length > 1 && (
-        <span style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>×{answers.length}</span>
+        <span style={{ fontSize: 12, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>×{answers.length}</span>
       )}
     </span>
   );
@@ -1021,8 +1021,8 @@ export function SentimentReport({
     return (
       <Empty
         title="No sentiment reading yet"
-        detail="Sentiment is read from the answers that mention you. None of the answers in this
-                period do yet — once they do, each one is analysed here."
+        detail="Sentiment comes from answers that mention you, and none do in this period yet.
+                Run a new measurement from Setup & runs to check again."
       />
     );
   }
@@ -1066,7 +1066,7 @@ export function SentimentReport({
                   <strong style={{ fontFamily: 'var(--font-mono)', color: (s.net.value ?? 0) >= 0 ? TONE_STYLE.positive.color : TONE_STYLE.negative.color }}>
                     {s.net.display}
                   </strong>
-                  <Muted size={11}> (positive % minus negative %)</Muted>
+                  <Muted size={12}> (positive % minus negative %)</Muted>
                 </span>
                 <span style={{ color: 'var(--text-2)' }}>
                   Based on {s.analysed} of {s.named} answer{s.named === 1 ? '' : 's'} that mention you
@@ -1082,7 +1082,7 @@ export function SentimentReport({
         )}
         <AnalysingNote s={s} analysing={analysing} />
         {s.notAboutYou > 0 && (
-          <Muted size={11} style={{ display: 'block', marginTop: 10 }}>
+          <Muted size={12} style={{ display: 'block', marginTop: 10 }}>
             {s.notAboutYou} answer{s.notAboutYou === 1 ? ' was' : 's were'} counted as mentioning you but
             {s.notAboutYou === 1 ? ' is' : ' are'} not actually about you
             {matchedNames ? <> — {s.notAboutYou === 1 ? 'it' : 'they'} matched on {matchedNames}</> : null}.
@@ -1095,7 +1095,7 @@ export function SentimentReport({
       {s.analysed > 0 && (
         <Card style={{ padding: 18 }}>
           <SectionHead title="How the score is worked out" />
-          <Muted size={11}>
+          <Muted size={12}>
             Each answer gets a score from its tone and where it placed you. Being recommended first
             counts most; a criticism of the first name on the list does the most damage. The overall
             score is the average across answers. Counts show how many of your answers fell in each cell.
@@ -1106,7 +1106,7 @@ export function SentimentReport({
                 <tr>
                   <th />
                   {POSITION_BUCKETS_UI.map((b) => (
-                    <th key={b} style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-3)', textAlign: 'center', padding: '0 6px' }}>
+                    <th key={b} style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-3)', textAlign: 'center', padding: '0 6px' }}>
                       {POSITION_LABELS[b]}
                     </th>
                   ))}
@@ -1134,7 +1134,7 @@ export function SentimentReport({
                           }}
                         >
                           <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: c }}>{value}</div>
-                          <div style={{ fontSize: 10.5, color: n ? 'var(--text)' : 'var(--text-3)' }}>
+                          <div style={{ fontSize: 12, color: n ? 'var(--text)' : 'var(--text-3)' }}>
                             {n} answer{n === 1 ? '' : 's'}
                           </div>
                         </td>
@@ -1173,12 +1173,12 @@ export function SentimentReport({
                           <span style={{ fontSize: 12, color: eBand.color, fontWeight: 600 }}>{eBand.label}</span>
                         </div>
                         <div style={{ marginTop: 8 }}><ToneBar counts={{ ...e, classified: e.analysed }} height={8} /></div>
-                        <Muted size={11} style={{ display: 'block', marginTop: 6 }}>
+                        <Muted size={12} style={{ display: 'block', marginTop: 6 }}>
                           {e.positive} positive · {e.neutral} neutral · {e.negative} negative
                         </Muted>
                       </>
                     ) : (
-                      <Muted size={11} style={{ display: 'block', marginTop: 6 }}>Not analysed yet.</Muted>
+                      <Muted size={12} style={{ display: 'block', marginTop: 6 }}>Not analysed yet.</Muted>
                     )}
                   </div>
                 </div>
@@ -1192,7 +1192,7 @@ export function SentimentReport({
       {s.byPrompt.some((p) => p.analysed) && (
         <Card style={{ padding: 18 }}>
           <SectionHead title="By prompt" />
-          <Muted size={11}>
+          <Muted size={12}>
             Weakest first — the prompts where AI speaks least warmly about you. Click a prompt to see
             every answer behind its score.
           </Muted>
@@ -1211,7 +1211,7 @@ export function SentimentReport({
       {s.answers.length > 0 && (
         <Card style={{ padding: 18 }}>
           <SectionHead title="Every answer, with its evidence" />
-          <Muted size={11}>
+          <Muted size={12}>
             The words each answer used about you, copied exactly — the quote is what decided its tone.
           </Muted>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
@@ -1249,7 +1249,7 @@ export function SentimentReport({
                     <div style={{ fontSize: 13, fontStyle: 'italic', borderLeft: `3px solid ${TONE_STYLE[a.tone].color}`, paddingLeft: 10 }}>
                       “{a.quote}”
                     </div>
-                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 6, fontSize: 11.5, color: 'var(--text-3)' }}>
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 6, fontSize: 12, color: 'var(--text-3)' }}>
                       <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{engineLabel(a.engine)}</span>
                       <span>{a.rank ? `Listed ${placeLabel(a)}` : 'Mentioned in the text, not listed'}</span>
                       {a.prompt && <span>· {a.prompt}</span>}
@@ -1267,7 +1267,7 @@ export function SentimentReport({
       {attributes.length > 0 && (
         <Card style={{ padding: 18 }}>
           <SectionHead title="What they say you are" />
-          <Muted size={11}>
+          <Muted size={12}>
             The qualities the answers attribute to you, coloured by tone. Hover a phrase to read the
             quotes behind it.
           </Muted>
@@ -1286,7 +1286,7 @@ export function SentimentReport({
                 >
                   <ToneFace tone={tone} size={16} />
                   {a.label}
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-3)' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-3)' }}>
                     {a.answers}/{described.basis}
                   </span>
                 </span>
@@ -1313,9 +1313,9 @@ export function QuestionsReport({ report }) {
     <Card style={{ padding: 18 }}>
       <SectionHead
         title={`Every prompt (${report.byQuestion.length})`}
-        right={<Muted size={11}>{report.headline.namedRate.display} overall</Muted>}
+        right={<Muted size={12}>{report.headline.namedRate.display} overall</Muted>}
       />
-      <Muted size={11}>
+      <Muted size={12}>
         Each prompt is asked of all three models, so a rate here is over at most three answers —
         the count beside it is the denominator.
       </Muted>
@@ -1343,7 +1343,7 @@ export function QuestionsReport({ report }) {
                     ))}
                   </span>
                 </div>
-                <Muted size={11}>
+                <Muted size={12}>
                   {q.state === 'not_measured'
                     ? 'Not measured in this period.'
                     : `named in ${q.named} of ${q.measured} answers`}
@@ -1367,9 +1367,8 @@ export function GapsReport({ report }) {
     return (
       <Empty
         title="No gaps in this period"
-        detail="A gap is a source the models read for an answer that named a competitor and not you.
-                No answer in this period named a tracked competitor, so there is nothing to rank.
-                Adding competitors to the project widens what this can see."
+        detail="No answer in this period named a tracked competitor instead of you. Add
+                competitors to the project to widen what this report can find."
       />
     );
   }
@@ -1396,7 +1395,7 @@ export function GapsReport({ report }) {
 
       <Card style={{ padding: 18 }}>
         <SectionHead title="Ranked by gap score" />
-        <Muted size={11}>
+        <Muted size={12}>
           Gap score weights how often a source is read against how much of a gap it represents, and
           by what kind of site it is — a directory you can get listed in counts for more than a
           competitor&apos;s own site. This ranks facts; it does not recommend.
@@ -1436,7 +1435,8 @@ export function DomainsReport({ report }) {
     return (
       <Empty
         title="No sources cited yet"
-        detail="The models did not return any citations for these answers in this period."
+        detail="The AI assistants didn't cite any websites in this period. Run a new measurement
+                from Setup & runs to check again."
       />
     );
   }
@@ -1450,7 +1450,7 @@ export function DomainsReport({ report }) {
           {sources.byType.map((t) => (
             <span key={t.type} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <TypeChip type={SOURCE_TYPE_LABELS[t.type] || t.type} title={`${t.citations} citations`} />
-              <Muted size={11}>{t.share.display}</Muted>
+              <Muted size={12}>{t.share.display}</Muted>
             </span>
           ))}
         </div>
@@ -1499,7 +1499,9 @@ export function UrlsReport({ report }) {
     return (
       <Empty
         title="No pages to list"
-        detail={urls.basis.why || 'No citations with a usable page URL in this period.'}
+        detail={urls.basis.why
+          || 'None of the cited sources in this period pointed to a specific page. Run a new '
+            + 'measurement from Setup & runs to check again.'}
       />
     );
   }
@@ -1513,7 +1515,7 @@ export function UrlsReport({ report }) {
           {urls.byType.map((t) => (
             <span key={t.type} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <TypeChip type={PAGE_TYPE_LABELS[t.type] || t.type} title={`${t.citations} citations`} />
-              <Muted size={11}>{t.share.display}</Muted>
+              <Muted size={12}>{t.share.display}</Muted>
             </span>
           ))}
         </div>
@@ -1536,15 +1538,15 @@ export function UrlsReport({ report }) {
                           client will click through to discredits the table. */}
                       {u.title || u.url}
                     </span>
-                    <span style={{ textAlign: 'right', fontSize: 11.5, color: 'var(--text-3)' }}>
+                    <span style={{ textAlign: 'right', fontSize: 12, color: 'var(--text-3)' }}>
                       {PAGE_TYPE_LABELS[u.pageType] || u.pageType}
                     </span>
                     <span style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12.5 }}>{u.citations}</span>
-                    <span style={{ textAlign: 'right', fontSize: 11.5, color: 'var(--text-3)' }}>
+                    <span style={{ textAlign: 'right', fontSize: 12, color: 'var(--text-3)' }}>
                       {u.engines.map(engineLabel).join(', ')}
                     </span>
                   </div>
-                  {u.title ? <Muted size={11}>{u.url}</Muted> : null}
+                  {u.title ? <Muted size={12}>{u.url}</Muted> : null}
                 </div>
               )}
             />
@@ -1588,7 +1590,7 @@ function AnswerPanel({ engine, surfaces, onClose }) {
       }}
       >
         <span style={{
-          fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '.04em',
+          fontSize: 12, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '.04em',
         }}
         >
           {engineLabel(engine)}&rsquo;s answer
@@ -1598,7 +1600,7 @@ function AnswerPanel({ engine, surfaces, onClose }) {
           onClick={onClose}
           style={{
             background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-            fontSize: 11.5, color: 'var(--text-3)',
+            fontSize: 12, color: 'var(--text-3)',
           }}
         >
           Close ✕
@@ -1609,7 +1611,7 @@ function AnswerPanel({ engine, surfaces, onClose }) {
         <div key={i} style={{ padding: '14px 18px', background: '#FFFFFF', borderTop: i ? '1px solid #E5E5E5' : 'none' }} data-color-mode="light">
           {surfaces.length > 1 && (
             <div style={{
-              fontSize: 10.5, fontWeight: 600, color: '#6B6B6B', textTransform: 'uppercase',
+              fontSize: 12, fontWeight: 600, color: '#6B6B6B', textTransform: 'uppercase',
               letterSpacing: '.06em', marginBottom: 8,
             }}
             >
@@ -1649,7 +1651,7 @@ function CitationList({ citations }) {
           target="_blank"
           rel="noreferrer"
           style={{
-            fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-2)',
+            fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-2)',
             textDecoration: 'none', border: '1px solid var(--border)', borderRadius: 'var(--r-pill)',
             padding: '2px 8px', pointerEvents: c.url ? 'auto' : 'none',
           }}
@@ -1679,7 +1681,7 @@ const DEFAULT_ENGINE_VISUAL = { tint: 'var(--surface)', logo: null };
 function EngineLogo({ engine, visual, size = LOGO_SIZE }) {
   if (!visual.logo) {
     return (
-      <span style={{ fontSize: size / 2, fontWeight: 700, color: 'var(--text-3)', lineHeight: `${size}px` }}>
+      <span style={{ fontSize: Math.max(12, size / 2), fontWeight: 700, color: 'var(--text-3)', lineHeight: `${size}px` }}>
         {engineLabel(engine).charAt(0)}
       </span>
     );
@@ -1747,7 +1749,7 @@ function EngineVisibilityCard({ e, surfaces, selected, onSelect }) {
         <span style={{
           position: 'absolute', top: 10, right: 10, background: 'var(--card)',
           border: '1px solid var(--border)', borderRadius: 'var(--r-pill)', padding: '3px 10px',
-          fontSize: 11.5, color: 'var(--text-2)', display: 'flex', alignItems: 'baseline', gap: 5,
+          fontSize: 12, color: 'var(--text-2)', display: 'flex', alignItems: 'baseline', gap: 5,
         }}
         >
           {e.position ? (
@@ -1769,16 +1771,16 @@ function EngineVisibilityCard({ e, surfaces, selected, onSelect }) {
           {e.namedRate.display}
         </div>
         <div style={{ fontSize: 13, fontWeight: 600, marginTop: 6 }}>{engineLabel(e.engine)}</div>
-        <div style={{ fontSize: 11.5, color: STATUS_TONE_COLOR[status.tone], marginTop: 2 }}>{status.text}</div>
+        <div style={{ fontSize: 12, color: STATUS_TONE_COLOR[status.tone], marginTop: 2 }}>{status.text}</div>
         {e.position?.listed ? (
-          <Muted size={11} style={{ display: 'block', marginTop: 2 }}>
+          <Muted size={12} style={{ display: 'block', marginTop: 2 }}>
             {e.position.listed === 1
               ? 'The only business this answer lists'
               : `${ordinal(e.position.value)} of ${e.position.listed} businesses this answer lists`}
           </Muted>
         ) : null}
         {e.namedOutsideList ? (
-          <Muted size={11} style={{ display: 'block', marginTop: 2 }}>
+          <Muted size={12} style={{ display: 'block', marginTop: 2 }}>
             Mentioned in the text, not in its list of recommendations
           </Muted>
         ) : null}
@@ -1786,13 +1788,13 @@ function EngineVisibilityCard({ e, surfaces, selected, onSelect }) {
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
             {cited ? <Tag tone="accent">cited your site</Tag> : null}
             {didNotSearch ? <Tag tone="muted">did not search</Tag> : null}
-            {failureReason ? <Muted size={11}>{failureReason}</Muted> : null}
+            {failureReason ? <Muted size={12}>{failureReason}</Muted> : null}
           </div>
         )}
       </div>
       <div style={{
         width: '100%', boxSizing: 'border-box', padding: '8px 14px', borderTop: '1px solid var(--border)',
-        fontSize: 11.5, color: selected ? 'var(--primary)' : 'var(--text-3)',
+        fontSize: 12, color: selected ? 'var(--primary)' : 'var(--text-3)',
       }}
       >
         {selected ? 'Hide answer ▲' : 'View answer ▾'}
@@ -1808,7 +1810,7 @@ function EngineVisibilityCard({ e, surfaces, selected, onSelect }) {
  */
 function VisibilityByModel({ visibilityByEngine, byEngine }) {
   const [selected, setSelected] = useState(null);
-  if (!visibilityByEngine?.length) return <Muted size={11}>Not measured in this period.</Muted>;
+  if (!visibilityByEngine?.length) return <Muted size={12}>Not measured in this period.</Muted>;
   const surfacesOf = (engine) => byEngine.filter((s) => s.engine === engine);
   return (
     <div>
@@ -1835,7 +1837,7 @@ function PromptDetailSection({ title, children }) {
   return (
     <div style={{ marginTop: 14 }}>
       <div style={{
-        fontSize: 10.5, fontFamily: 'var(--font-mono)', fontWeight: 600,
+        fontSize: 12, fontFamily: 'var(--font-mono)', fontWeight: 600,
         textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--text-3)',
         marginBottom: 8,
       }}
@@ -1880,15 +1882,15 @@ function PromptRow({ q }) {
             <Tag key={v.engine} tone={engineTone(v)}>
               {engineLabel(v.engine)}
             </Tag>
-          )) : <Muted size={11}>not measured</Muted>}
-          <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{open ? '▲' : '▾'}</span>
+          )) : <Muted size={12}>not measured</Muted>}
+          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{open ? '▲' : '▾'}</span>
         </span>
       </button>
 
       {open && (
         <div style={{ padding: '0 0 18px' }}>
           {!engines.length ? (
-            <Muted size={11}>Not measured in this period.</Muted>
+            <Muted size={12}>Not measured in this period.</Muted>
           ) : (
             <>
               <PromptDetailSection title="Visibility by model">
@@ -1905,7 +1907,7 @@ function PromptRow({ q }) {
                       </div>
                     ))}
                   </div>
-                ) : <Muted size={11}>No competitor named for this prompt.</Muted>}
+                ) : <Muted size={12}>No competitor named for this prompt.</Muted>}
               </PromptDetailSection>
 
               <PromptDetailSection title="Citations">
@@ -1918,7 +1920,7 @@ function PromptRow({ q }) {
                       </div>
                     ))}
                   </div>
-                ) : <Muted size={11}>No source cited for this prompt.</Muted>}
+                ) : <Muted size={12}>No source cited for this prompt.</Muted>}
               </PromptDetailSection>
             </>
           )}
@@ -1946,7 +1948,7 @@ export function AnswersReport({ report }) {
 
       <Card style={{ padding: 18 }}>
         <SectionHead title="Every prompt, every model" />
-        <Muted size={11}>
+        <Muted size={12}>
           Click a prompt to open it: whether each model named you, who else it named instead, what it
           cited, and the answer itself. Answers we could not read are shown too — a list that quietly
           dropped them would make coverage invisible.

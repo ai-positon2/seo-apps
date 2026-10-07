@@ -19,7 +19,7 @@ export function PromptByPrompt({ byPrompt }) {
           <div key={g.promptId || g.text} style={{ padding: '10px 0', borderTop: '1px solid var(--border)' }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
               <span style={{
-                fontFamily: 'var(--font-mono)', fontSize: 11,
+                fontFamily: 'var(--font-mono)', fontSize: 12,
                 color: verdictColor(g.mentionedOnAnySurface),
               }}>
                 {verdictLabel(g.mentionedOnAnySurface)}

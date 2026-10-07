@@ -44,7 +44,7 @@ export default function WorkTally({ tally }) {
       style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '3px 4px', borderRadius: 'var(--r-pill)', border: '1px solid var(--border)', background: 'var(--surface)' }}
     >
       {items.map((it) => (
-        <span key={it.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '0 5px', fontSize: 11.5, fontWeight: 600, fontFamily: 'var(--font-mono)', color: it.color }}>
+        <span key={it.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '0 5px', fontSize: 12, fontWeight: 600, fontFamily: 'var(--font-mono)', color: it.color }}>
           {it.icon}{it.n}
         </span>
       ))}

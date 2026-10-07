@@ -91,7 +91,7 @@ function Scorecard({ audit }) {
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 24 }}>
         <div style={{ flexShrink: 0, textAlign: 'center' }}>
           <div style={{ fontSize: 48, fontWeight: 700, color: scoreColor, fontFamily: 'var(--font-mono)' }}>{score}</div>
-          <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 4 }}>Score (pass%)</div>
+          <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 4 }}>Score (pass%)</div>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>

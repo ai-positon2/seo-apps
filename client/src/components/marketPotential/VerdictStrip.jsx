@@ -29,7 +29,7 @@ export default function VerdictStrip({ pick, rows, rankableTerms, homeShort, sum
       marginBottom: 18, borderRadius: 'var(--r-lg)', border: '1px solid rgba(99,91,255,0.28)',
       background: 'linear-gradient(180deg, var(--primary-soft), var(--card))', padding: '16px 18px',
     }}>
-      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--primary-text)', marginBottom: 10 }}>Verdict</div>
+      <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--primary-text)', marginBottom: 10 }}>Verdict</div>
 
       {pick ? (
         <>
@@ -55,13 +55,13 @@ export default function VerdictStrip({ pick, rows, rankableTerms, homeShort, sum
       {/* Grounded AI summary */}
       <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px dashed rgba(99,91,255,0.25)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-          <span style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)' }}>Summary</span>
-          <span style={{ fontSize: 10.5, color: 'var(--text-3)' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)' }}>Summary</span>
+          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
             {summaryLoading ? 'generating…' : summarySource === 'openai' ? 'AI-generated — verify before sharing' : 'auto-generated — verify before sharing'}
           </span>
           {onRegenerate && !summaryLoading && (
             <button onClick={onRegenerate} title="Regenerate for the current priorities"
-              style={{ marginLeft: 'auto', fontSize: 10.5, background: 'none', border: 'none', color: 'var(--primary-text)', cursor: 'pointer' }}>
+              style={{ marginLeft: 'auto', fontSize: 12, background: 'none', border: 'none', color: 'var(--primary-text)', cursor: 'pointer' }}>
               ↻ Regenerate
             </button>
           )}

@@ -34,7 +34,7 @@ function densityColor(n) {
   return 'var(--danger)';
 }
 
-const thStyle = { padding: '10px 14px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-3)', whiteSpace: 'nowrap', textAlign: 'left' };
+const thStyle = { padding: '10px 14px', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-3)', whiteSpace: 'nowrap', textAlign: 'left' };
 const tdStyle = { padding: '11px 14px', color: 'var(--text)', whiteSpace: 'nowrap' };
 
 function Th({ label, k, sort, setSort, tip, align = 'left' }) {
@@ -215,7 +215,7 @@ export default function DecisionBoard({ result, scoredRows, weights, onWeightsCh
                       {r.region}
                       {r.isHome ? <Badge variant="brand">Home</Badge> : <TierChip tier={r.tier} size="sm" />}
                     </div>
-                    <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-3)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-3)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
                       {r.population ? `${(r.population / 1e6).toFixed(1)}M residents` : ''}
                       {!r.isHome && r.confidence && <ConfidenceBadge confidence={r.confidence} coverage={r.coverage} termsWithVolume={r.termsWithVolume} rankableTerms={rankableTerms} />}
                     </div>
@@ -225,7 +225,7 @@ export default function DecisionBoard({ result, scoredRows, weights, onWeightsCh
                   </td>
                   <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, color: indexColor(r.demandIndex, r.isHome) }}>
                     {r.demandIndex != null ? r.demandIndex : '—'}
-                    {!r.isHome && r.demandIndex != null && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-3)' }}> ({(r.demandIndex / 100).toFixed(1)}×)</span>}
+                    {!r.isHome && r.demandIndex != null && <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-3)' }}> ({(r.demandIndex / 100).toFixed(1)}×)</span>}
                   </td>
                   <td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(r.estMonthlySearches)}</td>
                   <td style={{ ...tdStyle, textAlign: 'right' }}>
@@ -234,7 +234,7 @@ export default function DecisionBoard({ result, scoredRows, weights, onWeightsCh
                       : (
                         <span style={{ fontWeight: 600, color: densityColor(r.competitorDensity), display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
                           {r.competitorDensity}
-                          {cb && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-3)' }}>· {cb.providers}p {cb.directories}d</span>}
+                          {cb && <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-3)' }}>· {cb.providers}p {cb.directories}d</span>}
                           {cb?.youRankHere && <span title="You rank here" style={{ color: 'var(--success)' }}>●</span>}
                         </span>
                       )}
@@ -270,7 +270,7 @@ export default function DecisionBoard({ result, scoredRows, weights, onWeightsCh
             <p style={{ margin: '0 0 8px' }}>
               <b>What it can't see:</b> because SEMrush is national, all local signal comes from searchers who typed the city name (the templated <code>[service] [city]</code> method). Absolute volumes therefore <b>undercount</b> real demand — read every figure as a relative index between markets, not total market size. Dollar figures are directional and assumption-driven.
             </p>
-            <div style={{ color: 'var(--text-3)', fontSize: 11.5 }}>
+            <div style={{ color: 'var(--text-3)', fontSize: 12 }}>
               Data month: {result.yearMonth} · Source: {result.dataSource}{result.method ? ` · ${result.method} method` : ''}{result.basketVersion ? ` · basket v${result.basketVersion}` : ''} · {result.stats?.rankableTerms ?? '?'} terms measured.
             </div>
           </div>

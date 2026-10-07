@@ -65,8 +65,7 @@ export default function OverviewPanel({
         <Eyebrow>Site health</Eyebrow>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
           <span
-            className="num"
-            style={{ fontSize: 64, fontWeight: 600, lineHeight: 0.9, color: healthColor }}
+            style={{ fontSize: 64, fontWeight: 600, lineHeight: 0.9, color: healthColor, fontVariantNumeric: 'tabular-nums' }}
           >
             {health === null ? '—' : health}
           </span>
@@ -81,7 +80,7 @@ export default function OverviewPanel({
           <span style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.5 }}>
             {provisional
               ? 'Not scored yet. The score comes from the full audit, which runs once '
-                + 'the crawl reaches a terminal state — scoring the live status checks instead '
+                + 'the crawl finishes — scoring the live status checks instead '
                 + 'would print a near-perfect number for a site nothing has audited.'
               : 'No HTML pages were crawled, so there is nothing to score. A score of zero '
                 + 'would describe a catastrophic site rather than an absent crawl.'}
@@ -90,7 +89,7 @@ export default function OverviewPanel({
           <>
             <span
               style={{
-                fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase',
+                fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase',
                 fontWeight: 600, color: 'var(--text-3)',
               }}
             >
@@ -107,8 +106,7 @@ export default function OverviewPanel({
                         : b.label === 'Warnings' ? 'have a warning' : 'have a notice'}
                     </span>
                     <span
-                      className="num"
-                      style={{ fontSize: 13, fontWeight: 600, color: BAND_COLOR[b.label] }}
+                      style={{ fontSize: 13, fontWeight: 600, color: BAND_COLOR[b.label], fontVariantNumeric: 'tabular-nums' }}
                     >
                       −{b.points}
                     </span>
@@ -125,13 +123,20 @@ export default function OverviewPanel({
               ))}
             </div>
             {/* The weights, said out loud. Without them the bars are three
-                numbers whose relative size looks arbitrary. */}
-            <span style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5 }}>
-              Each page loses 40 points for every kind of error it has, 10 for every kind of warning
-              and 2 for every kind of notice, up to 100; the score is 100 less the average loss over
-              the {metrics.htmlCount} HTML pages audited. Redirects, error pages and external pages
-              are not scored as pages.
+                numbers whose relative size looks arbitrary — but the arithmetic
+                is for whoever asks, so it sits behind a disclosure. */}
+            <span style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5 }}>
+              Errors cost the most points, warnings fewer and notices very few.
             </span>
+            <details style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5 }}>
+              <summary style={{ cursor: 'pointer', color: 'var(--text-2)' }}>How the score is calculated</summary>
+              <div style={{ marginTop: 6 }}>
+                Each page loses 40 points for every kind of error it has, 10 for every kind of warning
+                and 2 for every kind of notice, up to 100; the score is 100 less the average loss over
+                the {metrics.htmlCount} HTML pages audited. Redirects, error pages and external pages
+                are not scored as pages.
+              </div>
+            </details>
           </>
         )}
       </Panel>
@@ -242,8 +247,8 @@ export default function OverviewPanel({
             }}
           >
             <span style={{ fontSize: 12.5, color: 'var(--text)', lineHeight: 1.5 }}>
-              Not every check could run on this crawl. These found nothing because they were not
-              evaluated, not because they passed.
+              Some checks couldn’t run on this scan, so they show no issues — that doesn’t mean
+              they passed.
             </span>
             {coverage.notEvaluated.map(({ reason, titles }) => (
               <span key={`n-${reason}`} style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>
@@ -298,8 +303,8 @@ export default function OverviewPanel({
               }}
             >
               {reconciliation.agrees
-                ? `Complete: the analyser recorded ${reconciliation.analyser.toLocaleString()} `
-                  + 'findings and this page is showing all of them.'
+                ? `All ${reconciliation.analyser.toLocaleString()} issue${reconciliation.analyser === 1 ? '' : 's'} `
+                  + 'found are listed in this report.'
                 : reconciliation.notStored
                   // The audit ran and its output was not kept — the failure
                   // migration 0023 exists to end. Saying "this page received
@@ -319,21 +324,25 @@ export default function OverviewPanel({
                       + `findings and this page received ${reconciliation.shown.toLocaleString()}. `
                       + 'Every figure above understates the site — please report this.'}
             </span>
-            <span style={{ fontSize: 11.5, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
+            {/* Per severity, secondary. When the sides agree only one number
+                per band is worth saying; when they disagree, both are. */}
+            <span style={{ fontSize: 12, color: 'var(--text-3)', fontVariantNumeric: 'tabular-nums' }}>
               {reconciliation.rows
                 .filter((r) => r.analyser || r.shown)
-                .map((r) => `${r.sev} ${r.shown}/${r.analyser}`)
-                .join('  ·  ')}
-              {reconciliation.dismissed ? `  ·  ${reconciliation.dismissed} dismissed` : ''}
+                .map((r) => (reconciliation.agrees
+                  ? severityCount(r.sev, r.analyser)
+                  : `${r.shown.toLocaleString()} of ${severityCount(r.sev, r.analyser)} shown`))
+                .join(' · ')}
+              {reconciliation.dismissed ? ` · ${reconciliation.dismissed} dismissed` : ''}
             </span>
             {/* Where the findings sit, shown only when the two sides disagree.
                 A gap is far more often a population mismatch than lost data —
                 naming the scopes makes it diagnosable rather than alarming. */}
             {!reconciliation.agrees && reconciliation.byScope && (
-              <span style={{ fontSize: 11.5, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
-                by scope: {Object.entries(reconciliation.byScope)
-                  .map(([scope, n]) => `${scope} ${n}`)
-                  .join('  ·  ')}
+              <span style={{ fontSize: 12, color: 'var(--text-3)', fontVariantNumeric: 'tabular-nums' }}>
+                Where they sit: {Object.entries(reconciliation.byScope)
+                  .map(([scope, n]) => `${n.toLocaleString()} ${SCOPE_WORD[scope] || scope}`)
+                  .join(' · ')}
               </span>
             )}
           </div>
@@ -342,7 +351,7 @@ export default function OverviewPanel({
         <Panel style={{ gap: 12 }}>
           <span
             style={{
-              fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase',
+              fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase',
               fontWeight: 600, color: 'var(--text-3)',
             }}
           >
@@ -365,10 +374,9 @@ export default function OverviewPanel({
             return (
               <div key={g.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                 <span
-                  className="num"
                   style={{
                     fontSize: 13, fontWeight: 600, color: 'var(--text-3)', width: 18,
-                    flexShrink: 0, paddingTop: 2,
+                    flexShrink: 0, paddingTop: 2, fontVariantNumeric: 'tabular-nums',
                   }}
                 >
                   {i + 1}
@@ -402,3 +410,13 @@ const BAND_COLOR = {
   Warnings: 'var(--viz-warn)',
   Notices: 'var(--text-3)',
 };
+
+// "1,763 errors", "1 warning" — the reconciliation's per-severity line.
+const SEVERITY_WORD = { error: 'error', warning: 'warning', notice: 'notice', info: 'info note' };
+function severityCount(sev, n) {
+  const word = SEVERITY_WORD[sev] || sev;
+  return `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
+}
+
+// Finding scopes (server analyzer) in the words the reconciliation line uses.
+const SCOPE_WORD = { page: 'on pages', site: 'site-wide', resource: 'on files', template: 'on page templates' };

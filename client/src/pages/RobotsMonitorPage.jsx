@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { rm } from '../lib/robotsMonitorApi';
 import ModuleRuns from '../components/ModuleRuns';
 import { useToast } from '../ui/Toast';
+import { SectionHeader } from '../ui/SectionHeader';
+import { friendlyError } from '../lib/friendlyError';
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 
@@ -254,7 +256,10 @@ function DomainForm({ onSave, onCancel, initial = {} }) {
   const [env, setEnv] = useState(initial.env || 'production');
   const [useAuth, setUseAuth] = useState(!!initial.auth);
   const [username, setUsername] = useState(initial.auth?.username || '');
-  const [password, setPassword] = useState(initial.auth?.password || '');
+  // The server never sends a saved password back; it says one exists. Left
+  // blank on edit, the saved one is kept.
+  const hasSavedPassword = Boolean(initial.auth?.hasPassword);
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -272,13 +277,16 @@ function DomainForm({ onSave, onCancel, initial = {} }) {
   async function handleSave() {
     const urlErr = validateUrl(url);
     if (urlErr) return setError(urlErr);
-    if (useAuth && (!username.trim() || !password)) return setError('Username and password are required for basic auth');
+    if (useAuth && (!username.trim() || (!password && !hasSavedPassword))) return setError('Username and password are required for basic auth');
     setError('');
     setSaving(true);
     try {
-      await onSave({ url, env, auth: useAuth ? { username: username.trim(), password } : null });
+      // A blank password on an edit is left out, so the server keeps the saved one.
+      const auth = !useAuth ? null
+        : (password ? { username: username.trim(), password } : { username: username.trim() });
+      await onSave({ url, env, auth });
     } catch (e) {
-      setError(e.message);
+      setError(friendlyError(e));
     } finally {
       setSaving(false);
     }
@@ -323,7 +331,7 @@ function DomainForm({ onSave, onCancel, initial = {} }) {
           </div>
           <div>
             <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 500, color: 'var(--text)', marginBottom: '0.25rem' }}>Password</label>
-            <FocusInput type="password" value={password} onChange={e => setPassword(e.target.value)} />
+            <FocusInput type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder={hasSavedPassword ? 'Leave blank to keep the current password' : ''} />
           </div>
         </div>
       )}
@@ -461,7 +469,7 @@ function ClientCard({ client, onChange, onDelete }) {
       setEditingName(false);
       setNameError('');
     } catch (e) {
-      setNameError(e.message);
+      setNameError(friendlyError(e));
     }
   }
 
@@ -585,7 +593,7 @@ function ClientsTab({ showToast }) {
   useEffect(() => {
     rm.clients()
       .then(setClients)
-      .catch(e => showToast(e.message, 'error'))
+      .catch(e => showToast(friendlyError(e), 'error'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -598,7 +606,7 @@ function ClientsTab({ showToast }) {
       setAddingClient(false);
       setAddError('');
     } catch (e) {
-      setAddError(e.message);
+      setAddError(friendlyError(e));
     }
   }
 
@@ -724,7 +732,7 @@ function PageResultRow({ page, env }) {
           <span style={{
             padding: '0.0625rem 0.375rem',
             borderRadius: '4px',
-            fontSize: '0.625rem',
+            fontSize: '0.75rem',
             fontWeight: 500,
             background: page.noindex ? 'var(--danger-soft, #FEF2F2)' : 'var(--surface)',
             color: page.noindex ? 'var(--danger)' : 'var(--text-2)',
@@ -732,7 +740,7 @@ function PageResultRow({ page, env }) {
             {signalLabel}
           </span>
           {page.httpStatus && page.httpStatus !== 200 && (
-            <span style={{ background: 'var(--surface)', color: 'var(--text-2)', padding: '0.0625rem 0.375rem', borderRadius: '4px', fontSize: '0.625rem' }}>HTTP {page.httpStatus}</span>
+            <span style={{ background: 'var(--surface)', color: 'var(--text-2)', padding: '0.0625rem 0.375rem', borderRadius: '4px', fontSize: '0.75rem' }}>HTTP {page.httpStatus}</span>
           )}
         </div>
         {page.redirected && page.finalUrl !== page.url && (
@@ -835,7 +843,7 @@ function RunSummaryRow({ run }) {
         onMouseLeave={e => e.currentTarget.style.background = 'var(--card)'}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text)', fontFamily: 'var(--font-mono)' }}>{date}</span>
+          <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>{date}</span>
           <span style={{
             fontSize: '0.75rem',
             padding: '0.125rem 0.5rem',
@@ -881,7 +889,7 @@ function HistoryTab({ showToast }) {
   }, []);
 
   useEffect(() => {
-    rm.history(30).then(setHistory).catch(e => showToast(e.message, 'error')).finally(() => setLoading(false));
+    rm.history(30).then(setHistory).catch(e => showToast(friendlyError(e), 'error')).finally(() => setLoading(false));
     rm.runStatus().then(s => { setIsRunning(s.isRunning); setCurrentRunId(s.currentRunId); }).catch(() => {});
   }, []);
 
@@ -909,7 +917,7 @@ function HistoryTab({ showToast }) {
       setIsRunning(true);
       setCurrentRunId(res.runId);
     } catch (e) {
-      showToast(e.message, 'error');
+      showToast(friendlyError(e), 'error');
     }
   }
 
@@ -995,7 +1003,7 @@ function SettingsTab({ showToast }) {
   useEffect(() => {
     rm.slackConfig()
       .then(c => { setConfig(c); setForm({ webhookUrl: c.webhookUrl || '', channel: c.channel || '', scheduleTime: c.scheduleTime || '06:00', timezone: c.timezone || 'Asia/Kolkata', enabled: c.enabled !== false }); })
-      .catch(e => showToast(e.message, 'error'))
+      .catch(e => showToast(friendlyError(e), 'error'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -1021,7 +1029,7 @@ function SettingsTab({ showToast }) {
       setSaveMsg('Settings saved.');
       setTimeout(() => setSaveMsg(''), 3000);
     } catch (e) {
-      showToast(e.message, 'error');
+      showToast(friendlyError(e), 'error');
     } finally {
       setSaving(false);
     }
@@ -1034,7 +1042,7 @@ function SettingsTab({ showToast }) {
       await rm.testSlack();
       setTestMsg('✅ Test message sent successfully.');
     } catch (e) {
-      setTestMsg(`❌ ${e.message}`);
+      setTestMsg(`❌ ${friendlyError(e)}`);
     } finally {
       setTesting(false);
     }
@@ -1158,6 +1166,15 @@ export default function RobotsMonitorPage() {
 
   return (
     <>
+      {/* The page had no <h1>: its only title was in the window chrome. Same
+          heading the Site Crawler page uses. */}
+      <div style={{ maxWidth: '64rem', margin: '0 auto', width: '100%', padding: '1.5rem 1.5rem 0' }}>
+        <SectionHeader
+          title="Robots Monitor"
+          subtitle="A daily check that live pages are not hidden from Google."
+          style={{ marginBottom: 16 }}
+        />
+      </div>
       <MonitorNav active={tab} onChange={setTab} />
 
       <main style={{ flex: 1, maxWidth: '64rem', margin: '0 auto', width: '100%', padding: '1.5rem' }}>

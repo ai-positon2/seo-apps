@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { SectionHeader, DataTable, Badge, EmptyState, Button, MetricCard } from '../ui';
 import RunDetailDrawer from '../components/RunDetailDrawer';
 import { useProjectNames, humanRunLabel } from '../lib/runLabel';
+import { humanRunStatus, humanRunAction } from '../lib/humanRunLabel';
+import { friendlyError, errorDetail } from '../lib/friendlyError';
 import {
   fetchRuns, fetchRunStats, toolLabel, formatDuration, formatWhen, STATUS_VARIANT,
 } from '../lib/runsApi';
@@ -48,7 +50,7 @@ export default function RunsPage() {
   const [reloadKey, setReloadKey] = useState(0);
 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(null);
   // A direct link to one run (e.g. Content Architect's "View Recommendation")
   // opens straight to its drawer — RunDetailDrawer fetches the full row itself
   // from just an id, so nothing here needs the row to already be in `runs`.
@@ -56,7 +58,7 @@ export default function RunsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError('');
+    setError(null);
     try {
       const data = await fetchRuns({ toolId, status, mine, search, limit: PAGE_SIZE, offset });
       // Paging appends; a filter change resets `offset` to 0 and replaces.
@@ -66,7 +68,7 @@ export default function RunsPage() {
       setTrackedTools(data.trackedTools || []);
       setViewerUserId(data.viewerUserId || null);
     } catch (e) {
-      setError(e.message);
+      setError(e);
     } finally {
       setLoading(false);
     }
@@ -98,12 +100,14 @@ export default function RunsPage() {
     { key: 'tool_id', label: 'Tool', width: 190, render: (id) => toolLabel(id) },
     {
       key: 'action', label: 'Action', width: 110,
-      render: (action) => <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{action || 'run'}</span>,
+      render: (action) => <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{humanRunAction(action)}</span>,
     },
     {
-      key: 'label', label: 'Ran on',
+      // Wraps, breaking long URLs anywhere: unwrapped, one article URL pushed the
+      // table past its card at 1440px and Who/Status/Took scrolled out of view.
+      key: 'label', label: 'Ran on', wrap: true,
       render: (value) => (
-        <span title={value || undefined} style={{ color: value ? 'var(--text)' : 'var(--text-3)' }}>
+        <span title={value || undefined} style={{ color: value ? 'var(--text)' : 'var(--text-3)', overflowWrap: 'anywhere' }}>
           {humanRunLabel(value, projectNames) || '—'}
         </span>
       ),
@@ -111,7 +115,7 @@ export default function RunsPage() {
     {
       key: 'actor_email', label: 'Who', width: 190,
       render: (email, row) => (
-        <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
           {email || 'unknown'}
           {row.user_id && viewerUserId && row.user_id === viewerUserId ? ' (you)' : ''}
         </span>
@@ -119,11 +123,11 @@ export default function RunsPage() {
     },
     {
       key: 'status', label: 'Status', width: 100,
-      render: (value) => <Badge variant={STATUS_VARIANT[value] || 'neutral'}>{value}</Badge>,
+      render: (value) => <Badge variant={STATUS_VARIANT[value] || 'neutral'}>{humanRunStatus(value)}</Badge>,
     },
     {
-      key: 'duration_ms', label: 'Took', width: 80, align: 'right', mono: true,
-      render: (ms) => formatDuration(ms),
+      key: 'duration_ms', label: 'Took', width: 80, align: 'right',
+      render: (ms) => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatDuration(ms)}</span>,
     },
   ];
 
@@ -148,16 +152,22 @@ export default function RunsPage() {
           fontSize: 12, color: 'var(--danger)', background: 'var(--danger-soft)',
           border: '1px solid var(--danger)', borderRadius: 8, padding: '8px 10px', marginBottom: 16,
         }}>
-          {error}
+          {friendlyError(error)}
+          {errorDetail(error) && (
+            <details style={{ marginTop: 4 }}>
+              <summary style={{ cursor: 'pointer' }}>Show details</summary>
+              <div style={{ marginTop: 4, color: 'var(--text-2)' }}>{errorDetail(error)}</div>
+            </details>
+          )}
         </div>
       )}
 
       {stats?.totals && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 20 }}>
           <MetricCard label="Runs (30 days)" value={stats.totals.total} />
-          <MetricCard label="Completed" value={stats.totals.completed} />
+          <MetricCard label="Finished" value={stats.totals.completed} />
           <MetricCard label="Failed" value={stats.totals.failed} />
-          <MetricCard label="In flight" value={stats.totals.running} />
+          <MetricCard label="Running now" value={stats.totals.running} />
         </div>
       )}
 
@@ -169,7 +179,7 @@ export default function RunsPage() {
 
         <select value={status} onChange={e => changeFilter(setStatus)(e.target.value)} style={selectStyle}>
           <option value="">Any status</option>
-          <option value="completed">Completed</option>
+          <option value="completed">Finished</option>
           <option value="failed">Failed</option>
           <option value="running">Running</option>
           <option value="cancelled">Cancelled</option>

@@ -15,7 +15,7 @@ function monthLabel(ym) {
   return `${names[(m || 1) - 1]} ${y}`;
 }
 
-const cell = { padding: '5px 8px', fontSize: 10.5, borderBottom: '1px solid #E6EBF3', textAlign: 'left', color: '#0A2540' };
+const cell = { padding: '5px 8px', fontSize: 12, borderBottom: '1px solid #E6EBF3', textAlign: 'left', color: '#0A2540' };
 const cellR = { ...cell, textAlign: 'right' };
 
 export default function ReportView({ result, scoredRows, weights, assumptions, summary, homeName }) {
@@ -35,21 +35,21 @@ export default function ReportView({ result, scoredRows, weights, assumptions, s
       {/* Title */}
       <div style={{ borderBottom: '2px solid #635BFF', paddingBottom: 8, marginBottom: 12 }}>
         <div style={{ fontSize: 18, fontWeight: 800 }}>Market Potential — {result.service?.name}</div>
-        <div style={{ fontSize: 11, color: '#425466', marginTop: 2 }}>
+        <div style={{ fontSize: 12, color: '#425466', marginTop: 2 }}>
           Home market: {homeName} · Data month: {monthLabel(result.yearMonth)} · Source: {result.dataSource === 'semrush' ? 'SEMrush (templated method)' : result.dataSource}
         </div>
       </div>
 
       {/* Verdict + summary */}
       <div style={{ marginBottom: 12 }}>
-        <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#635BFF' }}>Verdict</div>
+        <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#635BFF' }}>Verdict</div>
         {pick ? (
           <div style={{ fontSize: 13, fontWeight: 700, marginTop: 2 }}>
             {pick.region} — Opportunity Score {pick.opportunityScore} ({TIER_META[pick.tier]?.label})
-            <span style={{ fontSize: 11, fontWeight: 400, color: '#425466' }}> · {reasonFor(pick, scoredRows)}.</span>
+            <span style={{ fontSize: 12, fontWeight: 400, color: '#425466' }}> · {reasonFor(pick, scoredRows)}.</span>
           </div>
         ) : <div style={{ fontSize: 12, color: '#425466' }}>No standout expansion market in this set.</div>}
-        {summary && <p style={{ fontSize: 11, color: '#0A2540', lineHeight: 1.5, margin: '6px 0 0' }}>{summary}</p>}
+        {summary && <p style={{ fontSize: 12, color: '#0A2540', lineHeight: 1.5, margin: '6px 0 0' }}>{summary}</p>}
       </div>
 
       {/* Quadrant */}
@@ -83,7 +83,7 @@ export default function ReportView({ result, scoredRows, weights, assumptions, s
       </table>
 
       {/* Assumptions + method */}
-      <div style={{ fontSize: 9.5, color: '#425466', lineHeight: 1.5 }}>
+      <div style={{ fontSize: 12, color: '#425466', lineHeight: 1.5 }}>
         <div><b>Score weights:</b> demand {Math.round((w.demand ?? 0) * 100)}% · openness {Math.round((w.competition ?? 0) * 100)}% · growth {Math.round((w.trend ?? 0) * 100)}% · cost {Math.round((w.cost ?? 0) * 100)}%</div>
         <div style={{ marginTop: 2 }}><b>Revenue assumptions (for any $ figures):</b> {assumptionLine}</div>
         <div style={{ marginTop: 4, color: '#8792A2' }}>

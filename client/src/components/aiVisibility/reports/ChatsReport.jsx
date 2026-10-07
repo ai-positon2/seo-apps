@@ -4,6 +4,7 @@ import { Metric, MetricStrip, TypeChip, ReportWarnings } from '../reportPrimitiv
 import { ReportTable, MetricCell } from '../ReportTable';
 import { muted, formatWhen } from '../promptHelpers';
 import { aiVisibilityApi } from '../../../lib/aiVisibilityApi';
+import { friendlyError } from '../../../lib/friendlyError';
 
 // ── Report 8: Chats ─────────────────────────────────────────────────────────
 //
@@ -18,7 +19,7 @@ import { aiVisibilityApi } from '../../../lib/aiVisibilityApi';
 // Drill-down is a Drawer, which is this app's convention everywhere, rather
 // than row expansion inside the table.
 
-export function ChatsReport({ envelope, project }) {
+export function ChatsReport({ envelope, project, onOpenReport }) {
   const { data, meta, warnings } = envelope;
   const [open, setOpen] = useState(null);
   const [full, setFull] = useState({ loading: false, capture: null, error: null });
@@ -39,7 +40,7 @@ export function ChatsReport({ envelope, project }) {
 
   return (
     <>
-      <ReportWarnings warnings={warnings} meta={meta} />
+      <ReportWarnings warnings={warnings} meta={meta} onOpenReport={onOpenReport} clientName={project?.name} />
 
       <MetricStrip>
         <Metric label="Total chats" metric={data.kpis.totalChats} />
@@ -114,7 +115,7 @@ export function ChatsReport({ envelope, project }) {
               // Date AND time, in the reader's zone. A bare UTC date rendered
               // every run of one night as the same string.
               render: (r) => (
-                <span className="num" style={{ fontSize: 11.5 }}>
+                <span className="num" style={{ fontSize: 12 }}>
                   {formatWhen(r.capturedAt)}
                 </span>
               ),
@@ -129,7 +130,7 @@ export function ChatsReport({ envelope, project }) {
         {open && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
-              <div className="eyebrow" style={{ fontSize: 9.5, fontFamily: 'var(--font-mono)', letterSpacing: '.18em', color: 'var(--text-3)', marginBottom: 4 }}>
+              <div className="eyebrow" style={{ fontSize: 12, fontFamily: 'var(--font-mono)', letterSpacing: '.18em', color: 'var(--text-3)', marginBottom: 4 }}>
                 QUESTION
               </div>
               <div style={{ fontSize: 13.5, color: 'var(--text)' }}>{open.prompt}</div>
@@ -160,7 +161,7 @@ export function ChatsReport({ envelope, project }) {
             </div>
 
             <div>
-              <div className="eyebrow" style={{ fontSize: 9.5, fontFamily: 'var(--font-mono)', letterSpacing: '.18em', color: 'var(--text-3)', marginBottom: 4 }}>
+              <div className="eyebrow" style={{ fontSize: 12, fontFamily: 'var(--font-mono)', letterSpacing: '.18em', color: 'var(--text-3)', marginBottom: 4 }}>
                 THE ANSWER, AS GIVEN
               </div>
               <div style={{
@@ -171,7 +172,7 @@ export function ChatsReport({ envelope, project }) {
               }}
               >
                 {full.loading && 'Loading the full answer…'}
-                {full.error && `Could not load it: ${full.error.message}`}
+                {full.error && `Couldn’t load the full answer. ${friendlyError(full.error)}`}
                 {!full.loading && !full.error
                   && (full.capture?.answerText
                     || open.excerpt
@@ -188,7 +189,7 @@ export function ChatsReport({ envelope, project }) {
             {/* Citations, which are the other half of the evidence — what the
                 answer leaned on, not just what it said. */}
             <div>
-              <div className="eyebrow" style={{ fontSize: 9.5, fontFamily: 'var(--font-mono)', letterSpacing: '.18em', color: 'var(--text-3)', marginBottom: 4 }}>
+              <div className="eyebrow" style={{ fontSize: 12, fontFamily: 'var(--font-mono)', letterSpacing: '.18em', color: 'var(--text-3)', marginBottom: 4 }}>
                 SOURCES THIS ANSWER USED
               </div>
               {!full.capture && <div style={muted}>…</div>}
@@ -206,7 +207,7 @@ export function ChatsReport({ envelope, project }) {
                     borderTop: i ? '1px solid var(--border)' : 'none',
                   }}
                 >
-                  <span className="num" style={{ fontSize: 11, color: 'var(--text-3)', flexShrink: 0 }}>
+                  <span className="num" style={{ fontSize: 12, color: 'var(--text-3)', flexShrink: 0 }}>
                     {String(i + 1).padStart(2, '0')}
                   </span>
                   <span style={{ flex: 1, minWidth: 0 }}>
@@ -225,7 +226,7 @@ export function ChatsReport({ envelope, project }) {
                       </span>
                     )}
                     {c.title && (
-                      <span style={{ display: 'block', fontSize: 11.5, color: 'var(--text-3)' }}>{c.title}</span>
+                      <span style={{ display: 'block', fontSize: 12, color: 'var(--text-3)' }}>{c.title}</span>
                     )}
                     {!c.url && (c.domain || c.host) && (
                       <span style={{ ...muted, display: 'block' }}>
@@ -234,7 +235,7 @@ export function ChatsReport({ envelope, project }) {
                     )}
                   </span>
                   {c.occurrences > 1 && (
-                    <span className="num" style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                    <span className="num" style={{ fontSize: 12, color: 'var(--text-3)' }}>
                       ×{c.occurrences}
                     </span>
                   )}

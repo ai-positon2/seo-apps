@@ -18,7 +18,7 @@ export function ScoreLollipop({ domains = [] }) {
           {TICKS.map((t) => (
             <span key={t} style={{
               position: 'absolute', left: `${t}%`, transform: t === 100 ? 'translateX(-100%)' : t === 0 ? 'none' : 'translateX(-50%)',
-              fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-3)',
+              fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-3)',
             }}>
               {t}
             </span>

@@ -420,7 +420,9 @@ router.post('/scenarios', async (req, res) => {
 });
 
 router.delete('/scenarios/:id', wrap(async (req, res) => {
-  const ok = await store.deleteScenario(req.params.id);
+  // Same owner value the list uses, so a scenario you cannot see you cannot delete.
+  const userId = req.user?.username || 'anon';
+  const ok = await store.deleteScenario(req.params.id, userId);
   if (!ok) return res.status(404).json({ error: 'Scenario not found' });
   res.json({ ok: true });
 }));

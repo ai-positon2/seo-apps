@@ -11,7 +11,7 @@ export function TierChip({ tier, size = 'md' }) {
   if (!tier) return null;
   const m = TIER_META[tier] || TIER_META.insufficient;
   const pad = size === 'sm' ? '1px 7px' : '2px 9px';
-  const fs = size === 'sm' ? 10.5 : 11.5;
+  const fs = size === 'sm' ? 12 : 12.5;
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 4, padding: pad, borderRadius: 'var(--r-pill)',
@@ -32,7 +32,7 @@ export function ConfidenceBadge({ confidence, coverage, termsWithVolume, rankabl
   return (
     <span title={tip} style={{
       display: 'inline-flex', alignItems: 'center', gap: 4, padding: '1px 7px', borderRadius: 'var(--r-pill)',
-      fontSize: 10.5, fontWeight: 600, color: m.color, background: m.bg, whiteSpace: 'nowrap', cursor: 'help',
+      fontSize: 12, fontWeight: 600, color: m.color, background: m.bg, whiteSpace: 'nowrap', cursor: 'help',
     }}>
       {m.label}
     </span>

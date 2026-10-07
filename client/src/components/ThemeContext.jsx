@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 
 // ── Theme ───────────────────────────────────────────────────────────────────
 // Dark and light are both designed states in this theme (see index.css), so the
@@ -67,8 +67,13 @@ export function ThemeProvider({ children }) {
     setThemeState((current) => (current === 'dark' ? 'light' : 'dark'));
   }, []);
 
+  const value = useMemo(
+    () => ({ theme, isDark: theme === 'dark', toggle, setTheme }),
+    [theme, toggle, setTheme],
+  );
+
   return (
-    <ThemeContext.Provider value={{ theme, isDark: theme === 'dark', toggle, setTheme }}>
+    <ThemeContext.Provider value={value}>
       {children}
     </ThemeContext.Provider>
   );

@@ -189,6 +189,140 @@ test('a low score with no errors reads as below par, not as broken', () => {
   assert.doesNotMatch(s.verdict.sentence, /costing this site search visibility/i);
 });
 
+// ── 3b. The sentence agrees with the numbers beside it ──────────────────────
+
+section('The verdict sentence agrees with the dashboard around it');
+
+/** The live shape that produced "No errors, but 0 issues are holding the site at 64". */
+function midBandMods(overrides = {}) {
+  return modules({
+    technical: { status: 'running', scored: false, score: null },
+    hub_spoke: { status: 'queued', scored: false, score: null },
+    seo_geo: { score: 87 },
+    on_page: { score: 79 },
+    ai_visibility: { score: 57, counts: { error: 1, warning: 1, notice: 1 } },
+    competitor: { score: 80 },
+    ...overrides,
+  });
+}
+
+test('a mid-band score with an empty backlog never says "0 issues" or "No errors"', () => {
+  const s = executive.buildExecutiveSummary({
+    overview: overview({ mods: midBandMods(), value: 64, scoredModules: 4, status: 'partial' }),
+    backlog: backlogOf([]),
+  });
+  assert.strictEqual(s.verdict.state, 'needs_attention');
+  assert.doesNotMatch(s.verdict.sentence, /\b0 issues?\b/);
+  // A card on the same screen reports an error; the summary must not deny it.
+  assert.doesNotMatch(s.verdict.sentence, /no errors|nothing is broken/i);
+  assert.match(s.verdict.sentence, /Overall 64\/100\./);
+});
+
+test('the weakest scored areas are named, worst first, and only below the healthy band', () => {
+  const s = executive.buildExecutiveSummary({
+    overview: overview({ mods: midBandMods(), value: 64, scoredModules: 4, status: 'partial' }),
+    backlog: backlogOf([]),
+  });
+  // 80 is the healthy band's floor, so competitor is not named; the two
+  // unscored modules are unmeasured, not weak.
+  assert.match(s.verdict.sentence, /Weakest areas: ai_visibility \(57\) and on_page \(79\)\./);
+  assert.doesNotMatch(s.verdict.sentence, /competitor|technical|hub_spoke/);
+
+  const weak = executive.weakestAreas([
+    { label: 'Agent Readiness', scored: true, score: 33 },
+    { label: 'AI Visibility', scored: true, score: 57 },
+    { label: 'SEO & GEO', scored: true, score: 87 },
+    { label: 'Hub and Spoke', scored: false, score: null },
+  ]);
+  assert.deepStrictEqual(weak, [
+    { label: 'Agent Readiness', score: 33 },
+    { label: 'AI Visibility', score: 57 },
+  ]);
+});
+
+test('the weakest-areas clause reads the way the dashboard example does', () => {
+  const mods = [
+    { key: 'seo_geo', label: 'SEO & GEO', status: 'completed', scored: true, score: 87 },
+    { key: 'ai_visibility_lite', label: 'AI Visibility', status: 'completed', scored: true, score: 57 },
+    { key: 'agent_readiness', label: 'Agent Readiness', status: 'completed', scored: true, score: 33 },
+    { key: 'hub_spoke', label: 'Hub and Spoke', status: 'queued', scored: false, score: null },
+  ];
+  const s = executive.buildExecutiveSummary({
+    overview: overview({ mods, value: 64, scoredModules: 3, status: 'partial' }),
+    backlog: backlogOf([]),
+  });
+  assert.strictEqual(
+    s.verdict.sentence,
+    'Overall 64/100. Weakest areas: Agent Readiness (33) and AI Visibility (57).',
+  );
+  // Same word the score tile shows for 60-79, so the two cannot disagree.
+  assert.strictEqual(s.verdict.headline, 'Needs attention');
+});
+
+test('an unscored or healthy module is never named as a weak area', () => {
+  const weak = executive.weakestAreas([
+    { label: 'Unscored', scored: false, score: null },
+    { label: 'Healthy', scored: true, score: 80 },
+    { label: 'Running mean', scored: true, score: Number.NaN },
+  ]);
+  assert.deepStrictEqual(weak, []);
+});
+
+test('open work is counted only when there is some', () => {
+  const s = executive.buildExecutiveSummary({
+    overview: overview({ value: 70 }),
+    backlog: backlogOf([
+      { severity: 'warning', pages: somePages(2) },
+      { severity: 'notice', pages: somePages(3) },
+    ]),
+  });
+  assert.match(s.verdict.sentence, /2 issues to work through/);
+});
+
+test('"nothing is broken" is not claimed while a card reports an error', () => {
+  const withCardError = modules({ on_page: { counts: { error: 2 } } });
+  const low = executive.buildExecutiveSummary({
+    overview: overview({ mods: withCardError, value: 41 }),
+    backlog: backlogOf([]),
+  });
+  assert.strictEqual(low.verdict.state, 'needs_attention');
+  assert.doesNotMatch(low.verdict.sentence, /nothing is broken/i);
+  assert.match(low.verdict.sentence, /41 out of 100/);
+
+  const high = executive.buildExecutiveSummary({
+    overview: overview({ mods: withCardError, value: 86 }),
+    backlog: backlogOf([]),
+  });
+  assert.strictEqual(high.verdict.state, 'healthy', 'the state is still the backlog\'s call');
+  assert.doesNotMatch(high.verdict.sentence, /nothing found is serious/i);
+  assert.match(high.verdict.sentence, /86 out of 100/);
+});
+
+test('with no errors anywhere, the reassuring clause is kept', () => {
+  const s = executive.buildExecutiveSummary({
+    overview: overview({ value: 41 }),
+    backlog: backlogOf([]),
+  });
+  assert.match(s.verdict.sentence, /nothing is broken outright/i);
+});
+
+test('no verdict state ever states a zero count', () => {
+  const unscored = modules(Object.fromEntries(
+    MODULE_KEYS.map((k) => [k, { status: k === 'hub_spoke' ? 'completed' : 'not_run', scored: false, score: null }]),
+  ));
+  const cases = [
+    { overview: overview({ value: 88 }), backlog: backlogOf([]) },
+    { overview: overview({ value: 70 }), backlog: backlogOf([]) },
+    { overview: overview({ value: 41 }), backlog: backlogOf([]) },
+    { overview: overview({ mods: unscored, value: null, scoredModules: 0, status: 'insufficient_data' }), backlog: backlogOf([]) },
+  ];
+  for (const input of cases) {
+    const { verdict } = executive.buildExecutiveSummary(input);
+    assert.doesNotMatch(verdict.sentence, /\b0 (issues?|improvements?|fix(es)?)\b/,
+      `${verdict.state}: ${verdict.sentence}`);
+  }
+});
+
 test('the bands match the ones the dashboard already colours by', () => {
   const band = (value) => executive.buildExecutiveSummary({
     overview: overview({ value }),

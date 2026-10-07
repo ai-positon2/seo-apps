@@ -11,7 +11,7 @@ const inputStyle = {
 };
 
 const CAPTION = {
-  fontSize: 11, fontWeight: 600, color: 'var(--text-3)',
+  fontSize: 12, fontWeight: 600, color: 'var(--text-3)',
   textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8,
 };
 
@@ -73,7 +73,7 @@ export default function AuditInputPanel({ ctl, title, subtitle, ctaLabel = 'Audi
             </button>
           ))}
         </div>
-        <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
+        <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>
           Commercial pages (location, service, product) are not scored on citations, statistics or quotations.
         </p>
       </div>

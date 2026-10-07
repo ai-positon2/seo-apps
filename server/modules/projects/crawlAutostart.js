@@ -36,10 +36,12 @@ function isEnabled() {
  * same rule scheduleCompetitorResearch and scheduleHubSpoke already follow.
  *
  * @param {object} input
- * @param {object} input.project    the just-created project row
+ * @param {object} input.project    the just-created project: store.projectView's
+ *                                  camelCase shape (what POST /api/projects has)
+ *                                  or a raw crawl_projects row — both are read
  * @param {Array}  input.domains    project_domains rows (from store.listDomains)
  * @param {string} [input.ownerId]  crawl_runs.owner — the user who created the project
- * @param {object} [input.crawlOptions] passed through to CrawlScope as-is
+ * @param {object} [input.crawlOptions] clamped to the workspace's admin limits here
  * @returns {Promise<{scheduled: boolean, reason: string, runId: string|null}>}
  */
 async function scheduleInitialCrawl({ project, domains = [], ownerId, crawlOptions } = {}) {
@@ -49,9 +51,15 @@ async function scheduleInitialCrawl({ project, domains = [], ownerId, crawlOptio
   if (!db.isDatabaseConfigured()) return answer({ reason: 'not_configured' });
   if (!project?.id) return answer({ reason: 'no_project' });
 
+  // The create route passes a projectView (workspaceId, legacyUrl); reading
+  // only the row's snake_case names left the workspace undefined, so the
+  // admin limits were never looked up and the run was filed under no workspace.
+  const workspaceId = project.workspaceId ?? project.workspace_id ?? null;
+  const legacyUrl = project.url ?? project.legacyUrl;
+
   let target;
   try {
-    target = targetFor(project, domains);
+    target = targetFor({ ...project, url: legacyUrl }, domains);
   } catch {
     return answer({ reason: 'no_primary_domain' });
   }
@@ -64,7 +72,7 @@ async function scheduleInitialCrawl({ project, domains = [], ownerId, crawlOptio
     // corrected later is a row that lies about itself in the meantime.
     parsed = parseCrawlRequest(
       { url: target.origin, options: crawlOptions || {} },
-      await resolveLimits(project.workspace_id, (error) => {
+      await resolveLimits(workspaceId, (error) => {
         console.warn(
           `[crawlAutostart] could not resolve admin limits (${error.message}); `
           + 'falling back to the platform defaults.',
@@ -80,7 +88,7 @@ async function scheduleInitialCrawl({ project, domains = [], ownerId, crawlOptio
   try {
     run = await repo.createRun(db, {
       owner: ownerId || null,
-      workspace_id: project.workspace_id || null,
+      workspace_id: workspaceId,
       project_id: project.id,
       url: parsed.url,
       options: parsed.options,

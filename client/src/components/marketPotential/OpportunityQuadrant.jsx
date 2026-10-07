@@ -108,7 +108,7 @@ export default function OpportunityQuadrant({ rows, onSelect, height = 430, comp
       </svg>
 
       {unplottable.length > 0 && (
-        <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
+        <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>
           Not plotted (missing demand or density): {unplottable.map((r) => shortName(r.region)).join(', ')}.
         </div>
       )}

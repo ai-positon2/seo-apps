@@ -28,6 +28,7 @@ import {
   Card, Kicker, Muted, Tag, Btn, FadingRule, SectionHead, Spinner,
 } from '../components/studio/primitives';
 import { ReportWarnings } from '../components/aiVisibility/reportPrimitives';
+import { friendlyError, errorDetail } from '../lib/friendlyError';
 import { REPORTS, REPORT_GROUPS, byId } from '../components/aiVisibilityLite/reportRegistry';
 import {
   OverviewReport, InsightsReport, SentimentReport, QuestionsReport,
@@ -81,8 +82,8 @@ function BudgetBar({ budget }) {
   return (
     <div style={{ minWidth: 200 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-        <Muted size={11}>Runs used</Muted>
-        <Muted size={11}>
+        <Muted size={12}>Runs used</Muted>
+        <Muted size={12}>
           <strong style={{ color: low ? 'var(--viz-warn)' : 'inherit' }}>
             {budget.used} / {budget.cap}
           </strong>
@@ -99,7 +100,7 @@ function BudgetBar({ budget }) {
         }}
         />
       </div>
-      <Muted size={11}>
+      <Muted size={12}>
         {budget.remaining > 0
           ? `${budget.remaining} left. Each run asks every prompt of all three models.`
           : 'No runs left on this project.'}
@@ -124,7 +125,7 @@ function ProfileCard({ profile, nameCheck }) {
           and to know which names count as a mention. What the MODELS say lives
           in the Sentiment report, and conflating the two would present our
           reading of someone's marketing copy as though it were a measurement. */}
-      <Muted size={11}>
+      <Muted size={12}>
         Read from the client&apos;s own site to write the prompts and to know which names count
         as a mention. Not a finding.
       </Muted>
@@ -133,13 +134,13 @@ function ProfileCard({ profile, nameCheck }) {
 
       <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
         {profile.services?.length ? (
-          <div><Muted size={11}>Services</Muted><div style={{ fontSize: 13 }}>{list(profile.services)}</div></div>
+          <div><Muted size={12}>Services</Muted><div style={{ fontSize: 13 }}>{list(profile.services)}</div></div>
         ) : null}
         {profile.products?.length ? (
-          <div><Muted size={11}>Products</Muted><div style={{ fontSize: 13 }}>{list(profile.products)}</div></div>
+          <div><Muted size={12}>Products</Muted><div style={{ fontSize: 13 }}>{list(profile.products)}</div></div>
         ) : null}
         {profile.locations?.length ? (
-          <div><Muted size={11}>Serves</Muted><div style={{ fontSize: 13 }}>{list(profile.locations)}</div></div>
+          <div><Muted size={12}>Serves</Muted><div style={{ fontSize: 13 }}>{list(profile.locations)}</div></div>
         ) : null}
         {/* Shown because it is what mention matching runs against. A business
             whose real name is missing here reads as never mentioned, and that
@@ -147,7 +148,7 @@ function ProfileCard({ profile, nameCheck }) {
             can see the list. */}
         {(nameCheck?.kept?.length || profile.brandAliases?.length) ? (
           <div>
-            <Muted size={11}>Names we look for in answers</Muted>
+            <Muted size={12}>Names we look for in answers</Muted>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
               {(nameCheck?.kept || profile.brandAliases).map((a) => <Tag key={a} tone="muted">{a}</Tag>)}
             </div>
@@ -156,7 +157,7 @@ function ProfileCard({ profile, nameCheck }) {
                 dental practice. Shown, not hidden, so a wrong call is visible. */}
             {nameCheck?.dropped?.length ? (
               <div style={{ marginTop: 8 }}>
-                <Muted size={11}>Not counted as you</Muted>
+                <Muted size={12}>Not counted as you</Muted>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
                   {nameCheck.dropped.map((d) => (
                     <span key={d.name} title={DROPPED_REASON[d.kind] || d.kind}>
@@ -164,7 +165,7 @@ function ProfileCard({ profile, nameCheck }) {
                     </span>
                   ))}
                 </div>
-                <Muted size={11} style={{ display: 'block', marginTop: 4 }}>
+                <Muted size={12} style={{ display: 'block', marginTop: 4 }}>
                   {nameCheck.dropped.map((d) => `${d.name}: ${DROPPED_REASON[d.kind] || d.kind}`).join(' · ')}
                 </Muted>
               </div>
@@ -176,7 +177,7 @@ function ProfileCard({ profile, nameCheck }) {
       {profile.sourceUrls?.length ? (
         <>
           <FadingRule style={{ margin: '12px 0 8px' }} />
-          <Muted size={11}>
+          <Muted size={12}>
             Read from {profile.sourceUrls.length} page{profile.sourceUrls.length === 1 ? '' : 's'} on the site
           </Muted>
         </>
@@ -260,9 +261,12 @@ const RAIL = {
 // What a collapsed group is called, and whose number it shows. Groups read by
 // their own name ("Demand", "Evidence") except the first, which is the
 // overview itself; Sources shows how many sources, not the gap count.
-const GROUP_NAME = { 'START HERE': 'Overview' };
-const GROUP_STAT = { SOURCES: 'domains' };
+const GROUP_NAME = { 'Start here': 'Overview' };
+const GROUP_STAT = { Sources: 'domains' };
 const titleCase = (label) => label.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+
+/** "Claude (API · web search)" → "Claude", for the not-connected caveat. */
+const assistantName = (surface) => String(surface.label || surface.engine || 'One assistant').split(' (')[0];
 
 /** Runs used, as a small filled pie. */
 function BudgetPie({ used, cap, size = 18 }) {
@@ -324,8 +328,8 @@ function GroupMenu({
       >
         <span style={{ width: 6, height: 6, borderRadius: '50%', background: done ? RAIL.dotDone : RAIL.dotAhead }} />
         {name}
-        {stat ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: RAIL.muted }}>{stat}</span> : null}
-        <span style={{ fontSize: 10, color: RAIL.muted, marginLeft: 1 }}>{open ? '▴' : '▾'}</span>
+        {stat ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: RAIL.muted }}>{stat}</span> : null}
+        <span style={{ fontSize: 12, color: RAIL.muted, marginLeft: 1 }}>{open ? '▴' : '▾'}</span>
       </button>
 
       {open && (
@@ -339,7 +343,7 @@ function GroupMenu({
           }}
         >
           <div style={{
-            fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '.12em', color: '#7A807A',
+            fontFamily: 'var(--font-mono)', fontSize: 12, letterSpacing: '.12em', color: '#7A807A',
             padding: '8px 12px 6px',
           }}
           >
@@ -432,7 +436,7 @@ function Rail({
               }}
             >
               <span style={{
-                fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '.1em',
+                fontFamily: 'var(--font-mono)', fontSize: 12, letterSpacing: '.1em',
                 color: RAIL.panelMuted, padding: '0 8px', whiteSpace: 'nowrap',
               }}
               >
@@ -458,7 +462,7 @@ function Rail({
                     {byId(id).name}
                     {stat ? (
                       <span style={{
-                        fontFamily: 'var(--font-mono)', fontSize: 11.5,
+                        fontFamily: 'var(--font-mono)', fontSize: 12,
                         color: on ? RAIL.pillStat : RAIL.panelMuted,
                       }}
                       >
@@ -616,7 +620,9 @@ export default function AiVisibilityLitePage() {
       await load();
       return out;
     } catch (e) {
-      setNotice({ tone: 'error', text: e.message, code: e.code });
+      setNotice({
+        tone: 'error', text: friendlyError(e), detail: errorDetail(e), code: e.code,
+      });
       return null;
     } finally {
       setBusy(false);
@@ -628,7 +634,7 @@ export default function AiVisibilityLitePage() {
       <main style={PAGE_COLUMN}>
         <Card style={{ padding: 24 }}>
           <Kicker>AI Visibility</Kicker>
-          <Muted>Pick a client above to see what the models say about them.</Muted>
+          <Muted size={12}>Pick a client above to see what the models say about them.</Muted>
         </Card>
       </main>
     );
@@ -644,11 +650,16 @@ export default function AiVisibilityLitePage() {
       <main style={PAGE_COLUMN}>
         <Card style={{ padding: 24 }}>
           <Kicker tone="warn">AI Visibility</Kicker>
-          <div style={{ fontSize: 14, marginTop: 8 }}>{state.error.message}</div>
-          {migration ? (
-            <Muted size={12}>
-              Apply supabase/migrations/0030_ai_visibility_lite.sql, then reload.
-            </Muted>
+          <div style={{ fontSize: 14, marginTop: 8 }}>
+            {migration
+              ? 'AI Visibility isn’t set up on this server yet. Ask an admin to finish the setup.'
+              : friendlyError(state.error)}
+          </div>
+          {(migration ? state.error.message : errorDetail(state.error)) ? (
+            <details style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 8 }}>
+              <summary>Show details</summary>
+              {migration ? state.error.message : errorDetail(state.error)}
+            </details>
           ) : null}
         </Card>
       </main>
@@ -673,7 +684,7 @@ export default function AiVisibilityLitePage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }}>
           <div>
             <SectionHead title="Measurement budget" />
-            <Muted size={11}>
+            <Muted size={12}>
               Every run asks all {promptsUsed} prompts of all three models. The cap is enforced on
               the server, not just here.
             </Muted>
@@ -709,7 +720,8 @@ export default function AiVisibilityLitePage() {
         {!promptsUsed && !setupRunning ? (
           <div style={{ padding: '12px 0' }}>
             <Muted size={12}>
-              No prompts yet. Setup writes {d.autoPromptCount} from the site itself.
+              No prompts yet. Use the button below to read the site and write
+              {' '}{d.autoPromptCount} prompts automatically.
             </Muted>
             <Btn
               variant="primary"
@@ -754,13 +766,13 @@ export default function AiVisibilityLitePage() {
                 Add
               </Btn>
             </div>
-            <Muted size={11}>
+            <Muted size={12}>
               {roomLeft} more can be added. Prompts that name the business are rejected — the
               point is whether a model brings them up on its own.
             </Muted>
           </>
         ) : (
-          <Muted size={11}>All {d.promptCap} slots are used. Delete one to add another.</Muted>
+          <Muted size={12}>All {d.promptCap} slots are used. Delete one to add another.</Muted>
         )}
       </Card>
 
@@ -783,10 +795,10 @@ export default function AiVisibilityLitePage() {
     if (!report) {
       return (
         <Card style={{ padding: 20 }}>
-          <Kicker tone="muted">Nothing measured yet</Kicker>
+          <Kicker tone="muted">No results yet</Kicker>
           <Muted size={12} style={{ display: 'block', marginTop: 6 }}>
             {promptsUsed
-              ? 'Open Setup & runs and press Measure now to ask all three models every prompt.'
+              ? 'Run a measurement from Setup & runs (Measure now) to see this report.'
               : 'Open Setup & runs to identify the business and write the prompts first.'}
           </Muted>
         </Card>
@@ -813,12 +825,17 @@ export default function AiVisibilityLitePage() {
       }}
       >
         <div>
-          <div style={{ fontSize: 21, fontWeight: 500, letterSpacing: '-.02em' }}>{meta.name}</div>
+          <h1 style={{
+            margin: 0, fontSize: 21, fontWeight: 500, letterSpacing: '-.02em', lineHeight: 'inherit',
+          }}
+          >
+            {meta.name}
+          </h1>
           <Muted size={12}>{meta.blurb}</Muted>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Muted size={11} style={{ fontFamily: 'var(--font-mono)' }}>
-            {index + 1} OF {REPORTS.length}
+          <Muted size={12} style={{ fontFamily: 'var(--font-mono)' }}>
+            {index + 1} of {REPORTS.length}
           </Muted>
           <Btn disabled={!prev} onClick={() => prev && setActive(prev.id)}>
             ‹ {prev ? prev.name : 'Start'}
@@ -837,8 +854,14 @@ export default function AiVisibilityLitePage() {
         }}
         >
           <div style={{ fontSize: 13 }}>{notice.text}</div>
+          {notice.detail ? (
+            <details style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>
+              <summary>Show details</summary>
+              {notice.detail}
+            </details>
+          ) : null}
           {notice.code === 'run_cap_reached' ? (
-            <Muted size={11}>The cap is per project and is enforced on the server.</Muted>
+            <Muted size={12}>The cap is per project and is enforced on the server.</Muted>
           ) : null}
         </Card>
       ) : null}
@@ -852,7 +875,13 @@ export default function AiVisibilityLitePage() {
       {d.setup?.status === 'failed' ? (
         <Card style={{ padding: 16, marginBottom: 14 }}>
           <Kicker tone="warn">Setup did not finish</Kicker>
-          <div style={{ fontSize: 13, marginTop: 4 }}>{d.setup.error}</div>
+          <div style={{ fontSize: 13, marginTop: 4 }}>{friendlyError(d.setup.error)}</div>
+          {errorDetail(d.setup.error) ? (
+            <details style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>
+              <summary>Show details</summary>
+              {errorDetail(d.setup.error)}
+            </details>
+          ) : null}
           <Btn
             style={{ marginTop: 8 }}
             disabled={busy}
@@ -874,7 +903,9 @@ export default function AiVisibilityLitePage() {
         <div style={{ marginTop: 18 }}>
           {unavailable.length ? (
             <Card style={{ padding: 12, marginBottom: 14 }}>
-              <Muted size={12}>{unavailable.map((s) => s.reason).join(' ')}</Muted>
+              <Muted size={12}>
+                {unavailable.map((s) => `${assistantName(s)}’s answers aren’t included yet.`).join(' ')}
+              </Muted>
             </Card>
           ) : null}
           {report && active !== 'run' ? (

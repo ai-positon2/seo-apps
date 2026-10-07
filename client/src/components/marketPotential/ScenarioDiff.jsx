@@ -7,7 +7,7 @@ import { Modal } from '../../ui/Modal';
 const arrow = (d) => (d == null ? '' : d > 0 ? '▲' : d < 0 ? '▼' : '▬');
 const arrowColor = (d) => (d == null ? 'var(--text-3)' : d > 0 ? 'var(--success)' : d < 0 ? 'var(--danger)' : 'var(--text-3)');
 
-const th = { padding: '8px 10px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-3)', textAlign: 'right', whiteSpace: 'nowrap' };
+const th = { padding: '8px 10px', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-3)', textAlign: 'right', whiteSpace: 'nowrap' };
 const td = { padding: '8px 10px', fontSize: 13, textAlign: 'right', whiteSpace: 'nowrap', borderTop: '1px solid var(--border)' };
 
 function DeltaCell({ a, b }) {
@@ -17,7 +17,7 @@ function DeltaCell({ a, b }) {
       <span style={{ color: 'var(--text-3)' }}>{a ?? '—'}</span>
       <span style={{ color: 'var(--text-3)', margin: '0 4px' }}>→</span>
       <b>{b ?? '—'}</b>
-      {d != null && d !== 0 && <span style={{ color: arrowColor(d), marginLeft: 6, fontSize: 11 }}>{arrow(d)} {Math.abs(d)}</span>}
+      {d != null && d !== 0 && <span style={{ color: arrowColor(d), marginLeft: 6, fontSize: 12 }}>{arrow(d)} {Math.abs(d)}</span>}
     </td>
   );
 }
@@ -61,7 +61,7 @@ export default function ScenarioDiff({ open, onClose, left, right }) {
           </tbody>
         </table>
       </div>
-      <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 12, lineHeight: 1.5 }}>
+      <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 12, lineHeight: 1.5 }}>
         Δ shows the change from scenario A to B. Markets present in only one scenario show a dash on the other side.
       </p>
     </Modal>

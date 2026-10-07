@@ -9,6 +9,7 @@
 // formatting lives here rather than being written twice.
 
 import { ALL_TOOLS } from '../toolsMeta';
+import { requestJson } from './apiRequest';
 
 // Tools that record runs but have no card in the tool grid, so no label there.
 const EXTRA_TOOL_LABELS = {
@@ -96,19 +97,10 @@ export function groupRunsByDay(runs = []) {
 // ── Requests ────────────────────────────────────────────────────────────────
 // Every call carries the session cookie and surfaces the server's own error
 // text. A 503 means the run history isn't configured at all (no Supabase) —
-// flagged on the error so a caller can hide its UI instead of showing a fault.
+// the shared helper flags it as `err.unavailable` so a caller can hide its UI
+// instead of showing a fault.
 
-async function request(path) {
-  const res = await fetch(path, { credentials: 'include' });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const err = new Error(data.error || 'Request failed.');
-    err.status = res.status;
-    err.unavailable = res.status === 503;
-    throw err;
-  }
-  return data;
-}
+const request = (path) => requestJson(path);
 
 export function fetchRuns({ toolId, status, action, search, mine, limit = 50, offset = 0 } = {}) {
   const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });

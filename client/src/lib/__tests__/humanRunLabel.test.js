@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 
-import { humanRunLabel } from '../humanRunLabel.js';
+import { humanRunLabel, humanRunStatus, humanRunAction } from '../humanRunLabel.js';
 
 const ID = '8f6473f6-3991-4a25-8417-ec519012a520';
 
@@ -33,4 +33,22 @@ test('ordinary labels pass through untouched', () => {
   }
   assert.strictEqual(humanRunLabel('', new Map()), '');
   assert.strictEqual(humanRunLabel(null, new Map()), '');
+});
+
+test('run statuses read as words, not enums', () => {
+  assert.strictEqual(humanRunStatus('completed'), 'Finished');
+  assert.strictEqual(humanRunStatus('failed'), 'Failed');
+  assert.strictEqual(humanRunStatus('cancelled'), 'Cancelled');
+  assert.strictEqual(humanRunStatus('running'), 'Running');
+  assert.strictEqual(humanRunStatus('stopped'), 'Stopped');
+  assert.strictEqual(humanRunStatus('some_new_state'), 'Some new state');
+});
+
+test('run actions read as what happened', () => {
+  assert.strictEqual(humanRunAction('create'), 'Created');
+  assert.strictEqual(humanRunAction('run'), 'Ran');
+  assert.strictEqual(humanRunAction(''), 'Ran');
+  assert.strictEqual(humanRunAction('export'), 'Downloaded');
+  assert.strictEqual(humanRunAction('queue'), 'Scheduled');
+  assert.strictEqual(humanRunAction('brand-new-thing'), 'Brand new thing');
 });

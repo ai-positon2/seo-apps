@@ -1,6 +1,6 @@
 import { Card } from '../../../ui';
 import {
-  Metric, MetricStrip, FilledLabelBar, ReportWarnings,
+  Metric, MetricStrip, FilledLabelBar, ReportWarnings, ReviewBrandsButton,
 } from '../reportPrimitives';
 import { LineChart } from '../reportCharts';
 import { muted } from '../promptHelpers';
@@ -30,7 +30,7 @@ function From({ title, reportId, onOpen, children }) {
           type="button"
           onClick={() => onOpen?.(reportId)}
           style={{
-            fontSize: 11.5,
+            fontSize: 12,
             color: 'var(--primary-text)',
             background: 'transparent',
             border: 'none',
@@ -48,22 +48,27 @@ function From({ title, reportId, onOpen, children }) {
   );
 }
 
-export function OverviewReport({ envelope, onOpenReport }) {
+export function OverviewReport({ envelope, project, onOpenReport }) {
   const { data, meta, warnings } = envelope;
   const kpis = data.kpis;
 
   if (!kpis) {
     return (
       <>
-        <ReportWarnings warnings={warnings} meta={meta} />
+        {/* The card says what the brand warning would, so it is not repeated. */}
+        <ReportWarnings
+          warnings={warnings}
+          meta={meta}
+          onOpenReport={onOpenReport}
+          clientName={project?.name}
+          omit={['no_client_brand', 'no_approved_brands']}
+        />
         <Card>
           <div style={{ fontSize: 13.5, color: 'var(--text)' }}>
-            There is no headline to report yet.
+            No results yet. Confirm which brand names belong to {project?.name || 'this client'} to
+            start measuring.
           </div>
-          <div style={{ ...muted, marginTop: 6 }}>
-            Every figure on this page is about one brand, and no client brand has been approved.
-            The Brands screen is where that starts.
-          </div>
+          <ReviewBrandsButton onOpenReport={onOpenReport} style={{ marginTop: 8 }} />
         </Card>
       </>
     );
@@ -77,14 +82,14 @@ export function OverviewReport({ envelope, onOpenReport }) {
 
   return (
     <>
-      <ReportWarnings warnings={warnings} meta={meta} />
+      <ReportWarnings warnings={warnings} meta={meta} onOpenReport={onOpenReport} clientName={project?.name} />
 
       {/* The one sentence a reader who opens nothing else should leave with. */}
       <Card style={{ marginBottom: 16 }}>
         <div
           className="eyebrow"
           style={{
-            fontSize: 9.5,
+            fontSize: 12,
             fontFamily: 'var(--font-mono)',
             letterSpacing: '.18em',
             color: 'var(--text-3)',

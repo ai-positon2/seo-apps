@@ -5,7 +5,7 @@ import {
 } from './primitives';
 
 const CAPTION = {
-  fontSize: 11, fontWeight: 600, color: 'var(--text-3)',
+  fontSize: 12, fontWeight: 600, color: 'var(--text-3)',
   textTransform: 'uppercase', letterSpacing: '0.05em',
 };
 const CARD = {
@@ -209,8 +209,18 @@ const PANEL = {
   background: 'var(--surface)', borderRadius: 8, padding: 14, marginTop: 10,
   border: '1px solid var(--border)',
 };
-const H = { fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-3)', marginBottom: 4 };
+const H = { fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-3)', marginBottom: 4 };
 const BODY = { fontSize: 12, color: 'var(--text-2)', lineHeight: 1.6 };
+
+// Where an entry carries a `plain` fix, that is what the reader sees; the
+// original, with its schema property names, follows as a note to hand on.
+function DevNote({ children }) {
+  return (
+    <p style={{ ...BODY, color: 'var(--text-3)', marginTop: 4 }}>
+      <strong style={{ fontWeight: 600 }}>For your developer: </strong>{children}
+    </p>
+  );
+}
 
 function FixBlock({ content, relatedIds, checks, aiById, aiMissing }) {
   if (!content) return null;
@@ -233,14 +243,15 @@ function FixBlock({ content, relatedIds, checks, aiById, aiMissing }) {
       {content.fix && (
         <div>
           <p style={H}>How to fix</p>
-          <p style={BODY}>{content.fix}</p>
+          <p style={BODY}>{content.plain || content.fix}</p>
+          {content.plain && <DevNote>{content.fix}</DevNote>}
         </div>
       )}
       {related.length > 0 && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
           <p style={H}>Related checks</p>
           {related.map(c => <CheckRow key={c.id} check={c} aiIssue={aiById.get(c.id)} />)}
-          {aiMissing && <p style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 6 }}>AI remediation unavailable for this run — showing rule-engine findings only.</p>}
+          {aiMissing && <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>AI remediation unavailable for this run — showing rule-engine findings only.</p>}
         </div>
       )}
     </div>
@@ -259,11 +270,11 @@ function CheckRow({ check, aiIssue }) {
   return (
     <div style={{ marginTop: 8 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
-        <span style={{ fontSize: 9, fontWeight: 700, color, fontFamily: 'var(--font-mono)', flexShrink: 0, minWidth: 52 }}>{chip}</span>
-        <span style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>{check.id}</span>
+        <span style={{ fontSize: 12, fontWeight: 700, color, fontFamily: 'var(--font-mono)', flexShrink: 0, minWidth: 52 }}>{chip}</span>
+        <span style={{ fontSize: 12, color: 'var(--text-3)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>{check.id}</span>
         <span style={{ fontSize: 12, color: 'var(--text)' }}>{check.name}</span>
       </div>
-      {check.detail && <p style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5, marginLeft: 60, marginTop: 2 }}>{check.detail}</p>}
+      {check.detail && <p style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5, marginLeft: 60, marginTop: 2 }}>{check.detail}</p>}
       {aiIssue && (() => {
         const impact = asText(aiIssue.impact);
         const fix = asText(aiIssue.fix) || asText(aiIssue.issue);
@@ -272,12 +283,12 @@ function CheckRow({ check, aiIssue }) {
         if (!impact && !fix && !code) return null;
         return (
           <div style={{ marginLeft: 60, marginTop: 4, paddingLeft: 8, borderLeft: '2px solid var(--primary)' }}>
-            {impact && <p style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5 }}><strong style={{ color: 'var(--text-3)' }}>Impact — </strong>{impact}</p>}
-            {fix && <p style={{ fontSize: 11, color: 'var(--text)', lineHeight: 1.5, marginTop: 2 }}><strong style={{ color: 'var(--text-3)' }}>AI fix — </strong>{fix}</p>}
+            {impact && <p style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}><strong style={{ color: 'var(--text-3)' }}>Impact — </strong>{impact}</p>}
+            {fix && <p style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.5, marginTop: 2 }}><strong style={{ color: 'var(--text-3)' }}>AI fix — </strong>{fix}</p>}
             {code && (
-              <pre style={{ fontSize: 10, background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 4, padding: 8, marginTop: 4, overflowX: 'auto', fontFamily: 'var(--font-mono)', color: 'var(--text-2)', whiteSpace: 'pre-wrap' }}>{code}</pre>
+              <pre style={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 4, padding: 8, marginTop: 4, overflowX: 'auto', fontFamily: 'var(--font-mono)', color: 'var(--text-2)', whiteSpace: 'pre-wrap' }}>{code}</pre>
             )}
-            {effort && <span style={{ fontSize: 9, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>EFFORT: {effort.toUpperCase()}</span>}
+            {effort && <span style={{ fontSize: 12, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>EFFORT: {effort.toUpperCase()}</span>}
           </div>
         );
       })()}
@@ -330,7 +341,7 @@ function PointsLostWaterfall({ breakdown, composite, formula }) {
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {rows.map(b => (
-          <div key={b.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
+          <div key={b.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
             <span style={{ color: 'var(--text-2)', width: 118, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.label}</span>
             <div style={{ flex: 1, height: 4, background: 'var(--surface)', borderRadius: 999, overflow: 'hidden' }}>
               <div style={{ height: '100%', borderRadius: 999, width: `${worst > 0 ? (b.points_lost / worst) * 100 : 0}%`, backgroundColor: 'var(--danger)' }} />
@@ -340,7 +351,7 @@ function PointsLostWaterfall({ breakdown, composite, formula }) {
         ))}
       </div>
       {Number.isFinite(composite) && (
-        <p style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 6, fontFamily: 'var(--font-mono)' }}>
+        <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6, fontFamily: 'var(--font-mono)' }}>
           100 − {total} = {composite}
         </p>
       )}
@@ -419,11 +430,11 @@ function ReadinessHero({ findings, breakdown }) {
               <div style={{ fontSize: 13, fontWeight: 700, color: scoreColor(overall) }}>
                 {scores.band?.label || `${overall}/100`}
               </div>
-              <div style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.4, marginTop: 2 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.4, marginTop: 2 }}>
                 Classic SEO{Number.isFinite(checksRun) ? ` · ${checksRun} checks` : ''}
               </div>
               {cap?.applied && (
-                <div style={{ fontSize: 11, color: 'var(--danger)', marginTop: 2 }}>
+                <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 2 }}>
                   {capIsHardBlock(cap) ? 'Blocked' : 'Capped'} at {cap.value}
                   {Number.isFinite(scores.composite) ? ` (from ${scores.composite})` : ''}
                 </div>
@@ -443,7 +454,7 @@ function ReadinessHero({ findings, breakdown }) {
                 </span>
                 {aState && (
                   <span style={{
-                    fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 999,
+                    fontSize: 12, fontWeight: 600, padding: '3px 8px', borderRadius: 999,
                     background: GEO_BADGE[aState].bg, color: GEO_BADGE[aState].text,
                   }}>
                     {GEO_BADGE[aState].label}
@@ -451,7 +462,7 @@ function ReadinessHero({ findings, breakdown }) {
                 )}
               </div>
               <PipMeter parts={parts} />
-              <div style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.4, marginTop: 8 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.4, marginTop: 8 }}>
                 {rubric} rubric · structured data only
               </div>
             </>
@@ -494,7 +505,7 @@ function AnswerabilityCard({ findings, aiIndex, aiMissing }) {
         <div>
           <p style={CAPTION}>GEO Answerability — {rubric}</p>
           {intent === 'commercial' && (
-            <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
+            <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>
               Commercial-intent rubric · citations, statistics and quotations are not scored on this page.
             </p>
           )}
@@ -502,7 +513,7 @@ function AnswerabilityCard({ findings, aiIndex, aiMissing }) {
         <div style={{ textAlign: 'right', flexShrink: 0 }}>
           <span style={{ fontSize: 24, fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--font-mono)' }}>{score}/10</span>
           {maxPts !== 10 && Number.isFinite(earned) && (
-            <span style={{ display: 'block', fontSize: 11, color: 'var(--text-3)' }}>({earned} of {maxPts} pts)</span>
+            <span style={{ display: 'block', fontSize: 12, color: 'var(--text-3)' }}>({earned} of {maxPts} pts)</span>
           )}
         </div>
       </div>
@@ -525,9 +536,9 @@ function AnswerabilityCard({ findings, aiIndex, aiMissing }) {
                   {c.points}/{c.max}
                 </div>
                 {c.finding && (
-                  <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 4, lineHeight: 1.4 }}>{c.finding}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4, lineHeight: 1.4 }}>{c.finding}</div>
                 )}
-                <div style={{ fontSize: 10, color: active ? 'var(--primary)' : 'var(--text-3)', marginTop: 6 }}>
+                <div style={{ fontSize: 12, color: active ? 'var(--primary)' : 'var(--text-3)', marginTop: 6 }}>
                   {active ? '▾ close' : '▸ how to fix'}
                 </div>
               </div>
@@ -638,7 +649,7 @@ function GeoSignalsCard({ findings, aiIndex, aiMissing }) {
   return (
     <div style={CARD}>
       <p style={CAPTION}>{intent === 'commercial' ? 'Structured Data Coverage' : 'Content Signals'}</p>
-      <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4, marginBottom: 12, lineHeight: 1.5 }}>
+      <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4, marginBottom: 12, lineHeight: 1.5 }}>
         What a machine can extract from this page. &ldquo;On page only&rdquo; means the fact is
         there in the text but not encoded as markup — a markup task, not missing content.
         Click any tile for the fix.
@@ -660,8 +671,8 @@ function GeoSignalsCard({ findings, aiIndex, aiMissing }) {
               }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: STATE_COLOR[state] || 'var(--text-3)' }}>{text}</div>
               <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 3, lineHeight: 1.3 }}>{label}</div>
-              {sub && <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>{sub}</div>}
-              <div style={{ fontSize: 10, color: active ? 'var(--primary)' : 'var(--text-3)', marginTop: 5 }}>
+              {sub && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>{sub}</div>}
+              <div style={{ fontSize: 12, color: active ? 'var(--primary)' : 'var(--text-3)', marginTop: 5 }}>
                 {active ? '▾ close' : hasFix ? '▸ how to fix' : '▸ details'}
               </div>
             </div>
@@ -678,7 +689,7 @@ function GeoSignalsCard({ findings, aiIndex, aiMissing }) {
         </div>
       )}
       {anyOnPage && (
-        <p style={{ fontSize: 11, color: 'var(--warning)', marginTop: 10 }}>
+        <p style={{ fontSize: 12, color: 'var(--warning)', marginTop: 10 }}>
           Amber items are the fastest wins — the content already exists, it just needs marking up.
         </p>
       )}
@@ -723,12 +734,13 @@ function BucketDetail({ bucket, findings, aiIndex, aiMissing, cap }) {
           <p style={H}>What this measures</p>
           <p style={{ ...BODY, marginBottom: 10 }}>{info.why}</p>
           <p style={H}>Highest-leverage fix</p>
-          <p style={{ ...BODY, marginBottom: 10 }}>{info.fix}</p>
+          <p style={{ ...BODY, marginBottom: info.plain ? 0 : 10 }}>{info.plain || info.fix}</p>
+          {info.plain && <div style={{ marginBottom: 10 }}><DevNote>{info.fix}</DevNote></div>}
         </>
       )}
 
       {cats ? (
-        <p style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.6, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+        <p style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.6, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
           Scored {bucket.score}/100 from {bucket.checks_scored} scored check{bucket.checks_scored === 1 ? '' : 's'}
           {excl ? ` (${excl} — excluded from both sides of the average)` : ''}. Each scored check is
           worth 100 (pass), 85 (notice), 50 (warning), 25 (minor fail) or 0 (error), weighted by an
@@ -739,7 +751,7 @@ function BucketDetail({ bucket, findings, aiIndex, aiMissing, cap }) {
           {cap?.applied ? ` The headline is capped at ${cap.value} by a blocking defect, so it reads ${findings.scores.overall} rather than the ${findings.scores.composite} these bars produce.` : ''}
         </p>
       ) : (
-        <p style={{ fontSize: 11, color: 'var(--text-3)', paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+        <p style={{ fontSize: 12, color: 'var(--text-3)', paddingTop: 8, borderTop: '1px solid var(--border)' }}>
           This run was saved before per-bucket check detail was recorded, so the individual findings
           are not available. Re-run the audit to see them.
         </p>
@@ -754,14 +766,14 @@ function BucketDetail({ bucket, findings, aiIndex, aiMissing, cap }) {
       {opps.length > 0 && (
         <div style={{ marginTop: 12 }}>
           <p style={H}>Opportunities ({opps.length})</p>
-          <p style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 2 }}>Scores 85/100 — a missing nice-to-have, not a defect.</p>
+          <p style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 2 }}>Scores 85/100 — a missing nice-to-have, not a defect.</p>
           {opps.map(c => <CheckRow key={c.id} check={c} aiIssue={aiIndex.aiById.get(c.id)} />)}
         </div>
       )}
       {naC.length > 0 && (
         <div style={{ marginTop: 12 }}>
           <p style={H}>Not applicable to this page ({naC.length})</p>
-          <p style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 2 }}>Excluded from the score entirely — neither numerator nor denominator.</p>
+          <p style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 2 }}>Excluded from the score entirely — neither numerator nor denominator.</p>
           {naC.map(c => <CheckRow key={c.id} check={c} />)}
         </div>
       )}
@@ -777,12 +789,12 @@ function BucketDetail({ bucket, findings, aiIndex, aiMissing, cap }) {
         </p>
       )}
       {aiMissing && issues.length > 0 && (
-        <p style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 8 }}>
+        <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 8 }}>
           AI remediation unavailable for this run — showing rule-engine findings only.
         </p>
       )}
       {findings.meta?.checks_truncated > 0 && (
-        <p style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 6 }}>
+        <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>
           {findings.meta.checks_truncated} lower-priority checks were not sent to the AI, so some rows
           show rule-engine detail only.
         </p>
@@ -864,7 +876,7 @@ export default function ScoreDashboard({ findings, ai }) {
             a labelled line rather than a bare red pill so the two no longer look like the
             same measurement disagreeing with itself. */}
         {aiSummary?.eeat_strength && (
-          <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 12, lineHeight: 1.5 }}>
+          <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 12, lineHeight: 1.5 }}>
             AI&apos;s qualitative read of E-E-A-T:{' '}
             <span style={{ fontWeight: 700, color: EEAT_BADGE[aiSummary.eeat_strength]?.text }}>
               {aiSummary.eeat_strength}
@@ -935,7 +947,7 @@ export default function ScoreDashboard({ findings, ai }) {
                   <div key={label} title={chk.evidence || chk.detail || undefined} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, border: '1px solid var(--border)', borderRadius: 4, padding: 8 }}>
                     <span style={{ fontWeight: 700, color: statusColor }}>{statusIcon}</span>
                     <span style={{ color: 'var(--text-2)' }}>{label}</span>
-                    {detail && <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>{detail}</span>}
+                    {detail && <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>{detail}</span>}
                   </div>
                 );
               })}

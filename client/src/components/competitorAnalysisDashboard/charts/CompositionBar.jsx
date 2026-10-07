@@ -14,7 +14,7 @@ export function CompositionBar({ domains = [], segments = [], emptyText = 'No da
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 14, marginBottom: 12 }}>
         {segments.map((seg) => (
-          <span key={seg.key} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-3)' }}>
+          <span key={seg.key} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--text-3)' }}>
             <span style={{ width: 8, height: 8, borderRadius: 2, background: seg.color, display: 'inline-block' }} />
             {seg.label}
           </span>
@@ -56,7 +56,7 @@ export function CompositionBar({ domains = [], segments = [], emptyText = 'No da
                         }}
                       >
                         {showLabel && (
-                          <span style={{ fontSize: 11, fontWeight: 600, color: '#fff', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: '#fff', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
                             {Math.round(pct)}%
                           </span>
                         )}

@@ -79,7 +79,7 @@ function eventTime(iso) {
 function Label({ children }) {
   return (
     <div style={{
-      fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase',
+      fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase',
       color: 'var(--text-3)', fontWeight: 600, marginBottom: 8,
     }}>
       {children}
@@ -291,7 +291,7 @@ export default function WorkspacesPage() {
                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
                       {ws.name}
                       {ws.is_personal && (
-                        <span style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 500, marginLeft: 6 }}>personal</span>
+                        <span style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 500, marginLeft: 6 }}>personal</span>
                       )}
                     </div>
 
@@ -308,7 +308,7 @@ export default function WorkspacesPage() {
 
                     {/* Was "owner · owner nikhil.ashok@position2.com" — the role
                         printed twice, once for you and once for the workspace. */}
-                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 1 }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 1 }}>
                       {ws.myRole === 'owner'
                         ? "You're an owner"
                         : `Member · owned by ${ws.ownerEmail || 'unknown'}`}
@@ -318,7 +318,7 @@ export default function WorkspacesPage() {
                   {ws.id === homeId && (
                     <div style={{ marginTop: 8 }}>
                       <span style={{
-                        fontSize: 10, fontWeight: 600, color: 'var(--success)',
+                        fontSize: 12, fontWeight: 600, color: 'var(--success)',
                         background: 'var(--success-soft)', borderRadius: 999, padding: '2px 8px',
                       }}>
                         Your team — new projects go here
@@ -364,7 +364,7 @@ export default function WorkspacesPage() {
                       {p.name}
                     </div>
                     <div style={{
-                      fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--font-mono)',
+                      fontSize: 12, color: 'var(--text-3)', fontFamily: 'var(--font-mono)',
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}>
                       {/* Not filled in with a plausible-looking domain when the
@@ -413,7 +413,7 @@ export default function WorkspacesPage() {
                     <div style={{ fontSize: 13, color: 'var(--text)', minWidth: 0 }}>
                       {m.email}
                       {m.userId === selected.viewerUserId && (
-                        <span style={{ color: 'var(--text-3)', fontSize: 11 }}> (you)</span>
+                        <span style={{ color: 'var(--text-3)', fontSize: 12 }}> (you)</span>
                       )}
                     </div>
 
@@ -433,7 +433,7 @@ export default function WorkspacesPage() {
                             ))}
                         </select>
                       ) : (
-                        <span style={{ color: 'var(--text-3)', fontSize: 11 }}>
+                        <span style={{ color: 'var(--text-3)', fontSize: 12 }}>
                           {displayRole(m.role)}
                         </span>
                       )}
@@ -441,7 +441,7 @@ export default function WorkspacesPage() {
                       {canManageMembers && (
                         <button
                           onClick={() => handleRemoveMember(m.userId)}
-                          style={{ fontSize: 11, color: '#f87171', background: 'none', border: 'none', cursor: 'pointer' }}
+                          style={{ fontSize: 12, color: '#f87171', background: 'none', border: 'none', cursor: 'pointer' }}
                         >
                           Remove
                         </button>
@@ -480,7 +480,7 @@ export default function WorkspacesPage() {
 
                 {/* What the selected role actually grants. A picker that names
                     four roles without saying what they do makes this a guess. */}
-                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6, lineHeight: 1.5, maxWidth: 620 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6, lineHeight: 1.5, maxWidth: 620 }}>
                   {roleHint(newMemberRole)}
                 </div>
               </>
@@ -488,7 +488,7 @@ export default function WorkspacesPage() {
 
             {/* Says what the invitation actually grants, in terms of this
                 workspace's real contents rather than in the abstract. */}
-            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 8, lineHeight: 1.5, maxWidth: 620 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 8, lineHeight: 1.5, maxWidth: 620 }}>
               {projects.length
                 ? `Adding someone gives them ${projects.length === 1 ? 'the project' : `all ${projects.length} projects`} in this workspace.`
                 : 'Adding someone gives them every project created in this workspace.'}
@@ -514,7 +514,7 @@ export default function WorkspacesPage() {
                       }}
                     >
                       <span style={{ minWidth: 0 }}>{describeMemberEvent(e)}</span>
-                      <span style={{ color: 'var(--text-3)', fontSize: 11, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                      <span style={{ color: 'var(--text-3)', fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }}>
                         {eventTime(e.createdAt)}
                       </span>
                     </div>

@@ -1,4 +1,4 @@
-import { Suspense, memo, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, forwardRef, memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { NAV_GROUPS, TAGS, getToolByPath } from '../toolsMeta';
 import { useAuth } from '../context/AuthContext';
@@ -13,6 +13,40 @@ import ChunkErrorBoundary from './ChunkErrorBoundary';
 // Sidebar collapse preferences (see the state below for why they are versioned).
 const NAV_COLLAPSED_KEY = 'seoStudio.navCollapsed.v3';
 const HOME_NAV_COLLAPSED_KEY = 'seoStudio.homeNavCollapsed.v2';
+
+// Below this width the tool list is an off-canvas drawer instead of a column.
+// A fixed 248px column on a 390px phone covered two thirds of the screen and
+// squeezed every page into a ~140px strip. 760 is the same phone breakpoint
+// the report pages already use in index.css.
+const PHONE_QUERY = '(max-width: 759px)';
+
+// The sidebar's id, so the toggle can name what it opens (aria-controls).
+const TOOL_NAV_ID = 'app-tool-nav';
+
+/**
+ * The live answer to a media query. A listener rather than one read of
+ * innerWidth, so rotating a phone or resizing a window moves between the two
+ * layouts without a reload.
+ */
+function useMediaQuery(query) {
+  const [matches, setMatches] = useState(() => {
+    try { return window.matchMedia(query).matches; } catch { return false; }
+  });
+  useEffect(() => {
+    let mql;
+    try { mql = window.matchMedia(query); } catch { return undefined; }
+    const onChange = () => setMatches(mql.matches);
+    onChange();
+    // Safari before 14 has only the deprecated addListener/removeListener.
+    if (mql.addEventListener) mql.addEventListener('change', onChange);
+    else mql.addListener(onChange);
+    return () => {
+      if (mql.removeEventListener) mql.removeEventListener('change', onChange);
+      else mql.removeListener(onChange);
+    };
+  }, [query]);
+  return matches;
+}
 
 // Screens that are not tools in toolsMeta.js still need a name in the header.
 // Without one the breadcrumb read "SEO Studio" on six different pages, so the
@@ -108,6 +142,13 @@ const TOOL_ICONS = {
       <path d="M4.5 12a7.5 7.5 0 0115 0M2.25 12a9.75 9.75 0 0119.5 0" />
     </svg>
   ),
+  // The sidebar's AI Visibility entry is the API-based -lite tool; same icon.
+  'ai-visibility-lite': (
+    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 18.75a6.75 6.75 0 100-13.5 6.75 6.75 0 000 13.5z" />
+      <path d="M4.5 12a7.5 7.5 0 0115 0M2.25 12a9.75 9.75 0 0119.5 0" />
+    </svg>
+  ),
   'seo-geo-audit': (
     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -121,6 +162,11 @@ const TOOL_ICONS = {
   'image-alt-audit': (
     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
       <path d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+    </svg>
+  ),
+  'content-writer': (
+    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
     </svg>
   ),
   'location-page-builder': (
@@ -188,12 +234,29 @@ const GearIcon = () => (
   </svg>
 );
 
+const MoreIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <circle cx="5" cy="12" r="1.9" />
+    <circle cx="12" cy="12" r="1.9" />
+    <circle cx="19" cy="12" r="1.9" />
+  </svg>
+);
+
+const CloseIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M6 6l12 12M18 6L6 18" />
+  </svg>
+);
+
 /* Header buttons share one treatment: quiet until hovered, never a filled
-   rectangle -- the design keeps a single accent per screen. */
-function HeaderButton({ children, onClick, title, active, style }) {
+   rectangle -- the design keeps a single accent per screen. `rest` carries
+   ARIA attributes (aria-haspopup, aria-expanded) for the phone's More menu. */
+const HeaderButton = forwardRef(function HeaderButton({ children, onClick, title, active, style, ...rest }, ref) {
   const [hover, setHover] = useState(false);
   return (
     <button
+      ref={ref}
+      {...rest}
       onClick={onClick}
       title={title}
       aria-label={title}
@@ -220,6 +283,127 @@ function HeaderButton({ children, onClick, title, active, style }) {
     >
       {children}
     </button>
+  );
+});
+
+/* -- Phone: secondary header actions behind "More" ---------------------------
+   At 390px the desktop row (Runs, Projects, Team, Admin, theme) ran off the
+   right edge, so those actions were unreachable. On a phone they collapse into
+   this menu; nothing is dropped. Same open/close behaviour as the account menu:
+   outside tap or Escape closes it, and Escape hands focus back to the button. */
+function HeaderMoreMenu({ items }) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef(null);
+  const buttonRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDocClick = (e) => {
+      if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { setOpen(false); buttonRef.current?.focus(); }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={boxRef} style={{ position: 'relative', flexShrink: 0 }}>
+      <HeaderButton
+        ref={buttonRef}
+        title="More: runs, projects, team and theme"
+        onClick={() => setOpen((v) => !v)}
+        active={open}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        style={{ width: 36, height: 36, padding: 0, justifyContent: 'center' }}
+      >
+        <MoreIcon />
+      </HeaderButton>
+
+      {open && (
+        <div
+          role="menu"
+          style={{
+            position: 'absolute', top: 42, right: 0, minWidth: 200, zIndex: 40,
+            background: 'var(--card)', border: '1px solid var(--border)',
+            borderRadius: 'var(--r-md)', boxShadow: 'var(--shadow-md)',
+            padding: 6, display: 'flex', flexDirection: 'column', gap: 2,
+          }}
+        >
+          {items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              role="menuitem"
+              onClick={() => { setOpen(false); item.onClick(); }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                textAlign: 'left', border: 'none', cursor: 'pointer', background: 'transparent',
+                color: 'var(--text)', padding: '10px 10px', borderRadius: 'var(--r-sm)',
+                fontSize: 14, fontFamily: 'var(--font-sans)',
+              }}
+            >
+              {item.icon}
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* The brand square: in the desktop header's brand block, and at the top of the
+   phone drawer (the phone header has no room for it). */
+function BrandMark() {
+  return (
+    <div style={{
+      width: 28,
+      height: 28,
+      borderRadius: 8,
+      background: 'var(--primary)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexShrink: 0,
+    }}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-on-primary)" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 15.803a7.5 7.5 0 0010.607 10.607z" />
+      </svg>
+    </div>
+  );
+}
+
+/* "SEO Studio" over "Position2". The second line was 9.5px tracked monospace
+   capitals; it is the company name, so it reads as words now. */
+function BrandName() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15, minWidth: 0 }}>
+      <span style={{
+        fontWeight: 600,
+        fontSize: 13.5,
+        color: 'var(--text)',
+        letterSpacing: '-0.015em',
+        userSelect: 'none',
+        whiteSpace: 'nowrap',
+      }}>
+        SEO Studio
+      </span>
+      <span style={{
+        fontSize: 12,
+        color: 'var(--text-3)',
+        userSelect: 'none',
+        whiteSpace: 'nowrap',
+      }}>
+        Position2
+      </span>
+    </div>
   );
 }
 
@@ -398,7 +582,7 @@ const ClientSwitcher = memo(function ClientSwitcher() {
                 }}
               >
                 <span style={{ fontSize: 13, fontWeight: isActive ? 600 : 400 }}>{project.name}</span>
-                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
                   {project.primaryDomain?.host || project.legacyUrl}
                   {project.countryCode ? ' · ' + project.countryCode : ' · country not set'}
                   {/* Only for a client outside your team's workspace — e.g. one
@@ -511,8 +695,55 @@ export default function MacWindow() {
 
   // Which of the two preferences applies here, and the setter that changes
   // it — one toggle button below drives whichever is live for this route.
-  const sidebarHidden = isHome ? homeNavCollapsed : navCollapsed;
-  const setSidebarHidden = isHome ? setHomeNavCollapsed : setNavCollapsed;
+  const desktopSidebarHidden = isHome ? homeNavCollapsed : navCollapsed;
+  const setDesktopSidebarHidden = isHome ? setHomeNavCollapsed : setNavCollapsed;
+
+  // On a phone the tool list is a drawer: closed on every load, opened by the
+  // same toggle, closed again by the backdrop, Escape, its own close button or
+  // a route change. Its state is deliberately NOT the persisted preference
+  // above — "keep the tool list open" is a desktop choice, and writing a
+  // phone's open/closed into it would flip the desktop layout the next time the
+  // same person opened the app on a laptop. So the two never touch: desktop
+  // reads and writes the stored keys exactly as before, the phone only this.
+  const isPhone = useMediaQuery(PHONE_QUERY);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const sidebarHidden = isPhone ? !drawerOpen : desktopSidebarHidden;
+  const toggleSidebar = () => (isPhone ? setDrawerOpen((v) => !v) : setDesktopSidebarHidden((v) => !v));
+
+  // A tap on a tool navigates, and the drawer should get out of the way of the
+  // page it opened. Also closes it when the layout switches to desktop, so a
+  // later return to phone width starts closed.
+  useEffect(() => { setDrawerOpen(false); }, [pathname, isPhone]);
+
+  useEffect(() => {
+    if (!isPhone || !drawerOpen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setDrawerOpen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [isPhone, drawerOpen]);
+
+  // Focus follows the drawer: into it on open (its close button — not the
+  // search box, which would raise the on-screen keyboard over the list), and
+  // back to the toggle on close, because the control that had focus inside
+  // the drawer is about to become inert and focus would otherwise drop to the
+  // top of the document.
+  const drawerToggleRef = useRef(null);
+  const drawerCloseRef = useRef(null);
+  const drawerWasOpen = useRef(false);
+  useEffect(() => {
+    if (drawerOpen) {
+      drawerCloseRef.current?.focus({ preventScroll: true });
+    } else if (drawerWasOpen.current && isPhone) {
+      drawerToggleRef.current?.focus({ preventScroll: true });
+    }
+    drawerWasOpen.current = drawerOpen;
+  }, [drawerOpen, isPhone]);
+
+  // While the drawer is open everything behind it is inert, so Tab cannot
+  // wander onto controls hidden under the backdrop.
+  const behindDrawer = isPhone && drawerOpen ? { inert: '', 'aria-hidden': 'true' } : {};
+
+  const pageTitle = isHome ? 'Overview' : (currentTool ? currentTool.label : (pageTitleFor(pathname) || 'SEO Studio'));
 
   // Rebuilt on every render — including every crawl-status tick — and it called
   // search.toLowerCase() once per tool, so ~37 times per pass. Depends only on
@@ -540,11 +771,142 @@ export default function MacWindow() {
     );
   }
 
+  // The secondary header actions, listed once for the phone's More menu. The
+  // desktop row below renders the same actions as individual buttons.
+  const moreItems = [
+    { label: 'Runs', onClick: () => navigate('/runs') },
+    { label: 'Projects', onClick: () => navigate('/projects') },
+    { label: 'Team', onClick: () => navigate('/workspaces') },
+    // Shown on the server's say-so, exactly as on desktop.
+    ...(isPlatformAdmin ? [{ label: 'Admin', icon: <GearIcon />, onClick: () => navigate('/admin') }] : []),
+    {
+      label: isDark ? 'Switch to the light theme' : 'Switch to the dark theme',
+      icon: isDark ? <SunIcon /> : <MoonIcon />,
+      onClick: toggleTheme,
+    },
+  ];
+
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)', overflow: 'hidden' }}>
+    <div
+      // A phone sizes the shell from CSS (.app-shell-phone in index.css), which
+      // can declare 100dvh with a 100vh fallback; an inline style cannot.
+      className={isPhone ? 'app-shell-phone' : undefined}
+      style={{ ...(isPhone ? {} : { height: '100vh' }), display: 'flex', flexDirection: 'column', background: 'var(--bg)', overflow: 'hidden' }}
+    >
       <div style={{ width: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: 1, minHeight: 0 }}>
 
-        {/* ── AppHeader (56px solid) ── */}
+        {/* ── Phone header ─────────────────────────────────────────────────
+            Two rows instead of one. Row one: the tool-list toggle, the way
+            back, the page name (which gives way, with an ellipsis, before
+            anything else does), More, and the account. Row two: the client
+            and the Semrush balance, which wrap rather than overflow. Every
+            desktop action is still here — the secondary ones behind More. */}
+        {isPhone && (
+          <div
+            {...behindDrawer}
+            style={{
+              flexShrink: 0,
+              background: 'var(--card)',
+              borderBottom: '1px solid var(--border)',
+              zIndex: 10,
+              display: 'flex',
+              flexDirection: 'column',
+              paddingTop: 'env(safe-area-inset-top, 0px)',
+              paddingLeft: 'max(12px, env(safe-area-inset-left, 0px))',
+              paddingRight: 'max(12px, env(safe-area-inset-right, 0px))',
+              boxSizing: 'border-box',
+            }}
+          >
+            <div style={{ height: 52, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+              <button
+                ref={drawerToggleRef}
+                type="button"
+                onClick={toggleSidebar}
+                title="Show the tool list"
+                aria-label="Show the tool list"
+                aria-expanded={drawerOpen}
+                aria-controls={TOOL_NAV_ID}
+                style={{
+                  height: 38,
+                  minWidth: 38,
+                  flexShrink: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 7,
+                  background: 'color-mix(in srgb, var(--primary) 14%, transparent)',
+                  border: '1px solid var(--primary)',
+                  borderRadius: 9,
+                  cursor: 'pointer',
+                  color: 'var(--primary)',
+                  padding: '0 12px 0 10px',
+                  font: 'inherit',
+                  fontSize: 13,
+                  fontWeight: 500,
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <path d="M9 3v18" />
+                </svg>
+                <span>Tools</span>
+              </button>
+
+              {!isHome && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/')}
+                  title="Back to the dashboard"
+                  aria-label="Back to the dashboard"
+                  style={{
+                    width: 36, height: 36, flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'none', border: '1px solid var(--border)', borderRadius: 7,
+                    color: 'var(--text-2)', cursor: 'pointer', padding: 0,
+                  }}
+                >
+                  <ChevronLeftIcon />
+                </button>
+              )}
+
+              <span
+                title={pageTitle}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  fontSize: 15,
+                  fontWeight: 600,
+                  color: 'var(--text)',
+                  letterSpacing: '-0.01em',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  userSelect: 'none',
+                  paddingLeft: 4,
+                }}
+              >
+                {pageTitle}
+              </span>
+
+              <HeaderMoreMenu items={moreItems} />
+              <UserChip email={email} onLogout={logout} compact />
+            </div>
+
+            <div style={{
+              display: 'flex', alignItems: 'center', flexWrap: 'wrap',
+              gap: 8, minWidth: 0, paddingBottom: 8,
+            }}>
+              <ClientSwitcher />
+              <SemrushBalanceBadge />
+            </div>
+          </div>
+        )}
+
+        {/* ── AppHeader (56px solid) — desktop ── */}
+        {!isPhone && (
         <div style={{
           height: 56,
           flexShrink: 0,
@@ -567,46 +929,8 @@ export default function MacWindow() {
             boxSizing: 'border-box',
             transition: 'width 160ms ease, padding 160ms ease',
           }}>
-            {/* Brand square */}
-            <div style={{
-              width: 28,
-              height: 28,
-              borderRadius: 8,
-              background: 'var(--primary)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-            }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-on-primary)" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 15.803a7.5 7.5 0 0010.607 10.607z" />
-              </svg>
-            </div>
-            {!sidebarHidden && (
-              <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15, minWidth: 0 }}>
-                <span style={{
-                  fontWeight: 600,
-                  fontSize: 13.5,
-                  color: 'var(--text)',
-                  letterSpacing: '-0.015em',
-                  userSelect: 'none',
-                  whiteSpace: 'nowrap',
-                }}>
-                  SEO Studio
-                </span>
-                <span style={{
-                  fontSize: 9.5,
-                  fontFamily: 'var(--font-mono)',
-                  letterSpacing: '0.14em',
-                  textTransform: 'uppercase',
-                  color: 'var(--text-3)',
-                  userSelect: 'none',
-                }}>
-                  Position2
-                </span>
-              </div>
-            )}
-
+            <BrandMark />
+            {!sidebarHidden && <BrandName />}
           </div>
 
           {/* Breadcrumb / page title */}
@@ -627,10 +951,11 @@ export default function MacWindow() {
                 back into the pane and is worth being obvious about. */}
             <button
               type="button"
-              onClick={() => setSidebarHidden((v) => !v)}
+              onClick={toggleSidebar}
               title={sidebarHidden ? 'Show the tool list' : 'Hide the tool list'}
               aria-label={sidebarHidden ? 'Show the tool list' : 'Hide the tool list'}
               aria-expanded={!sidebarHidden}
+              aria-controls={TOOL_NAV_ID}
               // Collapsed, it says "Tools" in words: a first-time visitor saw
               // only an unlabelled square and no way to learn what the product
               // does. Fixed sizes rather than animating width/height, which
@@ -716,7 +1041,7 @@ export default function MacWindow() {
               letterSpacing: '-0.01em',
               userSelect: 'none',
             }}>
-              {isHome ? 'Overview' : (currentTool ? currentTool.label : (pageTitleFor(pathname) || 'SEO Studio'))}
+              {pageTitle}
             </span>
 
             {/* Which client the screens below are about (PRD 20.1). */}
@@ -759,6 +1084,7 @@ export default function MacWindow() {
             <UserChip email={email} onLogout={logout} />
           </div>
         </div>
+        )}
 
         {/* ── Body: sidebar + content ── */}
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
@@ -768,10 +1094,40 @@ export default function MacWindow() {
               markup has to read on a warm-paper light background and on the
               near-black dark one, and an alpha tuned for navy does neither.
               `inert` while collapsed: at width 0 its search box and links were
-              still reachable by Tab, so keyboard focus vanished off-screen. */}
+              still reachable by Tab, so keyboard focus vanished off-screen.
+
+              On a phone the same markup is a modal drawer: fixed over the
+              page, slid in from the left, so the page keeps its full width
+              rather than sharing it with a column. Desktop styles are the
+              second branch and are exactly what they were. */}
           <div
+            id={TOOL_NAV_ID}
             {...(sidebarHidden ? { inert: '', 'aria-hidden': 'true' } : {})}
-            style={{
+            {...(isPhone ? { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Tools' } : {})}
+            style={isPhone ? {
+            position: 'fixed',
+            top: 0,
+            bottom: 0,
+            left: 0,
+            zIndex: 60,
+            width: 'min(300px, 86vw)',
+            boxSizing: 'border-box',
+            background: 'linear-gradient(180deg, var(--nav-bg-top) 0%, var(--nav-bg-bot) 100%)',
+            borderRight: '1px solid var(--border)',
+            boxShadow: drawerOpen ? 'var(--shadow-lg)' : 'none',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            // Clear of the notch and the home indicator (non-zero only when
+            // the page opts into viewport-fit=cover).
+            paddingTop: 'env(safe-area-inset-top, 0px)',
+            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+            paddingLeft: 'env(safe-area-inset-left, 0px)',
+            transform: drawerOpen ? 'translateX(0)' : 'translateX(-100%)',
+            // Reduced motion: the global rule in index.css drops transform
+            // from the transitioning properties, so the drawer simply appears.
+            transition: 'transform 220ms var(--ease-out), box-shadow 220ms var(--ease-out)',
+          } : {
             width: sidebarHidden ? 0 : 248,
             flexShrink: 0,
             background: 'linear-gradient(180deg, var(--nav-bg-top) 0%, var(--nav-bg-bot) 100%)',
@@ -781,6 +1137,31 @@ export default function MacWindow() {
             overflow: 'hidden',
             transition: 'width 160ms ease',
           }}>
+            {/* Phone: the drawer's own top bar — the brand the phone header has
+                no room for, and a close button, which is where focus lands
+                when the drawer opens. */}
+            {isPhone && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 10px 2px 16px' }}>
+                <BrandMark />
+                <BrandName />
+                <button
+                  ref={drawerCloseRef}
+                  type="button"
+                  onClick={() => setDrawerOpen(false)}
+                  title="Close the tool list"
+                  aria-label="Close the tool list"
+                  style={{
+                    marginLeft: 'auto', width: 40, height: 40, flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'none', border: '1px solid var(--border)', borderRadius: 9,
+                    color: 'var(--text-2)', cursor: 'pointer', padding: 0,
+                  }}
+                >
+                  <CloseIcon />
+                </button>
+              </div>
+            )}
+
             {/* Search */}
             <div style={{ padding: '14px 12px 8px' }}>
               <div style={{
@@ -800,11 +1181,14 @@ export default function MacWindow() {
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                   placeholder="Search tools…"
+                  aria-label="Search tools"
                   style={{
                     background: 'none',
                     border: 'none',
                     outline: 'none',
-                    fontSize: 12,
+                    // 16px on a phone: iOS zooms the whole page into any
+                    // input set smaller than that, and does not zoom back out.
+                    fontSize: isPhone ? 16 : 12,
                     fontFamily: 'var(--font-sans)',
                     color: 'var(--nav-text-active)',
                     width: '100%',
@@ -814,7 +1198,7 @@ export default function MacWindow() {
             </div>
 
             {/* Nav groups */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '4px 8px 20px' }}>
+            <div style={{ flex: 1, overflowY: 'auto', overscrollBehavior: 'contain', padding: '4px 8px 20px' }}>
               {search.trim() && !filteredGroups.length && (
                 <div style={{ padding: '8px 10px', fontSize: 12, color: 'var(--text-3)' }}>
                   No tool matches “{search.trim()}”.
@@ -822,13 +1206,14 @@ export default function MacWindow() {
               )}
               {filteredGroups.map(group => (
                 <div key={group.label} style={{ marginBottom: 20 }}>
-                  {/* Group label */}
+                  {/* Group label. Sentence case in the body font ("Research",
+                      not "RESEARCH" in tracked 10px monospace): it is a heading
+                      to read, not a code to decode. Quiet by colour and weight
+                      rather than by being tiny. */}
                   <div style={{
-                    fontSize: 10,
-                    fontFamily: 'var(--font-mono)',
+                    fontSize: 12,
+                    fontFamily: 'var(--font-sans)',
                     fontWeight: 600,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.12em',
                     color: 'var(--text-3)',
                     padding: '4px 10px 6px',
                   }}>
@@ -842,6 +1227,7 @@ export default function MacWindow() {
                         tool={tool}
                         icon={TOOL_ICONS[tool.id]}
                         isActive={isActive}
+                        roomy={isPhone}
                         onClick={() => navigate(tool.path)}
                       />
                     );

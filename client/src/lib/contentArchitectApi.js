@@ -1,20 +1,10 @@
+import { requestJson, requestRaw } from './apiRequest';
+
 const BASE = '/api/content-architect';
 
-async function req(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    ...options,
-  });
-  if (!res.ok) {
-    let msg = `Request failed (${res.status})`;
-    try { msg = (await res.json()).error || msg; } catch { /* ignore */ }
-    // The status rides along so a page can tell "this record does not exist"
-    // from "the request failed", which want different answers.
-    throw Object.assign(new Error(msg), { status: res.status });
-  }
-  return res.json();
-}
+// Errors carry `status`, so a page can tell "this record does not exist" from
+// "the request failed", which want different answers.
+const req = (path, options) => requestJson(`${BASE}${path}`, options);
 
 export const ca = {
   projects: () => req('/projects'),
@@ -64,12 +54,7 @@ export const ca = {
   // the shared JSON req() helper above. Same blob + Content-Disposition
   // pattern as competitorTrackerApi.js's exportReport.
   exportFile: async (id, format) => {
-    const res = await fetch(`${BASE}/projects/${id}/export?format=${format}`, { credentials: 'include' });
-    if (!res.ok) {
-      let msg = `Export failed (${res.status})`;
-      try { msg = (await res.json()).error || msg; } catch { /* ignore */ }
-      throw new Error(msg);
-    }
+    const res = await requestRaw(`${BASE}/projects/${id}/export?format=${format}`, {}, 'Export failed');
     const blob = await res.blob();
     const match = (res.headers.get('Content-Disposition') || '').match(/filename="?([^"]+)"?/);
     return { blob, filename: match ? match[1] : `content-architecture.${format === 'md' ? 'md' : 'xlsx'}` };

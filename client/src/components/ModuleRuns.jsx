@@ -4,6 +4,8 @@ import { Badge } from '../ui';
 import RunDetailDrawer from './RunDetailDrawer';
 import { EMBED_MODE } from './MacWindow';
 import { useProjectNames, humanRunLabel } from '../lib/runLabel';
+import { humanRunStatus, humanRunAction } from '../lib/humanRunLabel';
+import { friendlyError } from '../lib/friendlyError';
 import {
   fetchRuns, fetchRunStats, runsPageHref, groupRunsByDay,
   formatClock, formatDuration, actionLabel, STATUS_VARIANT,
@@ -63,7 +65,7 @@ function SegButton({ active, onClick, children }) {
       type="button"
       onClick={onClick}
       style={{
-        fontSize: 11, fontWeight: 600, padding: '4px 9px', cursor: 'pointer',
+        fontSize: 12, fontWeight: 600, padding: '4px 9px', cursor: 'pointer',
         border: 'none', background: active ? 'var(--card)' : 'transparent',
         color: active ? 'var(--text)' : 'var(--text-3)',
         boxShadow: active ? 'var(--shadow-sm)' : 'none',
@@ -80,12 +82,12 @@ function StatsLine({ stats, days }) {
   const bits = [
     `${stats.total} run${stats.total === 1 ? '' : 's'} in the last ${days} days`,
   ];
-  if (stats.completed) bits.push(`${stats.completed} completed`);
+  if (stats.completed) bits.push(`${stats.completed} finished`);
   if (stats.failed) bits.push(`${stats.failed} failed`);
   if (stats.cancelled) bits.push(`${stats.cancelled} cancelled`);
   if (Number.isFinite(stats.avgDurationMs)) bits.push(`avg ${formatDuration(stats.avgDurationMs)}`);
   return (
-    <div style={{ fontSize: 11, color: 'var(--text-3)', padding: '0 16px 10px' }}>
+    <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '0 16px 10px', fontVariantNumeric: 'tabular-nums' }}>
       {bits.join(' · ')}
     </div>
   );
@@ -93,12 +95,14 @@ function StatsLine({ stats, days }) {
 
 function RunRow({ run, isMine, scoped, hideActionPill, onOpen }) {
   const [hovered, setHovered] = useState(false);
-  const action = actionLabel(run.action);
+  // actionLabel() is empty for a plain run, which is what hides the pill; the
+  // words shown are humanRunAction()'s ("Downloaded", not "EXPORT").
+  const action = actionLabel(run.action) ? humanRunAction(run.action) : '';
   const projectNames = useProjectNames();
   // On a panel already scoped to one thing (a location page, a tracked client)
   // every row carries the same label, so what the run *was* becomes the useful
   // primary text and the label is dropped from the row.
-  const primary = scoped ? (action || 'run') : humanRunLabel(run.label, projectNames);
+  const primary = scoped ? humanRunAction(run.action) : humanRunLabel(run.label, projectNames);
   const showActionPill = Boolean(action) && !scoped && !hideActionPill;
   return (
     <button
@@ -122,7 +126,7 @@ function RunRow({ run, isMine, scoped, hideActionPill, onOpen }) {
         font: 'inherit',
       }}
     >
-      <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-3)' }}>
+      <span style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums', color: 'var(--text-3)' }}>
         {formatClock(run.created_at)}
       </span>
 
@@ -136,8 +140,8 @@ function RunRow({ run, isMine, scoped, hideActionPill, onOpen }) {
           </span>
           {showActionPill && (
             <span style={{
-              flexShrink: 0, fontSize: 10, fontWeight: 600, textTransform: 'uppercase',
-              letterSpacing: '0.04em', padding: '1px 6px', borderRadius: 4,
+              flexShrink: 0, fontSize: 12, fontWeight: 600,
+              padding: '1px 6px', borderRadius: 4,
               background: 'var(--surface-2)', color: 'var(--text-3)',
             }}>
               {action}
@@ -147,27 +151,27 @@ function RunRow({ run, isMine, scoped, hideActionPill, onOpen }) {
         {/* Why it failed, without having to open the run first. */}
         {run.status === 'failed' && run.error && (
           <span style={{
-            fontSize: 11, color: 'var(--danger)', overflow: 'hidden',
+            fontSize: 12, color: 'var(--danger)', overflow: 'hidden',
             textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>
-            {run.error}
+            {friendlyError(run.error)}
           </span>
         )}
       </span>
 
       <span style={{
-        fontSize: 11, color: 'var(--text-3)', overflow: 'hidden',
+        fontSize: 12, color: 'var(--text-3)', overflow: 'hidden',
         textOverflow: 'ellipsis', whiteSpace: 'nowrap',
       }}>
         {isMine ? 'you' : (run.actor_email || 'unknown')}
       </span>
 
       <span>
-        <Badge variant={STATUS_VARIANT[run.status] || 'neutral'}>{run.status}</Badge>
+        <Badge variant={STATUS_VARIANT[run.status] || 'neutral'}>{humanRunStatus(run.status)}</Badge>
       </span>
 
       <span style={{
-        fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-3)', textAlign: 'right',
+        fontSize: 12, fontVariantNumeric: 'tabular-nums', color: 'var(--text-3)', textAlign: 'right',
       }}>
         {run.status === 'running' ? '…' : formatDuration(run.duration_ms)}
       </span>
@@ -212,7 +216,7 @@ export default function ModuleRuns({
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(null);
   const [selected, setSelected] = useState(null);
 
   // Kept in a ref so the poll interval doesn't have to be torn down and rebuilt
@@ -228,12 +232,12 @@ export default function ModuleRuns({
       setWorkspace(data.workspace || null);
       setViewerUserId(data.viewerUserId || null);
       setUnavailable(false);
-      setError('');
+      setError(null);
     } catch (e) {
       // A tool page is not the place to surface an infrastructure problem —
       // 503 (no Supabase) hides the panel, anything else shows one quiet line.
       if (e.unavailable) setUnavailable(true);
-      else setError(e.message);
+      else setError(e);
     } finally {
       setLoading(false);
       setLoaded(true);
@@ -328,7 +332,7 @@ export default function ModuleRuns({
           <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: '-0.01em' }}>{title}</span>
           {total > 0 && (
             <span style={{
-              fontSize: 11, fontWeight: 600, color: 'var(--text-3)',
+              fontSize: 12, fontWeight: 600, color: 'var(--text-3)', fontVariantNumeric: 'tabular-nums',
               background: 'var(--surface)', borderRadius: 'var(--r-pill)', padding: '1px 7px',
             }}>
               {total}
@@ -338,7 +342,7 @@ export default function ModuleRuns({
 
         {runningCount > 0 && (
           <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11,
+            display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12,
             color: 'var(--info)', animation: 'moduleRunsPulse 1.6s var(--ease) infinite',
           }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--info)' }} />
@@ -362,7 +366,7 @@ export default function ModuleRuns({
               onClick={() => load()}
               disabled={loading}
               style={{
-                fontSize: 11, fontWeight: 600, color: 'var(--text-2)', background: 'none',
+                fontSize: 12, fontWeight: 600, color: 'var(--text-2)', background: 'none',
                 border: '1px solid var(--border)', borderRadius: 6, padding: '4px 9px',
                 cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.6 : 1,
               }}
@@ -372,7 +376,7 @@ export default function ModuleRuns({
           )}
           <Link
             to={runsPageHref({ toolId, search, mine })}
-            style={{ fontSize: 11, fontWeight: 600, color: 'var(--primary-text)', textDecoration: 'none' }}
+            style={{ fontSize: 12, fontWeight: 600, color: 'var(--primary-text)', textDecoration: 'none' }}
           >
             View all →
           </Link>
@@ -382,7 +386,7 @@ export default function ModuleRuns({
       {!collapsed && (
         <>
           {(workspace?.name || scopeNote) && (
-            <div style={{ fontSize: 11, color: 'var(--text-3)', padding: '0 16px 8px' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '0 16px 8px' }}>
               {scopeNote && <span>{scopeNote}</span>}
               {scopeNote && workspace?.name && <span> · </span>}
               {workspace?.name && <span>Workspace: {workspace.name}</span>}
@@ -392,7 +396,7 @@ export default function ModuleRuns({
           <StatsLine stats={stats} days={statsDays} />
 
           {error && (
-            <div style={{ fontSize: 11, color: 'var(--danger)', padding: '0 16px 10px' }}>{error}</div>
+            <div style={{ fontSize: 12, color: 'var(--danger)', padding: '0 16px 10px' }}>{friendlyError(error)}</div>
           )}
 
           {!runs.length ? (
@@ -414,8 +418,7 @@ export default function ModuleRuns({
             groups.map(group => (
               <div key={group.heading}>
                 <div style={{
-                  fontSize: 10, fontFamily: 'var(--font-mono)', fontWeight: 600,
-                  textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-3)',
+                  fontSize: 12, fontWeight: 600, color: 'var(--text-3)',
                   background: 'var(--surface)', padding: '5px 16px',
                   borderTop: '1px solid var(--border)',
                 }}>
@@ -442,7 +445,7 @@ export default function ModuleRuns({
                 onClick={() => setLimit(l => l + pageSize)}
                 disabled={loading}
                 style={{
-                  fontSize: 11, fontWeight: 600, color: 'var(--text-2)', background: 'none',
+                  fontSize: 12, fontWeight: 600, color: 'var(--text-2)', background: 'none',
                   border: '1px solid var(--border)', borderRadius: 6, padding: '5px 12px',
                   cursor: 'pointer',
                 }}

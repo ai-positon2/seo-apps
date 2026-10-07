@@ -28,7 +28,7 @@ router.put('/:id', async (req, res) => {
     const updated = await store.writeModule(req.params.id, req.body);
     res.json({ ok: true, manifest: updated });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 

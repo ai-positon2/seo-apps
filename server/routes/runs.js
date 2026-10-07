@@ -11,6 +11,8 @@ const identityStore = require('../services/identityStore');
 const { resolveIdentity } = require('../services/workspaceContext');
 const { isDatabaseConfigured } = require('../services/db');
 const { TRACKED_TOOL_IDS } = require('../config/runTracking');
+const jobs = require('../services/jobs');
+const { ApiError, notFound, forbidden, uuidParam, openSse } = require('../utils/api');
 
 const router = express.Router();
 
@@ -127,20 +129,118 @@ router.get('/stats', async (req, res) => {
   }
 });
 
-// GET /api/runs/:id — one run with its full input/output. Readable only by a
-// member of the workspace the run belongs to (not just the active one, so a
-// link to a run in another of your workspaces still opens).
+// A run id that cannot be a UUID is a 404 — before this, the uuid cast failed
+// in runStore.getRun, which logged it and answered "Run not found." anyway.
+router.param('id', uuidParam('Run'));
+
+// The run a request names, if the caller belongs to its workspace (not just the
+// active one, so a link to a run in another of your workspaces still opens).
+async function visibleRun(req) {
+  const identity = await resolveIdentity(req);
+  if (!identity.userId) throw notFound('Run not found.');
+  const workspaces = await identityStore.listWorkspacesForUser(identity.userId);
+  const run = await runStore.getRun(req.params.id, workspaces.map(w => w.id));
+  if (!run) throw notFound('Run not found.');
+  return { identity, run };
+}
+
+// GET /api/runs/:id — one run with its full input/output (and, for a job, its
+// latest progress). Readable only by a member of the run's workspace.
 router.get('/:id', async (req, res) => {
   if (!isDatabaseConfigured()) return notConfigured(res);
   try {
-    const identity = await resolveIdentity(req);
-    if (!identity.userId) return res.status(404).json({ error: 'Run not found.' });
-
-    const workspaces = await identityStore.listWorkspacesForUser(identity.userId);
-    const run = await runStore.getRun(req.params.id, workspaces.map(w => w.id));
-    if (!run) return res.status(404).json({ error: 'Run not found.' });
-
+    const { run } = await visibleRun(req);
     res.json({ run });
+  } catch (e) {
+    handleError(res, e, req);
+  }
+});
+
+// GET /api/runs/:id/events — the run's events as server-sent events, oldest
+// first, ending with a terminal `status` event. Resumable: the browser sends
+// back the last event id it saw (Last-Event-ID) when it reconnects, and
+// `?after=<id>` does the same by hand. A run recorded before jobs existed has
+// no events; it gets a single `status` event once it has ended.
+const EVENTS_POLL_MS = 500;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+router.get('/:id/events', async (req, res) => {
+  if (!isDatabaseConfigured()) return notConfigured(res);
+  let run;
+  try {
+    ({ run } = await visibleRun(req));
+  } catch (e) {
+    return handleError(res, e, req);
+  }
+
+  const after = Number(req.get('Last-Event-ID') || req.query.after || 0);
+  let cursor = Number.isFinite(after) && after > 0 ? after : 0;
+  const sse = openSse(res, { retryMs: 3000 });
+
+  try {
+    while (!sse.closed) {
+      const rows = await jobs.eventsAfter(run.id, cursor);
+      let ended = false;
+      for (const row of rows) {
+        sse.send(row.event, row.data, row.id);
+        cursor = Number(row.id);
+        if (row.event === 'status' && jobs.TERMINAL.has(row.data?.status)) ended = true;
+      }
+      if (ended) break;
+      if (!rows.length) {
+        const status = await jobs.runStatus(run.id);
+        // The job writes its terminal event before it marks the row, so a row
+        // that has ended with nothing left to send never had events at all.
+        if (jobs.TERMINAL.has(status)) {
+          sse.send('status', { status });
+          break;
+        }
+        await sleep(EVENTS_POLL_MS);
+      }
+    }
+  } catch (e) {
+    console.error('[runs.events]', run.id, e.message);
+    sse.send('error', { error: 'The live updates stopped. Reload to pick them up again.', code: 'stream_failed' });
+  }
+  sse.close();
+});
+
+// GET /api/runs/:id/result — what the run produced: the value a job returned,
+// or the stored (size-capped) output of any other run.
+router.get('/:id/result', async (req, res) => {
+  if (!isDatabaseConfigured()) return notConfigured(res);
+  try {
+    const { run } = await visibleRun(req);
+    const result = run.is_job ? await jobs.latestResult(run.id) : undefined;
+    const value = result !== undefined ? result : run.output;
+    if (value === undefined || value === null) {
+      throw new ApiError(404, 'no_result', run.status === 'running'
+        ? 'This run has not finished yet.'
+        : 'This run did not produce a result.');
+    }
+    res.json({ result: value });
+  } catch (e) {
+    handleError(res, e, req);
+  }
+});
+
+// POST /api/runs/:id/cancel — stops a running job. Only the person who started
+// it may cancel it. 202 with the run as it stands; a run that had already
+// ended is returned unchanged.
+router.post('/:id/cancel', async (req, res) => {
+  if (!isDatabaseConfigured()) return notConfigured(res);
+  try {
+    const { identity, run } = await visibleRun(req);
+    if (run.user_id && run.user_id !== identity.userId) {
+      throw forbidden('Only the person who started this run can cancel it.');
+    }
+    if (!run.is_job) {
+      throw new ApiError(409, 'not_cancellable', 'This run cannot be cancelled.');
+    }
+    const outcome = await jobs.cancelJob(run.id);
+    const workspaces = await identityStore.listWorkspacesForUser(identity.userId);
+    const latest = await runStore.getRun(run.id, workspaces.map(w => w.id));
+    res.status(outcome === 'finished' ? 200 : 202).json({ run: latest || run, cancel: outcome });
   } catch (e) {
     handleError(res, e, req);
   }

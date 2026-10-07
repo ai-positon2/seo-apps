@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Card, Kicker, Btn, Muted, Tag, FadingRule } from '../studio/primitives';
+import { Card, Btn, Muted, Tag, FadingRule } from '../studio/primitives';
 import { projectsApi } from '../../lib/projectsApi';
+import { friendlyError, errorDetail } from '../../lib/friendlyError';
 
 // ── Project setup (PRD §20.2) ───────────────────────────────────────────────
 // Required: project name, primary domain, country. Optional at setup:
@@ -59,7 +60,7 @@ const Field = ({ label, hint, children, required }) => (
       {required && <span style={{ color: 'var(--viz-neg)' }}> *</span>}
     </span>
     {children}
-    {hint && <Muted size={11}>{hint}</Muted>}
+    {hint && <Muted size={12}>{hint}</Muted>}
   </label>
 );
 
@@ -123,7 +124,8 @@ export default function ProjectSetupCard({
       // a metered run to be discovered.
       onCreated?.(result.project, result.competitorResearch);
     } catch (e) {
-      setError(e.message);
+      // Kept whole, so the reader's sentence and the original can both be shown.
+      setError(e);
       setBusy(false);
     }
   }
@@ -131,8 +133,8 @@ export default function ProjectSetupCard({
   return (
     <Card elevation="md" style={{ padding: 24, gap: 16, maxWidth: 720 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <Kicker>New Project</Kicker>
-        <h2 style={{ margin: 0, fontSize: 26, fontWeight: 500, letterSpacing: '-0.015em' }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--primary-text)' }}>New project</span>
+        <h2 style={{ margin: 0, fontSize: 28, fontWeight: 500, letterSpacing: '-0.015em' }}>
           Set up a client site
         </h2>
         <Muted size={13}>
@@ -214,7 +216,7 @@ export default function ProjectSetupCard({
             onChange={(e) => setCompetitorText(e.target.value)}
             placeholder={'aspendental.com\nsmiledirectclub.com'}
           />
-          <Muted size={11}>
+          <Muted size={12}>
             Optional, and editable later. One per line or comma separated. Leave it empty and
             SEMrush + AI find competitors for you, adding them to the project automatically.
             Competitors are used for competitive evidence only — their sites are never crawled.
@@ -232,10 +234,10 @@ export default function ProjectSetupCard({
               border: '1px solid color-mix(in srgb, var(--viz-warn) 35%, transparent)',
             }}
           >
-            <span style={{ fontSize: 12.5, color: 'var(--text)' }}>
+            <span style={{ fontSize: 13, color: 'var(--text)' }}>
               Competitor Research starts as soon as this project is created.
             </span>
-            <Muted size={11}>
+            <Muted size={12}>
               It compares your domain against {autoDiscovers
                 ? 'the competitors it finds'
                 : `${competitorCount} competitor${competitorCount === 1 ? '' : 's'}`}{' '}
@@ -257,7 +259,7 @@ export default function ProjectSetupCard({
             background: 'var(--surface)', border: '1px solid var(--border)',
           }}
         >
-          <Kicker tone="muted">Before you start</Kicker>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-3)' }}>Before you start</span>
           <Muted size={12}>
             robots.txt is obeyed on every fetch. Overriding it is possible only for a verified
             primary site, by an administrator, with a reason that is recorded.
@@ -271,27 +273,34 @@ export default function ProjectSetupCard({
         {duplicate && (
           <div
             style={{
-              padding: 12, borderRadius: 'var(--r-md)', fontSize: 12.5,
+              padding: 12, borderRadius: 'var(--r-md)', fontSize: 13,
               background: 'color-mix(in srgb, var(--viz-warn) 12%, transparent)',
               border: '1px solid color-mix(in srgb, var(--viz-warn) 40%, transparent)',
               color: 'var(--text-2)',
             }}
           >
-            {duplicate.message} Submit again to create a second project for the same domain.
+            {duplicate.message ? friendlyError(duplicate.message) : 'This domain is already tracked in this workspace.'}
+            {' '}Submit again to create a second project for the same domain.
           </div>
         )}
 
         {error && (
           <div
             style={{
-              padding: 12, borderRadius: 'var(--r-md)', fontSize: 12.5,
+              padding: 12, borderRadius: 'var(--r-md)', fontSize: 13,
               background: 'color-mix(in srgb, var(--viz-neg) 12%, transparent)',
               border: '1px solid color-mix(in srgb, var(--viz-neg) 40%, transparent)',
               color: 'var(--viz-neg)',
             }}
             role="alert"
           >
-            {error}
+            {friendlyError(error)}
+            {errorDetail(error) && (
+              <details style={{ marginTop: 6, fontSize: 12, color: 'var(--text-3)' }}>
+                <summary style={{ cursor: 'pointer' }}>Show details</summary>
+                {errorDetail(error)}
+              </details>
+            )}
           </div>
         )}
 

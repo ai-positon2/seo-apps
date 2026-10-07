@@ -42,7 +42,7 @@ function TypeMix({ rows, total }) {
               }}
             >
               {pct >= 12 && (
-                <span className="num" style={{ fontSize: 10.5, color: 'var(--text)' }}>{r.display}</span>
+                <span className="num" style={{ fontSize: 12, color: 'var(--text)' }}>{r.display}</span>
               )}
             </div>
           );
@@ -51,7 +51,7 @@ function TypeMix({ rows, total }) {
 
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 10 }}>
         {rows.map((r) => (
-          <span key={r.type} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--text-3)' }}>
+          <span key={r.type} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-3)' }}>
             <TypeChip type={r.type} />
             <span className="num">{r.display}</span>
           </span>
@@ -66,14 +66,16 @@ function TypeMix({ rows, total }) {
   );
 }
 
-export function SourcesReport({ envelope, level = 'domain' }) {
+export function SourcesReport({
+  envelope, level = 'domain', project, onOpenReport,
+}) {
   const { data, meta, warnings } = envelope;
   const rows = data.rows || [];
   const isUrl = level === 'url';
 
   return (
     <>
-      <ReportWarnings warnings={warnings} meta={meta} />
+      <ReportWarnings warnings={warnings} meta={meta} onOpenReport={onOpenReport} clientName={project?.name} />
 
       <MetricStrip>
         <Metric label="Total retrievals" metric={data.totalRetrievals} />
@@ -122,7 +124,7 @@ export function SourcesReport({ envelope, level = 'domain' }) {
                       : r.domain}
                   </div>
                   {!isUrl && r.host && r.host !== r.domain && (
-                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{r.host}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{r.host}</div>
                   )}
                 </div>
               ),

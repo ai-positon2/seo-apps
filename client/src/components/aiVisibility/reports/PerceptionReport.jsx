@@ -17,7 +17,7 @@ import { muted } from '../promptHelpers';
 // known for" and getting a blank panel has been answered; getting an error has
 // not. When the extraction lands, the components below are already wired.
 
-export function PerceptionReport({ envelope }) {
+export function PerceptionReport({ envelope, project, onOpenReport }) {
   const { data, meta, warnings } = envelope;
   const association = data.association || [];
   const terms = data.terms || [];
@@ -26,7 +26,7 @@ export function PerceptionReport({ envelope }) {
   if (!association.length) {
     return (
       <>
-        <ReportWarnings warnings={warnings} meta={meta} />
+        <ReportWarnings warnings={warnings} meta={meta} onOpenReport={onOpenReport} clientName={project?.name} />
         <Card>
           <EmptyState
             title="No perception terms extracted yet"
@@ -46,7 +46,7 @@ export function PerceptionReport({ envelope }) {
 
   return (
     <>
-      <ReportWarnings warnings={warnings} meta={meta} />
+      <ReportWarnings warnings={warnings} meta={meta} onOpenReport={onOpenReport} clientName={project?.name} />
 
       <MetricStrip>
         <Metric

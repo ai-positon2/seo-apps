@@ -4,8 +4,9 @@ import { projectsApi, relativeTime, countryLabel, isModuleInFlight } from '../li
 import { useActiveProjectId, useProjectsChanged } from '../lib/activeProject';
 import { cs } from '../lib/crawlScopeApi';
 import {
-  Card, Kicker, Muted, Tag, Btn, FadingRule, SectionHead,
+  Card, Muted, Tag, Btn, FadingRule,
 } from '../components/studio/primitives';
+import { friendlyError, errorDetail } from '../lib/friendlyError';
 import ModuleCard from '../components/home/ModuleCard';
 import SiteFavicon from '../components/home/SiteFavicon';
 import AuditRadar from '../components/home/AuditRadar';
@@ -19,6 +20,39 @@ import { takePrefetch } from '../lib/homePrefetch';
 // BAR is not this — that lives in the app shell and polls a cheap endpoint of its
 // own. This is the dashboard's own numbers, which a running crawl keeps changing.
 const CRAWL_POLL_MS = 8000;
+
+// Section and card labels on Home: sentence case at a readable size. These
+// replaced the Kicker / SectionHead / `eyebrow` forms — 10-13px letter-spaced
+// capitals — which a reader has to decode before they can skip them. Smaller and
+// quieter than what they label, so the hierarchy still reads at a glance.
+const LABEL = { fontSize: 13, fontWeight: 600, color: 'var(--text-3)' };
+const LABEL_TONE = {
+  accent: 'var(--primary-text)',
+  neg: 'var(--viz-neg)',
+};
+const Label = ({ children, tone }) => (
+  <span style={{ ...LABEL, ...(LABEL_TONE[tone] ? { color: LABEL_TONE[tone] } : null) }}>{children}</span>
+);
+
+/**
+ * A failed read, as a sentence the reader can act on, with the original text
+ * behind a native disclosure for whoever has to debug it. The disclosure only
+ * renders when friendlyError() actually replaced something.
+ */
+function ErrorText({ err, size = 13 }) {
+  const detail = errorDetail(err);
+  return (
+    <span style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <Muted size={size} style={{ color: 'var(--text-2)' }}>{friendlyError(err)}</Muted>
+      {detail && (
+        <details style={{ fontSize: 12, color: 'var(--text-3)' }}>
+          <summary style={{ cursor: 'pointer' }}>Show details</summary>
+          {detail}
+        </details>
+      )}
+    </span>
+  );
+}
 
 // ── Home — the project dashboard ────────────────────────────────────────────
 // The home screen leads with one client site's audit profile (PRD §20.1
@@ -391,7 +425,9 @@ export default function HomePage() {
     } catch (e) {
       // The sheet is already closed, so a failure has to be reported on the page
       // rather than back inside a modal the user has stopped looking at.
-      setAuditError(`The audit could not be started: ${e.message}`);
+      // The error itself is kept, so the banner can show the reader's sentence
+      // and still offer the original behind "Show details".
+      setAuditError(e);
       return;
     }
 
@@ -469,19 +505,22 @@ export default function HomePage() {
 
   if (listState.error) {
     const notConfigured = listState.error.code === 'not_configured' || listState.error.status === 503;
+    // No setup instructions here. "Set DATABASE_URL, then reload" is a sentence
+    // for whoever runs the server, shown to someone who cannot act on it;
+    // friendlyError turns it into "ask an admin" and keeps the original behind
+    // Show details.
     return (
       <div style={{ padding: '28px 32px', maxWidth: 720 }}>
         <Card style={{ padding: 24, gap: 10 }}>
-          <Kicker tone="muted">Projects unavailable</Kicker>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 500 }}>
-            {notConfigured ? 'The database is not configured' : 'Could not load projects'}
-          </h2>
-          <Muted size={13}>{listState.error.message}</Muted>
+          <Label>Projects unavailable</Label>
+          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 500 }}>
+            {notConfigured ? 'Projects aren’t available on this server yet' : 'Could not load projects'}
+          </h1>
+          <ErrorText err={listState.error} />
           {notConfigured && (
-            <Muted size={12}>
-              Projects, crawls and run history are all database-backed. Set DATABASE_URL, then
-              reload. Every tool in the sidebar that does not need persistence keeps working in
-              the meantime.
+            <Muted size={13}>
+              Every tool in the sidebar that does not need saved projects keeps working in the
+              meantime.
             </Muted>
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
@@ -499,13 +538,16 @@ export default function HomePage() {
       <div style={{ padding: '28px 32px 48px', display: 'flex', flexDirection: 'column', gap: 36 }}>
         {!projects.length && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 720 }}>
-            <Kicker>Start Here</Kicker>
-            <h1 style={{ margin: 0, fontSize: 32, fontWeight: 500, letterSpacing: '-0.02em' }}>
+            <Label tone="accent">Start here</Label>
+            <h1 style={{ margin: 0, fontSize: 28, fontWeight: 500, letterSpacing: '-0.02em' }}>
               No client projects yet
             </h1>
-            <Muted size={13}>
-              A project is how SEO Studio knows which site it is looking at. Create one and the
-              dashboard fills in as crawls and audits run against it.
+            {/* The next step, not just the state: what to fill in and what to
+                press, and what happens after. */}
+            <Muted size={14}>
+              Enter the client&rsquo;s website and country below, then press{' '}
+              <strong style={{ color: 'var(--text-2)' }}>Create project</strong>. The first scan
+              starts by itself, and this page fills in as the results arrive.
             </Muted>
           </div>
         )}
@@ -611,9 +653,11 @@ export default function HomePage() {
                 size={44}
               />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
-                <h2 style={{ margin: 0, fontSize: 28, fontWeight: 500, letterSpacing: '-0.015em' }}>
+                {/* The page's one h1: the page is about this client. Same look
+                    it had as an h2. */}
+                <h1 style={{ margin: 0, fontSize: 28, fontWeight: 500, letterSpacing: '-0.015em', lineHeight: 1.2 }}>
                   {activeProject.name}
-                </h2>
+                </h1>
                 {/* Everything that used to be four separate chips, on one quiet
                     line. None of it is what the reader came for. */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -654,7 +698,7 @@ export default function HomePage() {
                       </button>
                     )}
                   <Muted size={12}>
-                    · {activeProject.schedule.enabled ? 'Weekly crawl on' : 'No schedule'}
+                    · {activeProject.schedule.enabled ? 'Weekly scan on' : 'No weekly scan'}
                   </Muted>
                   {activeProject.competitors.length > 0 && (
                     <Muted size={12}>
@@ -695,10 +739,10 @@ export default function HomePage() {
             <Btn
               variant="primary"
               onClick={() => { setAuditError(null); setAuditSheet('open'); }}
-              title={'Crawls the site, then audits its pages for SEO & GEO, On-Page and Agent '
-                + 'Readiness as the crawl finds them. Hub & Spoke reads Content Architect\'s '
-                + 'latest analysis.'}
-              style={{ fontSize: 15, height: 42, padding: '0 20px' }}
+              // What it does, for the person deciding whether to press it — not
+              // which internal modules run in which order.
+              title="Scans the whole site and checks every area, then updates the scores on this page."
+              style={{ fontSize: 14, height: 42, padding: '0 20px' }}
             >
               <svg width="16" height="16" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" style={{ display: 'block' }}>
                 <path d="M232.4,114.49,88.32,26.35a16,16,0,0,0-16.2-.3A15.86,15.86,0,0,0,64,39.87V216.13A15.94,15.94,0,0,0,80,232a16.07,16.07,0,0,0,8.36-2.35L232.4,141.51a15.81,15.81,0,0,0,0-27ZM80,215.94V40l143.83,88Z" />
@@ -723,6 +767,7 @@ export default function HomePage() {
               key={activeProject.id}
               project={activeProject}
               canEdit={canEdit}
+              workspaceMax={Number(listState.data?.limits?.maxUrlsPerCrawl) || null}
               onSaved={loadProjects}
             />
             {/* The explanations moved to tooltips. They described the app's own
@@ -755,7 +800,9 @@ export default function HomePage() {
                   {[
                     ['xlsx', 'Excel workbook', 'One sheet per module, filterable'],
                     ['pdf', 'PDF', 'Fixed layout, ready to forward'],
-                    ['md', 'Markdown', 'For pasting into a doc or a PR'],
+                    // Says "text file", not "copy": the item downloads a file,
+                    // and a hint promising a clipboard copy would be wrong.
+                    ['md', 'Markdown', 'Plain text file, to paste into a doc'],
                   ].map(([format, label, hint]) => (
                     <button
                       key={format}
@@ -772,7 +819,7 @@ export default function HomePage() {
                       }}
                     >
                       <span style={{ fontSize: 13, color: 'var(--text)' }}>{label}</span>
-                      <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{hint}</span>
+                      <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{hint}</span>
                     </button>
                   ))}
                 </div>
@@ -784,19 +831,51 @@ export default function HomePage() {
         {/* The crawl bar used to sit here. It is in the app shell now, above
             every screen, so a crawl stays visible when you walk over to another
             tool — see components/MacWindow.jsx and lib/useCrawlStatus.js. */}
+      </Card>
 
-        {/* The answer, at the top, in the reader's numbers.
-            This was one line — "12 things to fix, 7 of them one template change"
-            — which answered one of the four questions somebody opens this page
-            with and left the other three to be assembled out of the six cards
-            below. See components/home/ProfileStats.jsx. */}
-        <FadingRule style={{ marginTop: 4 }} />
+      {/* ── The answer, first ───────────────────────────────────────────────
+          The verdict, one sentence, and the top three fixes, directly under the
+          client's name — above the score tiles and the per-area cards it is
+          drawn from.
+
+          History, because this has moved before: it sat at the bottom, below
+          the module profile, on the product owner's earlier decision that the
+          individual agent scores should come first (the 25 Sep 2026 design
+          audit's HOME-5 moved it up; that was reverted at the owner's request).
+          It is back at the top for the executive audience, who read the answer
+          and stop — at the bottom it was ~1,100px down, below the fold on a
+          laptop, under a radar that needed a paragraph of explanation.
+          Moving it back is this one block.
+
+          Everything in it is a restatement of a stored figure; the wording is
+          composed and tested server-side (insights/executive.js) so the rules
+          about what may be claimed live in one place. */}
+      <ExecutiveSummary
+        /* Keyed, so switching client REMOUNTS it rather than showing the
+           previous client's verdict while the new one loads. The same reason
+           CrawlBudget and ProjectDetail are keyed. */
+        key={activeProject.id}
+        projectId={activeProject.id}
+        onPromote={promoteInsight}
+      />
+
+      {/* The four figures behind the answer, in the reader's numbers.
+          This was one line — "12 things to fix, 7 of them one template change"
+          — which answered one of the four questions somebody opens this page
+          with and left the other three to be assembled out of the six cards
+          below. See components/home/ProfileStats.jsx.
+          Its own card now, rather than the lower half of the header, so the
+          summary can sit between the client's name and these numbers. */}
+      <Card style={{ padding: 20, gap: 0 }}>
         <ProfileStats
           composite={composite}
           modules={modules}
           insights={insights.data}
           insightsLoading={insights.loading}
           insightsError={insights.error}
+          // The shell's crawl status is for the active client, so a run id
+          // means this client is being scanned right now.
+          crawling={Boolean(liveCrawlRunId)}
         />
       </Card>
 
@@ -814,10 +893,16 @@ export default function HomePage() {
           }}
         >
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {/* Kicker's tone prop only knows 'muted'; anything else renders in
-                the primary colour, which on an error card reads as a success. */}
-            <Kicker style={{ color: 'var(--viz-neg)' }}>Audit not started</Kicker>
-            <span style={{ fontSize: 13.5, color: 'var(--text)' }}>{auditError}</span>
+            <Label tone="neg">Audit not started</Label>
+            <span style={{ fontSize: 14, color: 'var(--text)' }}>
+              The audit could not be started. {friendlyError(auditError)}
+            </span>
+            {errorDetail(auditError) && (
+              <details style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                <summary style={{ cursor: 'pointer' }}>Show details</summary>
+                {errorDetail(auditError)}
+              </details>
+            )}
           </div>
           <Btn onClick={() => { setAuditError(null); setAuditSheet('open'); }}>Try again</Btn>
           <Btn onClick={() => setAuditError(null)}>Dismiss</Btn>
@@ -830,12 +915,12 @@ export default function HomePage() {
       {competitorBanner && (
         <Card style={{ padding: '12px 16px', flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <Kicker>
+            <Label tone="accent">
               {competitorBanner.scheduled ? 'Competitor Research started' : 'Competitor Research not started'}
-            </Kicker>
-            <span style={{ fontSize: 13.5, color: 'var(--text)' }}>{competitorBanner.note}</span>
+            </Label>
+            <span style={{ fontSize: 14, color: 'var(--text)' }}>{competitorBanner.note}</span>
             {competitorBanner.scheduled && competitorBanner.estimate && (
-              <Muted size={11.5}>
+              <Muted size={12}>
                 About {competitorBanner.estimate.estimate.toLocaleString('en-US')}{' '}
                 {competitorBanner.estimate.unit} across{' '}
                 {competitorBanner.estimate.domains} domain
@@ -851,23 +936,22 @@ export default function HomePage() {
       {auditBanner && (
         <Card style={{ padding: '12px 16px', flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <Kicker>Full audit complete</Kicker>
-            <span style={{ fontSize: 13.5, color: 'var(--text)' }}>
-              {auditBanner.ran} of {auditBanner.total} module
+            <Label tone="accent">Full audit complete</Label>
+            <span style={{ fontSize: 14, color: 'var(--text)' }}>
+              {auditBanner.ran} of {auditBanner.total} area
               {auditBanner.total === 1 ? '' : 's'} updated
               {auditBanner.failed ? ` · ${auditBanner.failed} failed` : ''}
-              {auditBanner.crawlRunId ? ' · site crawl running' : ''}
+              {auditBanner.crawlRunId ? ' · site scan running' : ''}
             </span>
-            <Muted size={11.5}>
+            <Muted size={12}>
               {auditBanner.followingLiveCrawl
-                ? 'SEO & GEO, On-Page and Agent Readiness are auditing pages as the crawl finds '
-                  + 'them. Their cards show progress, and each page is readable in the report as '
-                  + 'soon as it is done.'
-                : 'No live crawl to follow, so the page audits read the last completed crawl.'}
+                ? 'Pages are being checked as the scan finds them. The cards below update as '
+                  + 'results come in.'
+                : 'No scan was running, so the page checks used the most recent completed scan.'}
             </Muted>
           </div>
           <Btn onClick={() => navigate(`/crawl-scope/runs/${auditBanner.crawlRunId}`)}>
-            Watch the crawl
+            Watch the scan
           </Btn>
           <Btn onClick={() => setAuditBanner(null)}>Dismiss</Btn>
         </Card>
@@ -875,19 +959,30 @@ export default function HomePage() {
 
       {/* ── Audit insights ───────────────────────────────────────────────── */}
       <section>
-        <SectionHead
-          title="Where we stand"
-          right={
-            overview.loading ? 'Loading…'
-            : lastRunAt ? `Latest evidence ${relativeTime(lastRunAt)}`
-            : 'No module has produced evidence for this project yet'
-          }
-        />
+        {/* A sentence-case h2 in place of SectionHead, whose title is 13px
+            letter-spaced capitals and an h6 — wrong level under the page's h1,
+            and a label the reader has to decode. Same rule and spacing. */}
+        <div
+          style={{
+            display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
+            gap: 12, marginBottom: 12, paddingBottom: 8,
+            borderBottom: '1px solid var(--border)', flexWrap: 'wrap',
+          }}
+        >
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>
+            Where we stand
+          </h2>
+          <Muted size={13}>
+            {overview.loading ? 'Loading…'
+              : lastRunAt ? `Latest results ${relativeTime(lastRunAt)}`
+              : 'Nothing has been checked yet. Run Full Audit to score this site.'}
+          </Muted>
+        </div>
 
         {overview.error && (
           <Card style={{ padding: 18, gap: 8 }}>
-            <Kicker tone="muted">Overview unavailable</Kicker>
-            <Muted size={13}>{overview.error.message}</Muted>
+            <Label>Scores unavailable</Label>
+            <ErrorText err={overview.error} />
             <div><Btn onClick={() => loadOverview(activeProject.id)}>Try again</Btn></div>
           </Card>
         )}
@@ -897,8 +992,8 @@ export default function HomePage() {
             {/* Audit profile */}
             <Card style={{ padding: 16, gap: 12 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-                <Kicker>Audit Profile</Kicker>
-                <Muted>{visibleModules.length} modules</Muted>
+                <Label tone="accent">Audit profile</Label>
+                <Muted size={12}>{visibleModules.length} areas</Muted>
               </div>
 
 {/* One ring per module, outermost first, coloured by how that module is
@@ -919,11 +1014,11 @@ export default function HomePage() {
 
               {/* The chart cannot say this and must not be read as saying the
                   opposite: the polygon's shape is not a statement about balance,
-                  because each axis is a different module's own scale. */}
-              <Muted style={{ lineHeight: 1.45 }}>
-                Each axis is that module’s own score on its own scale. They are not
-                averaged, and the shape is not a measure of balance — the six
-                measure different things.
+                  because each axis is a different module's own scale. One line —
+                  the three-sentence version was a caveat longer than the chart's
+                  own labels. */}
+              <Muted size={12} style={{ lineHeight: 1.45 }}>
+                Each area is scored on its own 0–100 scale.
               </Muted>
             </Card>
 
@@ -945,32 +1040,11 @@ export default function HomePage() {
         )}
       </section>
 
-      {/* ── The answer, after the instrumentation ────────────────────────────
-          The per-module scores just above are each agent's own instrument
-          reading; this is the conclusion drawn from them, in the reader's own
-          words, with the thing to do next attached. Kept below the module
-          profile on the product owner's decision — the reader wants the
-          individual agent scores in front, the narrative summarizing them
-          after. (The 25 Sep 2026 design audit briefly moved it to the top,
-          HOME-5; that was reverted at the owner's request.)
-          Everything in it is a restatement of a stored figure; the wording is
-          composed and tested server-side (insights/executive.js) so the rules
-          about what may be claimed live in one place.
-
-          "What the modules say together" used to follow instead — the
-          cross-module headline and the ranked "Do this next" backlog — and
-          before that Activity, Alerts and a Recommendations board. Removed on
-          request. The insight layer is still READ, because the "To fix"
-          figure in the header is its backlog total; it is just not rendered
-          as a panel of its own. */}
-      <ExecutiveSummary
-        /* Keyed, so switching client REMOUNTS it rather than showing the
-           previous client's verdict while the new one loads. The same reason
-           CrawlBudget and ProjectDetail are keyed. */
-        key={activeProject.id}
-        projectId={activeProject.id}
-        onPromote={promoteInsight}
-      />
+      {/* "What the modules say together" used to sit here — the cross-module
+          headline and the ranked "Do this next" backlog — and before that
+          Activity, Alerts and a Recommendations board. Removed on request. The
+          insight layer is still READ, because the "To fix" figure above is its
+          backlog total; it is just not rendered as a panel of its own. */}
 
       {/* ── Run Full Audit confirmation ─────────────────────────────────── */}
       {auditSheet && (
@@ -1020,9 +1094,9 @@ function RunAuditSheet({ project, modules, busy, error, results, onConfirm, onCl
         }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <Kicker>Run Full Audit</Kicker>
+          <Label tone="accent">Run Full Audit</Label>
           <h3 style={{ margin: 0, fontSize: 20, fontWeight: 500 }}>{project.name}</h3>
-          <Muted size={12.5}>
+          <Muted size={13}>
             {project.primaryDomain?.origin || project.legacyUrl}
           </Muted>
         </div>
@@ -1047,7 +1121,12 @@ function RunAuditSheet({ project, modules, busy, error, results, onConfirm, onCl
                   }}
                 />
                 {m.label}
-                <Muted style={{ marginLeft: 'auto', textAlign: 'right', maxWidth: 240 }}>
+                <Muted
+                  size={12}
+                  style={{ marginLeft: 'auto', textAlign: 'right', maxWidth: 240 }}
+                  // The failure in the reader's words; the original on hover.
+                  title={state && !state.ok && state.error ? (errorDetail(state.error) || undefined) : undefined}
+                >
                   {state
                     ? (state.ok
                       ? (state.score !== null && state.score !== undefined
@@ -1055,8 +1134,8 @@ function RunAuditSheet({ project, modules, busy, error, results, onConfirm, onCl
                         : state.status === 'insufficient_data'
                           ? 'nothing to measure'
                           : `${state.findings} finding${state.findings === 1 ? '' : 's'}`)
-                      : (state.error || 'failed'))
-                    : m.status === 'queued' ? 'queued…'
+                      : (state.error ? friendlyError(state.error) : 'Failed'))
+                    : m.status === 'queued' ? 'queued — starts shortly'
                       : m.status === 'running' ? 'running…' : busy ? 'waiting its turn' : 'ready'}
                 </Muted>
               </div>
@@ -1064,18 +1143,20 @@ function RunAuditSheet({ project, modules, busy, error, results, onConfirm, onCl
           })}
 
           {/* The crawl is a different kind of job: minutes, not seconds, and it
-              runs on the crawl worker rather than in the request. */}
+              runs on the crawl worker rather than in the request. Queued
+              first (see runFullAudit), so it is described as starting shortly
+              — "afterwards" stopped being true when the order was reversed. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginTop: 6 }}>
             <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: 'var(--neutral-600)' }} />
-            Site crawl
-            <Muted style={{ marginLeft: 'auto' }}>queued for the crawl worker afterwards</Muted>
+            Site scan
+            <Muted size={12} style={{ marginLeft: 'auto' }}>queued — starts shortly</Muted>
           </div>
         </div>
 
         {results && !results.running && (
           <div
             style={{
-              padding: 10, borderRadius: 'var(--r-md)', fontSize: 12.5,
+              padding: 10, borderRadius: 'var(--r-md)', fontSize: 13,
               background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-2)',
             }}
           >
@@ -1087,13 +1168,15 @@ function RunAuditSheet({ project, modules, busy, error, results, onConfirm, onCl
           <div
             role="alert"
             style={{
-              padding: 12, borderRadius: 'var(--r-md)', fontSize: 12.5, lineHeight: 1.5,
+              padding: 12, borderRadius: 'var(--r-md)', fontSize: 13, lineHeight: 1.5,
               background: 'color-mix(in srgb, var(--viz-neg) 12%, transparent)',
               border: '1px solid color-mix(in srgb, var(--viz-neg) 40%, transparent)',
               color: 'var(--viz-neg)',
             }}
           >
-            {error}
+            {/* `error` is the Error itself now (see runFullAudit), so it is
+                worded for the reader here rather than printed raw. */}
+            {friendlyError(error)}
             <div style={{ marginTop: 6, color: 'var(--text-3)' }}>
               Scheduled crawls are still owner-scoped from the crawler module, so only the person
               who created this project can start one until that route moves onto the shared
@@ -1125,12 +1208,15 @@ function RunAuditSheet({ project, modules, busy, error, results, onConfirm, onCl
 // It reports what was actually stored rather than what was typed. The server
 // clamps to the workspace's `maxUrlsPerCrawl`, and a silent clamp would leave
 // the field showing a number the next crawl will not use.
-function CrawlBudget({ project, canEdit, onSaved }) {
+function CrawlBudget({ project, canEdit, onSaved, workspaceMax = null }) {
   const stored = Number(project.crawlOptions?.maxUrls) || null;
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(stored ? String(stored) : '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  // The original text of a failed save, when friendlyError replaced it. Shown
+  // on hover only: the line under the field has no room for a disclosure.
+  const [errorRaw, setErrorRaw] = useState(null);
 
   async function save() {
     const asked = Number(value);
@@ -1140,6 +1226,7 @@ function CrawlBudget({ project, canEdit, onSaved }) {
     }
     setSaving(true);
     setError(null);
+    setErrorRaw(null);
     try {
       const { project: saved } = await projectsApi.update(project.id, {
         crawlOptions: { maxUrls: asked },
@@ -1155,21 +1242,29 @@ function CrawlBudget({ project, canEdit, onSaved }) {
       setValue(Number.isFinite(now) ? String(now) : value);
       await onSaved?.();
     } catch (e) {
-      setError(e.message);
+      setError(friendlyError(e));
+      setErrorRaw(errorDetail(e));
     } finally {
       setSaving(false);
     }
   }
 
   if (!editing) {
+    // Said as what the next audit will do, not as a setting's name.
+    //
+    // No stored budget means the run-time default applies, which is a real
+    // state and not the same as "unlimited": the crawl is still capped at the
+    // workspace's maxUrlsPerCrawl, resolved when it starts. So the unset label
+    // names that ceiling when the list response carried it, and never claims
+    // "all pages" outright.
     const label = stored
-      ? `up to ${stored.toLocaleString('en-US')} pages`
-      // No stored budget means the run-time default applies, which is a real
-      // state and not the same as "unlimited".
-      : 'no page budget set';
+      ? `Audit up to ${stored.toLocaleString('en-US')} pages`
+      : workspaceMax
+        ? `Audit up to ${workspaceMax.toLocaleString('en-US')} pages (workspace limit)`
+        : 'Audit all pages the workspace allows';
     if (!canEdit) {
       return (
-        <span style={{ fontSize: 12.5, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: 13, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
           {label}
         </span>
       );
@@ -1178,10 +1273,10 @@ function CrawlBudget({ project, canEdit, onSaved }) {
       <button
         type="button"
         onClick={() => setEditing(true)}
-        title="How many pages each crawl of this client fetches. Click to change."
+        title="How many pages each scan of this client checks. Click to change."
         style={{
           background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-          fontFamily: 'var(--font-sans)', fontSize: 12.5, color: 'var(--text-3)',
+          fontFamily: 'var(--font-sans)', fontSize: 13, color: 'var(--text-3)',
           whiteSpace: 'nowrap', textDecoration: 'underline', textDecorationStyle: 'dotted',
           textUnderlineOffset: 3,
         }}
@@ -1207,10 +1302,11 @@ function CrawlBudget({ project, canEdit, onSaved }) {
           style={{
             width: 84, height: 30, padding: '0 8px', borderRadius: 'var(--r-sm)',
             border: '1px solid var(--border-strong)', background: 'var(--surface)',
-            color: 'var(--text)', fontFamily: 'var(--font-mono)', fontSize: 12.5,
+            color: 'var(--text)', fontFamily: 'var(--font-sans)', fontSize: 13,
+            fontVariantNumeric: 'tabular-nums',
           }}
         />
-        <span style={{ fontSize: 12.5, color: 'var(--text-3)' }}>pages</span>
+        <span style={{ fontSize: 13, color: 'var(--text-3)' }}>pages</span>
         <Btn
           variant="primary"
           disabled={saving || !value}
@@ -1226,8 +1322,12 @@ function CrawlBudget({ project, canEdit, onSaved }) {
           Cancel
         </Btn>
       </span>
-      <Muted size={11.5} style={{ color: error ? 'var(--viz-warn)' : 'var(--text-3)' }}>
-        {error || 'Takes effect on the next crawl — a running one keeps the budget it started with.'}
+      <Muted
+        size={12}
+        style={{ color: error ? 'var(--viz-warn)' : 'var(--text-3)' }}
+        title={errorRaw || undefined}
+      >
+        {error || 'Takes effect on the next scan — one already running keeps its limit.'}
       </Muted>
     </span>
   );

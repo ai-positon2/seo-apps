@@ -94,17 +94,17 @@ function IssueRow({ group, entry, trend = null, onOpen }) {
           )}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
-          <span className="num" style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>
+          <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>
             {group.pages}
           </span>
-          <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
             {group.pages === 1 ? 'page' : 'pages'}
           </span>
         </div>
         {priority && (
           <span
             style={{
-              display: 'inline-flex', alignItems: 'center', fontSize: 11, padding: '3px 10px',
+              display: 'inline-flex', alignItems: 'center', fontSize: 12, padding: '3px 10px',
               borderRadius: 6, whiteSpace: 'nowrap', flexShrink: 0,
               background: s.chipBg, color: s.chipFg,
             }}

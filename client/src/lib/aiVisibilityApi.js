@@ -1,32 +1,14 @@
 // ── AI Visibility API client ─────────────────────────────────────────────────
 // Mirrors server/modules/aiVisibility/routes.js.
 //
-// The page's old local `req()` was GET-only and threw a bare Error with no
-// `.code`, but the `migration_needed` special-case in AiVisibilityPage.jsx
-// depends on reading `error.code` — so this copies projectsApi.js's typed
-// error shape verbatim rather than reusing the old helper.
+// The `migration_needed` special-case in AiVisibilityPage.jsx reads
+// `error.code`, which the shared helper carries (see apiRequest.js).
+
+import { requestJson } from './apiRequest';
 
 const BASE = '/api/ai-visibility';
 
-async function req(path, options = {}) {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    ...options,
-  });
-
-  let body = null;
-  try { body = await res.json(); } catch { /* empty or non-JSON body */ }
-
-  if (!res.ok) {
-    const error = new Error(body?.error || `Request failed (${res.status})`);
-    error.status = res.status;
-    error.code = body?.code;
-    error.body = body;
-    throw error;
-  }
-  return body;
-}
+const req = (path, options) => requestJson(path, options);
 
 export const aiVisibilityApi = {
   report: (projectId) => req(`${BASE}/${projectId}/report`),

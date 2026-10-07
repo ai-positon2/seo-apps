@@ -275,9 +275,14 @@ router.post('/pages/:id/content/regen-field', async (req, res) => {
 // ── Approval (Spec §10) ──────────────────────────────────────────────────────
 router.post('/pages/:id/gate', async (req, res) => {
   try {
-    const { gate, action, role, comment, actorId } = req.body;
-    // Role comes from the request (app auth is currently a stub — Spec §0 RBAC).
-    res.json(await pageService.actOnGate(req.params.id, gate, action, { role: role || 'admin', comment, actorId }));
+    const { gate, action, role, comment, actorId } = req.body || {};
+    // The approving role comes from the request body (Spec §0 RBAC is not wired
+    // to app auth yet). It must be sent: a missing role used to default to
+    // 'admin', which could approve any gate. The client always sends one.
+    if (typeof role !== 'string' || !role.trim()) {
+      return res.status(400).json({ error: 'role is required.', code: 'invalid_request' });
+    }
+    res.json(await pageService.actOnGate(req.params.id, gate, action, { role, comment, actorId }));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 router.post('/pages/:id/comments', async (req, res) => {

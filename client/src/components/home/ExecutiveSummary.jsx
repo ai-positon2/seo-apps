@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Card, Kicker, Muted, Btn, FadingRule } from '../studio/primitives';
+import { Card, Muted, Btn, FadingRule } from '../studio/primitives';
 import { projectsApi, relativeTime } from '../../lib/projectsApi';
+import { friendlyError, errorDetail } from '../../lib/friendlyError';
 
 // "Add to plan" (PriorityRow, below) turned out to lead nowhere from the
 // reader's seat — its only destination is the Recommendations sheet of the
@@ -16,7 +17,8 @@ const ADD_TO_PLAN_ENABLED = false;
 // who opens it and reads four figures — two of which are about the TOOL rather
 // than the site — and leaves without the answer they came for.
 //
-// This block sits above all of it and says four things, in that order:
+// This block sits directly under the client's name, above the score tiles and
+// the module cards, and says four things, in that order:
 //
 //   the verdict      is the site in trouble, in one sentence
 //   the direction    which way it has moved since last time
@@ -57,6 +59,10 @@ const SEVERITY_TONE = {
   notice: 'var(--text-3)',
   info: 'var(--text-3)',
 };
+
+// Sentence-case section label. It replaced the 10px letter-spaced capitals of
+// the `eyebrow` class, which a reader had to decode before they could skip it.
+const LABEL = { fontSize: 13, fontWeight: 600, color: 'var(--text-3)' };
 
 /**
  * @param {object}   props
@@ -100,10 +106,10 @@ export default function ExecutiveSummary({ projectId, onPromote }) {
   if (summary.loading) {
     return (
       <Card elevation="md" style={{ padding: '22px 26px', gap: 10, minHeight: 148 }} aria-busy="true">
-        <span className="eyebrow">Executive summary</span>
+        <span style={LABEL}>Executive summary</span>
         <div style={{ height: 22, width: '45%', borderRadius: 6, background: 'var(--surface)' }} />
-        <div style={{ height: 15, width: '80%', borderRadius: 6, background: 'var(--surface)' }} />
-        <div style={{ height: 15, width: '62%', borderRadius: 6, background: 'var(--surface)' }} />
+        <div style={{ height: 16, width: '80%', borderRadius: 6, background: 'var(--surface)' }} />
+        <div style={{ height: 16, width: '62%', borderRadius: 6, background: 'var(--surface)' }} />
       </Card>
     );
   }
@@ -111,12 +117,21 @@ export default function ExecutiveSummary({ projectId, onPromote }) {
   if (summary.error || !summary.data) {
     // Not hidden. A summary that disappears when it fails is indistinguishable
     // from a site with nothing to report.
+    const detail = summary.error ? errorDetail(summary.error) : null;
     return (
       <Card elevation="md" style={{ padding: '18px 22px', gap: 6 }} role="alert">
-        <Kicker tone="muted">Executive summary unavailable</Kicker>
+        <span style={LABEL}>Executive summary unavailable</span>
         <Muted size={13}>
-          {summary.error?.message || 'The summary could not be read. The audit profile below is unaffected.'}
+          {summary.error
+            ? `${friendlyError(summary.error)} The scores below are unaffected.`
+            : 'The summary could not be read. The scores below are unaffected.'}
         </Muted>
+        {detail && (
+          <details style={{ fontSize: 12, color: 'var(--text-3)' }}>
+            <summary style={{ cursor: 'pointer' }}>Show details</summary>
+            {detail}
+          </details>
+        )}
       </Card>
     );
   }
@@ -139,17 +154,17 @@ export default function ExecutiveSummary({ projectId, onPromote }) {
       {/* ── The verdict ──────────────────────────────────────────────────── */}
       <div style={{ padding: '22px 26px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span className="eyebrow">Executive summary</span>
+          <span style={LABEL}>Executive summary</span>
           <TrendChip state={trend} />
         </div>
 
-        <h2 style={{ margin: 0, fontSize: 26, fontWeight: 600, letterSpacing: '-0.01em', color: tone.color }}>
+        <h2 style={{ margin: 0, fontSize: 28, fontWeight: 600, letterSpacing: '-0.01em', color: tone.color }}>
           {verdict.headline}
         </h2>
 
         {/* The one sentence the whole layer exists to produce. Set at reading
             size, not at caption size — it is the content, not a label for it. */}
-        <p style={{ margin: 0, fontSize: 15, lineHeight: 1.55, color: 'var(--text)', maxWidth: 780 }}>
+        <p style={{ margin: 0, fontSize: 16, lineHeight: 1.55, color: 'var(--text)', maxWidth: 780 }}>
           {verdict.sentence}
         </p>
 
@@ -174,8 +189,8 @@ export default function ExecutiveSummary({ projectId, onPromote }) {
             borderTop: '1px solid var(--border)', background: 'var(--surface-2)',
           }}
         >
-          <span className="eyebrow">
-            {priorities.length === 1 ? 'Start here' : `Start with these ${priorities.length}`}
+          <span style={LABEL}>
+            {priorities.length === 1 ? 'Top fix' : `Top ${priorities.length} fixes`}
           </span>
           {/* Capped at the same measure as the paragraphs above. Without it the
               row stretched the full card and parked its button 700px from the
@@ -191,6 +206,19 @@ export default function ExecutiveSummary({ projectId, onPromote }) {
               <PriorityRow key={item.key} item={item} onPromote={onPromote} />
             ))}
           </ol>
+          {/* The rest of the list. Home no longer renders the full ranked
+              backlog, and the place every finding is listed is the workbook
+              behind Download report — so that is where this points, rather
+              than at a screen that does not exist. The count is the backlog's
+              own total, the same figure as the "To fix" tile. */}
+          {leverage.actions > priorities.length && (
+            <a
+              href={projectsApi.reportUrl(projectId, 'xlsx')}
+              style={{ fontSize: 13, color: 'var(--primary-text)', alignSelf: 'flex-start' }}
+            >
+              {`${(leverage.actions - priorities.length).toLocaleString('en-US')} more — see the full list in the Excel report`}
+            </a>
+          )}
         </div>
       )}
 
@@ -272,7 +300,7 @@ function PriorityRow({ item, onPromote }) {
       setState('done');
     } catch (e) {
       setState('error');
-      setError(e.message);
+      setError(friendlyError(e));
     }
   }
 
@@ -295,7 +323,7 @@ function PriorityRow({ item, onPromote }) {
           {[item.reach, item.moduleLabel].filter(Boolean).join(' · ')}
         </Muted>
         {state === 'error' && (
-          <Muted size={11.5} style={{ color: 'var(--viz-neg)' }}>{error}</Muted>
+          <Muted size={12} style={{ color: 'var(--viz-neg)' }}>{error}</Muted>
         )}
       </div>
 
@@ -351,18 +379,24 @@ function PriorityRow({ item, onPromote }) {
  */
 function TrendChip({ state }) {
   if (state.loading) {
-    return <Muted size={11.5}>comparing with the previous audit…</Muted>;
+    return <Muted size={12}>Comparing with the previous audit…</Muted>;
   }
   if (state.error) {
-    return <Muted size={11.5} style={{ color: 'var(--viz-warn)' }}>direction unavailable</Muted>;
+    // The reader's sentence on screen; the raw text, when it was replaced,
+    // on hover — this chip has no room for a details toggle.
+    return (
+      <Muted size={12} style={{ color: 'var(--viz-warn)' }} title={errorDetail(state.error) || undefined}>
+        Couldn&rsquo;t compare with the last audit. {friendlyError(state.error)}
+      </Muted>
+    );
   }
   const trend = state.data;
   if (!trend) return null;
 
   if (trend.state !== 'compared') {
     return (
-      <Muted size={11.5} title={trend.sentence}>
-        {trend.state === 'first_run' ? 'first audit — nothing to compare yet' : 'not comparable'}
+      <Muted size={12} title={trend.sentence}>
+        {trend.state === 'first_run' ? 'First audit — nothing to compare yet' : 'Not comparable with the last audit'}
       </Muted>
     );
   }
@@ -372,8 +406,8 @@ function TrendChip({ state }) {
     <span
       title={trend.caveat ? `${trend.sentence} ${trend.caveat}` : trend.sentence}
       style={{
-        display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5,
-        fontWeight: 600, letterSpacing: '0.02em', color: t.color,
+        display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12,
+        fontWeight: 600, color: t.color,
       }}
     >
       <span aria-hidden="true">{t.mark}</span>
@@ -387,13 +421,13 @@ function BasisLine({ label, children, tone }) {
     <div style={{ display: 'flex', gap: 10, alignItems: 'baseline' }}>
       <span
         style={{
-          flexShrink: 0, minWidth: 96, fontSize: 10, fontWeight: 600, letterSpacing: '0.08em',
-          textTransform: 'uppercase', color: tone === 'warn' ? 'var(--viz-warn)' : 'var(--text-3)',
+          flexShrink: 0, minWidth: 110, fontSize: 12, fontWeight: 600,
+          color: tone === 'warn' ? 'var(--viz-warn)' : 'var(--text-3)',
         }}
       >
         {label}
       </span>
-      <span style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--text-2)' }}>{children}</span>
+      <span style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--text-2)' }}>{children}</span>
     </div>
   );
 }

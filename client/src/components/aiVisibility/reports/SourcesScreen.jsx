@@ -19,7 +19,7 @@ import { GapsReport } from './GapsReport';
 // re-selections into one payload, so the numbers are the same numbers; this
 // hands each component the slice it already knows how to draw.
 
-export function SourcesScreen({ envelope }) {
+export function SourcesScreen({ envelope, project, onOpenReport }) {
   const [level, setLevel] = useState('domain');
   const { data } = envelope;
 
@@ -58,10 +58,15 @@ export function SourcesScreen({ envelope }) {
         </Button>
       </div>
 
-      <SourcesReport envelope={sourcesEnvelope} level={level} />
+      <SourcesReport
+        envelope={sourcesEnvelope}
+        level={level}
+        project={project}
+        onOpenReport={onOpenReport}
+      />
 
       <div style={{ marginTop: 28 }}>
-        <GapsReport envelope={gapsEnvelope} />
+        <GapsReport envelope={gapsEnvelope} project={project} onOpenReport={onOpenReport} />
       </div>
     </>
   );

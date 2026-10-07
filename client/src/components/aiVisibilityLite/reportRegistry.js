@@ -83,11 +83,11 @@ export const REPORTS = [
 ].map((r) => ({ ...r, stat: STAT[r.id] }));
 
 export const REPORT_GROUPS = [
-  { label: 'START HERE', ids: ['overview'] },
-  { label: 'BRAND', ids: ['insights', 'perception'] },
-  { label: 'DEMAND', ids: ['questions'] },
-  { label: 'SOURCES', ids: ['gaps', 'domains', 'urls'] },
-  { label: 'EVIDENCE', ids: ['answers', 'run'] },
+  { label: 'Start here', ids: ['overview'] },
+  { label: 'Brand', ids: ['insights', 'perception'] },
+  { label: 'Demand', ids: ['questions'] },
+  { label: 'Sources', ids: ['gaps', 'domains', 'urls'] },
+  { label: 'Evidence', ids: ['answers', 'run'] },
 ];
 
 export const REPORT_IDS = REPORTS.map((r) => r.id);

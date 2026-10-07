@@ -1,33 +1,15 @@
 // ── AI Visibility Lite API client ────────────────────────────────────────────
 // Mirrors server/modules/aiVisibilityLite/routes.js.
 //
-// The typed error shape is copied from aiVisibilityApi.js rather than shared,
-// for the same reason that file copies it from projectsApi.js: the page
-// branches on `error.code` (`migration_needed`, `run_cap_reached`,
-// `no_surfaces`), and a helper that throws a bare Error loses it. `body` is
-// carried too — a cap refusal returns the budget, and the page shows it.
+// The page branches on `error.code` (`migration_needed`, `run_cap_reached`,
+// `no_surfaces`) and reads `error.body` — a cap refusal returns the budget,
+// and the page shows it. The shared helper carries both (see apiRequest.js).
+
+import { requestJson } from './apiRequest';
 
 const BASE = '/api/ai-visibility-lite';
 
-async function req(path, options = {}) {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    ...options,
-  });
-
-  let body = null;
-  try { body = await res.json(); } catch { /* empty or non-JSON body */ }
-
-  if (!res.ok) {
-    const error = new Error(body?.error || `Request failed (${res.status})`);
-    error.status = res.status;
-    error.code = body?.code;
-    error.body = body;
-    throw error;
-  }
-  return body;
-}
+const req = (path, options) => requestJson(path, options);
 
 export const aivLiteApi = {
   /** Everything the screen needs on load, in one request. */

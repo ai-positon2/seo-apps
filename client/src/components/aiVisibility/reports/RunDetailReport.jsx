@@ -27,7 +27,9 @@ function scoreTone(value) {
   return 'var(--danger)';
 }
 
-export function RunDetailReport({ envelope, legacy }) {
+export function RunDetailReport({
+  envelope, legacy, project, onOpenReport,
+}) {
   const { data, meta, warnings } = envelope;
   const score = data.score?.value ?? null;
   const unextracted = warnings.includes('captures_not_extracted');
@@ -38,7 +40,7 @@ export function RunDetailReport({ envelope, legacy }) {
 
   return (
     <>
-      <ReportWarnings warnings={warnings} meta={meta} />
+      <ReportWarnings warnings={warnings} meta={meta} onOpenReport={onOpenReport} clientName={project?.name} />
 
       {/* ── Headline ─────────────────────────────────────────────────── */}
       <Card style={{ marginBottom: 16 }}>
@@ -47,7 +49,7 @@ export function RunDetailReport({ envelope, legacy }) {
             <div
               className="eyebrow"
               style={{
-                fontSize: 9.5,
+                fontSize: 12,
                 fontFamily: 'var(--font-mono)',
                 letterSpacing: '.18em',
                 color: 'var(--text-3)',
@@ -157,7 +159,7 @@ export function RunDetailReport({ envelope, legacy }) {
                   {d.domain}
                 </span>
                 <TypeChip type={d.domainType} />
-                <span className="num" style={{ fontSize: 11.5, color: 'var(--text-3)', flexShrink: 0, minWidth: 28, textAlign: 'right' }}>
+                <span className="num" style={{ fontSize: 12, color: 'var(--text-3)', flexShrink: 0, minWidth: 28, textAlign: 'right' }}>
                   {d.display}
                 </span>
               </div>

@@ -48,9 +48,24 @@ import {
   healthMetrics, issueGroups, siteScopedGroups, healthScoreBreakdown, pageIssueCards, crawlCoverageNotice,
   crawlComparison, reviewBatches, orderIssueGroups,
   runStatusVariant, formatDuration, TERMINAL_STATUSES, withEffectiveIssues,
-  buildCountHierarchy, isHtmlPage, describeBudgetSource,
+  buildCountHierarchy, isHtmlPage, describeBudgetSource, describeRobotsStatus,
 } from '../components/crawlScope/crawlHelpers';
 import { cs, saveBlob } from '../lib/crawlScopeApi';
+import { friendlyError, errorDetail } from '../lib/friendlyError';
+import { humanRunStatus } from '../lib/humanRunLabel';
+
+// "Show details" under a plain-language error, only when friendlyError() had
+// to replace the original text.
+function ErrorDetail({ error }) {
+  const detail = errorDetail(error);
+  if (!detail) return null;
+  return (
+    <details style={{ fontSize: 12, color: 'var(--text-3)' }}>
+      <summary style={{ cursor: 'pointer' }}>Show details</summary>
+      <div style={{ marginTop: 4, overflowWrap: 'anywhere' }}>{detail}</div>
+    </details>
+  );
+}
 
 // How long a crawl may go without a heartbeat before this page stops calling it
 // running. A CLIENT-SIDE heuristic, deliberately generous: it has to exceed the
@@ -118,7 +133,7 @@ export default function CrawlScopeRunPage() {
   const [progress, setProgress] = useState({});
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(null);
   const [busy, setBusy] = useState('');
   const [downloading, setDownloading] = useState(false);
   // { action, at }: a pause/resume/stop the crawl has not confirmed yet. Held
@@ -173,12 +188,12 @@ export default function CrawlScopeRunPage() {
             // worth showing is a score computed without the findings.
             if (!cancelled) {
               setFindingsState('error');
-              setFindingsError(e.message);
+              setFindingsError(e);
             }
           }
         }
       } catch (e) {
-        if (!cancelled) setError(e.message);
+        if (!cancelled) setError(e);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -230,7 +245,7 @@ export default function CrawlScopeRunPage() {
         setRun((prev) => (prev
           ? { ...prev, status: payload.status, summary: payload.summary, error: payload.error }
           : prev));
-        if (payload.error) toast.add({ title: payload.error, variant: 'danger' });
+        if (payload.error) toast.add({ title: friendlyError(payload.error), variant: 'danger' });
       } catch { /* ignore */ }
       // Findings only exist once the crawl has written its summary.
       //
@@ -240,7 +255,7 @@ export default function CrawlScopeRunPage() {
       setFindingsState('loading');
       cs.findings(id)
         .then((f) => { takeFindings(f); setFindingsState('ready'); })
-        .catch((e) => { setFindingsState('error'); setFindingsError(e.message); });
+        .catch((e) => { setFindingsState('error'); setFindingsError(e); });
       source.close();
     });
 
@@ -249,7 +264,7 @@ export default function CrawlScopeRunPage() {
       // not, and EventSource reconnects on its own — so only the former is worth
       // showing.
       if (e.data) {
-        try { setError(JSON.parse(e.data).message); } catch { /* ignore */ }
+        try { setError(new Error(JSON.parse(e.data).message)); } catch { /* ignore */ }
         source.close();
       }
     });
@@ -569,7 +584,7 @@ export default function CrawlScopeRunPage() {
       await cs[action](id);
     } catch (e) {
       setPendingControl(null);
-      toast.add({ title: `Could not ${action} the crawl`, description: e.message, variant: 'danger' });
+      toast.add({ title: `Could not ${action} the crawl`, description: friendlyError(e), variant: 'danger' });
     }
   }
 
@@ -579,7 +594,7 @@ export default function CrawlScopeRunPage() {
       const { blob, filename } = await cs.downloadReport(id);
       saveBlob(blob, filename);
     } catch (e) {
-      toast.add({ title: 'Could not build the Excel audit', description: e.message, variant: 'danger' });
+      toast.add({ title: 'Could not build the Excel audit', description: friendlyError(e), variant: 'danger' });
     } finally {
       setDownloading(false);
     }
@@ -602,7 +617,7 @@ export default function CrawlScopeRunPage() {
       toast.add({ title: 'Crawl started.' });
       navigate(`/crawl-scope/runs/${started.id}`);
     } catch (e) {
-      toast.add({ title: 'Could not start the crawl', description: e.message, variant: 'danger' });
+      toast.add({ title: 'Could not start the crawl', description: friendlyError(e), variant: 'danger' });
     } finally {
       setBusy('');
     }
@@ -624,7 +639,7 @@ export default function CrawlScopeRunPage() {
     } catch (e) {
       setFindings((prev) => prev.map((f) => (
         f.id === findingId ? { ...f, reviewStatus: previous } : f)));
-      toast.add({ title: 'Could not save that decision', description: e.message, variant: 'danger' });
+      toast.add({ title: 'Could not save that decision', description: friendlyError(e), variant: 'danger' });
     }
   }, [findings, id, toast]);
 
@@ -650,7 +665,7 @@ export default function CrawlScopeRunPage() {
         unsaved.has(f.id) ? { ...f, reviewStatus: previous.get(f.id) } : f)));
       toast.add({
         title: `Saved ${saved.toLocaleString()} of ${findingIds.length.toLocaleString()} decisions`,
-        description: e.message,
+        description: friendlyError(e),
         variant: 'danger',
       });
     }
@@ -689,8 +704,13 @@ export default function CrawlScopeRunPage() {
       <main style={{ padding: '28px 32px' }}>
         <EmptyState
           title="Could not open this crawl"
-          description={error}
-          action={<Button onClick={() => navigate('/crawl-scope')}>Back to CrawlScope</Button>}
+          description={`${friendlyError(error)} It may have been deleted. Go back to Site Crawler to see recent scans.`}
+          action={(
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+              <Button onClick={() => navigate('/crawl-scope')}>Back to Site Crawler</Button>
+              <ErrorDetail error={error} />
+            </div>
+          )}
         />
       </main>
     );
@@ -716,12 +736,12 @@ export default function CrawlScopeRunPage() {
 
   // The live crawl's state as one word, for the panel's pill. An action the
   // crawl has not confirmed yet shows as in progress, not as the old state.
-  const liveLabel = stalled ? 'stopped responding'
-    : stopping ? 'stopping'
-      : analysing ? 'analysing'
-        : pendingControl?.action === 'pause' ? 'pausing'
-          : pendingControl?.action === 'resume' ? 'resuming'
-            : status;
+  const liveLabel = stalled ? 'Stopped responding'
+    : stopping ? 'Stopping'
+      : analysing ? 'Analysing'
+        : pendingControl?.action === 'pause' ? 'Pausing'
+          : pendingControl?.action === 'resume' ? 'Resuming'
+            : humanRunStatus(status);
 
   // ── Which view ────────────────────────────────────────────────────────────
   const openGroup = openIssueId ? groups.find((g) => g.id === openIssueId) || null : null;
@@ -754,7 +774,7 @@ export default function CrawlScopeRunPage() {
       {/* ── Who and when ───────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 24, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 300 }}>
-          <Eyebrow tone="accent">Tech Audit</Eyebrow>
+          <Eyebrow tone="accent">Site Crawler</Eyebrow>
           <h1
             style={{
               margin: 0, fontSize: 32, fontWeight: 500, letterSpacing: '-0.02em',
@@ -772,7 +792,9 @@ export default function CrawlScopeRunPage() {
               ? ` (reduced from ${coverage.clamped.requested.toLocaleString('en-US')} by `
                 + `${describeBudgetSource(coverage.clamped.source)})`
               : ''}
-            {run?.summary?.robotsStatus ? ` · robots.txt: ${run.summary.robotsStatus}` : ''}
+            {run?.summary?.robotsStatus
+              ? ` · ${describeRobotsStatus(run.summary.robotsStatus, run?.options?.respectRobots !== false)}`
+              : ''}
           </span>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -846,8 +868,9 @@ export default function CrawlScopeRunPage() {
       </div>
 
       {error && (
-        <Panel style={{ borderColor: 'var(--viz-neg)' }}>
-          <span style={{ fontSize: 13, color: 'var(--viz-neg)' }}>{error}</span>
+        <Panel style={{ borderColor: 'var(--viz-neg)', gap: 6 }}>
+          <span style={{ fontSize: 13, color: 'var(--viz-neg)' }}>{friendlyError(error)}</span>
+          <ErrorDetail error={error} />
         </Panel>
       )}
 
@@ -861,8 +884,8 @@ export default function CrawlScopeRunPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <span
               style={{
-                display: 'inline-flex', alignItems: 'center', fontSize: 11, padding: '3px 10px',
-                borderRadius: 6, textTransform: 'capitalize',
+                display: 'inline-flex', alignItems: 'center', fontSize: 12, padding: '3px 10px',
+                borderRadius: 6,
                 background: stalled || runStatusVariant(status) === 'danger'
                   ? 'color-mix(in srgb, var(--viz-neg) 20%, transparent)'
                   : 'var(--accent-800)',
@@ -903,7 +926,7 @@ export default function CrawlScopeRunPage() {
             <span style={{ fontSize: 12, color: 'var(--viz-neg)', lineHeight: 1.55 }}>
               No heartbeat for {stalled.silentMinutes} minute
               {stalled.silentMinutes === 1 ? '' : 's'}, so the process running this crawl has
-              stopped. It never reached a terminal state, which is why there are no findings and
+              stopped. It never finished, which is why there are no findings and
               no score — those are written once, at the end. It is reclaimed automatically within
               ten minutes and resumes from its last checkpoint, or you can re-run it now.
             </span>
@@ -911,7 +934,7 @@ export default function CrawlScopeRunPage() {
             <span style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.55 }}>
               {phase === 'stopping'
                 ? <>No new pages are being fetched. The audit is being built from the{' '}
-                  <span className="num">{crawledSoFar.toLocaleString()}</span> pages already
+                  <span style={{ fontVariantNumeric: 'tabular-nums' }}>{crawledSoFar.toLocaleString()}</span> pages already
                   crawled and appears here when it is ready.</>
                 : 'Stopping the crawl…'}
             </span>
@@ -924,9 +947,9 @@ export default function CrawlScopeRunPage() {
               Paused. Nothing is being fetched until you resume; the pages crawled so far are kept.
             </span>
           ) : (
-            <span style={{ fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.5 }}>
-              The findings and the health score are written when the crawl reaches a terminal
-              state. Pages appear in “All Pages” as they are fetched.
+            <span style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5 }}>
+              The findings and the health score are written when the crawl finishes. Pages
+              appear in “All Pages” as they are fetched.
             </span>
           )}
         </Panel>
@@ -957,7 +980,7 @@ export default function CrawlScopeRunPage() {
             {run?.summary?.counts && (
               <>
                 {' '}The crawl recorded{' '}
-                <span className="num">
+                <span style={{ fontVariantNumeric: 'tabular-nums' }}>
                   {(['error', 'warning', 'notice']
                     .reduce((sum, k) => sum + (Number(run.summary.counts[k]) || 0), 0))
                     .toLocaleString()}
@@ -967,9 +990,12 @@ export default function CrawlScopeRunPage() {
             )}
           </span>
           {findingsError && (
-            <span style={{ fontSize: 11.5, color: 'var(--viz-neg)', fontFamily: 'var(--font-mono)' }}>
-              {findingsError}
-            </span>
+            <>
+              <span style={{ fontSize: 12, color: 'var(--viz-neg)' }}>
+                {friendlyError(findingsError)}
+              </span>
+              <ErrorDetail error={findingsError} />
+            </>
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
             <OutlineButton
@@ -979,7 +1005,7 @@ export default function CrawlScopeRunPage() {
                 setFindingsError(null);
                 cs.findings(id)
                   .then((f) => { takeFindings(f); setFindingsState('ready'); })
-                  .catch((e) => { setFindingsState('error'); setFindingsError(e.message); });
+                  .catch((e) => { setFindingsState('error'); setFindingsError(e); });
               }}
               style={{ height: 34, fontSize: 12.5, padding: '0 14px' }}
             >
@@ -997,8 +1023,9 @@ export default function CrawlScopeRunPage() {
       )}
 
       {run?.error && (
-        <Panel style={{ borderColor: 'var(--viz-neg)' }}>
-          <span style={{ fontSize: 13, color: 'var(--viz-neg)' }}>{run.error}</span>
+        <Panel style={{ borderColor: 'var(--viz-neg)', gap: 6 }}>
+          <span style={{ fontSize: 13, color: 'var(--viz-neg)' }}>{friendlyError(run.error)}</span>
+          <ErrorDetail error={run.error} />
         </Panel>
       )}
 
@@ -1117,7 +1144,7 @@ export default function CrawlScopeRunPage() {
         // Both exclusions, said out loud. Otherwise the crawl reports 1,700
         // fetched at the top of the page and this table holds 1,200 rows, with
         // nothing on screen accounting for the other 500.
-        <span style={{ fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.45 }}>
+        <span style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.45 }}>
           The crawler fetched {(externalChecked + nonHtmlInternal).toLocaleString()} more URL
           {externalChecked + nonHtmlInternal === 1 ? '' : 's'} that are not listed here:
           {nonHtmlInternal > 0 && (

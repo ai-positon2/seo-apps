@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { projectsApi, relativeTime, countryLabel } from '../lib/projectsApi';
 import { readActiveProjectId, setActiveProjectId } from '../lib/activeProject';
+import { projectCountText } from '../lib/projectCount';
 import {
   Card, Kicker, Muted, Tag, Btn, FadingRule, SectionHead, Spinner,
 } from '../components/studio/primitives';
@@ -95,7 +96,7 @@ export default function ProjectsPage() {
           <Kicker>Workspace</Kicker>
           <h1 style={{ margin: 0, fontSize: 28, fontWeight: 500, letterSpacing: '-0.015em' }}>Projects</h1>
           <Muted size={13}>
-            {projects.length} project{projects.length === 1 ? '' : 's'} in this workspace. Access is
+            {projectCountText(projects)}. Access is
             by workspace membership — your role here is{' '}
             <strong style={{ color: 'var(--text-2)' }}>{state.data?.workspaces?.find((w) => w.id === state.data.activeWorkspaceId)?.myRole || 'contributor'}</strong>.
           </Muted>
@@ -899,7 +900,7 @@ function ProjectHistory({ projectId }) {
                   {e.actor_email && <span style={{ color: 'var(--text-3)' }}> · {e.actor_email}</span>}
                   {e.reason && <span style={{ color: 'var(--text-3)' }}> · “{e.reason}”</span>}
                 </span>
-                <span style={{ color: 'var(--text-3)', fontSize: 11, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                <span style={{ color: 'var(--text-3)', fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }}>
                   {relativeTime(e.created_at)}
                 </span>
               </div>

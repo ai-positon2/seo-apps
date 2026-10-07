@@ -287,9 +287,13 @@ async function saveScenario({ userId, name, serviceId, serviceName, basketVersio
   return scenario;
 }
 
-async function deleteScenario(id) {
+// Only the owner's row: the same user_id the list filters on (saveScenario
+// stores 'anon' for a caller with no username, so a missing owner means 'anon'
+// here too, never "any owner").
+async function deleteScenario(id, userId) {
   const result = await db.query(
-    `delete from market_potential_scenarios where id = $1`, [id]
+    `delete from market_potential_scenarios where id = $1 and user_id = $2`,
+    [id, userId || 'anon']
   );
   return result.rowCount > 0;
 }

@@ -100,7 +100,7 @@ function GeoPicker({ onPick, placeholder }) {
               onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
             >
               <span>{c.displayName}</span>
-              <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{(c.population / 1e6).toFixed(1)}M</span>
+              <span style={{ color: 'var(--text-3)', fontSize: 12 }}>{(c.population / 1e6).toFixed(1)}M</span>
             </button>
           ))}
         </div>
@@ -118,7 +118,7 @@ function RegionChip({ region, onRemove, tone = 'neutral', meta }) {
       color: tone === 'home' ? 'var(--primary-text)' : 'var(--text)', border: '1px solid var(--border)',
     }}>
       {region.displayName}
-      {meta && <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{meta}</span>}
+      {meta && <span style={{ color: 'var(--text-3)', fontSize: 12 }}>{meta}</span>}
       {onRemove && (
         <button onClick={onRemove} style={{ display: 'flex', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', opacity: 0.6, padding: 0 }}>
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
@@ -407,7 +407,7 @@ export default function MarketPotentialPage() {
         const r = await mp.compare({ serviceId: scn.serviceId, homeGeoIds: scn.homeGeoIds || [], comparedGeoIds: scn.comparedGeoIds || [] });
         return { name: scn.name, rows: scoreRows(r.rows, scn.weightsUsed || weights) };
       };
-      const left = await side(a), right = await side(b);
+      const [left, right] = await Promise.all([side(a), side(b)]);
       setDiff({ left, right });
     } catch (e) { toast.error(e.message); } finally { setBusy(false); }
   };
@@ -490,7 +490,7 @@ export default function MarketPotentialPage() {
                 {savedOpen && (
                   <div style={{ position: 'absolute', right: 0, top: 36, zIndex: 30, width: 328, background: 'var(--card)', border: '1px solid var(--border-strong)', borderRadius: 'var(--r-md)', boxShadow: 'var(--shadow-md)', maxHeight: 380, overflowY: 'auto' }}>
                     <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, background: 'var(--card)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                      <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{diffSel.length ? `${diffSel.length} selected to compare` : 'Tick 2 to compare'}</span>
+                      <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{diffSel.length ? `${diffSel.length} selected to compare` : 'Tick 2 to compare'}</span>
                       {diffSel.length === 2 && <Button size="sm" onClick={runDiff}>Compare →</Button>}
                     </div>
                     {scenarios.map((s) => (
@@ -498,7 +498,7 @@ export default function MarketPotentialPage() {
                         <input type="checkbox" checked={diffSel.includes(s.id)} onChange={() => toggleDiffSel(s.id)} title="Select for comparison" style={{ accentColor: 'var(--primary)' }} />
                         <button onClick={() => loadScenario(s)} style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text)', fontSize: 12 }}>
                           <div style={{ fontWeight: 600 }}>{s.name}</div>
-                          <div style={{ color: 'var(--text-3)', fontSize: 11 }}>{s.serviceName || ''}{s.yearMonth ? ` · ${s.yearMonth}` : ''}</div>
+                          <div style={{ color: 'var(--text-3)', fontSize: 12 }}>{s.serviceName || ''}{s.yearMonth ? ` · ${s.yearMonth}` : ''}</div>
                         </button>
                         <button onClick={() => deleteScenario(s.id)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', display: 'flex' }}>
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
@@ -541,7 +541,7 @@ export default function MarketPotentialPage() {
             }}>
               <span style={{
                 width: 18, height: 18, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 10, fontWeight: 700, background: active ? 'var(--primary)' : done ? 'var(--success)' : 'var(--border)',
+                fontSize: 12, fontWeight: 700, background: active ? 'var(--primary)' : done ? 'var(--success)' : 'var(--border)',
                 color: active || done ? '#fff' : 'var(--text-3)',
               }}>{done ? '✓' : i + 1}</span>
               {s.label}
@@ -669,9 +669,9 @@ export default function MarketPotentialPage() {
               <input type="range" min={100} max={800} step={50} value={radius}
                 onChange={(e) => setRadius(Number(e.target.value))} style={{ width: 220 }} />
               <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{radius} mi</span>
-              <span style={{ fontSize: 11, color: 'var(--text-3)' }}>· {suggestions.length} metros in range</span>
+              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>· {suggestions.length} metros in range</span>
             </div>
-            <div style={{ fontSize: 11, color: 'var(--primary-text)', marginTop: 4 }}>{radiusLabel(radius)}</div>
+            <div style={{ fontSize: 12, color: 'var(--primary-text)', marginTop: 4 }}>{radiusLabel(radius)}</div>
           </div>
 
           {/* Interactive US map — click a metro to add/remove it from the comparison */}
@@ -732,7 +732,7 @@ export default function MarketPotentialPage() {
                         background: on ? 'var(--success-soft)' : 'var(--card)', color: on ? 'var(--success)' : 'var(--text-2)',
                       }}>
                       {on ? '✓ ' : '+ '}{s.displayName}
-                      <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{s.distanceMiles} mi</span>
+                      <span style={{ color: 'var(--text-3)', fontSize: 12 }}>{s.distanceMiles} mi</span>
                     </button>
                   );
                 })}

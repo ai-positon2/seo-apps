@@ -30,7 +30,7 @@ export function RankedBarChart({ domains = [], valueFn, emptyText = 'No data yet
           <button
             onClick={() => setIndexed((v) => !v)}
             style={{
-              fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 500,
+              fontSize: 12, fontFamily: 'var(--font-mono)', fontWeight: 500,
               padding: '3px 10px', borderRadius: 'var(--r-pill)',
               border: '1px solid var(--border-strong)',
               background: indexed ? 'var(--primary-soft)' : 'var(--surface)',
@@ -94,7 +94,7 @@ export function RankedBarChart({ domains = [], valueFn, emptyText = 'No data yet
 
 function Legend() {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: 'var(--text-3)' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12, color: 'var(--text-3)' }}>
       <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
         <span style={{ width: 8, height: 8, borderRadius: 2, background: CLIENT_COLOR, display: 'inline-block' }} />
         Client
