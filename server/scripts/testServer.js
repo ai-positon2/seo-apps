@@ -39,6 +39,8 @@ const SUITES = [
   'routes/__tests__/agentReadinessPdf.test.js',
   // A project audit only follows that project's own crawl.
   'modules/projects/__tests__/crawlOwnership.test.js',
+  // A Content Architect project created from the tool page belongs to a workspace.
+  'modules/contentArchitect/__tests__/newProjectWorkspace.test.js',
   // Outbound fetches to a user's URL refuse private hosts on every hop, and
   // the headless browser never opens file:// or an internal address.
   'services/__tests__/safeEgress.test.js',
