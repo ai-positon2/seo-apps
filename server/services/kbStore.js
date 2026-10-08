@@ -1,10 +1,22 @@
 const fs = require('fs').promises;
 const path = require('path');
 const matter = require('gray-matter');
+const { assertSafeFileId, UnsafeIdError } = require('./safeFileId');
 
 const KB_ROOT = process.env.KB_ROOT || path.join(__dirname, '../../knowledge-base');
 const MODULES_ROOT = process.env.MODULES_ROOT || path.join(__dirname, '../../modules');
 const INDEX_PATH = path.join(KB_ROOT, '_index.json');
+
+// Every file path here is built from request fields (id, client, period, module
+// id), and path.join resolves `..` without complaint. The fields are checked
+// where they are interpolated, and the final path must still sit under its root
+// — the second check also covers a path read back out of _index.json.
+function within(root, relative) {
+  const full = path.resolve(root, relative);
+  const base = path.resolve(root) + path.sep;
+  if (!full.startsWith(base)) throw new UnsafeIdError(relative);
+  return full;
+}
 
 // ── Index ────────────────────────────────────────────────────────────────────
 
@@ -34,7 +46,7 @@ async function readKB(id) {
   const index = await readIndex();
   const entry = index.knowledge_bases.find(kb => kb.id === id);
   if (!entry) return null;
-  const filePath = path.join(KB_ROOT, entry.path);
+  const filePath = within(KB_ROOT, entry.path);
   try {
     const raw = await fs.readFile(filePath, 'utf8');
     const parsed = matter(raw);
@@ -65,7 +77,7 @@ async function writeKB(id, frontmatter, body, changeNote = 'Updated') {
   }
 
   const fileContent = matter.stringify('\n' + updatedBody.trim(), frontmatter);
-  const filePath = path.join(KB_ROOT, entry.path);
+  const filePath = within(KB_ROOT, entry.path);
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, fileContent, 'utf8');
 
@@ -85,13 +97,13 @@ async function createKB(data) {
   let filePath;
   if (category === 'client-feedback') {
     const p = period || currentPeriod();
-    filePath = `client-feedback/${client}/${p}.md`;
+    filePath = `client-feedback/${assertSafeFileId(client, 'client')}/${assertSafeFileId(p, 'period')}.md`;
   } else if (category === 'industry') {
-    filePath = `industry/${id}.md`;
+    filePath = `industry/${assertSafeFileId(id)}.md`;
   } else if (category === 'brand') {
-    filePath = `brand/${id}.md`;
+    filePath = `brand/${assertSafeFileId(id)}.md`;
   } else if (category === 'best-practices') {
-    filePath = `best-practices/${id}.md`;
+    filePath = `best-practices/${assertSafeFileId(id)}.md`;
   } else {
     throw new Error(`Unknown category: ${category}`);
   }
@@ -123,7 +135,7 @@ async function createKB(data) {
   const initialBody = (body ? body.trim() + '\n' : '') + `\n## Changelog\n${changelogLine}`;
   const fileContent = matter.stringify('\n' + initialBody.trim(), frontmatter);
 
-  const fullPath = path.join(KB_ROOT, filePath);
+  const fullPath = within(KB_ROOT, filePath);
   await fs.mkdir(path.dirname(fullPath), { recursive: true });
   await fs.writeFile(fullPath, fileContent, 'utf8');
 
@@ -146,7 +158,7 @@ async function deleteKB(id) {
   const entryIdx = index.knowledge_bases.findIndex(kb => kb.id === id);
   if (entryIdx === -1) throw new Error(`KB "${id}" not found in index.`);
   const entry = index.knowledge_bases[entryIdx];
-  const filePath = path.join(KB_ROOT, entry.path);
+  const filePath = within(KB_ROOT, entry.path);
   try { await fs.unlink(filePath); } catch { /* file may not exist */ }
   index.knowledge_bases.splice(entryIdx, 1);
   await writeIndex(index);
@@ -184,13 +196,13 @@ async function listModules() {
 }
 
 async function readModule(moduleId) {
-  const manifestPath = path.join(MODULES_ROOT, moduleId, 'manifest.json');
+  const manifestPath = path.join(within(MODULES_ROOT, assertSafeFileId(moduleId, 'module')), 'manifest.json');
   const raw = await fs.readFile(manifestPath, 'utf8');
   return JSON.parse(raw);
 }
 
 async function writeModule(moduleId, manifest) {
-  const dir = path.join(MODULES_ROOT, moduleId);
+  const dir = within(MODULES_ROOT, assertSafeFileId(moduleId, 'module'));
   await fs.mkdir(dir, { recursive: true });
   const manifestPath = path.join(dir, 'manifest.json');
   await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');

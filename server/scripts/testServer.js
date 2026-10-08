@@ -33,6 +33,8 @@ const SUITES = [
   // Saved staging passwords never leave the server, and may not follow a
   // domain to a different host.
   'modules/robotsMonitor/__tests__/domainAuth.test.js',
+  // Knowledge Base and module manifest files stay under their own folders.
+  'services/__tests__/kbStorePaths.test.js',
   // Outbound fetches to a user's URL refuse private hosts on every hop, and
   // the headless browser never opens file:// or an internal address.
   'services/__tests__/safeEgress.test.js',
