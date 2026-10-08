@@ -37,6 +37,8 @@ const SUITES = [
   'services/__tests__/kbStorePaths.test.js',
   // The Agent Readiness PDF escapes caller fields and loads nothing.
   'routes/__tests__/agentReadinessPdf.test.js',
+  // A project audit only follows that project's own crawl.
+  'modules/projects/__tests__/crawlOwnership.test.js',
   // Outbound fetches to a user's URL refuse private hosts on every hop, and
   // the headless browser never opens file:// or an internal address.
   'services/__tests__/safeEgress.test.js',

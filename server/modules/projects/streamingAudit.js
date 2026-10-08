@@ -84,6 +84,28 @@ async function crawlStatus(crawlRunId) {
   }
 }
 
+async function crawlProjectOf(crawlRunId) {
+  try {
+    return await db.maybeOne(`select id, project_id from crawl_runs where id = $1`, [crawlRunId]);
+  } catch (error) {
+    // A malformed id is a uuid cast error, which is "no such crawl" to a caller.
+    if (error?.code === '22P02' || error?.cause?.code === '22P02') return null;
+    throw new Error(`[streamingAudit.crawlProjectOf] ${error.message}`);
+  }
+}
+
+/**
+ * Whether a crawl id sent with an audit request belongs to the project being
+ * audited. The project is access-checked by the route; the crawl id arrives
+ * beside it from the body, and following another project's crawl would audit
+ * that project's pages into this one.
+ */
+async function crawlBelongsToProject(crawlRunId, projectId, { lookup = crawlProjectOf } = {}) {
+  if (!crawlRunId || !projectId) return false;
+  const crawl = await lookup(crawlRunId);
+  return Boolean(crawl && crawl.project_id && crawl.project_id === projectId);
+}
+
 /**
  * Pages this crawl has stored so far, in the order it found them.
  *
@@ -439,6 +461,7 @@ const SCORE_BASIS = {
 
 module.exports = {
   followCrawl,
+  crawlBelongsToProject,
   QUEUE_TIMEOUT_MS,
   CRAWL_PENDING,
   pagesSoFar,

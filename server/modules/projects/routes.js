@@ -1310,6 +1310,13 @@ router.post('/:projectId/audit', async (req, res) => {
     // instead of reading the previous crawl's stored pages — which is what this
     // route used to do, silently reporting last week's pages as today's audit.
     const crawlRunId = req.body?.crawlRunId || null;
+    // The project was access-checked above; the crawl id came with it from the
+    // body and was not. Following another project's crawl would audit its pages
+    // into this one, so it answers the same "not found" a foreign project does.
+    if (crawlRunId
+        && !(await require('./streamingAudit').crawlBelongsToProject(crawlRunId, access.project.id))) {
+      return res.status(404).json({ error: 'Crawl not found.' });
+    }
 
     // The long ones go on the queue and leave this loop alone.
     //
