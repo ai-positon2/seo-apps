@@ -520,8 +520,8 @@ function buildPdfHtml(data) {
       <td style="padding:7px 10px;border-bottom:1px solid #F3F4F6;">
         <span style="background:${tc.bg};color:${tc.text};padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600;white-space:nowrap;">${tier}</span>
       </td>
-      <td style="padding:7px 10px;border-bottom:1px solid #F3F4F6;font-weight:500;font-size:12px;">${check.label || check.id}</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #F3F4F6;color:#6B7280;font-size:11px;">${check.cat || ''}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #F3F4F6;font-weight:500;font-size:12px;">${esc(check.label || check.id)}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #F3F4F6;color:#6B7280;font-size:11px;">${esc(check.cat || '')}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #F3F4F6;color:#374151;font-size:11px;">${owner}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #F3F4F6;color:#374151;font-size:11px;">${effort}</td>
     </tr>`;
@@ -961,6 +961,15 @@ router.post('/pdf', async (req, res) => {
       defaultViewport: localBrowser ? { width: 1280, height: 800 } : chromium.defaultViewport,
     });
     const page = await browser.newPage();
+    // The report is self-contained HTML built from the request body, so it has
+    // no business fetching anything. Blocking every network request means a
+    // field that slips past esc() still cannot make the server load a URL.
+    await page.setRequestInterception(true);
+    page.on('request', (request) => {
+      const url = request.url();
+      if (url.startsWith('data:') || url === 'about:blank') request.continue();
+      else request.abort();
+    });
     const html = buildPdfHtml(data);
     await page.setContent(html, { waitUntil: 'networkidle0' });
     const pdf = await page.pdf({
@@ -991,4 +1000,4 @@ module.exports = router;
 module.exports.runAgentReadiness = runAgentReadiness;
 module.exports.levelFromScore = levelFromScore;
 // Exposed for routes/__tests__/egressWiring.test.js.
-module.exports._private = { safeFetch };
+module.exports._private = { safeFetch, buildPdfHtml };

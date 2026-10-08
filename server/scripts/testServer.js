@@ -35,6 +35,8 @@ const SUITES = [
   'modules/robotsMonitor/__tests__/domainAuth.test.js',
   // Knowledge Base and module manifest files stay under their own folders.
   'services/__tests__/kbStorePaths.test.js',
+  // The Agent Readiness PDF escapes caller fields and loads nothing.
+  'routes/__tests__/agentReadinessPdf.test.js',
   // Outbound fetches to a user's URL refuse private hosts on every hop, and
   // the headless browser never opens file:// or an internal address.
   'services/__tests__/safeEgress.test.js',
