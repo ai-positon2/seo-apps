@@ -30,6 +30,9 @@ const SUITES = [
   'modules/contentWriter/__tests__/contentWriter.test.js',
   'routes/__tests__/auth.test.js',
   'routes/__tests__/workspaces.test.js',
+  // Saved staging passwords never leave the server, and may not follow a
+  // domain to a different host.
+  'modules/robotsMonitor/__tests__/domainAuth.test.js',
   // Outbound fetches to a user's URL refuse private hosts on every hop, and
   // the headless browser never opens file:// or an internal address.
   'services/__tests__/safeEgress.test.js',

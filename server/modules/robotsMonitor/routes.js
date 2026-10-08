@@ -3,6 +3,7 @@ const monitorStore = require('./monitorStore');
 const { runMonitorCheck, getStatus } = require('./monitorRunner');
 const { reinitScheduler } = require('./monitorScheduler');
 const { sendTestMessage } = require('./slackNotifier');
+const { redactDomain, redactClient, resolveAuthUpdate } = require('./domainAuth');
 
 const router = express.Router();
 
@@ -38,7 +39,7 @@ function isValidScheduleTime(t) {
 
 router.get('/clients', async (req, res) => {
   try {
-    res.json(await monitorStore.getClients());
+    res.json((await monitorStore.getClients()).map(redactClient));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -58,7 +59,7 @@ router.patch('/clients/:clientId', async (req, res) => {
   const { name } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: 'name is required' });
   try {
-    res.json(await monitorStore.updateClient(req.params.clientId, { name: name.trim() }));
+    res.json(redactClient(await monitorStore.updateClient(req.params.clientId, { name: name.trim() })));
   } catch (err) {
     res.status(err.message.includes('not found') ? 404 : 500).json({ error: err.message });
   }
@@ -93,7 +94,7 @@ router.post('/clients/:clientId/domains', async (req, res) => {
       env,
       auth: auth ? { username: auth.username.trim(), password: auth.password } : null,
     });
-    res.status(201).json(domain);
+    res.status(201).json(redactDomain(domain));
   } catch (err) {
     res.status(err.message.includes('not found') ? 404 : 500).json({ error: err.message });
   }
@@ -112,17 +113,17 @@ router.patch('/clients/:clientId/domains/:domainId', async (req, res) => {
     if (!['production', 'staging'].includes(env)) return res.status(400).json({ error: 'env must be "production" or "staging"' });
     fields.env = env;
   }
-  if (auth !== undefined) {
-    if (auth && (!auth.username || !auth.password)) {
-      return res.status(400).json({ error: 'auth.username and auth.password must be non-empty' });
-    }
-    fields.auth = auth || null;
-  }
   if (enabled !== undefined) fields.enabled = Boolean(enabled);
 
   try {
-    res.json(await monitorStore.updateDomain(req.params.clientId, req.params.domainId, fields));
+    // The saved password is never sent to the browser, so a blank one here means
+    // "keep it" — and it may not follow the domain to a different host.
+    const existing = await monitorStore.getDomain(req.params.clientId, req.params.domainId);
+    const nextAuth = resolveAuthUpdate({ existing, url: fields.url, auth });
+    if (nextAuth !== undefined) fields.auth = nextAuth;
+    res.json(redactDomain(await monitorStore.updateDomain(req.params.clientId, req.params.domainId, fields)));
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     res.status(err.message.includes('not found') ? 404 : 500).json({ error: err.message });
   }
 });
