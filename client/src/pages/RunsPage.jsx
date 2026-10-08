@@ -101,9 +101,11 @@ export default function RunsPage() {
       render: (action) => <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{action || 'run'}</span>,
     },
     {
-      key: 'label', label: 'Ran on',
+      // Wraps, breaking long URLs anywhere: unwrapped, one article URL pushed the
+      // table past its card at 1440px and Who/Status/Took scrolled out of view.
+      key: 'label', label: 'Ran on', wrap: true,
       render: (value) => (
-        <span title={value || undefined} style={{ color: value ? 'var(--text)' : 'var(--text-3)' }}>
+        <span title={value || undefined} style={{ color: value ? 'var(--text)' : 'var(--text-3)', overflowWrap: 'anywhere' }}>
           {humanRunLabel(value, projectNames) || '—'}
         </span>
       ),

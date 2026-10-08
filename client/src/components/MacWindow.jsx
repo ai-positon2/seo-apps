@@ -108,6 +108,13 @@ const TOOL_ICONS = {
       <path d="M4.5 12a7.5 7.5 0 0115 0M2.25 12a9.75 9.75 0 0119.5 0" />
     </svg>
   ),
+  // The sidebar's AI Visibility entry is the API-based -lite tool; same icon.
+  'ai-visibility-lite': (
+    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 18.75a6.75 6.75 0 100-13.5 6.75 6.75 0 000 13.5z" />
+      <path d="M4.5 12a7.5 7.5 0 0115 0M2.25 12a9.75 9.75 0 0119.5 0" />
+    </svg>
+  ),
   'seo-geo-audit': (
     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -121,6 +128,11 @@ const TOOL_ICONS = {
   'image-alt-audit': (
     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
       <path d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+    </svg>
+  ),
+  'content-writer': (
+    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
     </svg>
   ),
   'location-page-builder': (

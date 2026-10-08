@@ -23,7 +23,7 @@ function VariantChips({ queries, small = false }) {
       key={i}
       style={{
         fontSize: size, padding: pad, borderRadius: 99, fontWeight: 500,
-        background: i === 0 ? 'var(--nav-bg-top)' : 'var(--surface)', color: i === 0 ? '#fff' : 'var(--text)',
+        background: i === 0 ? 'var(--primary)' : 'var(--surface)', color: i === 0 ? 'var(--text-on-primary)' : 'var(--text)',
       }}
     >
       {i === 0 ? '★ ' : ''}{q}

@@ -224,7 +224,7 @@ function CodeBlock({ value }) {
     <pre style={{
       fontSize: '0.75rem',
       background: 'var(--nav-bg-top)',
-      color: 'var(--border)',
+      color: 'var(--text)',
       borderRadius: 'var(--r-lg)',
       padding: '1rem',
       overflowX: 'auto',
