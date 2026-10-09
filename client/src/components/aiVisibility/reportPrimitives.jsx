@@ -90,7 +90,11 @@ export function FilledLabelBar({
           position: 'absolute',
           inset: 0,
           width: `${width}%`,
-          background: highlight ? fill : `color-mix(in srgb, ${fill} 55%, transparent)`,
+          // A highlighted row is a stronger TINT with a solid edge, not a solid
+          // fill: the label and numbers sit on top of the bar, and on a solid
+          // brand-green fill they had no contrast in either theme.
+          background: `color-mix(in srgb, ${fill} ${highlight ? 34 : 55}%, transparent)`,
+          borderLeft: highlight ? `4px solid ${fill}` : 'none',
           borderRadius: 'var(--r-sm)',
         }}
         />

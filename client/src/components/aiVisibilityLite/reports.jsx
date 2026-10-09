@@ -23,6 +23,7 @@ import {
   FilledLabelBar, TypeChip, ShowMore,
 } from '../aiVisibility/reportPrimitives';
 import { LineChart } from '../aiVisibility/reportCharts';
+import { useTheme } from '../ThemeContext';
 import openaiLogo from './logos/openai.svg';
 import claudeLogo from './logos/claude.webp';
 import geminiLogo from './logos/gemini.webp';
@@ -365,40 +366,105 @@ const stageFor = (score) => (
   typeof score === 'number' ? SCORE_STAGES.find((s) => score <= s.max) : null
 );
 
-/**
- * One card per model across every answer in the period — the same card look
- * as a prompt's "Visibility by model", with the whole period's counts.
- */
-function EngineOverviewCards({ byEngine }) {
-  if (!byEngine.length) return null;
+/** "1 in 10 AI answers mention you" — the named rate as a reader says it. */
+function mentionPhrase(rate) {
+  if (rate === 0) return 'no AI answer mentions you yet.';
+  if (rate >= 0.95) return 'almost every AI answer mentions you.';
+  const inTen = Math.round(rate * 10);
+  if (inTen === 0) return 'fewer than 1 in 10 AI answers mention you.';
+  return `${inTen} in 10 AI answers mention you.`;
+}
+
+/** The score as a large ring, filled to the score in the stage's colour. */
+function ScoreRing({ score, display, color, label }) {
+  const size = 210; const stroke = 16; const r = (size - stroke) / 2; const c = 2 * Math.PI * r;
+  const frac = typeof score === 'number' ? Math.max(0, Math.min(1, score / 100)) : 0;
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0, margin: '0 auto' }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`Visibility ${display} out of 100`}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="color-mix(in srgb, var(--text-3) 18%, transparent)" strokeWidth={stroke} />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke={color}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={`${c * frac} ${c}`}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        />
+      </svg>
+      <div style={{
+        position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+      }}
+      >
+        <span style={{ fontSize: 60, fontWeight: 700, lineHeight: 1, color: 'var(--text)', fontFamily: 'var(--font-mono)', letterSpacing: '-.03em' }}>
+          {display}
+        </span>
+        <span style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)', letterSpacing: '.14em', color: 'var(--text-3)', marginTop: 6 }}>
+          VISIBILITY / 100
+        </span>
+        {label && <span style={{ fontSize: 12, fontWeight: 600, color, marginTop: 4 }}>{label}</span>}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Each model's share as a slim bar filled to its mention rate, with the exact
+ * count spelled out underneath ("3 of 58 answers").
+ */
+function EngineDotCards({ byEngine }) {
+  if (!byEngine?.length) return null;
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
       {byEngine.map((e) => {
         const visual = ENGINE_VISUAL[e.engine] || DEFAULT_ENGINE_VISUAL;
-        const status = !e.measured
-          ? { text: 'Could not be measured', tone: 'muted' }
-          : (e.named === 0 ? { text: 'Never mentions you', tone: 'neg' } : { text: 'Mentions you', tone: 'accent' });
+        const share = Math.max(0, Math.min(1, e.namedRate.value || 0));
         return (
           <div
             key={e.engine}
             style={{
-              border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', overflow: 'hidden', background: 'var(--card)',
+              padding: '14px 16px', borderRadius: 'var(--r-lg)', border: '1px solid var(--border)',
+              background: 'var(--card)',
             }}
           >
-            <div style={{ background: visual.tint, padding: '18px 14px', display: 'flex', justifyContent: 'center' }}>
-              <EngineLogo engine={e.engine} visual={visual} />
-            </div>
-            <div style={{ padding: '12px 14px' }}>
-              <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text)', lineHeight: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{
+                width: 30, height: 30, borderRadius: 8, background: visual.tint,
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              }}
+              >
+                <EngineLogo engine={e.engine} visual={visual} size={18} />
+              </span>
+              <span style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>{engineLabel(e.engine)}</span>
+              <span style={{ fontSize: 24, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>
                 {e.namedRate.display}
+              </span>
+            </div>
+            {e.measured > 0 && (
+              <div
+                aria-hidden="true"
+                style={{
+                  height: 6, borderRadius: 3, marginTop: 14, overflow: 'hidden',
+                  background: 'color-mix(in srgb, var(--text-3) 16%, transparent)',
+                }}
+              >
+                <div style={{
+                  width: `${share * 100}%`, minWidth: share > 0 ? 6 : 0, height: '100%',
+                  borderRadius: 3, background: 'var(--viz-1)', transition: 'width 300ms ease',
+                }}
+                />
               </div>
-              <div style={{ fontSize: 13, fontWeight: 600, marginTop: 6 }}>{engineLabel(e.engine)}</div>
-              <div style={{ fontSize: 11.5, color: STATUS_TONE_COLOR[status.tone], marginTop: 2 }}>{status.text}</div>
-              {e.measured > 0 && (
-                <Muted size={11} style={{ display: 'block', marginTop: 2 }}>
-                  In {e.named} of {e.measured} answer{e.measured === 1 ? '' : 's'}
-                </Muted>
-              )}
+            )}
+            <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 10 }}>
+              {!e.measured
+                ? 'Could not be measured'
+                : e.named === 0
+                  ? `Didn’t mention you in any of ${e.measured} answers`
+                  : `Mentions you in ${e.named} of ${e.measured} answers`}
             </div>
           </div>
         );
@@ -429,70 +495,61 @@ export function OverviewReport({ report }) {
   const stage = stageFor(report.headline.score.value);
   const brandName = clientRow?.name || 'You';
 
-  // The one plain sentence a non-technical reader needs first: does AI bring
-  // this brand up, and how does that compare to before. Everything else on
-  // this card is that same claim broken into its parts.
-  const summary = report.headline.namedRate.value === null
-    ? 'We haven’t measured any AI answers for this project yet.'
-    : `When people ask AI assistants questions like the ones this project tracks, `
-      + `${brandName} comes up in ${report.headline.namedRate.display} of the answers.`;
+  const namedValue = report.headline.namedRate.value;
+  const accent = stage ? stage.color : 'var(--text)';
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
-      <Card style={{ padding: 22 }}>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          {verdict ? <Tag tone={verdict === 'BEHIND' ? 'neg' : 'accent'}>{verdict}</Tag> : null}
-          <Muted size={11} style={{ fontFamily: 'var(--font-mono)', letterSpacing: '.1em' }}>
-            {report.meta.answersMeasured} ANSWERS MEASURED
-            {report.meta.answers !== report.meta.answersMeasured
-              ? ` OF ${report.meta.answers} ATTEMPTED` : ''}
-          </Muted>
-        </div>
-
-        {/* The one number a first-time reader needs, in plain words: not "47"
-            but "Getting noticed" — the number is still there for anyone who
-            wants it, just no longer the FIRST thing that has to be decoded. */}
-        <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap', marginTop: 14 }}>
-          <div style={{
-            fontSize: 48, fontWeight: 700, lineHeight: 1,
-            fontFamily: 'var(--font-mono)', letterSpacing: '-.02em',
-            color: stage ? stage.color : 'var(--text)',
-          }}
-          >
-            {report.headline.score.display}
-            <span style={{ fontSize: 16, fontWeight: 500, color: 'var(--text-3)' }}>/100</span>
-          </div>
-          {stage && (
-            <div>
-              <div style={{ fontSize: 18, fontWeight: 600, color: stage.color }}>{stage.label}</div>
-              <Muted size={12.5}>{stage.blurb}</Muted>
+      <Card style={{
+        padding: 26,
+        // A faint wash of the stage colour, so the verdict sets the mood of
+        // the whole card without changing the page's own theme.
+        background: `linear-gradient(135deg, color-mix(in srgb, ${accent} 9%, var(--card)) 0%, var(--card) 62%)`,
+      }}
+      >
+        <div style={{ display: 'flex', gap: 28, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 320 }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              {verdict ? <Tag tone={verdict === 'BEHIND' ? 'neg' : 'accent'}>{verdict}</Tag> : null}
+              <Muted size={11} style={{ fontFamily: 'var(--font-mono)', letterSpacing: '.1em' }}>
+                {report.meta.answersMeasured} ANSWERS MEASURED
+                {report.meta.answers !== report.meta.answersMeasured
+                  ? ` OF ${report.meta.answers} ATTEMPTED` : ''}
+              </Muted>
             </div>
-          )}
+
+            {/* The one sentence a first-time reader needs, as the headline:
+                the stage in words, then how often AI brings the brand up. */}
+            <h2 style={{
+              fontSize: 'clamp(26px, 3.2vw, 38px)', fontWeight: 700, lineHeight: 1.15,
+              letterSpacing: '-.02em', margin: '14px 0 0', color: 'var(--text)',
+            }}
+            >
+              {namedValue === null ? 'No AI answers measured yet.' : (
+                <>
+                  {stage ? <>You’re <span style={{ color: accent }}>{stage.label.toLowerCase()}</span> — </> : null}
+                  {mentionPhrase(namedValue)}
+                </>
+              )}
+            </h2>
+
+            <div style={{ fontSize: 14.5, color: 'var(--text-2)', marginTop: 14, lineHeight: 1.55, maxWidth: 620 }}>
+              {comparable && runnerUp
+                ? `${brandName} ranks #${rank} of the ${ranked.length} brands this project tracks. `
+                  + `The next one, ${runnerUp.name}, comes up in ${runnerUp.namedRate.display} of answers.`
+                : 'This project isn’t tracking any competitors yet, so there’s nothing to compare against — '
+                  + 'add one or two to see how you stack up.'}
+              {report.headline.avgScore.value !== null
+                ? ` Usually around ${report.headline.avgScore.display}/100 across every check this project has run.`
+                : ''}
+            </div>
+          </div>
+
+          <ScoreRing score={report.headline.score.value} display={report.headline.score.display} color={accent} label={stage?.label} />
         </div>
 
-        <div style={{ fontSize: 16, fontWeight: 500, letterSpacing: '-.01em', marginTop: 16, lineHeight: 1.4 }}>
-          {summary}
-        </div>
-
-        <Muted size={13} style={{ display: 'block', marginTop: 6 }}>
-          {comparable && runnerUp
-            ? `Out of the ${ranked.length} brands this project tracks, ${brandName} ranks #${rank}. `
-              + `The next one, ${runnerUp.name}, comes up in ${runnerUp.namedRate.display} of answers.`
-            : 'This project isn’t tracking any competitors yet, so there’s nothing to compare against — '
-              + 'add one or two to see how you stack up.'}
-        </Muted>
-
-        {report.headline.avgScore.value !== null && (
-          <Muted size={12} style={{ display: 'block', marginTop: 4 }}>
-            Usually around {report.headline.avgScore.display}/100 across every check this project has run.
-          </Muted>
-        )}
-
-        <FadingRule style={{ margin: '16px 0' }} />
-
-        <Kicker>Which AI tools mention you</Kicker>
-        <div style={{ marginTop: 10 }}>
-          <EngineOverviewCards byEngine={report.byEngine} />
+        <div style={{ marginTop: 24 }}>
+          <EngineDotCards byEngine={report.byEngine} />
         </div>
 
         <FadingRule style={{ margin: '16px 0' }} />
@@ -1307,55 +1364,215 @@ const POSITION_BUCKETS_UI = ['first', 'top3', 'lower', 'text'];
 
 // ── 4. Prompts ─────────────────────────────────────────────────────────────
 
-export function QuestionsReport({ report }) {
-  const cols = '1fr 92px 92px 108px';
+const INTENT_LABEL = {
+  commercial: 'Buying', comparison: 'Comparing', informational: 'Learning', transactional: 'Buying', navigational: 'Finding',
+};
+
+/** A big number with its label — the summary strip above the prompt list. */
+function PromptStat({ value, label, tone }) {
+  const color = tone === 'good' ? 'var(--accent-100)' : tone === 'bad' ? 'var(--viz-neg)' : 'var(--text)';
   return (
-    <Card style={{ padding: 18 }}>
-      <SectionHead
-        title={`Every prompt (${report.byQuestion.length})`}
-        right={<Muted size={11}>{report.headline.namedRate.display} overall</Muted>}
-      />
-      <Muted size={11}>
-        Each prompt is asked of all three models, so a rate here is over at most three answers —
-        the count beside it is the denominator.
-      </Muted>
-      <div style={{ marginTop: 12 }}>
-        <Table head={{ cols, labels: ['Prompt', 'Named', 'Searched', 'Models'] }}>
+    <div style={{
+      flex: 1, minWidth: 150, padding: '14px 16px', borderRadius: 'var(--r-lg)',
+      background: 'var(--surface)', border: '1px solid var(--border)',
+    }}
+    >
+      <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'var(--font-mono)', color, lineHeight: 1.1 }}>{value}</div>
+      <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 4 }}>{label}</div>
+    </div>
+  );
+}
+
+/**
+ * One model on one prompt: its logo and whether it named you — a tick, a
+ * cross, or a dash for "could not be measured" — plus your list position when
+ * it did. The symbol carries the meaning, so it reads without colour too.
+ */
+function ModelNamedChip({ v }) {
+  const visual = ENGINE_VISUAL[v.engine] || DEFAULT_ENGINE_VISUAL;
+  const state = !v.measured ? 'none' : (v.named > 0 ? 'yes' : 'no');
+  const mark = { yes: '✓', no: '✕', none: '–' }[state];
+  const markColor = { yes: 'var(--accent-100)', no: 'var(--viz-neg)', none: 'var(--text-3)' }[state];
+  const markBg = {
+    yes: 'var(--accent-800)', no: 'color-mix(in srgb, var(--viz-neg) 16%, transparent)', none: 'var(--neutral-800)',
+  }[state];
+  const words = { yes: 'named you', no: 'did not name you', none: 'could not be measured' }[state];
+  return (
+    <span
+      title={`${engineLabel(v.engine)} ${words}${v.position ? ` — ${v.position.display} in its list` : ''}`}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px 4px 4px',
+        borderRadius: 'var(--r-pill)', border: '1px solid var(--border)', background: 'var(--card)',
+      }}
+    >
+      <span style={{
+        width: 24, height: 24, borderRadius: '50%', background: visual.tint,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      }}
+      >
+        <EngineLogo engine={v.engine} visual={visual} size={15} />
+      </span>
+      <span style={{
+        width: 18, height: 18, borderRadius: '50%', background: markBg, color: markColor,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800,
+      }}
+      >
+        {mark}
+      </span>
+      {v.position ? (
+        <span style={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', color: 'var(--text-2)', fontWeight: 600 }}>
+          {v.position.display}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/** Answers that named you out of those measured, as filled segments. */
+function NamedMeter({ named, measured }) {
+  if (!measured) return null;
+  return (
+    <div style={{ display: 'flex', gap: 3, marginTop: 6 }} aria-hidden="true">
+      {Array.from({ length: measured }, (_, i) => (
+        <span
+          key={i}
+          style={{
+            width: 18, height: 6, borderRadius: 3,
+            background: i < named ? 'var(--viz-1)' : 'color-mix(in srgb, var(--text-3) 30%, transparent)',
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+const PROMPT_FILTERS = [
+  { id: 'all', label: 'All' },
+  { id: 'named', label: 'Named you' },
+  { id: 'absent', label: 'Never named you' },
+];
+
+export function QuestionsReport({ report }) {
+  const [filter, setFilter] = useState('all');
+  const rows = report.byQuestion || [];
+  const named = rows.filter((q) => q.state === 'named').length;
+  const absent = rows.filter((q) => q.state === 'absent').length;
+  const intents = rows.reduce((acc, q) => {
+    const k = INTENT_LABEL[q.intent] || null;
+    if (k) acc[k] = (acc[k] || 0) + 1;
+    return acc;
+  }, {});
+  const shown = filter === 'all' ? rows : rows.filter((q) => q.state === filter);
+
+  return (
+    <div style={{ display: 'grid', gap: 16 }}>
+      <Card style={{ padding: 20 }}>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <PromptStat value={rows.length} label="prompts asked of every model" />
+          <PromptStat value={named} label="named you at least once" tone={named ? 'good' : null} />
+          <PromptStat value={absent} label="never named you" tone={absent ? 'bad' : null} />
+          <PromptStat value={report.headline.namedRate.display} label="of all answers named you" />
+        </div>
+        {Object.keys(intents).length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
+            <Muted size={12}>What buyers were doing:</Muted>
+            {Object.entries(intents).map(([k, n]) => (
+              <Tag key={k} tone="outline">{k} · {n}</Tag>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Card style={{ padding: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <SectionHead title={`Every prompt (${rows.length})`} />
+          <div style={{ display: 'flex', gap: 6 }}>
+            {PROMPT_FILTERS.map((f) => {
+              const on = filter === f.id;
+              const n = f.id === 'all' ? rows.length : rows.filter((q) => q.state === f.id).length;
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setFilter(f.id)}
+                  style={{
+                    cursor: 'pointer', font: 'inherit', fontSize: 12.5, padding: '5px 12px', borderRadius: 'var(--r-pill)',
+                    border: on ? '1px solid var(--primary)' : '1px solid var(--border)',
+                    background: on ? 'color-mix(in srgb, var(--primary) 10%, transparent)' : 'transparent',
+                    color: on ? 'var(--primary-text)' : 'var(--text-2)', fontWeight: on ? 600 : 500,
+                  }}
+                >
+                  {f.label} ({n})
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <Muted size={11}>
+          Each prompt is asked of all three models. A tick means that model named you; hover a model for detail.
+        </Muted>
+
+        <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
+          {shown.length === 0 && <Muted size={12}>No prompts in this view.</Muted>}
           <ShowMore
-            items={report.byQuestion}
+            key={filter}
+            items={shown}
             initial={10}
             noun="more prompts"
-            render={(q) => (
-              <div key={q.promptId || q.text} style={{ padding: '10px 0', borderBottom: '1px solid var(--neutral-800)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 12, alignItems: 'center' }}>
-                  <span style={{ fontSize: 13 }}>{q.text}</span>
-                  <span style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12.5 }}>
-                    {q.state === 'not_measured' ? '—' : `${q.namedRate.display}`}
-                  </span>
-                  <span style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--text-2)' }}>
-                    {q.groundedRate.display}
-                  </span>
-                  <span style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                    {(q.visibilityByEngine || []).map((v) => (
-                      <Tag key={v.engine} tone={engineTone(v)}>
-                        {engineLabel(v.engine)}
-                      </Tag>
-                    ))}
-                  </span>
+            render={(q) => {
+              const band = q.state === 'named' ? 'var(--viz-1)' : q.state === 'absent' ? 'var(--viz-neg)' : 'var(--border)';
+              return (
+                <div
+                  key={q.promptId || q.text}
+                  style={{
+                    display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap',
+                    padding: '14px 16px', borderRadius: 'var(--r-lg)', border: '1px solid var(--border)',
+                    borderLeft: `4px solid ${band}`, background: 'var(--card)', marginBottom: 10,
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 280 }}>
+                    {INTENT_LABEL[q.intent] && (
+                      <span style={{
+                        fontSize: 10.5, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase',
+                        color: 'var(--text-3)',
+                      }}
+                      >
+                        {INTENT_LABEL[q.intent]}
+                      </span>
+                    )}
+                    <div style={{ fontSize: 15, fontWeight: 500, lineHeight: 1.45, marginTop: 2 }}>{q.text}</div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+                      {(q.visibilityByEngine || []).map((v) => <ModelNamedChip key={v.engine} v={v} />)}
+                    </div>
+                    {q.competitors.length > 0 && (
+                      <Muted size={11.5} style={{ display: 'block', marginTop: 8 }}>
+                        Also named: {q.competitors.slice(0, 4).join(', ')}
+                      </Muted>
+                    )}
+                  </div>
+                  <div style={{ width: 170, flexShrink: 0 }}>
+                    {q.state === 'not_measured' ? (
+                      <Muted size={12}>Not measured in this period</Muted>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Named you</div>
+                        <div style={{ fontSize: 20, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text)', lineHeight: 1.2 }}>
+                          {q.named} <span style={{ fontSize: 13, color: 'var(--text-3)', fontWeight: 500 }}>of {q.measured}</span>
+                        </div>
+                        <NamedMeter named={q.named} measured={q.measured} />
+                        <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 8 }}>
+                          Searched the web: <strong style={{ color: 'var(--text-2)' }}>{q.groundedRate.display}</strong>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
-                <Muted size={11}>
-                  {q.state === 'not_measured'
-                    ? 'Not measured in this period.'
-                    : `named in ${q.named} of ${q.measured} answers`}
-                  {q.intent ? ` · ${q.intent}` : ''}
-                  {q.competitors.length ? ` · also named ${q.competitors.slice(0, 3).join(', ')}` : ''}
-                </Muted>
-              </div>
-            )}
+              );
+            }}
           />
-        </Table>
-      </div>
-    </Card>
+        </div>
+      </Card>
+    </div>
   );
 }
 
@@ -1574,6 +1791,230 @@ export function GapsReport({ report, analysing = false, onTrack }) {
 
 // ── 6. Sources (domains) ───────────────────────────────────────────────────
 
+// ── Page types as a pie ─────────────────────────────────────────────────────
+//
+// Three coloured slices at most, everything else folded into a grey "Other":
+// past three hues, slices that sit side by side in a ring stop being
+// distinguishable for colour-blind readers (checked with the dataviz
+// validator — the three-hue set below passes in both themes; four-plus fail).
+// The legend names every slice, so colour is never the only way to tell them
+// apart. Homepage, profile and article — the common kinds — keep their own
+// colour whenever they make the top three, so the pie does not repaint as the
+// period changes.
+
+const PIE_COLORS = {
+  light: ['#2a78d6', '#eb6834', '#1baf7a'],
+  dark: ['#3987e5', '#d95926', '#199e70'],
+  otherLight: '#A3A19B',
+  otherDark: '#6E6E6A',
+};
+const PIE_PREFERRED_SLOT = { homepage: 0, profile: 1, article: 2 };
+
+function slicesFor(byType) {
+  const total = byType.reduce((sum, t) => sum + t.citations, 0) || 1;
+  const named = byType.filter((t) => t.type !== 'other').sort((a, b) => b.citations - a.citations);
+  const top = named.slice(0, 3);
+  const folded = [...named.slice(3), ...byType.filter((t) => t.type === 'other')];
+
+  const taken = new Set();
+  const slotFor = new Map();
+  for (const t of top) {
+    const want = PIE_PREFERRED_SLOT[t.type];
+    if (want !== undefined && !taken.has(want)) { slotFor.set(t.type, want); taken.add(want); }
+  }
+  for (const t of top) {
+    if (slotFor.has(t.type)) continue;
+    const free = [0, 1, 2].find((s) => !taken.has(s));
+    slotFor.set(t.type, free);
+    taken.add(free);
+  }
+
+  const slices = top.map((t) => ({
+    key: t.type,
+    label: PAGE_TYPE_LABELS[t.type] || t.type,
+    citations: t.citations,
+    share: t.share.display,
+    slot: slotFor.get(t.type),
+  }));
+  const otherCitations = folded.reduce((sum, t) => sum + t.citations, 0);
+  if (otherCitations) {
+    slices.push({
+      key: 'other',
+      label: 'Other',
+      citations: otherCitations,
+      share: `${((otherCitations / total) * 100).toFixed(1)}%`,
+      slot: null,
+      includes: folded.filter((t) => t.type !== 'other').map((t) => PAGE_TYPE_LABELS[t.type] || t.type),
+    });
+  }
+  return { slices, total };
+}
+
+function PageTypePie({ byType }) {
+  const { isDark } = useTheme();
+  const [hover, setHover] = useState(null);
+  const { slices, total } = slicesFor(byType);
+  if (!slices.length) return null;
+
+  const colorOf = (s) => (s.slot === null
+    ? (isDark ? PIE_COLORS.otherDark : PIE_COLORS.otherLight)
+    : PIE_COLORS[isDark ? 'dark' : 'light'][s.slot]);
+
+  // A donut: outer radius 90, inner 56, starting at twelve o'clock.
+  const R = 90; const r = 56; const C = 100;
+  const point = (rad, frac) => {
+    const a = frac * 2 * Math.PI - Math.PI / 2;
+    return [C + rad * Math.cos(a), C + rad * Math.sin(a)];
+  };
+  let start = 0;
+  const arcs = slices.map((s) => {
+    const frac = s.citations / total;
+    const end = start + frac;
+    const large = frac > 0.5 ? 1 : 0;
+    const [x1, y1] = point(R, start); const [x2, y2] = point(R, end);
+    const [x3, y3] = point(r, end); const [x4, y4] = point(r, start);
+    const d = frac >= 0.9999
+      ? `M ${C} ${C - R} A ${R} ${R} 0 1 1 ${C - 0.01} ${C - R} L ${C - 0.01} ${C - r} A ${r} ${r} 0 1 0 ${C} ${C - r} Z`
+      : `M ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} L ${x3} ${y3} A ${r} ${r} 0 ${large} 0 ${x4} ${y4} Z`;
+    start = end;
+    return { ...s, d };
+  });
+
+  const dim = (key) => hover && hover !== key;
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 32, flexWrap: 'wrap', marginTop: 14 }}>
+      <svg
+        viewBox="0 0 200 200"
+        width="220"
+        height="220"
+        role="img"
+        aria-label={`Pages by kind: ${slices.map((s) => `${s.label} ${s.share}`).join(', ')}`}
+        style={{ flexShrink: 0 }}
+      >
+        {arcs.map((a) => (
+          <path
+            key={a.key}
+            d={a.d}
+            fill={colorOf(a)}
+            stroke="var(--card)"
+            strokeWidth="2"
+            opacity={dim(a.key) ? 0.3 : 1}
+            onMouseEnter={() => setHover(a.key)}
+            onMouseLeave={() => setHover(null)}
+            style={{ cursor: 'default', transition: 'opacity 120ms' }}
+          >
+            <title>{`${a.label}: ${a.share} (${a.citations} citation${a.citations === 1 ? '' : 's'})`}</title>
+          </path>
+        ))}
+        <text x="100" y="96" textAnchor="middle" fontSize="24" fontWeight="700" fill="var(--text)" style={{ fontFamily: 'var(--font-mono)' }}>
+          {total}
+        </text>
+        <text x="100" y="116" textAnchor="middle" fontSize="11" fill="var(--text-3)">citations</text>
+      </svg>
+
+      <div role="list" style={{ display: 'grid', gap: 10, flex: 1, minWidth: 240, maxWidth: 440 }}>
+        {slices.map((s) => (
+          <div
+            key={s.key}
+            role="listitem"
+            onMouseEnter={() => setHover(s.key)}
+            onMouseLeave={() => setHover(null)}
+            style={{
+              display: 'grid', gridTemplateColumns: '14px 1fr auto', gap: 10, alignItems: 'center',
+              opacity: dim(s.key) ? 0.45 : 1, transition: 'opacity 120ms',
+            }}
+          >
+            <span style={{ width: 14, height: 14, borderRadius: 4, background: colorOf(s) }} />
+            <span>
+              <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{s.label}</span>
+              {s.includes?.length ? (
+                <span style={{ display: 'block', fontSize: 11.5, color: 'var(--text-3)' }}>
+                  Includes {s.includes.join(', ')}
+                </span>
+              ) : null}
+            </span>
+            <span style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+              <span style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{s.share}</span>
+              <span style={{ fontSize: 11.5, color: 'var(--text-3)', marginLeft: 6 }}>
+                {s.citations} cited
+              </span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// What each kind of source is, for a reader who has never seen the classifier.
+const SOURCE_TYPE_HINTS = {
+  you: 'Your own website',
+  competitor: 'A tracked competitor’s website',
+  corporate: 'Company and brand websites',
+  reference: 'Listings and directories, like Yelp or Clutch',
+  institutional: 'Government, universities and associations',
+  editorial: 'News sites and magazines',
+  ugc: 'Forums, Reddit and review sites',
+  other: 'Sites that fit none of the above',
+};
+
+/**
+ * Share of citations by kind of site, as ranked horizontal bars. One series,
+ * so one colour: the label beside each bar carries identity, and the two kinds
+ * a reader cares most about — their own site and a competitor's — are set in
+ * bold rather than a colour, so they read the same in any colour vision.
+ */
+function SourceTypeBars({ byType }) {
+  const max = Math.max(...byType.map((t) => t.share.value || 0), 0.0001);
+  return (
+    <div role="list" style={{ display: 'grid', gap: 10, marginTop: 14 }}>
+      {byType.map((t) => {
+        const share = t.share.value || 0;
+        // Bold for the two kinds that matter most; "You" spells out what
+        // "This site" means. The competitor label already says what it is.
+        const emphasis = t.type === 'you' || t.type === 'competitor';
+        const tag = t.type === 'you' ? 'You' : null;
+        return (
+          <div
+            key={t.type}
+            role="listitem"
+            title={`${SOURCE_TYPE_LABELS[t.type] || t.type}: ${t.citations} citation${t.citations === 1 ? '' : 's'} (${t.share.display})`}
+            style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 220px) 1fr 132px', gap: 14, alignItems: 'center' }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 13.5, fontWeight: emphasis ? 700 : 500, color: 'var(--text)' }}>
+                  {SOURCE_TYPE_LABELS[t.type] || t.type}
+                </span>
+                {tag && <Tag tone="accent">{tag}</Tag>}
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 1 }}>
+                {SOURCE_TYPE_HINTS[t.type] || ''}
+              </div>
+            </div>
+            <div style={{ height: 14, borderRadius: 4, background: 'var(--neutral-800)', overflow: 'hidden' }}>
+              <div style={{
+                width: `${Math.max((share / max) * 100, share > 0 ? 1.5 : 0)}%`, height: '100%',
+                borderRadius: 4, background: 'var(--viz-1)',
+              }}
+              />
+            </div>
+            <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>
+                {t.share.display}
+              </span>
+              <span style={{ fontSize: 11.5, color: 'var(--text-3)', marginLeft: 6 }}>
+                {t.citations} cited
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function DomainsReport({ report }) {
   const { sources } = report;
   if (!sources.totalCitations) {
@@ -1590,14 +2031,10 @@ export function DomainsReport({ report }) {
     <div style={{ display: 'grid', gap: 16 }}>
       <Card style={{ padding: 18 }}>
         <SectionHead title="What kind of sites the models read" />
-        <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-          {sources.byType.map((t) => (
-            <span key={t.type} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <TypeChip type={SOURCE_TYPE_LABELS[t.type] || t.type} title={`${t.citations} citations`} />
-              <Muted size={11}>{t.share.display}</Muted>
-            </span>
-          ))}
-        </div>
+        <Muted size={11}>
+          Every citation in these answers, by the kind of site it came from — longest bar first.
+        </Muted>
+        <SourceTypeBars byType={sources.byType} />
         <Basis>
           {sources.totalCitations} citations across {report.meta.answersMeasured} measured answers.
           {sources.unattributed
@@ -1653,14 +2090,7 @@ export function UrlsReport({ report }) {
     <div style={{ display: 'grid', gap: 16 }}>
       <Card style={{ padding: 18 }}>
         <SectionHead title="What kind of pages" />
-        <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-          {urls.byType.map((t) => (
-            <span key={t.type} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <TypeChip type={PAGE_TYPE_LABELS[t.type] || t.type} title={`${t.citations} citations`} />
-              <Muted size={11}>{t.share.display}</Muted>
-            </span>
-          ))}
-        </div>
+        <PageTypePie byType={urls.byType} />
         <Basis>{urls.basis.why}</Basis>
       </Card>
 

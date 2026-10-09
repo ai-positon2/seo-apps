@@ -232,12 +232,12 @@ function PromptRow({ prompt, onSave, onDelete, busy }) {
 
 // ── The rail ───────────────────────────────────────────────────────────────
 //
-// One dark bar. Every group collapses to a dot, its name and one number, and
-// opens a menu of its reports when clicked; the
-// group being read opens into a light panel showing its reports, the current
-// one as a solid pill. Setup & runs is the page's input, not a report, so it
-// sits apart on the right with the run budget drawn as a small pie. The line
-// along the bottom is how far through the reports the reader is.
+// One dark bar showing every report at once: each group is a small label over
+// its reports, so nothing has to be opened to be found. The group being read
+// sits on a lighter panel and the current report is a solid light pill. Setup
+// & runs is the page's input, not a report, so it sits apart on the right with
+// the run budget drawn as a small pie. The line along the bottom is how far
+// through the reports the reader is.
 //
 // Fixed colours rather than theme tokens: the bar is dark in both themes, so
 // its text colours are chosen against that. Deep green, not near-black — the
@@ -248,22 +248,18 @@ const RAIL = {
   bar: '#1F4239',
   text: '#EEF4F1',
   muted: '#A7C2B8',
+  label: '#8FB3A6',
+  groupOn: 'rgba(255,255,255,.08)',
   dotDone: '#9FD8BD',
   dotAhead: '#6E8F84',
   panel: '#F3F1EC',
   panelText: '#1D221F',
-  panelMuted: '#6B716B',
-  pill: '#2F5D50',
-  pillStat: '#BFE6D3',
+  pillStat: '#2F5D50',
   line: '#9FD8BD',
 };
 
-// What a collapsed group is called, and whose number it shows. Groups read by
-// their own name ("Demand", "Evidence") except the first, which is the
-// overview itself; Sources shows how many sources, not the gap count.
-const GROUP_NAME = { 'START HERE': 'Overview' };
-const GROUP_STAT = { SOURCES: 'domains' };
-const titleCase = (label) => label.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+// The overview's full name is long for a bar that shows every report.
+const SHORT_NAME = { overview: 'Overview' };
 
 /** Runs used, as a small filled pie. */
 function BudgetPie({ used, cap, size = 18 }) {
@@ -287,111 +283,13 @@ function BudgetPie({ used, cap, size = 18 }) {
   );
 }
 
-/**
- * A collapsed group, as a menu of its reports — so a reader can see what is
- * inside "Sources" before choosing, rather than being dropped on its first
- * report. Each entry carries its number and the one-line description the
- * page header uses.
- */
-function GroupMenu({
-  group, name, stat, done, active, onPick, statOf, open, onToggle, onClose,
-}) {
-  const ref = useRef(null);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const outside = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
-    const escape = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('mousedown', outside);
-    document.addEventListener('keydown', escape);
-    return () => {
-      document.removeEventListener('mousedown', outside);
-      document.removeEventListener('keydown', escape);
-    };
-  }, [open, onClose]);
-
-  return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        style={{
-          display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 11px',
-          background: open ? 'rgba(255,255,255,.10)' : 'transparent', border: 'none', borderRadius: 10,
-          cursor: 'pointer', font: 'inherit', color: RAIL.text, fontSize: 14, whiteSpace: 'nowrap',
-        }}
-      >
-        <span style={{ width: 6, height: 6, borderRadius: '50%', background: done ? RAIL.dotDone : RAIL.dotAhead }} />
-        {name}
-        {stat ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: RAIL.muted }}>{stat}</span> : null}
-        <span style={{ fontSize: 10, color: RAIL.muted, marginLeft: 1 }}>{open ? '▴' : '▾'}</span>
-      </button>
-
-      {open && (
-        <div
-          role="menu"
-          style={{
-            position: 'absolute', top: 'calc(100% + 8px)', left: 0, zIndex: 30, minWidth: 290,
-            background: '#FFFFFF', borderRadius: 14, padding: 6,
-            boxShadow: '0 12px 32px rgba(20, 30, 25, .18), 0 2px 6px rgba(20, 30, 25, .08)',
-            border: '1px solid #E4E0D8',
-          }}
-        >
-          <div style={{
-            fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '.12em', color: '#7A807A',
-            padding: '8px 12px 6px',
-          }}
-          >
-            {group.label}
-          </div>
-          {group.ids.map((id) => {
-            const r = byId(id);
-            const itemStat = statOf(id);
-            const on = id === active;
-            return (
-              <button
-                key={id}
-                type="button"
-                role="menuitem"
-                onClick={() => { onPick(id); onClose(); }}
-                style={{
-                  display: 'block', width: '100%', textAlign: 'left', padding: '10px 12px',
-                  border: 'none', borderRadius: 10, cursor: 'pointer', font: 'inherit',
-                  background: on ? '#EEF3F0' : 'transparent', color: '#1D221F',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = '#F3F1EC'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = on ? '#EEF3F0' : 'transparent'; }}
-              >
-                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                  <span style={{ fontSize: 14, fontWeight: 600 }}>{r.name}</span>
-                  {itemStat ? (
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: '#2F5D50', fontWeight: 600 }}>{itemStat}</span>
-                  ) : null}
-                </span>
-                <span style={{ display: 'block', fontSize: 12, color: '#6B716B', marginTop: 2, lineHeight: 1.4 }}>
-                  {r.blurb}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function Rail({
   active, onPick, report, described, budget,
 }) {
-  const [menu, setMenu] = useState(null);
-  const closeMenu = useCallback(() => setMenu(null), []);
   const statOf = (id) => (report ? byId(id).stat(report, described) : null);
   const groups = REPORT_GROUPS
     .map((g) => ({ ...g, ids: g.ids.filter((id) => id !== 'run') }))
     .filter((g) => g.ids.length);
-  const activeGroup = groups.findIndex((g) => g.ids.includes(active));
   const order = REPORTS.map((r) => r.id);
   const progress = Math.max(0, order.indexOf(active) + 1) / order.length;
 
@@ -399,76 +297,61 @@ function Rail({
     <nav
       aria-label="Reports"
       style={{
-        position: 'relative', background: RAIL.bar, borderRadius: 16, padding: '8px 10px 13px',
+        position: 'relative', background: RAIL.bar, borderRadius: 16, padding: '8px 10px 14px',
         marginBottom: 18,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-        {groups.map((g, gi) => {
-          const open = gi === activeGroup;
-          if (!open) {
-            const first = g.ids[0];
-            return (
-              <GroupMenu
-                key={g.label}
-                group={g}
-                name={GROUP_NAME[g.label] || titleCase(g.label)}
-                stat={statOf(GROUP_STAT[g.label] || first)}
-                done={active === 'run' || gi < activeGroup}
-                active={active}
-                onPick={onPick}
-                statOf={statOf}
-                open={menu === g.label}
-                onToggle={() => setMenu((m) => (m === g.label ? null : g.label))}
-                onClose={closeMenu}
-              />
-            );
-          }
+      <div style={{ display: 'flex', alignItems: 'stretch', gap: 4, flexWrap: 'wrap' }}>
+        {groups.map((g) => {
+          const here = g.ids.includes(active);
           return (
             <div
               key={g.label}
               style={{
-                display: 'inline-flex', alignItems: 'center', gap: 4, padding: 5,
-                background: RAIL.panel, borderRadius: 12, flexWrap: 'wrap',
+                display: 'flex', flexDirection: 'column', gap: 3, padding: 5,
+                borderRadius: 12, background: here ? RAIL.groupOn : 'transparent',
               }}
             >
               <span style={{
-                fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '.1em',
-                color: RAIL.panelMuted, padding: '0 8px', whiteSpace: 'nowrap',
+                fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '.14em',
+                color: RAIL.label, padding: '0 8px', whiteSpace: 'nowrap',
               }}
               >
-                {String(gi + 1).padStart(2, '0')} {g.label}
+                {g.label}
               </span>
-              {g.ids.map((id) => {
-                const on = id === active;
-                const stat = statOf(id);
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => onPick(id)}
-                    aria-current={on ? 'page' : undefined}
-                    style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 11px',
-                      border: 'none', borderRadius: 9, cursor: 'pointer', font: 'inherit',
-                      fontSize: 14, fontWeight: on ? 600 : 500, whiteSpace: 'nowrap',
-                      background: on ? RAIL.pill : 'transparent',
-                      color: on ? '#FFFFFF' : RAIL.panelText,
-                    }}
-                  >
-                    {byId(id).name}
-                    {stat ? (
-                      <span style={{
-                        fontFamily: 'var(--font-mono)', fontSize: 11.5,
-                        color: on ? RAIL.pillStat : RAIL.panelMuted,
+              <div style={{ display: 'flex', gap: 2 }}>
+                {g.ids.map((id) => {
+                  const on = id === active;
+                  const stat = statOf(id);
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => onPick(id)}
+                      aria-current={on ? 'page' : undefined}
+                      title={byId(id).blurb}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px',
+                        border: 'none', borderRadius: 9, cursor: 'pointer', font: 'inherit',
+                        fontSize: 13.5, fontWeight: on ? 600 : 500, whiteSpace: 'nowrap',
+                        background: on ? RAIL.panel : 'transparent',
+                        color: on ? RAIL.panelText : RAIL.text,
                       }}
-                      >
-                        {stat}
-                      </span>
-                    ) : null}
-                  </button>
-                );
-              })}
+                    >
+                      {SHORT_NAME[id] || byId(id).name}
+                      {stat ? (
+                        <span style={{
+                          fontFamily: 'var(--font-mono)', fontSize: 11,
+                          color: on ? RAIL.pillStat : RAIL.muted, fontWeight: on ? 600 : 400,
+                        }}
+                        >
+                          {stat}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           );
         })}
@@ -478,9 +361,9 @@ function Rail({
           onClick={() => onPick('run')}
           aria-current={active === 'run' ? 'page' : undefined}
           style={{
-            marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 9,
+            marginLeft: 'auto', alignSelf: 'center', display: 'inline-flex', alignItems: 'center', gap: 9,
             padding: '8px 14px', borderRadius: 12, cursor: 'pointer', font: 'inherit',
-            fontSize: 14, whiteSpace: 'nowrap',
+            fontSize: 13.5, whiteSpace: 'nowrap',
             border: `1px solid ${active === 'run' ? RAIL.panel : 'rgba(255,255,255,.14)'}`,
             background: active === 'run' ? RAIL.panel : 'rgba(255,255,255,.03)',
             color: active === 'run' ? RAIL.panelText : RAIL.text,
