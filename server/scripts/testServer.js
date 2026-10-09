@@ -121,6 +121,7 @@ const SUITES = [
   'modules/aiVisibilityLite/__tests__/promptGen.test.js',
   'modules/aiVisibilityLite/__tests__/describe.test.js',
   'modules/aiVisibilityLite/__tests__/brandNames.test.js',
+  'modules/aiVisibilityLite/__tests__/answerBrands.test.js',
   'modules/aiVisibility/__tests__/captureScheduler.test.js',
   'modules/aiVisibility/__tests__/proxyPool.test.js',
   'modules/aiVisibility/__tests__/surfaceAvailability.test.js',

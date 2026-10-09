@@ -23,6 +23,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { aivLiteApi } from '../lib/aiVisibilityLiteApi';
+import { projectsApi } from '../lib/projectsApi';
 import { useActiveProjectId } from '../lib/activeProject';
 import {
   Card, Kicker, Muted, Tag, Btn, FadingRule, SectionHead, Spinner,
@@ -544,21 +545,23 @@ export default function AiVisibilityLitePage() {
   // re-read the report until it says it has finished, so the numbers fill in
   // on their own. Bounded, so a job that never reports done cannot poll forever.
   const sentimentAnalysing = Boolean(reportState.data?.sentimentAnalysing);
+  const gapsAnalysing = Boolean(reportState.data?.gapsAnalysing);
+  const backfilling = sentimentAnalysing || gapsAnalysing;
   useEffect(() => {
-    if (!sentimentAnalysing || !projectId) return undefined;
+    if (!backfilling || !projectId) return undefined;
     let tries = 0;
     const timer = setInterval(async () => {
       tries += 1;
       try {
         const rep = await aivLiteApi.report(projectId);
         setReportState({ loading: false, error: null, data: rep });
-        if (!rep.sentimentAnalysing || tries >= 30) clearInterval(timer);
+        if ((!rep.sentimentAnalysing && !rep.gapsAnalysing) || tries >= 30) clearInterval(timer);
       } catch {
         clearInterval(timer);
       }
     }, 4000);
     return () => clearInterval(timer);
-  }, [sentimentAnalysing, projectId]);
+  }, [backfilling, projectId]);
 
   const d = state.data;
   const report = reportState.data?.report || null;
@@ -795,7 +798,19 @@ export default function AiVisibilityLitePage() {
     switch (active) {
       case 'insights': return <InsightsReport report={report} />;
       case 'questions': return <QuestionsReport report={report} />;
-      case 'gaps': return <GapsReport report={report} />;
+      case 'gaps':
+        return (
+          <GapsReport
+            report={report}
+            analysing={gapsAnalysing}
+            onTrack={async (domain) => {
+              const res = await projectsApi.addCompetitor(projectId, domain);
+              const rep = await aivLiteApi.report(projectId);
+              setReportState({ loading: false, error: null, data: rep });
+              return res;
+            }}
+          />
+        );
       case 'domains': return <DomainsReport report={report} />;
       case 'urls': return <UrlsReport report={report} />;
       case 'answers': return <AnswersReport report={report} />;

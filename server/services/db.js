@@ -178,6 +178,18 @@ function getPool() {
     console.error('postgres idle client error:', err.message);
   });
 
+  // The listener above only covers IDLE clients: pg-pool detaches it while a
+  // client is checked out, so a network drop that lands mid-query emitted
+  // 'error' with no listener and became an uncaughtException — the whole
+  // server shut down over one dropped connection. Every client gets its own
+  // listener for its whole life; the query that was running still fails and
+  // its caller sees that, and the pool discards the dead client as before.
+  pool.on('connect', (client) => {
+    client.on('error', (err) => {
+      console.error('postgres client error:', err.message);
+    });
+  });
+
   return pool;
 }
 

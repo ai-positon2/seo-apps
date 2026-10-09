@@ -1361,16 +1361,156 @@ export function QuestionsReport({ report }) {
 
 // ── 5. Gap analysis ────────────────────────────────────────────────────────
 
-export function GapsReport({ report }) {
+/**
+ * Track one business as a competitor: one click when its site is known, a
+ * site box when it is not. Says what happened — added, proposed for approval
+ * (a contributor's add), or why it failed.
+ */
+function TrackButton({ business, onTrack }) {
+  const [site, setSite] = useState(business.domain || '');
+  const [state, setState] = useState(null); // null | 'busy' | {ok, text}
+  if (business.tracked) return <Tag tone="accent">Tracked</Tag>;
+  if (state && state.ok) return <Tag tone="accent">{state.text}</Tag>;
+
+  const go = async () => {
+    const domain = site.trim();
+    if (!domain) return;
+    setState('busy');
+    try {
+      const res = await onTrack(domain);
+      setState({ ok: true, text: res?.proposed ? 'Proposed for approval' : 'Tracked' });
+    } catch (e) {
+      setState({ ok: false, text: e.message || 'Could not add' });
+    }
+  };
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+      {!business.domain && (
+        <input
+          value={site}
+          onChange={(e) => setSite(e.target.value)}
+          placeholder="their website"
+          aria-label={`Website for ${business.name}`}
+          style={{
+            width: 150, padding: '6px 9px', fontSize: 12.5, borderRadius: 8,
+            border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--text)', font: 'inherit',
+          }}
+        />
+      )}
+      <Btn variant="primary" disabled={state === 'busy' || !site.trim()} onClick={go}>
+        {state === 'busy' ? 'Adding…' : 'Track as competitor'}
+      </Btn>
+      {state && !state.ok && <Muted size={11} style={{ color: 'var(--viz-neg)' }}>{state.text}</Muted>}
+    </span>
+  );
+}
+
+/**
+ * The businesses AI puts forward in answers that leave you out — the most
+ * direct statement of a gap — each one addable as a tracked competitor.
+ */
+function RecommendedInstead({ report, analysing, onTrack }) {
+  const others = report.othersNamed || { list: [], analysed: 0, measured: 0 };
+  const list = others.list.filter((o) => o.withoutYou > 0 || !o.tracked);
+  const max = Math.max(1, ...list.map((o) => o.answers));
+
+  if (!list.length) {
+    return (
+      <Card style={{ padding: 18 }}>
+        <SectionHead title="Who AI recommends instead of you" />
+        <Muted size={12} style={{ display: 'block', marginTop: 6 }}>
+          {analysing
+            ? 'Reading the answers to see which businesses they recommend — this fills in by itself in a moment.'
+            : 'None of the answers read so far recommend another business.'}
+        </Muted>
+      </Card>
+    );
+  }
+
+  return (
+    <Card style={{ padding: 18 }}>
+      <SectionHead title="Who AI recommends instead of you" />
+      <Muted size={11}>
+        Businesses the answers put forward as options, those most often in answers that leave you out
+        first. Track the ones that matter as competitors and every tab compares you against them.
+        {others.analysed < others.measured
+          ? ` Read ${others.analysed} of ${others.measured} answers so far${analysing ? ' — the rest are being read now' : ''}.`
+          : ''}
+      </Muted>
+      <div style={{ marginTop: 10 }}>
+        <ShowMore
+          items={list}
+          initial={10}
+          noun="more businesses"
+          render={(o) => (
+            <div
+              key={o.name}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
+                padding: '12px 0', borderBottom: '1px solid var(--neutral-800)',
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 240 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 14.5, fontWeight: 600 }}>{o.name}</span>
+                  {o.domain && (
+                    <a
+                      href={`https://${o.domain}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ fontSize: 12, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}
+                    >
+                      {o.domain}
+                    </a>
+                  )}
+                </div>
+                <div style={{ height: 6, borderRadius: 3, background: 'var(--neutral-800)', marginTop: 7, maxWidth: 360, overflow: 'hidden' }}>
+                  <div style={{ width: `${(o.answers / max) * 100}%`, height: '100%', background: 'var(--viz-neg)', opacity: 0.8 }} />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-2)' }}>
+                    <strong>{o.withoutYou}</strong> answer{o.withoutYou === 1 ? '' : 's'} without you · {o.answers} in total
+                  </span>
+                  <span style={{ display: 'inline-flex', gap: 4 }}>
+                    {o.engines.map((e) => (
+                      <span
+                        key={e}
+                        title={engineLabel(e)}
+                        style={{
+                          width: 20, height: 20, borderRadius: '50%', display: 'inline-flex',
+                          alignItems: 'center', justifyContent: 'center',
+                          background: (ENGINE_VISUAL[e] || DEFAULT_ENGINE_VISUAL).tint,
+                        }}
+                      >
+                        <EngineLogo engine={e} visual={ENGINE_VISUAL[e] || DEFAULT_ENGINE_VISUAL} size={12} />
+                      </span>
+                    ))}
+                  </span>
+                </div>
+              </div>
+              <TrackButton business={o} onTrack={onTrack} />
+            </div>
+          )}
+        />
+      </div>
+    </Card>
+  );
+}
+
+export function GapsReport({ report, analysing = false, onTrack }) {
   const { gaps } = report;
   if (!gaps.rows.length) {
     return (
-      <Empty
-        title="No gaps in this period"
-        detail="A gap is a source the models read for an answer that named a competitor and not you.
-                No answer in this period named a tracked competitor, so there is nothing to rank.
-                Adding competitors to the project widens what this can see."
-      />
+      <div style={{ display: 'grid', gap: 16 }}>
+        <RecommendedInstead report={report} analysing={analysing} onTrack={onTrack} />
+        <Empty
+          title={analysing ? 'Finding gaps…' : 'No gaps in this period'}
+          detail={analysing
+            ? 'The answers are being read to see which businesses they recommend instead of you. The sources behind those answers will be ranked here in a moment.'
+            : 'A gap is a source the models read for an answer that recommended someone else and not you. No answer in this period did that.'}
+        />
+      </div>
     );
   }
 
@@ -1384,25 +1524,29 @@ export function GapsReport({ report }) {
           </div>
           <div style={{ flex: 1, minWidth: 280 }}>
             <div style={{ fontSize: 15 }}>
-              sources fed answers that named a competitor and not you.
+              sources fed answers that recommended someone else and not you.
             </div>
             <Muted size={12}>
               The largest is <strong>{gaps.biggest.domain}</strong> — used in {gaps.biggest.answers} answers,
-              naming a competitor in {gaps.biggest.namedCompetitor} of them and you in {gaps.biggest.namedYou}.
+              recommending others in {gaps.biggest.namedCompetitor} of them and you in {gaps.biggest.namedYou}.
+              Getting featured there is the most direct way into those answers.
             </Muted>
           </div>
         </div>
       </Card>
 
+      <RecommendedInstead report={report} analysing={analysing} onTrack={onTrack} />
+
       <Card style={{ padding: 18 }}>
-        <SectionHead title="Ranked by gap score" />
+        <SectionHead title="Sources behind those answers, ranked by gap score" />
         <Muted size={11}>
           Gap score weights how often a source is read against how much of a gap it represents, and
           by what kind of site it is — a directory you can get listed in counts for more than a
-          competitor&apos;s own site. This ranks facts; it does not recommend.
+          competitor&apos;s own site. &ldquo;Others&rdquo; counts answers that recommended someone
+          else; &ldquo;You&rdquo; counts answers that named you.
         </Muted>
         <div style={{ marginTop: 12 }}>
-          <Table head={{ cols, labels: ['Source', 'Kind', 'Competitor', 'You', 'Score'] }}>
+          <Table head={{ cols, labels: ['Source', 'Kind', 'Others', 'You', 'Score'] }}>
             <ShowMore
               items={gaps.rows}
               initial={10}

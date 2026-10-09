@@ -78,6 +78,7 @@ const fmt = require('../aiVisibility/metrics/format');
 const { prominenceOf, namesBrand } = require('../aiVisibility/capture');
 const domainClassify = require('../aiVisibility/captureEngines/domainClassify');
 const { TONE_VERSION } = require('./describe');
+const { BRANDS_VERSION } = require('./answerBrands');
 
 // A brand needs to appear in at least this many measured answers before it is
 // ranked against the others. Two answers is not a standing, and a competitor
@@ -700,7 +701,7 @@ function questionTable(groups, client = null) {
  * It does NOT carry a remedy. v1's own gaps report states the rule — rank the
  * facts, never write the fix in the UI — and this follows it.
  */
-function gapTable(measured, client, competitors) {
+function gapTable(measured, client, competitors, othersByRow = new Map()) {
   const clientDomains = [client?.domain].filter(Boolean);
   const competitorDomains = competitors.map((c) => c.domain).filter(Boolean);
 
@@ -708,7 +709,11 @@ function gapTable(measured, client, competitors) {
 
   for (const row of measured) {
     const namedClient = row.mentioned === true;
-    const namedCompetitor = (row.competitorsMentioned || []).length > 0;
+    // A tracked competitor, OR any other business the answer recommends —
+    // a project with no configured competitors still has answers that put
+    // somebody else forward, and those are the gaps.
+    const namedCompetitor = (row.competitorsMentioned || []).length > 0
+      || (othersByRow.get(row) || []).length > 0;
     // A capture that named neither side tells us nothing about a gap.
     if (!namedClient && !namedCompetitor) continue;
 
@@ -760,6 +765,125 @@ function gapTable(measured, client, competitors) {
     .sort((a, b) => b.gapScore - a.gapScore);
 
   return { rows, total: rows.length, biggest: rows[0] || null };
+}
+
+// ── Who the answers recommend ────────────────────────────────────────────────
+//
+// Per-answer business names (answerBrands.js), merged across spellings and
+// matched to a website, so that gap analysis can count "recommends others,
+// not you" without a configured competitor list, and so the ones worth
+// tracking can be offered with the site already filled in.
+
+// "Adidas India", "adidas" and "Adidas.com" are one business.
+const QUALIFIER = /\b(india|in|usa|us|uk|online|store|stores|official|website|site|shop)\b/g;
+function brandKey(name) {
+  return String(name || '').toLowerCase()
+    .replace(/\.(com|in|co|net|org|io)\b/g, '')
+    .replace(QUALIFIER, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function domainsSeenIn(row) {
+  const out = [];
+  for (const c of row.citations || []) {
+    const d = c.domain && domainClassify.registrableDomain(domainClassify.hostOf(c.domain) || c.domain);
+    if (d) out.push(d);
+  }
+  for (const m of String(row.answerText || '').matchAll(/https?:\/\/([^\s/)\]]+)/g)) {
+    const d = domainClassify.registrableDomain(m[1]);
+    if (d) out.push(d);
+  }
+  return out;
+}
+
+/** The site a business name points at, from the domains cited beside it. */
+function siteFor(key, domainCounts) {
+  let best = null;
+  for (const [d, n] of domainCounts) {
+    const label = d.split('.')[0].replace(/[^a-z0-9]/g, '');
+    const match = key.length >= 4 && label.length >= 4 && (label.includes(key) || key.includes(label));
+    if (match && (!best || n > best.n)) best = { d, n };
+  }
+  return best ? best.d : null;
+}
+
+/**
+ * Every business the answers name as an option, merged across spellings.
+ *
+ * @param {object[]} measured  the period's measured captures
+ * @param {Map} brandMap       toneKey -> {names}
+ * @returns {{list, byRow: Map}} list sorted by answers naming it without you
+ */
+function othersNamedTable(measured, brandMap, client, competitors = []) {
+  const clientNames = namesOf(client);
+  const byRow = new Map();
+  const acc = new Map();
+  for (const row of measured) {
+    const entry = brandMap.get(toneKey(row.runId, row.promptId, row.engine));
+    if (!entry) continue;
+    const names = (entry.names || []).filter((n) => !(clientNames.length && namesBrand(n, clientNames)));
+    byRow.set(row, names);
+    const domains = domainsSeenIn(row);
+    const seenKeys = new Set();
+    for (const name of names) {
+      const key = brandKey(name);
+      if (!key || seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      if (!acc.has(key)) {
+        acc.set(key, {
+          key, spellings: new Map(), answers: 0, withoutYou: 0, engines: new Set(), prompts: new Set(), domains: new Map(),
+        });
+      }
+      const e = acc.get(key);
+      e.spellings.set(name, (e.spellings.get(name) || 0) + 1);
+      e.answers += 1;
+      if (row.mentioned !== true) e.withoutYou += 1;
+      e.engines.add(row.engine);
+      if (row.promptId) e.prompts.add(row.promptId);
+      for (const d of domains) e.domains.set(d, (e.domains.get(d) || 0) + 1);
+    }
+  }
+
+  const trackedDomains = new Set(competitors.map((c) => c.domain).filter(Boolean)
+    .map((d) => domainClassify.registrableDomain(d) || d));
+  const list = [...acc.values()].map((e) => {
+    // The most used spelling, preferring the shorter on a tie ("Adidas" over "Adidas India").
+    const name = [...e.spellings.entries()].sort((a, b) => (b[1] - a[1]) || (a[0].length - b[0].length))[0][0];
+    const domain = siteFor(e.key, e.domains);
+    const tracked = (domain && trackedDomains.has(domain))
+      || competitors.some((c) => namesBrand(name, [c.name, ...(c.aliases || [])].filter(Boolean)));
+    return {
+      name,
+      domain,
+      tracked: Boolean(tracked),
+      answers: e.answers,
+      withoutYou: e.withoutYou,
+      prompts: e.prompts.size,
+      engines: [...e.engines].sort(),
+      spellings: [...e.spellings.keys()],
+    };
+  }).sort((a, b) => (b.withoutYou - a.withoutYou) || (b.answers - a.answers) || a.name.localeCompare(b.name));
+
+  return { list, byRow };
+}
+
+/**
+ * Configured competitors, plus the names the answers actually use for them —
+ * a competitor stored as "footlocker.com" is written "Foot Locker" in an
+ * answer, and matching on the domain stem alone never saw it.
+ */
+function enrichCompetitors(competitors, captures, answerBrands) {
+  const brandMap = new Map((answerBrands || [])
+    .filter((b) => b.v === BRANDS_VERSION)
+    .map((b) => [toneKey(b.runId, b.promptId, b.engine), b]));
+  const { list } = othersNamedTable(captures, brandMap, null, []);
+  return competitors.map((c) => {
+    const d = c.domain && (domainClassify.registrableDomain(c.domain) || c.domain);
+    const extra = list.filter((o) => d && o.domain === d).flatMap((o) => o.spellings);
+    const aliases = [...new Set([...(c.aliases || []), ...extra])];
+    const name = extra.length && /^[a-z0-9-]+$/.test(c.name || '') ? extra[0] : c.name;
+    return { ...c, name, aliases };
+  });
 }
 
 /**
@@ -965,7 +1089,11 @@ function sentimentFor(table, fallback) {
 function build({
   captures = [], prompts = [], brand = {}, competitors = [], options = {}, runSentiment = null,
   answerTones = [],
+  answerBrands = [],
 }) {
+  const brandMap = new Map((answerBrands || [])
+    .filter((b) => b.v === BRANDS_VERSION)
+    .map((b) => [toneKey(b.runId, b.promptId, b.engine), b]));
   // Only tones from the current instructions: older ones are re-read by the
   // backfill (routes.js), and until then that answer counts as unanalysed.
   const toneMap = new Map((answerTones || [])
@@ -996,6 +1124,7 @@ function build({
 
   const coverage = core.coverage(split.current);
   const measured = scoring.measuredRows(current);
+  const others = othersNamedTable(measured, brandMap, brand, competitors);
 
   // ── The five headline numbers ────────────────────────────────────────────
   const named = measured.filter((r) => r.mentioned).length;
@@ -1253,7 +1382,15 @@ function build({
         note: null,
       };
     })(),
-    gaps: gapTable(measured, brand, competitors),
+    gaps: gapTable(measured, brand, competitors, others.byRow),
+    // Every business the answers put forward, merged across spellings, with
+    // the site each points at and whether it is already tracked. `analysed`
+    // of `measured` says how much of the period this covers yet.
+    othersNamed: {
+      analysed: others.byRow.size,
+      measured: measured.length,
+      list: others.list.slice(0, 40),
+    },
     urls: urlTable(measured, brand, competitors),
     // Prompts passed so a group carries the question's current wording and
     // intent rather than only the text as it was sent.
@@ -1281,4 +1418,5 @@ module.exports = {
   mentionOrder, trendByRun, MIN_ANSWERS_TO_RANK,
   compositeScore, rankToScore, shareScore, SCORE_WEIGHTS,
   sentimentTable, listPosition, toneKey, SENTIMENT_SCORES,
+  othersNamedTable, enrichCompetitors, brandKey,
 };

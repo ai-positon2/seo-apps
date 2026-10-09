@@ -27,6 +27,7 @@
 const moduleEvidence = require('../projects/moduleEvidence');
 const scoring = require('../aiVisibility/scoring');
 const { describe, classifyTones } = require('./describe');
+const { extractAnswerBrands } = require('./answerBrands');
 // The identity to measure — name plus only the aliases that really are the
 // business or its own brands. See brandNames.js for why that needs checking.
 const { identityFor } = require('./brandNames');
@@ -160,13 +161,20 @@ async function execute({ access, project, run }) {
     // it: descriptors, and the tone of EVERY answer that named the brand — the
     // tones are what the sentiment score is computed from (report.js). Both
     // never fatal.
-    const [described, answerTones] = await Promise.all([
+    const withRun = rows.map((r) => ({ ...r, runId: run.id }));
+    const [described, answerTones, answerBrands] = await Promise.all([
       describe({ rows, brand }).catch((e) => {
         console.warn(`[aiVisibilityLite] run ${run.id}: descriptors skipped (${e.message})`);
         return null;
       }),
-      classifyTones({ rows: rows.map((r) => ({ ...r, runId: run.id })), brand }).catch((e) => {
+      classifyTones({ rows: withRun, brand }).catch((e) => {
         console.warn(`[aiVisibilityLite] run ${run.id}: answer tones skipped (${e.message})`);
+        return [];
+      }),
+      // Who every answer recommends — what gap analysis and the competitor
+      // suggestions are built from (see answerBrands.js).
+      extractAnswerBrands({ rows: withRun, brand }).catch((e) => {
+        console.warn(`[aiVisibilityLite] run ${run.id}: answer brands skipped (${e.message})`);
         return [];
       }),
     ]);
@@ -195,6 +203,7 @@ async function execute({ access, project, run }) {
         // One {runId, promptId, engine, tone, quote} per named answer whose
         // tone was backed by a quote from that answer.
         answerTones,
+        answerBrands,
         budget,
       },
     };

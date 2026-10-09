@@ -38,7 +38,8 @@ const report = require('./report');
 const surfacesLib = require('./surfaces');
 const { MAX_PROMPTS, AUTO_PROMPT_COUNT } = require('./models');
 const { classifyTones, TONE_VERSION } = require('./describe');
-const { namesBrand, prominenceOf } = require('../aiVisibility/capture');
+const { extractAnswerBrands, BRANDS_VERSION } = require('./answerBrands');
+const { namesBrand, prominenceOf, competitorsNamed } = require('../aiVisibility/capture');
 
 /**
  * Re-decide `mentioned` for stored answers against the CURRENT name list.
@@ -50,7 +51,7 @@ const { namesBrand, prominenceOf } = require('../aiVisibility/capture');
  * without rewriting stored evidence. A failed capture stays null: there is
  * no answer to re-read.
  */
-function rematch(captures, brand) {
+function rematch(captures, brand, competitors = []) {
   const names = [brand.name, ...(brand.aliases || [])].filter(Boolean);
   if (!names.length) return captures;
   return captures.map((c) => {
@@ -59,6 +60,9 @@ function rematch(captures, brand) {
       ...c,
       mentioned: namesBrand(c.answerText, names),
       prominence: prominenceOf(c.answerText, names),
+      // Competitors too, against the CURRENT list — one added after a run
+      // counts on the answers already stored, not only on the next run's.
+      competitorsMentioned: competitorsNamed(c.answerText, competitors),
     };
   });
 }
@@ -134,14 +138,18 @@ async function describedHistory(projectId, { panelLook = 5, look = 100 } = {}) {
   // Every run's per-answer tones, pooled — report.js keys them by run, prompt
   // and engine, so which run they were stored on does not matter to it.
   const answerTones = [];
+  const answerBrands = [];
   for (const run of runs) {
     for (const t of run.payload?.answerTones || []) answerTones.push({ ...t, runId: t.runId || run.id });
+    for (const b of run.payload?.answerBrands || []) answerBrands.push({ ...b, runId: b.runId || run.id });
     const score = run.payload?.described?.sentiment?.score;
     if (typeof score !== 'number' || !Number.isFinite(score)) continue;
     sentimentByRun.set(run.id, { score, at: run.finished_at || run.created_at || null });
   }
 
-  return { latest, sentimentByRun, answerTones };
+  return {
+    latest, sentimentByRun, answerTones, answerBrands,
+  };
 }
 
 // ── The page load ──────────────────────────────────────────────────────────
@@ -369,8 +377,8 @@ router.get('/:projectId/report', async (req, res) => {
     // mentions and the 'competitor' source category all need them, and
     // identityFor already merges the project's configured domains with the
     // names the profile found on the site.
-    const { brand, competitors, nameCheck } = await runner.identityFor(project, profile);
-    const checked = rematch(captures, brand);
+    const identity = await runner.identityFor(project, profile);
+    const { brand, nameCheck } = identity;
 
     // The descriptor and sentiment history come from runs' payloads rather
     // than being recomputed here: they cost a model call, so they are produced
@@ -392,7 +400,15 @@ router.get('/:projectId/report', async (req, res) => {
     // For `sentimentByRun`: report.build's composite `score` needs each run's
     // OWN reading (see report.js's runSentiment doc), so this is fetched
     // ahead of build() rather than after it.
-    const { latest: described, sentimentByRun, answerTones } = await describedHistory(projectId);
+    const {
+      latest: described, sentimentByRun, answerTones, answerBrands,
+    } = await describedHistory(projectId);
+
+    // Configured competitors under the names the answers actually use for
+    // them ("Foot Locker" for footlocker.com), then every stored answer
+    // re-matched against the current brand and competitor lists.
+    const competitors = report.enrichCompetitors(identity.competitors, captures, answerBrands);
+    const checked = rematch(captures, brand, competitors);
 
     const built = report.build({
       captures: checked,
@@ -405,13 +421,15 @@ router.get('/:projectId/report', async (req, res) => {
       },
       runSentiment: sentimentByRun,
       answerTones,
+      answerBrands,
     });
 
-    // Answers that name the client but carry no tone yet — runs from before
-    // per-answer tones existed. Tagged in the background rather than in this
-    // request, and the page is told so it can re-read when they land.
-    const analysing = startSentimentBackfill({
-      projectId, captures: checked, brand, answerTones,
+    // Answers not yet read for tone (sentiment) or for who they recommend
+    // (gaps, competitor suggestions) — runs from before either existed. Read
+    // in the background rather than in this request, and the page is told so
+    // it can re-read when they land.
+    const analysing = startBackfill({
+      projectId, captures: checked, brand, answerTones, answerBrands,
     });
 
     res.json({
@@ -421,7 +439,8 @@ router.get('/:projectId/report', async (req, res) => {
       described: described?.payload || null,
       describedAt: described?.at || null,
       describedRunId: described?.runId || null,
-      sentimentAnalysing: analysing,
+      sentimentAnalysing: analysing.tones,
+      gapsAnalysing: analysing.brands,
       // Which names count as a mention of this business, and which of the
       // profile's names were set aside and why — shown on Setup & runs.
       nameCheck,
@@ -429,60 +448,83 @@ router.get('/:projectId/report', async (req, res) => {
   } catch (e) { handleError(res, e, 'report'); }
 });
 
-// ── Sentiment backfill: tag answers that have no tone yet ──────────────────
+// ── Backfill: read stored answers that were never read ─────────────────────
 //
-// Started by a report read, never by a click: the report is how anybody sees
-// sentiment, so it is where missing tones get noticed. One job per project at
-// a time (a second read while one is running just reports it running), and an
-// answer tried once in this process is not retried — one the model could not
-// back with a quote would otherwise be re-read, and re-billed, on every load.
+// Two per-answer readings are stored on runs — tone (describe.classifyTones,
+// for sentiment) and who the answer recommends (answerBrands.js, for gaps and
+// competitor suggestions). Runs from before either existed have none, and a
+// version bump makes older readings stale. Started by a report read, never by
+// a click: the report is where missing readings get noticed.
+//
+// One job per project at a time (a second read while it runs just reports it
+// running), and an answer tried once in this process is not retried — one the
+// model could not back with a quote would otherwise be re-read, and re-billed,
+// on every load.
 
 const BACKFILL_CAP = 200;
-const backfillJobs = new Map(); // projectId -> Promise
-const backfillTried = new Map(); // projectId -> Set of toneKeys
+const backfillJobs = new Map(); // projectId -> {tones, brands}
+const backfillTried = new Map(); // `${kind}:${projectId}` -> Set of keys
 
-function startSentimentBackfill({
-  projectId, captures, brand, answerTones,
-}) {
-  if (backfillJobs.has(projectId)) return true;
-  if (!brand?.name) return false;
-
-  // Tones from older instructions do not count as done — they are re-read.
-  const have = new Set(answerTones
-    .filter((t) => t.v === TONE_VERSION)
-    .map((t) => report.toneKey(t.runId, t.promptId, t.engine)));
-  if (!backfillTried.has(projectId)) backfillTried.set(projectId, new Set());
-  const tried = backfillTried.get(projectId);
-
-  const pending = captures
-    .filter((c) => c.runId && c.status === 'captured' && c.mentioned === true && c.answerText)
+function pendingFor(kind, projectId, rows, done) {
+  const triedKey = `${kind}:${projectId}`;
+  if (!backfillTried.has(triedKey)) backfillTried.set(triedKey, new Set());
+  const tried = backfillTried.get(triedKey);
+  const pending = rows
     .filter((c) => {
       const key = report.toneKey(c.runId, c.promptId, c.engine);
-      return !have.has(key) && !tried.has(key);
+      return !done.has(key) && !tried.has(key);
     })
     .slice(0, BACKFILL_CAP);
-  if (!pending.length) return false;
-
   pending.forEach((c) => tried.add(report.toneKey(c.runId, c.promptId, c.engine)));
+  return pending;
+}
 
-  const job = (async () => {
-    const tones = await classifyTones({ rows: pending, brand });
-    const byRun = new Map();
-    for (const t of tones) {
-      if (!byRun.has(t.runId)) byRun.set(t.runId, []);
-      byRun.get(t.runId).push(t);
-    }
-    for (const [runId, list] of byRun) {
-      // eslint-disable-next-line no-await-in-loop
-      await store.appendRunTones(projectId, runId, list);
-    }
-    console.log(`[aiVisibilityLite] project ${projectId}: tagged ${tones.length} of ${pending.length} answers for sentiment`);
-  })()
-    .catch((e) => console.warn(`[aiVisibilityLite] project ${projectId}: sentiment backfill failed (${e.message})`))
+async function saveByRun(items, save) {
+  const byRun = new Map();
+  for (const item of items) {
+    if (!byRun.has(item.runId)) byRun.set(item.runId, []);
+    byRun.get(item.runId).push(item);
+  }
+  for (const [runId, list] of byRun) {
+    // eslint-disable-next-line no-await-in-loop
+    await save(runId, list);
+  }
+}
+
+/** @returns {{tones: boolean, brands: boolean}} which readings are being filled in */
+function startBackfill({
+  projectId, captures, brand, answerTones, answerBrands,
+}) {
+  if (backfillJobs.has(projectId)) return backfillJobs.get(projectId).state;
+  if (!brand?.name) return { tones: false, brands: false };
+
+  const readable = captures.filter((c) => c.runId && c.status === 'captured' && c.answerText);
+  const keysOf = (list, version) => new Set(list
+    .filter((x) => x.v === version)
+    .map((x) => report.toneKey(x.runId, x.promptId, x.engine)));
+
+  // Tone only matters for answers that name the client; who an answer
+  // recommends matters for every answer.
+  const toneRows = pendingFor('tones', projectId, readable.filter((c) => c.mentioned === true), keysOf(answerTones, TONE_VERSION));
+  const brandRows = pendingFor('brands', projectId, readable, keysOf(answerBrands, BRANDS_VERSION));
+  const state = { tones: toneRows.length > 0, brands: brandRows.length > 0 };
+  if (!state.tones && !state.brands) return state;
+
+  const job = Promise.all([
+    toneRows.length ? classifyTones({ rows: toneRows, brand })
+      .then((tones) => saveByRun(tones, (runId, list) => store.appendRunTones(projectId, runId, list)))
+      .then(() => console.log(`[aiVisibilityLite] project ${projectId}: read ${toneRows.length} answers for sentiment`))
+      : null,
+    brandRows.length ? extractAnswerBrands({ rows: brandRows, brand })
+      .then((found) => saveByRun(found, (runId, list) => store.appendRunBrands(projectId, runId, list)))
+      .then(() => console.log(`[aiVisibilityLite] project ${projectId}: read ${brandRows.length} answers for who they recommend`))
+      : null,
+  ])
+    .catch((e) => console.warn(`[aiVisibilityLite] project ${projectId}: backfill failed (${e.message})`))
     .finally(() => backfillJobs.delete(projectId));
 
-  backfillJobs.set(projectId, job);
-  return true;
+  backfillJobs.set(projectId, { job, state });
+  return state;
 }
 
 module.exports = router;

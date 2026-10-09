@@ -597,28 +597,34 @@ async function runBudget(projectId) {
  *
  * @returns {Promise<boolean>} whether a run row was updated
  */
-async function appendRunTones(projectId, runId, tones) {
+async function appendRunList(key, projectId, runId, items) {
   requireDb();
-  if (!tones?.length) return false;
+  if (!items?.length) return false;
   try {
     const updated = await db.rows(
       `update project_module_runs
           set payload = coalesce(payload, '{}'::jsonb)
-                || jsonb_build_object('answerTones', coalesce(payload->'answerTones', '[]'::jsonb) || $3::jsonb)
+                || jsonb_build_object($4::text, coalesce(payload->$4::text, '[]'::jsonb) || $3::jsonb)
         where project_id = $1 and id = $2 and module_key = 'ai_visibility_lite'
         returning id`,
-      [projectId, runId, JSON.stringify(tones)],
+      [projectId, runId, JSON.stringify(items), key],
     );
     return updated.length > 0;
   } catch (error) {
-    return fail('appendRunTones', error);
+    return fail(`append ${key}`, error);
   }
 }
+
+const appendRunTones = (projectId, runId, tones) => appendRunList('answerTones', projectId, runId, tones);
+
+/** Same, for who each answer recommends (answerBrands.js). */
+const appendRunBrands = (projectId, runId, brands) => appendRunList('answerBrands', projectId, runId, brands);
 
 module.exports = {
   ACTIONS,
   isMissingTable,
   appendRunTones,
+  appendRunBrands,
   migrationNeeded,
   notConfigured,
   getProfile,
