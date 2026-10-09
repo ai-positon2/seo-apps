@@ -9,6 +9,7 @@ import SemrushBalanceBadge from './SemrushBalanceBadge';
 import CrawlStatusBar from './home/CrawlStatusBar';
 import { useCrawlStatus } from '../lib/useCrawlStatus';
 import ChunkErrorBoundary from './ChunkErrorBoundary';
+import BrandMark from './BrandMark';
 
 // Sidebar collapse preferences (see the state below for why they are versioned).
 const NAV_COLLAPSED_KEY = 'seoStudio.navCollapsed.v3';
@@ -579,21 +580,7 @@ export default function MacWindow() {
             boxSizing: 'border-box',
             transition: 'width 160ms ease, padding 160ms ease',
           }}>
-            {/* Brand square */}
-            <div style={{
-              width: 28,
-              height: 28,
-              borderRadius: 8,
-              background: 'var(--primary)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-            }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-on-primary)" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 15.803a7.5 7.5 0 0010.607 10.607z" />
-              </svg>
-            </div>
+            <BrandMark size={28} />
             {!sidebarHidden && (
               <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15, minWidth: 0 }}>
                 <span style={{

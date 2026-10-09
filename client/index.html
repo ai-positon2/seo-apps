@@ -22,6 +22,7 @@
       }
       /* App's copy takes over from this one without re-running the fade. */
       .app-splash.app-splash--shown { opacity: 1; animation: none; }
+      .app-splash-mark { margin-bottom: 4px; }
       .app-splash-name { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
       .app-splash-note { font-size: 13px; color: #6B7174; }
       html[data-theme="dark"] .app-splash { color: #EDEAE3; }
@@ -30,6 +31,7 @@
       @media (prefers-reduced-motion: reduce) { .app-splash { animation-duration: 0s; } }
     </style>
     <title>SEO Studio</title>
+    <link rel="icon" type="image/svg+xml" href="/brand/seo-studio-submark.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <!-- Poppins carries the whole interface; JetBrains Mono is kept for tabular
@@ -40,6 +42,7 @@
   <body>
     <div id="root">
       <div class="app-splash" role="status" aria-live="polite">
+        <img class="app-splash-mark" src="/brand/seo-studio-submark.svg" alt="" width="44" height="44" />
         <span class="app-splash-name">SEO Studio</span>
         <span class="app-splash-note">Loading…</span>
       </div>

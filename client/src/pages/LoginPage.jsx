@@ -1,3 +1,5 @@
+import BrandMark from '../components/BrandMark';
+
 const params = new URLSearchParams(window.location.search);
 const ERROR_MESSAGES = {
   access_denied: 'Sign-in was cancelled.',
@@ -36,20 +38,7 @@ export default function LoginPage() {
         borderRadius: 'var(--r-lg)',
         textAlign: 'center',
       }}>
-        <div style={{
-          width: 40,
-          height: 40,
-          margin: '0 auto 16px',
-          borderRadius: 8,
-          background: 'var(--primary)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text-on-primary)" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 15.803a7.5 7.5 0 0010.607 10.607z" />
-          </svg>
-        </div>
+        <BrandMark size={52} style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }} />
         <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>
           SEO Studio
         </div>

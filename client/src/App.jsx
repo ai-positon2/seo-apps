@@ -85,6 +85,7 @@ export default function App() {
   if (authState === 'loading') {
     return (
       <div className="app-splash app-splash--shown" role="status" aria-live="polite">
+        <img className="app-splash-mark" src="/brand/seo-studio-submark.svg" alt="" width={44} height={44} />
         <span className="app-splash-name">SEO Studio</span>
         <span className="app-splash-note">Loading…</span>
       </div>

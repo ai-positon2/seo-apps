@@ -276,8 +276,8 @@ app.use('/assets', (req, res) => {
   res.status(404).type('text/plain').send('Not found');
 });
 
-// No favicon is referenced by index.html, so browsers request /favicon.ico on
-// every cold load and the catch-all answered each one with the whole of
+// index.html points browsers at /brand/seo-studio-submark.svg, but some still
+// request /favicon.ico on a cold load, and the catch-all answered each one with the whole of
 // index.html at HTTP 200. Registered after express.static so a real favicon
 // added to the build still wins.
 app.get('/favicon.ico', (req, res) => res.status(204).end());
