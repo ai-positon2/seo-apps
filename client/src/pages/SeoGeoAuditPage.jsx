@@ -297,16 +297,6 @@ export default function SeoGeoAuditPage() {
     if (auditedUrl && freshRun) onPage.autoStart(findings?.meta?.keywords || []);
   }, [auditedUrl, freshRun, onPage.autoStart, findings?.meta?.keywords]);
 
-  // Clears the On-Page result explicitly rather than relying on the hook's
-  // url-change effect, which would not fire when the next audit targets the same
-  // URL.
-  function handleNewAudit() {
-    setFreshRun(false);
-    onPage.reset();
-    ctl.reset();
-    setView('summary');
-  }
-
   const host = (() => {
     try { return new URL(findings?.meta?.url || '').hostname.replace(/^www\./, ''); } catch { return null; }
   })();
@@ -401,17 +391,6 @@ export default function SeoGeoAuditPage() {
                 }}
               >
                 Download Excel
-              </button>
-              <button
-                type="button"
-                onClick={handleNewAudit}
-                style={{
-                  height: 38, padding: '0 16px', fontFamily: 'var(--font-sans)', fontSize: 13,
-                  fontWeight: 500, color: 'var(--primary-text)', background: 'transparent',
-                  border: '1px solid var(--primary)', borderRadius: 8, cursor: 'pointer',
-                }}
-              >
-                New audit
               </button>
             </div>
           </div>

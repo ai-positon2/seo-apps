@@ -1,17 +1,16 @@
 // Status tags shown next to a tool's name (sidebar) and on its card (home).
 // A tool with no `tag` shows nothing. Single source of truth for both surfaces.
-//
-// What a reader SEES is `badge`: one quiet word, the same for every maturity
-// level. Eleven of sixteen menu items used to carry a coloured "Internal",
-// "Beta" or "Testing" pill, which told a first-time visitor the whole product
-// was unfinished and had stopped telling the team anything. The precise status
-// (`label`) is kept and shown as the pill's tooltip, so nothing is lost.
-const QUIET = { bg: 'color-mix(in srgb, var(--text-3) 16%, transparent)', fg: 'var(--text-2)' };
+// `label` is the full text (the pill's tooltip); `short` is the word on the
+// pill. One distinct colour per status, as the original pills had: the 25 Sep
+// design pass turned every one into a grey "Beta", which hid which tools were
+// internal-only or still in testing. Mid-tone hues on a tint of themselves, so
+// each pill reads on both the light and dark themes.
+const pill = (hue) => ({ bg: `color-mix(in srgb, ${hue} 16%, transparent)`, fg: hue });
 export const TAGS = {
-  beta:     { label: 'Beta',             short: 'Beta', badge: 'Beta', ...QUIET },
-  internal: { label: 'Internal Only',    short: 'Beta', badge: 'Beta', ...QUIET },
-  testing:  { label: 'Internal Testing', short: 'Beta', badge: 'Beta', ...QUIET },
-  soon:     { label: 'Coming Soon',      short: 'Soon', badge: 'Soon', ...QUIET },
+  beta:     { label: 'Beta',             short: 'Beta',     ...pill('#3B82F6') },
+  internal: { label: 'Internal Only',    short: 'Internal', ...pill('#D97706') },
+  testing:  { label: 'Internal Testing', short: 'Testing',  ...pill('#A855F7') },
+  soon:     { label: 'Coming Soon',      short: 'Soon',     ...pill('#64748B') },
 };
 
 export const TOOL_GROUPS = [
