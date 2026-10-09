@@ -57,6 +57,7 @@ export function initialState({ keyword = '', intent = 'commercial' } = {}) {
     secondary: [],
     allKeywords: [],
     error: '',
+    cachedAt: null,      // when the shown result is a saved run being replayed
   };
 }
 
@@ -94,6 +95,9 @@ export function reduce(state, action) {
     case 'result':
       return { ...state, result: d, primary: (d.primary || []).slice(0, MAX_PRIMARY), secondary: (d.secondary || []).slice(0, MAX_SECONDARY) };
     case 'fail': return { ...state, error: d.message || 'Research failed.' };
+    // The server replayed a saved run for this same seed, intent and client
+    // rather than re-rolling it (routes/keywordResearch.js resultKey).
+    case 'cached': return { ...state, cachedAt: d.at || 'earlier' };
     case 'done': return { ...state, running: false };
     case 'connectionLost': return { ...state, running: false, error: state.error || 'Connection lost. Please try again.' };
 

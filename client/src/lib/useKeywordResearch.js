@@ -14,7 +14,7 @@ import { refreshSemrushBalance } from './semrushBalanceStore';
 import { notifyAgentRunStarted, notifyAgentRunFinished } from './agentRunSignal';
 import { initialState, reduce, buildCopyTable, snapshot, selectionOf } from './keywordResearchModel';
 
-const STREAM_EVENTS = ['step', 'seed', 'variants', 'urls', 'url_status', 'url_keywords', 'allKeywords', 'result', 'fail'];
+const STREAM_EVENTS = ['step', 'seed', 'variants', 'urls', 'url_status', 'url_keywords', 'allKeywords', 'result', 'fail', 'cached'];
 
 /**
  * @param {object} opts
@@ -48,9 +48,11 @@ export function useKeywordResearch({ initialKeyword = '', initialIntent = 'comme
    * Start a run. With `{ topic }` the server derives the seed keyword from the
    * topic first (Content Architect); otherwise the typed keyword is the seed.
    */
-  const start = useCallback(async ({ topic } = {}) => {
+  const lastTopic = useRef(null);
+  const start = useCallback(async ({ topic, fresh = false } = {}) => {
     const cur = stateRef.current;
     if (cur.running || (!topic && !cur.keyword.trim())) return;
+    lastTopic.current = topic || null;
     closeStream();
     apply({ type: 'start' });
     notifyAgentRunStarted('keyword-research');
@@ -64,6 +66,8 @@ export function useKeywordResearch({ initialKeyword = '', initialIntent = 'comme
           ...(topic ? { topic } : { keyword: cur.keyword.trim() }),
           intent: cur.intent,
           client: client || undefined,
+          // A saved run for the same seed is replayed unless asked for fresh.
+          ...(fresh ? { fresh: true } : {}),
         }),
       });
       if (!res.ok) {
@@ -101,6 +105,12 @@ export function useKeywordResearch({ initialKeyword = '', initialIntent = 'comme
 
   const reset = useCallback(() => { closeStream(); apply({ type: 'reset' }); }, [apply, closeStream]);
 
+  // Re-run the same research without the saved result — what the "Run fresh"
+  // link on a replayed run does.
+  const startFresh = useCallback(() => (
+    start({ ...(lastTopic.current ? { topic: lastTopic.current } : {}), fresh: true })
+  ), [start]);
+
   // Editing actions report the new selection when it actually changed.
   const edit = useCallback((action) => {
     const before = stateRef.current;
@@ -135,6 +145,7 @@ export function useKeywordResearch({ initialKeyword = '', initialIntent = 'comme
     state,
     copied,
     start,
+    startFresh,
     reset,
     copyTable,
     setKeyword: (value) => apply({ type: 'setKeyword', value }),

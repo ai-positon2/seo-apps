@@ -171,3 +171,14 @@ test('short volumes', () => {
   assert.strictEqual(shortVolume(5400), '5.4k');
   assert.strictEqual(shortVolume(0), '');
 });
+
+test('a replayed saved run is marked, and a new run clears the mark', () => {
+  let s = reduce(initialState({ keyword: 'invisalign treatment overview' }), { type: 'start' });
+  s = reduce(s, { type: 'result', data: { primary: [kw('invisalign treatment')], secondary: [] } });
+  s = reduce(s, { type: 'cached', data: { at: '2026-10-09T10:00:00.000Z' } });
+  s = reduce(s, { type: 'done' });
+  assert.strictEqual(s.cachedAt, '2026-10-09T10:00:00.000Z');
+  assert.strictEqual(s.primary[0].keyword, 'invisalign treatment', 'the saved picks are shown as they were');
+  const next = reduce(s, { type: 'start' });
+  assert.strictEqual(next.cachedAt, null, 'a fresh run is not labelled as saved');
+});

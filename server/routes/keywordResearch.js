@@ -7,6 +7,22 @@ const { getUrlKeywords } = require('../services/semrush');
 const { loadKBContext } = require('../services/kbLoader');
 const { getConversionIntentScore } = require('../services/intentVocabulary');
 const { seedFromTopic } = require('../services/topicSeed');
+const { cacheGet, cacheSet } = require('../services/recordStore');
+
+// ── Same seed, same result ───────────────────────────────────────────────────
+// Several stages are model calls, and gpt-5.4-mini takes no temperature, so
+// two runs on the same seed picked different keywords — the standalone agent
+// and Content Architect's inline research disagreed for the same seed, and so
+// did two clicks on the same page. A finished run's full event stream is kept
+// for a week under (seed, intent, client, KB feedback) and replayed for the
+// same research, so every entry point shows the same picks. `fresh` skips it.
+const RESULT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+function resultKey({ keyword, intent, client, feedbackKbIds }) {
+  const seed = String(keyword || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const kb = Array.isArray(feedbackKbIds) ? [...feedbackKbIds].map(String).sort() : [];
+  const hash = crypto.createHash('sha1').update(JSON.stringify([seed, intent, client || '', kb])).digest('hex');
+  return `keyword-research:v1:${hash}`;
+}
 
 // In-memory session store (token → params, expires in 2 min)
 const sessions = new Map();
@@ -119,7 +135,7 @@ async function cachedSearch(query) {
 // Content Architect sends `topic` (an article title) instead of `keyword`; the
 // stream then derives the seed keyword from it first (services/topicSeed.js).
 router.post('/init', (req, res) => {
-  const { keyword, topic, client, feedbackKbIds, intent } = req.body;
+  const { keyword, topic, client, feedbackKbIds, intent, fresh } = req.body;
   if (!keyword?.trim() && !topic?.trim()) return res.status(400).json({ error: 'keyword is required' });
   if (!process.env.SEMRUSH_API_KEY) return res.status(500).json({ error: 'SEMrush API key not configured on server.' });
 
@@ -130,6 +146,7 @@ router.post('/init', (req, res) => {
     client: client || null,
     feedbackKbIds: feedbackKbIds || null,
     intent: intent === 'informational' ? 'informational' : 'commercial',
+    fresh: fresh === true,
   });
   setTimeout(() => sessions.delete(token), 120000);
   res.json({ token });
@@ -141,7 +158,9 @@ router.get('/stream/:token', async (req, res) => {
   if (!session) return res.status(404).json({ error: 'Session not found or expired. Please try again.' });
   sessions.delete(req.params.token);
 
-  const { topic, client, feedbackKbIds, intent } = session;
+  const {
+    topic, client, feedbackKbIds, intent, fresh,
+  } = session;
   let { keyword } = session;
   const semrushKey = process.env.SEMRUSH_API_KEY;
 
@@ -154,7 +173,11 @@ router.get('/stream/:token', async (req, res) => {
   let isClosed = false;
   res.on('close', () => { isClosed = true; });
 
+  // Every event from the pipeline proper (after the seed is known) is kept, so
+  // a finished run can be replayed exactly — timeline, sources and picks.
+  let recorded = null;
   const emit = (event, data) => {
+    if (recorded) recorded.push([event, data]);
     if (isClosed) return;
     try {
       res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -173,6 +196,19 @@ router.get('/stream/:token', async (req, res) => {
       emit('seed', { keyword, fromTopic: topic, source: seed.source });
       emit('step', { id: 'seed', status: 'done', message: `Seed keyword: "${keyword}"` });
     }
+
+    // The same research done before — replay it rather than re-roll it.
+    const cacheKey = resultKey({ keyword, intent, client, feedbackKbIds });
+    if (!fresh) {
+      const saved = await cacheGet(cacheKey, RESULT_TTL_MS).catch(() => null);
+      if (saved && Array.isArray(saved.events) && saved.events.some(([ev]) => ev === 'result')) {
+        for (const [ev, data] of saved.events) emit(ev, data);
+        emit('cached', { at: saved.at || null });
+        emit('done', {});
+        return res.end();
+      }
+    }
+    recorded = [];
 
     // ── Stage 0: Generate intent-focused query variants ──────────────────
     emit('step', { id: 'variants', status: 'active', message: `Generating ${intent} query variants for "${keyword}"…` });
@@ -556,6 +592,15 @@ Return this exact JSON:
     }
 
     emit('result', result);
+
+    // Kept for the next identical request (see resultKey), and awaited so a
+    // repeat issued the moment this one finishes already finds it. A failed
+    // write only costs the next caller a fresh run.
+    try {
+      await cacheSet(cacheKey, { at: new Date().toISOString(), events: recorded }, { kind: 'keyword-research', ttlMs: RESULT_TTL_MS });
+    } catch (e) {
+      console.warn('[keyword-research] result not cached:', e.message);
+    }
 
   } catch (err) {
     console.error('[keyword-research] Error:', err.message);

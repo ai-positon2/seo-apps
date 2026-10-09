@@ -8,6 +8,32 @@ export default function KrToolbar({ density = 'full', ...props }) {
   return density === 'compact' ? <CompactToolbar {...props} /> : <FullToolbar {...props} />;
 }
 
+/**
+ * Shown when the picks are a saved run replayed for the same seed, intent and
+ * client — so it is clear why two runs agree, and how to get a new one.
+ */
+function CachedNote({ kr, small = false }) {
+  const { cachedAt, running } = kr.state;
+  if (!cachedAt || running) return null;
+  const when = Number.isNaN(Date.parse(cachedAt)) ? 'earlier' : new Date(cachedAt).toLocaleString();
+  return (
+    <span style={{ marginRight: 'auto', fontSize: small ? 11.5 : 12.5, color: 'var(--text-3)' }}>
+      Saved research from {when} — the same seed shows the same picks.{' '}
+      <button
+        type="button"
+        onClick={kr.startFresh}
+        title="Research this seed again from scratch (uses SEMrush units)"
+        style={{
+          background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit',
+          color: 'var(--primary)', fontWeight: 600, textDecoration: 'underline',
+        }}
+      >
+        Run fresh
+      </button>
+    </span>
+  );
+}
+
 function toolbarButton({ active = false, tone = 'neutral', disabled = false }) {
   const primary = tone === 'primary';
   return {
@@ -24,7 +50,8 @@ function FullToolbar({ kr, client, navigate, editMode, onToggleEdit }) {
   const noPrimary = primary.length === 0;
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+      <CachedNote kr={kr} />
       <button
         onClick={() => navigate(buildContentWriterUrl({ primary, secondary, client }))}
         disabled={noPrimary}
@@ -55,6 +82,7 @@ function CompactToolbar({ kr, client, navigate, origin }) {
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <CachedNote kr={kr} small />
       <button type="button" onClick={kr.copyTable} disabled={!primary.length && !secondary.length} style={{ ...smallButton, ...(kr.copied ? { color: 'var(--success)', borderColor: 'var(--success)', background: 'var(--success-soft)' } : null) }}>
         {kr.copied ? <><CheckIcon size={12} /> Copied</> : <><CopyIcon size={12} /> Copy table</>}
       </button>
