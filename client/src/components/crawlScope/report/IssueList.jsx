@@ -40,7 +40,7 @@ export default function IssueList({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {groups.map((g) => (
         <IssueRow
-          key={g.id}
+          key={`${g.id}|${g.scope || 'page'}`}
           group={g}
           entry={catalogById.get(g.id)}
           trend={ruleTrend(comparison, g.id)}

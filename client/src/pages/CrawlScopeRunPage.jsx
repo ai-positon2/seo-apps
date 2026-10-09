@@ -45,7 +45,7 @@ import UrlsTable from '../components/crawlScope/report/UrlsTable';
 import IssueDetail from '../components/crawlScope/report/IssueDetail';
 import UrlDetail from '../components/crawlScope/report/UrlDetail';
 import {
-  healthMetrics, issueGroups, siteScopedGroups, healthScoreBreakdown, pageIssueCards, crawlCoverageNotice,
+  healthMetrics, issueGroups, siteScopedGroups, mergeRuleGroups, healthScoreBreakdown, pageIssueCards, crawlCoverageNotice,
   crawlComparison, reviewBatches, orderIssueGroups,
   runStatusVariant, formatDuration, TERMINAL_STATUSES, withEffectiveIssues,
   buildCountHierarchy, isHtmlPage, describeBudgetSource,
@@ -321,7 +321,7 @@ export default function CrawlScopeRunPage() {
   // In the run's own order (orderIssueGroups): the one the workbook and the
   // email use, with a reason per rule.
   const groups = useMemo(() => {
-    const merged = [...pageGroups, ...siteGroups].map((g) => ({
+    const merged = mergeRuleGroups([...pageGroups, ...siteGroups]).map((g) => ({
       ...g,
       count: g.urls.length,
       pages: new Set(g.urls).size,

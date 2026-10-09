@@ -775,6 +775,39 @@ export function reviewBatches(findingIds, reviewStatus, size = REVIEW_BATCH_SIZE
   return batches;
 }
 
+// ── One row per rule ────────────────────────────────────────────────────────
+// issueGroups() reads each page's .issues and siteScopedGroups() reads the
+// findings, and a template- or site-scoped finding reaches BOTH: the analyzer
+// puts every finding on its page's .issues list. So a rule collapsed to
+// "template" was listed twice, with the same id — the issue list showed it
+// twice, the tab counts counted it twice, and the duplicate React key left
+// stale rows behind when the severity tabs were switched.
+//
+// Merged per rule, page by page: a page's count is the larger of the two
+// copies, so an exact duplicate collapses to one and a rule genuinely split
+// across page and template scope keeps every occurrence. The non-page scope
+// wins, since that copy says what kind of fix it is.
+export function mergeRuleGroups(groups) {
+  const byId = new Map();
+  for (const g of groups) {
+    const seen = byId.get(g.id);
+    if (!seen) {
+      byId.set(g.id, { ...g, urls: [...g.urls] });
+      continue;
+    }
+    const tally = (urls) => urls.reduce((m, u) => m.set(u, (m.get(u) || 0) + 1), new Map());
+    const a = tally(seen.urls);
+    const b = tally(g.urls);
+    const urls = [];
+    for (const u of new Set([...a.keys(), ...b.keys()])) {
+      for (let i = 0; i < Math.max(a.get(u) || 0, b.get(u) || 0); i += 1) urls.push(u);
+    }
+    const scope = [seen.scope, g.scope].find((s) => s && s !== 'page') || seen.scope || g.scope;
+    byId.set(g.id, { ...seen, ...(scope ? { scope } : {}), urls });
+  }
+  return [...byId.values()];
+}
+
 // ── Which problem first ─────────────────────────────────────────────────────
 // The run's own order (server rule-order.js: severity, site-wide first, then how
 // much the affected pages matter), the one the workbook and the email use too,
