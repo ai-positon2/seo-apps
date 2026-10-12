@@ -16,6 +16,8 @@ const cbhRegen = require('../locationPageBuilder/cbhRegen');
 const cbhQc = require('../locationPageBuilder/cbhQc');
 const cbhContract = require('../locationPageBuilder/cbhContract');
 const cbhCompose = require('../locationPageBuilder/cbhCompose');
+const cbhFeedback = require('../locationPageBuilder/cbhFeedback');
+const cbhFeedbackAdmin = require('../locationPageBuilder/cbhFeedbackAdmin');
 const compose = require('../locationPageBuilder/compose');
 const pageService = require('../locationPageBuilder/pageService');
 const exporter = require('../locationPageBuilder/exporter');
@@ -335,7 +337,15 @@ router.get('/cbh/brief', async (req, res) => {
     if (!clientId || !serviceId || !locationId) {
       return res.status(400).json({ error: 'clientId, serviceId, locationId are required.' });
     }
-    res.json(await cbhBrief.getCbhBrief({ clientId, serviceId, locationId }) || null);
+    const row = await cbhBrief.getCbhBrief({ clientId, serviceId, locationId });
+    if (!row) return res.json(null);
+    // The client feedback rules a planned FAQ or subsection breaks. Computed on
+    // every read rather than stored, so a rule added since the brief was saved
+    // is flagged the next time it is opened.
+    res.json({
+      ...row,
+      feedbackWarnings: await cbhBrief.briefFeedbackWarningsFor({ clientId, serviceId, locationId, brief: row.brief }),
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -365,7 +375,11 @@ router.post('/cbh/brief/save', async (req, res) => {
       return res.status(400).json({ error: 'clientId, serviceId, locationId are required.' });
     }
     if (!brief || typeof brief !== 'object') return res.status(400).json({ error: 'brief (object) is required.' });
-    res.json(await cbhBrief.saveCbhBrief({ clientId, serviceId, locationId, brief, approved: !!approved }));
+    const saved = await cbhBrief.saveCbhBrief({ clientId, serviceId, locationId, brief, approved: !!approved });
+    res.json({
+      ...saved,
+      feedbackWarnings: await cbhBrief.briefFeedbackWarningsFor({ clientId, serviceId, locationId, brief: saved.brief }),
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -511,13 +525,65 @@ router.post('/cbh/export/json', async (req, res) => {
 });
 
 // Re-run QC against a (possibly edited) page without regenerating or saving.
-router.post('/cbh/qc', (req, res) => {
+// A page generated under the client feedback rules is checked against them; a
+// page made before them is judged as it always was.
+router.post('/cbh/qc', async (req, res) => {
   try {
     const { page } = req.body;
     if (!cbhQc.isCbhPage(page)) return res.status(400).json({ error: 'A CBH page object is required.' });
-    res.json(cbhQc.runCbhQc(page));
+    const feedbackRules = page.feedback ? await cbhFeedback.loadActiveRules(page.meta?.client_id) : null;
+    res.json(cbhQc.runCbhQc(page, feedbackRules ? { feedbackRules } : {}));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// BILLED: one review call. Re-checks a SAVED page against the client feedback
+// rules in force now (the wizard saves first). Refuses a page generated before
+// the rules existed: those are left exactly as they are.
+router.post('/cbh/pages/:id/feedback-review', async (req, res) => {
+  try {
+    res.json(await cbhWizard.recheckFeedback({ pageId: req.params.id }));
+  } catch (e) {
+    const status = /not found/i.test(e.message) ? 404 : /before the client feedback rules/.test(e.message) ? 400 : 502;
+    res.status(status).json({ error: e.message });
+  }
+});
+
+// ── Client feedback rules ───────────────────────────────────────────────────
+// The Feedback Rules screen. Rules and batches only: nothing here reads or
+// writes a generated page. See locationPageBuilder/cbhFeedbackAdmin.js.
+const fbRoute = fn => async (req, res) => {
+  try {
+    res.json(await fn(req));
+  } catch (e) {
+    if (!e.status) console.error(`[LPB] ${req.method} ${req.originalUrl} failed:`, e.message);
+    res.status(e.status || 500).json({ error: e.message });
+  }
+};
+const needClient = (req) => {
+  const clientId = req.query.clientId || req.body?.clientId;
+  if (!clientId) throw new cbhFeedbackAdmin.FeedbackError('clientId is required.');
+  return clientId;
+};
+
+router.get('/feedback/vocabulary', fbRoute(req => cbhFeedbackAdmin.vocabulary(needClient(req))));
+router.get('/feedback/rules', fbRoute(req => cbhFeedbackAdmin.listRules(needClient(req))));
+router.post('/feedback/rules', fbRoute(req => cbhFeedbackAdmin.createRule({ clientId: needClient(req), rule: req.body.rule })));
+router.post('/feedback/rules/test', fbRoute(req => cbhFeedbackAdmin.testRule(req.body || {})));
+router.put('/feedback/rules/:id', fbRoute(req => cbhFeedbackAdmin.updateRule({ id: req.params.id, rule: req.body.rule || {} })));
+router.post('/feedback/rules/:id/status', fbRoute(req => cbhFeedbackAdmin.setRuleStatus({ id: req.params.id, status: req.body.status })));
+router.get('/feedback/batches', fbRoute(req => cbhFeedbackAdmin.listBatches(needClient(req))));
+router.post('/feedback/batches', fbRoute(req => cbhFeedbackAdmin.createBatch({
+  clientId: needClient(req), title: req.body.title, receivedAt: req.body.receivedAt, rawText: req.body.rawText,
+})));
+// BILLED: one drafting call. Saves draft rules only; nothing goes live until a
+// person activates it.
+router.post('/feedback/batches/:id/draft', fbRoute(req => cbhFeedbackAdmin.draftBatch({ id: req.params.id })));
+router.put('/feedback/batches/:id/action-items/:n', fbRoute(req => cbhFeedbackAdmin.updateActionItem({
+  id: req.params.id, index: Number(req.params.n), status: req.body.status, note: req.body.note,
+})));
+router.post('/feedback/batches/:id/revisions/:n/apply', fbRoute(req => cbhFeedbackAdmin.applyRevision({
+  id: req.params.id, index: Number(req.params.n),
+})));
 
 // Only one page per (client, service, location) tuple is ever stored — this
 // lets Step 1 detect "you've already generated this combo" and offer to open

@@ -541,6 +541,14 @@ const CBH_ADULT_MH = [
   'Bipolar I & II', 'Grief Disorder', 'Obsessive Compulsive Disorder (OCD)',
   'Personality Disorder', 'Post-Traumatic Stress Disorder (PTSD)', 'Psychosis',
 ];
+// Conditions CBH can take only in its RESIDENTIAL mental health program. The
+// client, 2026-10: "We can accept someone with minor psychosis symptoms or
+// after they have stabilized in a hospital setting ... they should only be
+// attached to our mental health residential locations." So Psychosis is
+// neither an outpatient condition page nor a condition the outpatient
+// programs list as treated.
+const CBH_RESIDENTIAL_ONLY = new Set(['Psychosis']);
+const CBH_ADULT_MH_OUTPATIENT = CBH_ADULT_MH.filter(name => !CBH_RESIDENTIAL_ONLY.has(name));
 const CBH_TEEN_MH = [
   'Depression', 'Anxiety', 'ADHD', 'Burnout', 'Stress', 'Bipolar Disorder',
   'PTSD (Post-Traumatic Stress Disorder)', 'School Issues', 'Failure to Launch',
@@ -584,6 +592,10 @@ const CBH_ADDICTIONS = CBH_ADDICTION_DEFS.map(([name]) => name);
 // never appeared at Anaheim Hills, for one -- and the SEO team wants every
 // service reachable from every office.
 //
+// The one exception is a residential-only condition (CBH_RESIDENTIAL_ONLY):
+// the client will not take it outside a residential program, so only an office
+// that runs mh-residential offers it.
+//
 // `category` is NOT free text: categoryLogic.js switches on it to choose the
 // section headings, and only therapy | medication | procedure | condition |
 // psychiatry are handled. Programs are 'procedure' ("What to expect during…",
@@ -593,10 +605,10 @@ const CBH_ADDICTIONS = CBH_ADDICTION_DEFS.map(([name]) => name);
 const CBH_SERVICE_DEFS = [
   // Mental health programs
   [['mh-residential'], 'Residential Mental Health Treatment', 'procedure', CBH_ADULT_MH],
-  [['mh-outpatient'], 'Partial Hospitalization Program (PHP)', 'procedure', CBH_ADULT_MH],
-  [['mh-outpatient'], 'Outpatient Mental Health Treatment (IOP)', 'procedure', CBH_ADULT_MH],
-  [['mh-outpatient'], 'Legal Diversion Program', 'procedure', CBH_ADULT_MH],
-  [['mh-outpatient'], 'Labor Union Support', 'therapy', CBH_ADULT_MH],
+  [['mh-outpatient'], 'Partial Hospitalization Program (PHP)', 'procedure', CBH_ADULT_MH_OUTPATIENT],
+  [['mh-outpatient'], 'Outpatient Mental Health Treatment (IOP)', 'procedure', CBH_ADULT_MH_OUTPATIENT],
+  [['mh-outpatient'], 'Legal Diversion Program', 'procedure', CBH_ADULT_MH_OUTPATIENT],
+  [['mh-outpatient'], 'Labor Union Support', 'therapy', CBH_ADULT_MH_OUTPATIENT],
 
   // Addiction programs
   [['addiction-residential'], 'Inpatient Alcohol and Drug Detox Program', 'procedure', CBH_ADDICTIONS],
@@ -607,15 +619,15 @@ const CBH_SERVICE_DEFS = [
   // Virtual. No physical office of its own — offered from every outpatient and
   // teen location. INFERRED: confirm whether these should instead be a single
   // statewide "Virtual — California" location, which is how the site files them.
-  [['mh-outpatient', 'teen'], 'Virtual Intensive Outpatient Program (IOP)', 'procedure', CBH_ADULT_MH],
-  [['mh-outpatient', 'teen'], 'Evening Online Mental Health Treatment', 'procedure', CBH_ADULT_MH],
+  [['mh-outpatient', 'teen'], 'Virtual Intensive Outpatient Program (IOP)', 'procedure', CBH_ADULT_MH_OUTPATIENT],
+  [['mh-outpatient', 'teen'], 'Evening Online Mental Health Treatment', 'procedure', CBH_ADULT_MH_OUTPATIENT],
 
   // Therapy modalities and support services. These appear in the client's live
   // sitemap as pages in their own right, not only as things a programme offers.
-  [['mh-outpatient', 'teen'], 'Cognitive Behavioral Therapy (CBT)', 'therapy', CBH_ADULT_MH],
-  [['mh-outpatient', 'teen'], 'Dialectical Behavioral Therapy (DBT)', 'therapy', CBH_ADULT_MH],
-  [['mh-outpatient', 'teen'], 'Group Therapy', 'therapy', CBH_ADULT_MH],
-  [['mh-outpatient', 'teen'], 'Case Management', 'therapy', CBH_ADULT_MH],
+  [['mh-outpatient', 'teen'], 'Cognitive Behavioral Therapy (CBT)', 'therapy', CBH_ADULT_MH_OUTPATIENT],
+  [['mh-outpatient', 'teen'], 'Dialectical Behavioral Therapy (DBT)', 'therapy', CBH_ADULT_MH_OUTPATIENT],
+  [['mh-outpatient', 'teen'], 'Group Therapy', 'therapy', CBH_ADULT_MH_OUTPATIENT],
+  [['mh-outpatient', 'teen'], 'Case Management', 'therapy', CBH_ADULT_MH_OUTPATIENT],
 
   // Teen programs
   [['teen'], 'Teen IOP Treatment', 'procedure', CBH_TEEN_MH],
@@ -623,7 +635,10 @@ const CBH_SERVICE_DEFS = [
   [['teen'], 'Family Therapy', 'therapy', CBH_TEEN_MH],
 
   // Adult mental-health conditions
-  ...CBH_ADULT_MH.map(name => [['mh-residential', 'mh-outpatient'], name, 'condition', [name]]),
+  ...CBH_ADULT_MH.map(name => [
+    CBH_RESIDENTIAL_ONLY.has(name) ? ['mh-residential'] : ['mh-residential', 'mh-outpatient'],
+    name, 'condition', [name],
+  ]),
 
   // Teen conditions. Prefixed because a slug is unique per client and the adult
   // list already holds Depression, Anxiety, ADHD and the rest — and because
@@ -712,11 +727,14 @@ const CBH_SERVICES = CBH_SERVICE_DEFS.map(([groups, name, category, conditions])
 });
 
 const CBH_ALL_SERVICE_IDS = CBH_SERVICES.map(s => s.id);
+const CBH_RESIDENTIAL_ONLY_IDS = new Set(CBH_SERVICES
+  .filter(s => CBH_RESIDENTIAL_ONLY.has(s.name)).map(s => s.id));
 
 // city | office label | program groups | nearby areas
-// `program groups` records what each office actually runs. It is kept as the
-// office's own description — the label only says so for the sites that share a
-// city — and is no longer read when building services_available_ids.
+// `program groups` records what each office actually runs. It is stored on
+// the location as program_groups (the label only says so for the sites that
+// share a city), and services_available_ids reads it for one thing only: a
+// residential-only condition is offered just where mh-residential runs.
 //
 // The label is the office's identity; `city` is the geographic claim and is
 // resolved from the label by compose.loadLayers via text.baseCity, which
@@ -739,7 +757,7 @@ const CBH_LOCATION_DEFS = [
   ['Van Nuys', 'Van Nuys', ['mh-outpatient', 'teen'], ['Sherman Oaks', 'Panorama City', 'Reseda', 'North Hollywood']],
 ];
 
-const CBH_LOCATIONS = CBH_LOCATION_DEFS.map(([city, label, , nearby]) => {
+const CBH_LOCATIONS = CBH_LOCATION_DEFS.map(([city, label, groups, nearby]) => {
   const slug = slugify(label);
   return {
     id: `cbhloc_${slug}`,
@@ -756,10 +774,17 @@ const CBH_LOCATIONS = CBH_LOCATION_DEFS.map(([city, label, , nearby]) => {
     hero_image_url: '', hero_image_alt: '',
     parking_info: '',
     nearby_areas: nearby,
+    // The programs this office runs. Stored so a page knows which one it
+    // belongs to (cbhCompose.programGroupsFor): the writer is told, and a
+    // client feedback rule can be scoped to one program ("teen", say).
+    program_groups: groups,
     // Required: checkEligibility refuses to generate for an unverified
     // location (doorway-page guardrail, Spec §15.1).
     verified: true,
-    services_available_ids: CBH_ALL_SERVICE_IDS, // every service at every office
+    // Every service at every office, bar the residential-only conditions.
+    services_available_ids: groups.includes('mh-residential')
+      ? CBH_ALL_SERVICE_IDS
+      : CBH_ALL_SERVICE_IDS.filter(id => !CBH_RESIDENTIAL_ONLY_IDS.has(id)),
   };
 });
 

@@ -29,6 +29,28 @@ function headingService(service, servicePhraseFn) {
   return (phrase || service?.name || '').trim();
 }
 
+// The program a page belongs to: the service's program groups that this
+// location actually runs. "Anxiety" is both a residential and an outpatient
+// condition, and at an outpatient office it is the outpatient one. A location
+// seeded before program_groups existed has none, so the page gets none rather
+// than a guess.
+function programGroupsFor(service, location) {
+  const runs = Array.isArray(location?.program_groups) ? location.program_groups : [];
+  return (service?.groups || []).filter(g => runs.includes(g));
+}
+
+// The doorway-page guardrail for the CBH routes. The wizard's picker already
+// hides a service a location does not offer, but the API took any pair, so a
+// stale tab or a direct call could still build a Psychosis page for an
+// outpatient office.
+function assertCbhEligible(service, location) {
+  const offered = (location?.services_available_ids || []).includes(service?.id);
+  if (!offered) {
+    throw new Error(`${service?.name || 'This service'} is not offered at ${location?.location_name || location?.city || 'this location'}, `
+      + 'so a page for it there would advertise care that location does not provide. Choose a location that runs it.');
+  }
+}
+
 function buildCbhScaffold(layers, { servicePhrase } = {}) {
   const { client, service, location } = layers;
   const baseUrl = client.brand_static?.base_url || '';
@@ -50,6 +72,9 @@ function buildCbhScaffold(layers, { servicePhrase } = {}) {
       canonical: '',
       serviceSlug,
       brandName: contract.BRAND,
+      // Which program this page is for (see programGroupsFor). The writer is
+      // told, and client feedback rules can be scoped by it.
+      programGroups: programGroupsFor(service, location),
       // `title` is the part the 50-60 window applies to; `fullTitle` is what
       // ships. Both are stored so nothing downstream has to re-derive which is
       // which, and QC can gate them separately.
@@ -402,6 +427,7 @@ function ensureCbhSections(page) {
 }
 
 module.exports = {
+  programGroupsFor, assertCbhEligible,
   buildCbhScaffold, mergeCbhL3, applyProvenance, headingService, ensureCbhSections,
   refreshCbhDerived, buildCbhSchema, caseCbhHeadings, stripCbhEmDashes,
 };

@@ -3100,6 +3100,8 @@ test('no prompt asks for a keyword frequency any more', () => {
     assert.ok(!JSON.stringify(plan).includes(EM));
   });
 
+  await require('./cbhFeedbackTests')({ test, testAsync, assert, setLlmStub: (fn) => { LLM_STUB = fn; } });
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

@@ -27,6 +27,7 @@ import LocationPageBuilderPage from './pages/LocationPageBuilderPage';
 import LocationPageDetailPage from './pages/LocationPageDetailPage';
 import LocationServiceWizardPage from './pages/LocationServiceWizardPage';
 import ClearBehavioralWizardPage from './pages/ClearBehavioralWizardPage';
+import CbhFeedbackRulesPage from './pages/CbhFeedbackRulesPage';
 import GentleDentalPagesPage from './pages/GentleDentalPagesPage';
 import LocationPageBuilderHubPage from './pages/LocationPageBuilderHubPage';
 import RobotsMonitorPage from './pages/RobotsMonitorPage';
@@ -83,6 +84,7 @@ export default function App() {
           <Route path="/location-page-builder/wizard" element={<LocationServiceWizardPage />} />
           <Route path="/location-page-builder/gentle-dental" element={<GentleDentalPagesPage />} />
           <Route path="/location-page-builder/clear-behavioral" element={<ClearBehavioralWizardPage />} />
+          <Route path="/location-page-builder/clear-behavioral/feedback-rules" element={<CbhFeedbackRulesPage />} />
           {/* Kept so existing links and bookmarks still resolve. */}
           <Route path="/location-page-builder/gentle-dental-pages" element={<GentleDentalPagesPage />} />
           <Route path="/location-page-builder/neuro" element={<LocationPageBuilderPage />} />

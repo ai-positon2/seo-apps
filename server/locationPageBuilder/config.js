@@ -58,6 +58,13 @@ module.exports = {
     // failure -- so this vertical writes on the stronger model. Gentle Dental,
     // whose contract has two length gates, stays on the cheaper one.
     cbhWriterModel: process.env.LPB_CBH_WRITER_MODEL || 'claude-sonnet-5',
+    // The client feedback rules (cbhFeedback.js). The reviewer judges a page
+    // against the rules no regex can check ("does the stress page drift into
+    // anxiety?"), and the drafter turns a pasted feedback batch into draft
+    // rules. Both are judgement calls on YMYL copy, so they run on the
+    // stronger model; either can be overridden per environment.
+    cbhFeedbackReviewModel: process.env.LPB_CBH_FEEDBACK_REVIEW_MODEL || 'claude-sonnet-5',
+    cbhFeedbackDraftModel: process.env.LPB_CBH_FEEDBACK_DRAFT_MODEL || 'claude-sonnet-5',
     classificationTemperature: 0, // Spec §6 Stage 5: temperature 0
     // Master pool cap fed to the LLM. Must cover the full live pull
     // (TOP_URLS x semrush.keywordsPerUrl = 300) plus keywords.universePoolSize

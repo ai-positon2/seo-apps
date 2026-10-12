@@ -10,6 +10,8 @@ const contract = require('./cbhContract');
 const cbhCompose = require('./cbhCompose');
 const cbhQc = require('./cbhQc');
 const cbhWriter = require('./cbhWriter');
+const cbhFeedback = require('./cbhFeedback');
+const cbhFeedbackReview = require('./cbhFeedbackReview');
 const { getCbhBrief, normalizeCbhBrief, caseContext } = require('./cbhBrief');
 const { servicePhraseDisplay } = require('./keywordRelevance');
 
@@ -42,18 +44,22 @@ async function generateFromBrief({ clientId, serviceId, locationId, brief: brief
   // `service` is needed for refreshCbhDerived below, which takes the raw
   // condition name from it for the educational H2.
   const { client, location, service } = layers;
+  // Before the writer is paid for: a pair the location does not offer gets no page.
+  cbhCompose.assertCbhEligible(service, location);
+  const feedbackRules = await cbhFeedback.loadActiveRules(clientId);
 
   let scaffold = cbhCompose.buildCbhScaffold(layers, { servicePhrase: servicePhraseDisplay });
   scaffold.primaryKeyword = brief.primaryKeyword;
   scaffold.primaryKeywords = brief.primaryKeywords;
   scaffold.secondaryKeywords = brief.secondaryKeywords;
 
-  const l3 = await cbhWriter.generateCbhL3({
+  const { l3, feedbackReview } = await cbhWriter.generateCbhL3({
     scaffold,
     primaryKeyword: brief.primaryKeyword,
     secondaryKeywords: brief.secondaryKeywords,
     h3Plan: h3s,
     faqPlan: brief.faqs || [],
+    feedbackRules,
   });
 
   scaffold = cbhCompose.mergeCbhL3(scaffold, l3, location);
@@ -73,7 +79,18 @@ async function generateFromBrief({ clientId, serviceId, locationId, brief: brief
   // URLs and schema together, so the JSON-LD can never quote a URL the page
   // does not have.
   cbhCompose.refreshCbhDerived(scaffold, { client, location, service });
-  scaffold.qc = cbhQc.runCbhQc(scaffold);
+
+  // The marker that puts this page under the client's feedback rules. Every page
+  // generated from here on carries it; a page without it predates the rules and
+  // QC, save and regen leave it exactly as it was.
+  stampFeedback(scaffold, feedbackRules);
+  if (feedbackReview) {
+    // The writer reviewed the winning draft before it was cased, given its
+    // provenance and stripped of the brief's meta, none of which changes what
+    // the review judged. Re-stamped so the page does not open "out of date".
+    scaffold.feedbackReview = { ...feedbackReview, contentHash: cbhFeedback.reviewContentHash(scaffold) };
+  }
+  scaffold.qc = cbhQc.runCbhQc(scaffold, { feedbackRules });
 
   const existing = await findExistingPage({ clientId, serviceId, locationId });
   const record = {
@@ -89,13 +106,36 @@ async function generateFromBrief({ clientId, serviceId, locationId, brief: brief
   return { pageId: saved.id, page: scaffold };
 }
 
+function stampFeedback(page, feedbackRules) {
+  const applicable = cbhFeedback.rulesFor(feedbackRules, cbhFeedback.pageContext(page));
+  page.feedback = {
+    rulesVersion: cbhFeedback.rulesVersion(applicable),
+    ruleKeys: applicable.map(r => r.key),
+    appliedAt: new Date().toISOString(),
+  };
+  return page;
+}
+
+// The feedback fields are the SERVER's: the marker says which rules a page was
+// built under, and the review is what the reviewer actually returned. Both are
+// taken from the stored page, never from what the browser sent back, and a page
+// that never had them does not get them.
+function carryFeedbackFields(next, stored) {
+  ['feedback', 'feedbackReview'].forEach((k) => {
+    if (stored && stored[k] !== undefined) next[k] = structuredClone(stored[k]);
+    else delete next[k];
+  });
+  if (stored?.meta?.programGroups) next.meta.programGroups = structuredClone(stored.meta.programGroups);
+  return next;
+}
+
 // Re-run QC over an edited page and persist it. Mirrors dentalWizard.saveContent.
 async function saveContent({ pageId, page }) {
   const existing = await store.get('pages', pageId);
   if (!existing || existing.page_type !== PAGE_TYPE) throw new Error('Page not found.');
   if (!cbhQc.isCbhPage(page)) throw new Error('A valid CBH page object (meta + sections) is required.');
   // Re-derive the shipped title so an edited title cannot lose its suffix.
-  const next = structuredClone(page);
+  const next = carryFeedbackFields(structuredClone(page), existing.page_object);
   next.meta.title = contract.titleWithoutSuffix(next.meta.title || '');
   next.meta.fullTitle = contract.fullTitle(next.meta.title);
   // The reviewer edits the SLUG; urlPath and canonical are derived from it here
@@ -113,13 +153,34 @@ async function saveContent({ pageId, page }) {
   // Rebuilds the URLs AND the JSON-LD. The schema quotes the canonical, the
   // meta and the FAQ pairs, so an edit to any of them has to reach it.
   cbhCompose.refreshCbhDerived(next, { client, location, service });
-  next.qc = cbhQc.runCbhQc(next);
+  next.qc = cbhQc.runCbhQc(next, next.feedback
+    ? { feedbackRules: await cbhFeedback.loadActiveRules(existing.client_id) } : {});
   const saved = await store.update('pages', pageId, { page_object: next });
   return { saved: true, updatedAt: saved.updated_at, qc: next.qc, page: next };
+}
+
+// BILLED: one review call. Re-runs the AI review of the STORED page against
+// the rules in force now, re-stamps the marker with them, and re-runs QC. The
+// wizard saves first, so what is reviewed is what is on screen.
+async function recheckFeedback({ pageId }) {
+  const existing = await store.get('pages', pageId);
+  if (!existing || existing.page_type !== PAGE_TYPE) throw new Error('Page not found.');
+  const page = structuredClone(existing.page_object);
+  if (!page?.feedback) {
+    throw new Error('This page was generated before the client feedback rules existed, so it is not checked against them. '
+      + 'Regenerate it to bring it under the rules.');
+  }
+  const feedbackRules = await cbhFeedback.loadActiveRules(existing.client_id);
+  stampFeedback(page, feedbackRules);
+  // Unlike generation, a failure here is reported: the reviewer asked for it.
+  page.feedbackReview = await cbhFeedbackReview.reviewPage(page, feedbackRules);
+  page.qc = cbhQc.runCbhQc(page, { feedbackRules });
+  const saved = await store.update('pages', pageId, { page_object: page });
+  return { saved: true, updatedAt: saved.updated_at, qc: page.qc, page };
 }
 
 // buildCbhSchema is re-exported from its new home in cbhCompose so existing
 // callers keep working.
 module.exports = {
-  generateFromBrief, saveContent, buildCbhSchema: cbhCompose.buildCbhSchema, PAGE_TYPE,
+  generateFromBrief, saveContent, recheckFeedback, buildCbhSchema: cbhCompose.buildCbhSchema, PAGE_TYPE,
 };

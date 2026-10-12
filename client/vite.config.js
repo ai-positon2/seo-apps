@@ -9,7 +9,16 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:5000',
         changeOrigin: true,
-        timeout: 120000
+        // MUST exceed server.timeout (server/server.js), or the browser gives
+        // up before the server does and the abort surfaces as a bare "Failed
+        // to fetch" with no message -- the server meanwhile finishes the work
+        // and has nobody to hand it to. It was 120s against a 180s server,
+        // which is exactly how a 2-minute page generation failed silently.
+        //
+        // `timeout` is the outgoing socket; `proxyTimeout` is how long to wait
+        // for the response. Both have to be raised.
+        timeout: 660000,
+        proxyTimeout: 660000
       }
     }
   }

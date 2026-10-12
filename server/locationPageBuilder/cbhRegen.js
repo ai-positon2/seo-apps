@@ -16,6 +16,7 @@ const config = require('./config');
 const contract = require('./cbhContract');
 const compose = require('./compose');
 const cbhCompose = require('./cbhCompose');
+const cbhFeedback = require('./cbhFeedback');
 const { createLlmClient } = require('../services/llmProviders');
 const { chatParams } = require('./llmParams');
 const { servicePhraseDisplay } = require('./keywordRelevance');
@@ -187,6 +188,35 @@ duplicate any other question in the plan: ${ctx.siblings.join(' | ')}`,
   },
 };
 
+// Where each field sits, in the section vocabulary the client feedback rules
+// are scoped by (cbhFeedback.SECTIONS). Brief fields map to the page section
+// they become: a planned FAQ question IS the FAQ question the writer answers.
+const FIELD_SECTIONS = {
+  'meta.title': 'meta.title',
+  'meta.metaDescription': 'meta.description',
+  'hero.h1': 'hero.h1',
+  'hero.description': 'hero.description',
+  'approach.paragraphs': 'approach.intro',
+  'approach.philosophy': 'approach.philosophy',
+  'approach.therapies': 'approach.therapies',
+  'insurance.paragraph': 'insurance',
+  'educational.paragraphs': 'educational.intro',
+  'educational.h3.heading': 'educational.heading',
+  'educational.h3.lines': 'educational.body',
+  'educational.h3.line': 'educational.body',
+  'uvp.paragraph': 'uvp',
+  'service.paragraph': 'service',
+  'treatment.heading': 'treatment.heading',
+  'treatment.paragraph': 'treatment.body',
+  'faq.q': 'faq.question',
+  'faq.a': 'faq.answer',
+  'brief.meta.title': 'meta.title',
+  'brief.meta.description': 'meta.description',
+  'brief.h3.heading': 'educational.heading',
+  'brief.h3.intent': 'educational.heading',
+  'brief.faq.q': 'faq.question',
+};
+
 // ── Reading and writing the addressed field ────────────────────────────────
 function readField(field, { page, brief, index, lineIndex }) {
   const s = page?.sections;
@@ -265,13 +295,21 @@ function describeLimit(limit) {
   return limit.min ? `${limit.min}-${limit.max} characters` : `at most ${limit.max} characters`;
 }
 
-async function regenerateField({ clientId, serviceId, locationId, page, brief, field, index, lineIndex }) {
+// `layers` and `feedbackRules` are loaded from the store when not given; the
+// tests pass both.
+//
+// The client's feedback rules apply to every BRIEF field, and to a PAGE field
+// only on a page generated under them (the `feedback` marker). A page made
+// before the rules existed is regenerated exactly as it always was.
+async function regenerateField({
+  clientId, serviceId, locationId, page, brief, field, index, lineIndex, layers: givenLayers, feedbackRules,
+}) {
   const cfg = FIELDS[field];
   if (!cfg) throw new Error(`Unknown field: "${field}".`);
   if (cfg.scope === 'page' && !page) throw new Error('page is required for this field.');
   if (cfg.scope === 'brief' && !brief) throw new Error('brief is required for this field.');
 
-  const layers = await compose.loadLayers({ clientId, serviceId, locationId });
+  const layers = givenLayers || await compose.loadLayers({ clientId, serviceId, locationId });
   const scaffold = cbhCompose.buildCbhScaffold(layers, { servicePhrase: servicePhraseDisplay });
   const city = layers.location.city;
   const serviceName = scaffold.serviceName;
@@ -290,6 +328,16 @@ async function regenerateField({ clientId, serviceId, locationId, page, brief, f
   const ctx = { page, brief, city, serviceName, item, siblings, lineAllowance, sourceBlock };
   const isList = cfg.kind === 'lines';
 
+  const section = FIELD_SECTIONS[field];
+  const rulesApply = cfg.scope === 'brief' || !!page?.feedback;
+  const rules = rulesApply
+    ? (feedbackRules || await cbhFeedback.loadActiveRules(clientId || layers.client?.id))
+    : [];
+  const fbCtx = cbhFeedback.pageContext(scaffold);
+  const rulesBlock = rules.length
+    ? cbhFeedback.promptBlock(rules, { ...fbCtx, stage: 'regen', section })
+    : '';
+
   const system = `You are an expert local-SEO content writer for ${contract.BRAND}, a behavioral health provider in California.
 You are rewriting ONE field on an existing page. Everything else stays as it is.
 
@@ -299,8 +347,14 @@ You are rewriting ONE field on an existing page. Everything else stays as it is.
 - Health content: no guaranteed outcomes, no success rates, no promise of recovery.
 - A keyword is a search query, not a phrase to paste. Put a preposition between the service and the city.
 - THE LENGTH IS HARD. Count before answering.
-
+${rulesBlock ? `\n${rulesBlock}` : ''}
 Return ONLY JSON: ${isList ? '{ "lines": ["string", ...] }' : '{ "value": "string" }'}`;
+
+  // The client rules a candidate value breaks. A FAQ answer is checked with its
+  // question, so "an insurance answer must offer our team" can run.
+  const hitsFor = (value) => (rules.length && value
+    ? cbhFeedback.fieldHits(rules, { section, texts: value, question: field === 'faq.a' ? item.q : null }, fbCtx)
+    : []);
 
   const buildUser = (correction) => `PAGE: ${serviceName} in ${city}, California
 Primary keyword: ${primaryKeyword}
@@ -344,13 +398,23 @@ Return JSON only.`;
   let value = await attempt(null);
   if (!value) throw new Error(`Could not regenerate the ${cfg.label}.`);
 
-  // One bounded correction, against the SAME limit the gate uses.
+  // One bounded correction, against the SAME limit the gate uses -- and the
+  // client's rules, where a Critical or Major one was broken. Both go in the
+  // same retry: two would double the cost of a button meant to be cheap.
   const bad = isList
     ? value.filter(v => !withinLimit(v, cfg.limit))
     : (withinLimit(value, cfg.limit) ? [] : [value]);
-  if (bad.length) {
-    const measured = bad.map(v => `"${String(v).slice(0, 40)}…" is ${contract.textLength(v)} characters`).join('; ');
-    const fixed = await attempt(`\nCORRECTION: the previous attempt broke the limit: ${measured}. It must be ${describeLimit(cfg.limit)}.`);
+  const ruleHits = hitsFor(value).filter(h => h.severity !== 'Minor');
+  if (bad.length || ruleHits.length) {
+    const notes = [];
+    if (bad.length) {
+      const measured = bad.map(v => `"${String(v).slice(0, 40)}…" is ${contract.textLength(v)} characters`).join('; ');
+      notes.push(`the previous attempt broke the limit: ${measured}. It must be ${describeLimit(cfg.limit)}.`);
+    }
+    if (ruleHits.length) {
+      notes.push(`the previous attempt broke the client's feedback rules: ${ruleHits.map(h => `${h.title}. ${h.detail}`).join(' | ')}`);
+    }
+    const fixed = await attempt(`\nCORRECTION: ${notes.join('\nCORRECTION: ')}`);
     if (fixed) value = fixed;
   }
 
@@ -363,7 +427,10 @@ Return JSON only.`;
     }));
   }
 
-  return { field, index: index ?? null, lineIndex: lineIndex ?? null, value, kind: cfg.kind };
+  // Reported, not enforced: the reviewer sees what the value still breaks and
+  // decides. Save re-runs the full QC either way.
+  const feedbackHits = hitsFor(value);
+  return { field, index: index ?? null, lineIndex: lineIndex ?? null, value, kind: cfg.kind, feedbackHits };
 }
 
-module.exports = { regenerateField, FIELDS, readField, lineAllowanceFor, withinLimit };
+module.exports = { regenerateField, FIELDS, FIELD_SECTIONS, readField, lineAllowanceFor, withinLimit };

@@ -21,6 +21,10 @@ const COLLECTIONS = [
   // The editable content brief that sits between keyword approval and
   // generation -> lpb_briefs (supabase/migrations/0010_lpb_briefs.sql).
   'briefs',
+  // Client feedback, as enforceable rules and the verbatim batches they came
+  // from -> lpb_feedbackrules / lpb_feedbackbatches
+  // (supabase/migrations/0011_lpb_feedback.sql). See cbhFeedback.js.
+  'feedbackRules', 'feedbackBatches',
 ];
 
 function tableFor(collection) {

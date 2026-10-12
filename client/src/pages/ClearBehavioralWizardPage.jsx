@@ -142,10 +142,24 @@ export default function ClearBehavioralWizardPage() {
   // Which field is regenerating, so only that button shows a spinner. Keyed by
   // field + index, because the same field key repeats across H3s and FAQs.
   const [regenBusy, setRegenBusy] = useState('');
+  // What a regenerated value still breaks in the client's feedback rules.
+  const [regenNote, setRegenNote] = useState('');
+
+  // Client feedback rules: the counts for the header link, the brief's
+  // warnings (computed server-side on every read and save), and the re-check.
+  const [feedbackSummary, setFeedbackSummary] = useState(null);
+  const [briefWarnings, setBriefWarnings] = useState([]);
+  const [rechecking, setRechecking] = useState(false);
 
   useEffect(() => { loadReferenceData(); }, []);
   useEffect(() => {
     lpb.cbhLimits().then(r => setLimits(r.limits)).catch(() => { /* counters degrade to none */ });
+    Promise.all([lpb.feedbackRules(CBH_CLIENT_ID), lpb.feedbackBatches(CBH_CLIENT_ID)])
+      .then(([rules, batches]) => setFeedbackSummary({
+        active: rules.filter(r => r.status === 'active').length,
+        open: batches.reduce((n, b) => n + (b.action_items || []).filter(a => a.status !== 'done').length, 0),
+      }))
+      .catch(() => { /* the link still works without its counts */ });
   }, []);
   useEffect(() => { refreshSavedPages(); }, []);
 
@@ -377,6 +391,7 @@ export default function ClearBehavioralWizardPage() {
         if (cancelled) return;
         if (saved?.brief?.educational?.h3s?.length) {
           setBrief(saved.brief); setBriefDirty(false);
+          setBriefWarnings(saved.feedbackWarnings || []);
           return;
         }
         if (!primaryList.length) {
@@ -391,7 +406,7 @@ export default function ClearBehavioralWizardPage() {
           primaryKeywords: primaryList.map(k => k.keyword),
           secondaryKeywords: secondaryList.map(k => k.keyword),
         });
-        if (!cancelled) { setBrief(fresh); setBriefDirty(true); }
+        if (!cancelled) { setBrief(fresh); setBriefDirty(true); setBriefWarnings(fresh.feedbackWarnings || []); }
       } catch (e) {
         if (!cancelled) setBriefError(e.message);
       } finally {
@@ -431,6 +446,7 @@ export default function ClearBehavioralWizardPage() {
         primaryKeywords: primary, secondaryKeywords: secondary,
       });
       setBrief(fresh); setBriefDirty(true);
+      setBriefWarnings(fresh.feedbackWarnings || []);
     } catch (e) { setBriefError(e.message); }
     setBriefLoading(false);
   }
@@ -443,6 +459,7 @@ export default function ClearBehavioralWizardPage() {
       // so adopt what it stored rather than the local copy — otherwise the
       // screen shows values the page will not actually be written from.
       setBrief(saved.brief); setBriefDirty(false);
+      setBriefWarnings(saved.feedbackWarnings || []);
       return true;
     } catch (e) { setBriefError(e.message); return false; }
     finally { setSavingBrief(false); }
@@ -501,11 +518,29 @@ export default function ClearBehavioralWizardPage() {
       // The server re-runs QC over what it stores, so adopt the verdict it
       // returns rather than keeping the pre-edit one on screen.
       const res = await lpb.cbhSavePage(pageId, page);
-      if (res?.qc) setPage(prev => ({ ...prev, qc: res.qc }));
+      if (res?.qc) setPage(prev => ({ ...prev, qc: res.qc, feedbackReview: res.page?.feedbackReview ?? prev.feedbackReview }));
       setPageDirty(false);
       refreshSavedPages();
     } catch (e) { setPageError(e.message); }
     setSavingPage(false);
+  }
+
+  // BILLED: one review call. Saves first when there are edits, so the review
+  // is of what is on screen, then adopts the re-checked page.
+  async function recheckFeedback() {
+    if (!pageId) return;
+    setRechecking(true); setPageError('');
+    try {
+      if (pageDirty) {
+        const saved = await lpb.cbhSavePage(pageId, page);
+        setPageDirty(false);
+        if (saved?.page) setPage(saved.page);
+      }
+      const res = await lpb.cbhFeedbackReview(pageId);
+      setPage(prev => ({ ...prev, qc: res.qc, feedback: res.page.feedback, feedbackReview: res.page.feedbackReview }));
+      refreshSavedPages();
+    } catch (e) { setPageError(e.message); }
+    setRechecking(false);
   }
 
   // Both exports send what is ON SCREEN, saved or not: a reviewer who exports
@@ -547,7 +582,7 @@ export default function ClearBehavioralWizardPage() {
   async function regenField(field, index, apply, lineIndex) {
     const key = `${field}:${index ?? ''}:${lineIndex ?? ''}`;
     setRegenBusy(key);
-    setPageError(''); setBriefError('');
+    setPageError(''); setBriefError(''); setRegenNote('');
     try {
       const r = await lpb.cbhRegenField({
         clientId: CBH_CLIENT_ID, serviceId, locationId, field, index, lineIndex,
@@ -556,6 +591,9 @@ export default function ClearBehavioralWizardPage() {
         brief: field.startsWith('brief.') ? brief : undefined,
       });
       apply(r.value);
+      if (r.feedbackHits?.length) {
+        setRegenNote(`The new value still breaks a client feedback rule: ${r.feedbackHits.map(h => `${h.title} (${h.detail})`).join('; ')}`);
+      }
     } catch (e) {
       if (field.startsWith('brief.')) setBriefError(e.message); else setPageError(e.message);
     }
@@ -629,7 +667,14 @@ export default function ClearBehavioralWizardPage() {
             Pick a location and service, approve the keywords, edit the brief, then generate the page from it.
           </p>
         </div>
-        <button style={btnStyle(false)} onClick={() => navigate('/location-page-builder')}>← All Clients</button>
+        <span style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button style={btnStyle(false)} onClick={() => navigate('/location-page-builder/clear-behavioral/feedback-rules')}>
+            Client feedback rules{feedbackSummary
+              ? ` (${feedbackSummary.active} active${feedbackSummary.open ? ` · ${feedbackSummary.open} open code change${feedbackSummary.open === 1 ? '' : 's'}` : ''})`
+              : ''}
+          </button>
+          <button style={btnStyle(false)} onClick={() => navigate('/location-page-builder')}>← All Clients</button>
+        </span>
       </div>
 
       <div style={{ marginBottom: '1.5rem' }}><ProgressSteps steps={progressSteps} /></div>
@@ -892,6 +937,20 @@ export default function ClearBehavioralWizardPage() {
                 </div>
               </SectionCard>
 
+              {(briefWarnings.length > 0 || (regenNote && step === 2)) && (
+                <SectionCard
+                  title="Client feedback"
+                  note={briefDirty
+                    ? 'From the last save. Save the brief to re-check your edits.'
+                    : 'A planned question or subsection breaks a rule from the client’s feedback. Edit it before generating.'}
+                >
+                  {regenNote && step === 2 && <p style={{ fontSize: '0.8125rem', color: 'var(--warning,#B45309)', margin: '0 0 0.375rem' }}>{regenNote}</p>}
+                  <ul style={{ margin: 0, paddingLeft: '1.25rem', fontSize: '0.8125rem', color: 'var(--warning,#B45309)' }}>
+                    {briefWarnings.map((w, i) => <li key={i}>[{w.severity}] {w.title}: {w.detail}</li>)}
+                  </ul>
+                </SectionCard>
+              )}
+
               <SectionCard
                 title={`Educational subsections (${brief.educational.h3s.length})`}
                 note={`${limits.educational.h3Count.min}-${limits.educational.h3Count.max} H3s under “What is …”. Each is written from competitor research, or from a named source where the competitors leave a gap.`}
@@ -1027,6 +1086,7 @@ export default function ClearBehavioralWizardPage() {
             </>}
           >
             {pageError && <p style={{ color: 'var(--danger,#EF4444)', fontSize: '0.8125rem', marginTop: 0 }}>{pageError}</p>}
+            {regenNote && step === 3 && <p style={{ color: 'var(--warning,#B45309)', fontSize: '0.8125rem', marginTop: 0 }}>{regenNote}</p>}
 
             {/* The page URL, with only the service slug editable. The location
                 half comes from the location record and is not this page's to
@@ -1067,13 +1127,50 @@ export default function ClearBehavioralWizardPage() {
               }}>
                 <strong>QC: {page.qc.verdict}</strong>
                 {pageDirty && ' — from the last save; edit then Save to re-check.'}
-                {(page.qc.checks || []).filter(c => !c.pass).length > 0 && (
+                {(page.qc.checks || []).filter(c => !c.pass && c.group !== 'feedback').length > 0 && (
                   <ul style={{ margin: '0.375rem 0 0', paddingLeft: '1.25rem' }}>
-                    {page.qc.checks.filter(c => !c.pass).map(c => (
+                    {page.qc.checks.filter(c => !c.pass && c.group !== 'feedback').map(c => (
                       <li key={c.id}>[{c.severity}] {c.name} — {c.detail}</li>
                     ))}
                   </ul>
                 )}
+
+                {/* The client's feedback rules. Only a page generated under
+                    them is checked; an older page says so and is left alone. */}
+                <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)' }}>
+                  {page.feedback ? (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        <span>
+                          <strong>Client feedback:</strong>{' '}
+                          {(page.qc.checks || []).filter(c => c.group === 'feedback' && !c.pass).length
+                            ? `${(page.qc.checks || []).filter(c => c.group === 'feedback' && !c.pass).length} issue(s)`
+                            : `all ${(page.qc.checks || []).filter(c => c.group === 'feedback').length} checks pass`}
+                          <span style={{ color: 'var(--text-3)' }}>
+                            {' · '}AI review {page.feedbackReview?.reviewedAt
+                              ? `run ${new Date(page.feedbackReview.reviewedAt).toLocaleString()}`
+                              : 'not run'}
+                          </span>
+                        </span>
+                        <button style={btnStyle(false)} disabled={rechecking || savingPage || !pageId} onClick={recheckFeedback}
+                          title="Saves your edits, then re-runs the AI review against the client feedback rules (one billed call).">
+                          {rechecking ? 'Re-checking…' : 'Re-check client feedback'}
+                        </button>
+                      </div>
+                      {(page.qc.checks || []).filter(c => c.group === 'feedback' && !c.pass).length > 0 && (
+                        <ul style={{ margin: '0.375rem 0 0', paddingLeft: '1.25rem' }}>
+                          {page.qc.checks.filter(c => c.group === 'feedback' && !c.pass).map(c => (
+                            <li key={c.id}>[{c.severity}] {c.name.replace(/^Client feedback( \(AI review\))?: /, '')}{c.id.endsWith('_review') ? ' (AI review)' : ''}: {c.detail}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </>
+                  ) : (
+                    <span style={{ color: 'var(--text-3)' }}>
+                      Generated before the client feedback rules, so it is not checked against them. Regenerate it to bring it under the rules.
+                    </span>
+                  )}
+                </div>
               </div>
             )}
 

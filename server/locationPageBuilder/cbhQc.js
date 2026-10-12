@@ -90,27 +90,32 @@ const CTA_RE = /\b(get support|explore treatment|schedule|book|call|contact|get 
 // which is copy, and the last of which is rebuilt from the copy anyway.
 function prosePieces(ctx) {
   const out = [];
-  const add = (label, field, text) => { if (String(text || '').trim()) out.push({ label, field, text }); };
-  const addAll = (label, field, list) => (list || []).forEach(t => add(label, field, t));
+  // `section` is the finer key the client feedback rules are scoped by (see
+  // cbhFeedback.SECTIONS); `field` stays the coarse key the wizard anchors on.
+  const add = (label, field, text, section) => {
+    if (String(text || '').trim()) out.push({ label, field, text, section: section || field });
+  };
+  const addAll = (label, field, list, section) => (list || []).forEach(t => add(label, field, t, section));
+  const approachSection = { h2: 'approach.intro', philosophy: 'approach.philosophy', therapies: 'approach.therapies' };
 
-  add('the meta title', 'meta.title', ctx.meta.title);
-  add('the meta description', 'meta.metaDescription', ctx.meta.metaDescription);
-  add('the H1', 'hero.h1', ctx.hero.h1);
-  add('the hero description', 'hero.description', ctx.hero.description);
-  ctx.approachBlocks.forEach(b => addAll('the approach section', 'approach', b.paragraphs));
-  add('the insurance paragraph', 'insurance', ctx.insurance.paragraph);
-  addAll('the educational intro', 'educational', ctx.educational.paragraphs);
+  add('the meta title', 'meta.title', ctx.meta.title, 'meta.title');
+  add('the meta description', 'meta.metaDescription', ctx.meta.metaDescription, 'meta.description');
+  add('the H1', 'hero.h1', ctx.hero.h1, 'hero.h1');
+  add('the hero description', 'hero.description', ctx.hero.description, 'hero.description');
+  ctx.approachBlocks.forEach(b => addAll('the approach section', 'approach', b.paragraphs, approachSection[b.key]));
+  add('the insurance paragraph', 'insurance', ctx.insurance.paragraph, 'insurance');
+  addAll('the educational intro', 'educational', ctx.educational.paragraphs, 'educational.intro');
   ctx.h3s.forEach((h) => {
-    add('an educational H3 heading', 'educational', h.heading);
-    addAll('an educational H3 body', 'educational', h.lines);
+    add('an educational H3 heading', 'educational', h.heading, 'educational.heading');
+    addAll('an educational H3 body', 'educational', h.lines, 'educational.body');
   });
-  add('the Why Choose paragraph', 'uvp', ctx.uvp.paragraph);
-  add('the service paragraph', 'service', ctx.service.paragraph);
-  add('the treatment heading', 'treatment', ctx.treatment.heading);
-  add('the treatment paragraph', 'treatment', ctx.treatment.paragraph);
+  add('the Why Choose paragraph', 'uvp', ctx.uvp.paragraph, 'uvp');
+  add('the service paragraph', 'service', ctx.service.paragraph, 'service');
+  add('the treatment heading', 'treatment', ctx.treatment.heading, 'treatment.heading');
+  add('the treatment paragraph', 'treatment', ctx.treatment.paragraph, 'treatment.body');
   ctx.faqs.forEach((f) => {
-    add('an FAQ question', 'faq', f.q);
-    add('an FAQ answer', 'faq', f.a);
+    add('an FAQ question', 'faq', f.q, 'faq.question');
+    add('an FAQ answer', 'faq', f.a, 'faq.answer');
   });
   return out;
 }
@@ -580,9 +585,17 @@ function verdict(checks) {
       : failed('Minor') ? 'CONDITIONAL PASS' : 'PASS';
 }
 
-function runCbhQc(page) {
+// `feedbackRules` are the client's active feedback rules (cbhFeedback). They
+// gate only pages generated under them -- the `feedback` marker -- so a page
+// made before the rules existed is judged exactly as it always was.
+function runCbhQc(page, { feedbackRules } = {}) {
   const ctx = context(page);
   const checks = CHECKS.map(def => runCheckDef(def, ctx));
+  if (feedbackRules && page && page.feedback) {
+    // Required here rather than at the top: cbhFeedback reads this module's
+    // prose helpers, so a top-level require would be circular.
+    checks.push(...require('./cbhFeedback').qcChecks(page, feedbackRules));
+  }
   return { verdict: verdict(checks), checks };
 }
 

@@ -19,6 +19,7 @@ const config = require('./config');
 const compose = require('./compose');
 const contract = require('./cbhContract');
 const cbhCompose = require('./cbhCompose');
+const cbhFeedback = require('./cbhFeedback');
 const { briefId, tupleKey } = require('./brief');
 const { researchCompetitors, ownDomainOf } = require('./competitorResearch');
 const { servicePhraseDisplay } = require('./keywordRelevance');
@@ -175,7 +176,10 @@ function usableQuestion(q) {
   return /^(what|how|why|when|where|who|which|can|do|does|did|is|are|will|would|should|am|if)\b/i.test(s);
 }
 
-function planPrompt({ serviceName, conditionName, city, primaryKeyword, competitorHeadings, competitorFaqs }) {
+function planPrompt({
+  serviceName, conditionName, city, primaryKeyword, competitorHeadings, competitorFaqs,
+  feedbackRules = [], serviceId, programGroups = [],
+}) {
   // The educational subsections are about the CONDITION ("depression"), not the
   // service phrase ("depression treatment"), which is how the client's own
   // pages read.
@@ -222,10 +226,10 @@ RULES
   Include at least one of each. Never force a keyword into a question.
 - EVERY question must be SPECIFIC TO ${serviceName}. A question that would read word-for-word the
   same on a page about a different condition is not doing any work. "How long does treatment take?"
-  is filler, "How long before ADHD medication is adjusted to the right dose?" is a real question.
+  is filler, "What does a typical week of ADHD treatment involve?" is a real question.
   Name the condition, the therapy, or the thing people actually worry about with THIS care.
   This applies to the location and brand questions too: ask what someone seeking ${serviceName}
-  in ${city} specifically needs to know.`;
+  in ${city} specifically needs to know.${feedbackSection({ feedbackRules, serviceId, programGroups, city, serviceName, conditionName })}`;
 
   const user = `PAGE: ${serviceName} in ${city}, California
 Primary keyword: ${primaryKeyword}
@@ -239,6 +243,16 @@ ${competitorFaqs.length ? competitorFaqs.map(f => `- ${f}`).join('\n') : '(none 
 Return JSON only.`;
 
   return { system, user };
+}
+
+// The client's feedback rules at the brief stage: the questions and
+// subsections it has ruled out ("don't ask about switching to telehealth"),
+// stated before they are planned rather than caught after they are written.
+function feedbackSection({ feedbackRules, serviceId, programGroups, city, serviceName, conditionName }) {
+  const block = cbhFeedback.promptBlock(feedbackRules || [], {
+    stage: 'brief', serviceId, programGroups, city, service: serviceName, condition: conditionName,
+  });
+  return block ? `\n\n${block}` : '';
 }
 
 // The brief a page gets when the planner cannot run (no API key, or two
@@ -264,7 +278,9 @@ function fallbackPlan({ serviceName, city }) {
     // Anaheim Hills pages were compared side by side.
     faqs: [
       { q: `How soon can I start ${svc} in ${city}?`, type: 'location' },
-      { q: `Is ${svc} at your ${city} location offered in person, online, or both?`, type: 'location' },
+      // Not "in person, online, or both?": the client asked that pages never
+      // raise moving between in-person and telehealth care.
+      { q: `What should I bring to my first ${svc} visit in ${city}?`, type: 'location' },
       { q: `Does ${contract.BRAND} take insurance for ${svc}?`, type: 'brand' },
       { q: `Who on the ${contract.BRAND} team provides ${svc}?`, type: 'brand' },
       { q: `How long does ${svc} usually take to help?`, type: 'intent' },
@@ -273,17 +289,28 @@ function fallbackPlan({ serviceName, city }) {
   };
 }
 
-async function plan({ serviceName, conditionName, city, primaryKeyword, competitorHeadings, competitorFaqs }) {
-  // v2: the subsection skeleton changed, so a plan cached under v1 describes a
-  // page shape we no longer ask for.
-  const cacheK = store.cacheKey('cbh-brief-plan-v2', serviceName, conditionName, city, primaryKeyword,
-    competitorHeadings.slice().sort(), competitorFaqs.slice().sort());
+// v2: the subsection skeleton changed, so a plan cached under v1 describes a
+// page shape we no longer ask for. v3: the client's brief-stage feedback rules
+// are part of the prompt, so the set in force is part of the key -- a plan
+// cached before a rule existed must not outlive it.
+function planCacheKey({
+  serviceName, conditionName, city, primaryKeyword, competitorHeadings = [], competitorFaqs = [],
+  feedbackRules = [], serviceId, programGroups = [],
+}) {
+  const briefRules = cbhFeedback.rulesFor(feedbackRules, { serviceId, programGroups, stage: 'brief' });
+  return store.cacheKey('cbh-brief-plan-v3', serviceName, conditionName, city, primaryKeyword,
+    competitorHeadings.slice().sort(), competitorFaqs.slice().sort(), cbhFeedback.rulesVersion(briefRules));
+}
+
+async function plan(args) {
+  const { serviceName, city } = args;
+  const cacheK = planCacheKey(args);
   try {
     const cached = await store.cacheGet(cacheK, config.cache.llmTtlMs);
     if (cached) return cached;
   } catch { /* recompute */ }
 
-  const { system, user } = planPrompt({ serviceName, conditionName, city, primaryKeyword, competitorHeadings, competitorFaqs });
+  const { system, user } = planPrompt(args);
   let parsed = null;
   try {
     const llm = createLlmClient(config.llm.dentalOutlineModel);
@@ -352,8 +379,11 @@ async function buildCbhBrief({ clientId, serviceId, locationId, primaryKeywords,
   const doneAll = phase('brief TOTAL');
   let done = phase('  brief: load layers');
   const layers = await compose.loadLayers({ clientId, serviceId, locationId });
-  const { client, location } = layers;
+  const { client, location, service } = layers;
+  // Before anything billed: a pair the location does not offer gets no brief.
+  cbhCompose.assertCbhEligible(service, location);
   const scaffold = cbhCompose.buildCbhScaffold(layers, { servicePhrase: servicePhraseDisplay });
+  const feedbackRules = await cbhFeedback.loadActiveRules(clientId);
   done();
 
   const caseCtx = { serviceName: scaffold.serviceName, locationName: location.city, location };
@@ -372,6 +402,9 @@ async function buildCbhBrief({ clientId, serviceId, locationId, primaryKeywords,
     primaryKeyword,
     competitorHeadings: usableHeadings(research.headings),
     competitorFaqs: (research.faqs || []).filter(usableQuestion),
+    feedbackRules,
+    serviceId: service.id,
+    programGroups: scaffold.meta.programGroups,
   });
   done(`${(planned.h3s || []).length} H3s`);
 
@@ -388,7 +421,7 @@ async function buildCbhBrief({ clientId, serviceId, locationId, primaryKeywords,
     + ` ${sourced.attempted} lookups attempted of ${sourced.needed} needed`);
   doneAll();
 
-  return normalizeCbhBrief({
+  const built = normalizeCbhBrief({
     primaryKeyword,
     primaryKeywords: primaries,
     secondaryKeywords: mergedSecondary,
@@ -413,11 +446,33 @@ async function buildCbhBrief({ clientId, serviceId, locationId, primaryKeywords,
     },
     faqs: planned.faqs,
   }, caseCtx);
+  // Shown beside the brief, never stored in it: normalizeCbhBrief drops it on
+  // save, and the reviewer sees fresh warnings every time the brief is read.
+  return { ...built, feedbackWarnings: cbhFeedback.briefFeedbackWarnings(built, feedbackRules, cbhFeedback.pageContext(scaffold)) };
+}
+
+// The client feedback warnings for a stored or edited brief: a planned FAQ or
+// subsection the client has ruled out. Cheap -- no model call.
+async function briefFeedbackWarningsFor({ clientId, serviceId, locationId, brief }) {
+  if (!brief) return [];
+  const [service, location, rules] = await Promise.all([
+    store.get('services', serviceId),
+    store.get('locations', locationId),
+    cbhFeedback.loadActiveRules(clientId),
+  ]);
+  if (!rules.length) return [];
+  return cbhFeedback.briefFeedbackWarnings(brief, rules, {
+    serviceId,
+    programGroups: cbhCompose.programGroupsFor(service, location),
+    city: location?.city || '',
+    service: service?.name || '',
+    condition: service?.name || '',
+  });
 }
 
 module.exports = {
   caseContext,
   withinRange,
-  buildCbhBrief, getCbhBrief, saveCbhBrief, normalizeCbhBrief,
-  plan, fallbackPlan, planPrompt, usableHeadings, usableQuestion,
+  buildCbhBrief, getCbhBrief, saveCbhBrief, normalizeCbhBrief, briefFeedbackWarningsFor,
+  plan, planCacheKey, fallbackPlan, planPrompt, usableHeadings, usableQuestion,
 };

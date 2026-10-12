@@ -37,6 +37,23 @@ export const lpb = {
   cbhPages: (clientId) => req(`/cbh/pages?clientId=${encodeURIComponent(clientId)}`),
   cbhPage: (id) => req(`/cbh/pages/${id}`),
   cbhDeletePage: (id) => req(`/cbh/pages/${id}`, { method: 'DELETE' }),
+  // BILLED (one review call): re-checks a saved page against the client
+  // feedback rules. Refused for a page generated before the rules existed.
+  cbhFeedbackReview: (id) => req(`/cbh/pages/${id}/feedback-review`, { method: 'POST' }),
+
+  // ── Client feedback rules ─────────────────────────────────────────────────
+  // `feedbackDraftBatch` is the one billed call; nothing here touches a page.
+  feedbackVocabulary: (clientId) => req(`/feedback/vocabulary?clientId=${encodeURIComponent(clientId)}`),
+  feedbackRules: (clientId) => req(`/feedback/rules?clientId=${encodeURIComponent(clientId)}`),
+  feedbackCreateRule: (clientId, rule) => req('/feedback/rules', { method: 'POST', body: JSON.stringify({ clientId, rule }) }),
+  feedbackUpdateRule: (id, rule) => req(`/feedback/rules/${id}`, { method: 'PUT', body: JSON.stringify({ rule }) }),
+  feedbackSetStatus: (id, status) => req(`/feedback/rules/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) }),
+  feedbackTestRule: (body) => req('/feedback/rules/test', { method: 'POST', body: JSON.stringify(body) }),
+  feedbackBatches: (clientId) => req(`/feedback/batches?clientId=${encodeURIComponent(clientId)}`),
+  feedbackCreateBatch: (body) => req('/feedback/batches', { method: 'POST', body: JSON.stringify(body) }),
+  feedbackDraftBatch: (id) => req(`/feedback/batches/${id}/draft`, { method: 'POST' }),
+  feedbackUpdateActionItem: (id, n, body) => req(`/feedback/batches/${id}/action-items/${n}`, { method: 'PUT', body: JSON.stringify(body) }),
+  feedbackApplyRevision: (id, n) => req(`/feedback/batches/${id}/revisions/${n}/apply`, { method: 'POST' }),
   cbhExportJson: (page) => req('/cbh/export/json', { method: 'POST', body: JSON.stringify({ page }) }),
   cbhExportDocx: async (page) => {
     const res = await fetch(`${BASE}/cbh/export/docx`, {

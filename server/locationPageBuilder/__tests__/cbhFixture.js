@@ -34,15 +34,17 @@ function passingL3() {
         + 'you to the level of care that fits rather than the one that is simply available.'],
       philosophy: ['Care here is paced to you. Sessions are collaborative, judgement-free, and built '
         + 'around goals you set with your clinician.'],
-      therapies: ['Our clinicians draw on CBT, DBT skills work, exposure-based approaches and, where '
-        + 'appropriate, coordinated medication support.'],
+      // Medication is Neuro Wellness Spa's, never CBH's: the client's feedback
+      // rule no-cbh-medication fails a page that implies otherwise.
+      therapies: ['Our clinicians draw on CBT, DBT skills work and exposure-based approaches. Medication '
+        + 'management is available through our partner provider, Neuro Wellness Spa.'],
     },
     insurance: 'Clear Behavioral Health accepts most major insurance providers, making anxiety '
       + 'treatment accessible for clients across Anaheim Hills.',
     educational: {
       paragraphs: ['Anxiety treatment is structured clinical care for persistent worry, panic and '
-        + 'avoidance that interferes with daily life. It combines talk therapy, skills practice and, '
-        + 'where indicated, medication support.'],
+        + 'avoidance that interferes with daily life. It combines talk therapy, skills practice and '
+        + 'steady support between sessions.'],
       // Paragraphs AND bullets, because the guidelines want both and a section
       // of one-sentence entries is what the client rejected. A fixture written
       // the way the page must not be written cannot prove the gates work.
@@ -56,8 +58,8 @@ function passingL3() {
           '- Sleep, appetite or concentration changes'] },
         { heading: 'Treatment options available', lines: [
           'Care is matched to how much support you need rather than to one preferred method. Most '
-            + 'plans pair talk therapy with skills practice, and add medication where symptoms '
-            + 'warrant it.',
+            + 'plans pair talk therapy with skills practice, and add group work where it helps '
+            + 'most.',
           '- Individual therapy using CBT and DBT skills',
           '- Group sessions for shared skills practice'] },
         { heading: 'What to expect at your first visit', lines: [

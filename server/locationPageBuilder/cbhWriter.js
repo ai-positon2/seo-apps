@@ -18,6 +18,8 @@ const config = require('./config');
 const contract = require('./cbhContract');
 const cbhCompose = require('./cbhCompose');
 const cbhQc = require('./cbhQc');
+const cbhFeedback = require('./cbhFeedback');
+const cbhFeedbackReview = require('./cbhFeedbackReview');
 const { createLlmClient } = require('../services/llmProviders');
 const { chatParams } = require('./llmParams');
 
@@ -74,7 +76,8 @@ HARD RULES
 - This is health content. No guarantees of outcomes, no success rates, no claim that anyone will
   recover. Describe care factually.
 - Do NOT claim insurance coverage beyond "accepts most major insurance providers". Never name a plan
-  as covered, and never promise a cost.
+  as covered, and never promise a cost. A client feedback rule in the user message may say more about
+  how this particular care is paid for; where it does, follow the rule.
 - Headings are NOT yours to write. Every H2 and H3 on this page is fixed and is given to you below.
   Write the body that sits under each one. Do not restate a heading as the opening sentence.
 - Write answer-first: each section must be useful when read on its own.
@@ -167,7 +170,7 @@ Every paragraph is at most ${L.approach.paragraphMaxChars} characters, and every
 generic copy that would fit any page.
 
 INSURANCE: heading "${s.insurance.heading}" is fixed. ONE paragraph, at most ${L.insurance.maxChars} characters.
-Mention accessibility naturally. Say "most major insurance providers"; claim nothing more.
+Mention accessibility naturally. Say "most major insurance providers"; claim nothing more, unless a client rule below says otherwise.
 
 EDUCATIONAL: heading "${s.educational.heading}" is fixed.
 Intro: ${L.educational.introParagraphs.min}-${L.educational.introParagraphs.max} paragraphs, ${L.educational.introMaxChars} characters TOTAL across them.
@@ -217,14 +220,33 @@ ${faqBlock}
 Questions must be genuinely useful. Never force a keyword into a question or an answer.`;
 }
 
-function userPrompt({ scaffold, h3Plan, faqPlan, primaryKeyword, secondaryKeywords, correction }) {
+// The program this page belongs to at this location: the service's program
+// groups that the location actually runs (cbhCompose sets meta.programGroups).
+// The writer was only ever told the city, so a Psychosis page at a residential
+// house and an Anxiety page at an outpatient office read the same way.
+function programLine(scaffold) {
+  const groups = scaffold?.meta?.programGroups || [];
+  if (!groups.length) return '';
+  return `PROGRAM AT THIS LOCATION: ${groups.map(g => cbhFeedback.PROGRAM_LABELS[g] || g).join(' and ')}\n`;
+}
+
+// `feedbackRules` are the client's active rules (cbhFeedback.loadActiveRules).
+// Only those scoped to this service and program, at the writer stage, are sent.
+function feedbackBlock(scaffold, feedbackRules) {
+  if (!feedbackRules || !feedbackRules.length) return '';
+  const ctx = cbhFeedback.pageContext(scaffold);
+  return cbhFeedback.promptBlock(feedbackRules, { ...ctx, stage: 'writer' });
+}
+
+function userPrompt({ scaffold, h3Plan, faqPlan, primaryKeyword, secondaryKeywords, correction, feedbackRules }) {
+  const rules = feedbackBlock(scaffold, feedbackRules);
   return `PAGE: ${scaffold.serviceName} in ${scaffold.locationName}, California
 Provider: ${contract.BRAND}
-Primary keyword: ${primaryKeyword}
+${programLine(scaffold)}Primary keyword: ${primaryKeyword}
 Secondary keywords: ${(secondaryKeywords || []).join(', ') || '(none)'}
 
 ${sectionBrief({ scaffold, h3Plan, faqPlan, primaryKeyword })}
-${correction || ''}
+${rules ? `\n${rules}` : ''}${correction || ''}
 Return JSON only, matching this schema:
 ${SCHEMA_HINT}`;
 }
@@ -247,9 +269,18 @@ const CORRECTABLE = new Set([
   'meta_description_has_cta', 'meta_description_has_keyword_words',
 ]);
 
+// A failed CLIENT FEEDBACK check is always worth a retry, unlike most content
+// gates: it names the exact words to remove or the fact to state, which is the
+// kind of instruction a model follows. The review bookkeeping checks (no
+// review, review out of date) and findings the reviewer could not quote are
+// not instructions, so they stay out.
+function isCorrectableFeedback(c) {
+  return c.group === 'feedback' && !c.unverified && c.id !== 'fb_review_missing' && c.id !== 'fb_review_stale';
+}
+
 function correctionFrom(qc) {
   const notes = qc.checks
-    .filter(c => !c.pass && CORRECTABLE.has(c.id))
+    .filter(c => !c.pass && (CORRECTABLE.has(c.id) || isCorrectableFeedback(c)))
     .map(c => `- ${c.name}. ${c.detail}`);
   if (!notes.length) return '';
   return `
@@ -271,9 +302,31 @@ function phase(label) {
   };
 }
 
-async function generateCbhL3({ scaffold, primaryKeyword, secondaryKeywords, h3Plan = [], faqPlan = [] }) {
+// Returns { l3, feedbackReview }. With `feedbackRules`, each draft is checked
+// against the client's rules as well as the contract: the text checks inside
+// QC, and one AI review call for the rules no regex can judge. Failures of
+// either feed the single correction pass, and the review of whichever draft
+// wins travels with it so the page is stored with the review it actually got.
+async function generateCbhL3({ scaffold, primaryKeyword, secondaryKeywords, h3Plan = [], faqPlan = [], feedbackRules = null }) {
   const llm = createLlmClient(config.llm.cbhWriterModel);
-  const base = { scaffold, h3Plan, faqPlan, primaryKeyword, secondaryKeywords };
+  const base = { scaffold, h3Plan, faqPlan, primaryKeyword, secondaryKeywords, feedbackRules };
+  const rules = feedbackRules && feedbackRules.length ? feedbackRules : null;
+
+  // Scores one draft against the real gates (and the client's rules).
+  const assess = async (raw) => {
+    const p = cbhCompose.mergeCbhL3(structuredClone(scaffold), raw);
+    p.primaryKeyword = primaryKeyword;
+    let review = null;
+    if (rules) {
+      // The marker is what tells QC to run the feedback checks at all.
+      p.feedback = { rulesVersion: cbhFeedback.rulesVersion(rules) };
+      const doneReview = phase('  write: feedback review');
+      review = await cbhFeedbackReview.safeReviewPage(p, rules);
+      doneReview();
+      p.feedbackReview = review;
+    }
+    return { qc: cbhQc.runCbhQc(p, rules ? { feedbackRules: rules } : {}), review };
+  };
 
   let lastFinishReason = null;
 
@@ -332,28 +385,27 @@ async function generateCbhL3({ scaffold, primaryKeyword, secondaryKeywords, h3Pl
   // Score the first draft against the REAL gates, then give the model its own
   // numbers back. One bounded correction pass: a page still failing after that
   // goes to a reviewer, which is the right place for it.
-  const provisional = cbhCompose.mergeCbhL3(structuredClone(scaffold), first);
-  provisional.primaryKeyword = primaryKeyword;
-  const qc = cbhQc.runCbhQc(provisional);
-  const correction = correctionFrom(qc);
+  const one = await assess(first);
+  const correction = correctionFrom(one.qc);
   // Worth logging: this is what a whole extra writer call is being spent on.
   if (correction) {
     console.log('[lpb-timing]   correction triggered by: '
-      + qc.checks.filter(c => !c.pass && CORRECTABLE.has(c.id)).map(c => c.id).join(', '));
+      + one.qc.checks.filter(c => !c.pass && (CORRECTABLE.has(c.id) || isCorrectableFeedback(c)))
+        .map(c => c.id).join(', '));
   }
-  if (!correction) return first;
+  if (!correction) return { l3: first, feedbackReview: one.review };
 
   done = phase('  write: correction pass');
   const second = await draft(correction);
   done();
-  if (!second) return first;
+  if (!second) return { l3: first, feedbackReview: one.review };
 
   // Keep whichever draft QC likes better. A correction pass that made things
   // worse must not be allowed to ship over the draft it was correcting.
-  const corrected = cbhCompose.mergeCbhL3(structuredClone(scaffold), second);
-  corrected.primaryKeyword = primaryKeyword;
-  const after = cbhQc.runCbhQc(corrected);
-  return failureWeight(after) <= failureWeight(qc) ? second : first;
+  const two = await assess(second);
+  return failureWeight(two.qc) <= failureWeight(one.qc)
+    ? { l3: second, feedbackReview: two.review }
+    : { l3: first, feedbackReview: one.review };
 }
 
 // Critical failures dominate, then Major, then Minor -- so a correction that
@@ -363,4 +415,6 @@ function failureWeight(qc) {
   return qc.checks.filter(c => !c.pass).reduce((n, c) => n + (w[c.severity] || 1), 0);
 }
 
-module.exports = { generateCbhL3, systemPrompt, userPrompt, sectionBrief, correctionFrom, failureWeight, CORRECTABLE };
+module.exports = {
+  generateCbhL3, systemPrompt, userPrompt, sectionBrief, correctionFrom, failureWeight, CORRECTABLE, programLine,
+};
