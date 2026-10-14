@@ -68,7 +68,9 @@ function Caveats({ items }) {
 // ── technical ───────────────────────────────────────────────────────────────
 function TechnicalDetail({ payload, navigate }) {
   if (!payload) return null;
-  const { pagesCrawled, externalChecked, resultCount, robotsStatus, crawlRunId } = payload;
+  const { pagesCrawled, externalChecked, resultCount, robotsStatus, crawlRunId, reportAccess } = payload;
+  // Null means the server could not check; the link is offered as before.
+  const reportBlocked = reportAccess && reportAccess.ok === false;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -81,7 +83,13 @@ function TechnicalDetail({ payload, navigate }) {
         <MetricCard label="Stored results" value={num(resultCount)} sub="pages + link checks" />
         <MetricCard label="robots.txt" value={robotsStatus || NOT_MEASURED} />
       </div>
-      {crawlRunId && (
+      {crawlRunId && reportBlocked && (
+        <div role="status" style={accessNotice}>
+          <strong>Crawl report not available to you</strong>
+          <span>{reportAccess.reason}</span>
+        </div>
+      )}
+      {crawlRunId && !reportBlocked && (
         <div style={row}>
           {/* One link, not two. "Review findings" pointed at a separate
               triage screen that has been folded into the report — the findings
@@ -409,6 +417,13 @@ function HubSpokeDetail({ payload, navigate }) {
     </div>
   );
 }
+
+// Said plainly, in place of a link the report page would refuse with "Run not found".
+const accessNotice = {
+  display: 'flex', flexDirection: 'column', gap: 4, padding: '10px 12px',
+  borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)',
+  fontSize: 13, color: 'var(--text-2)',
+};
 
 const linkButton = {
   background: 'none',

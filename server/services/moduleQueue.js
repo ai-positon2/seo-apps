@@ -85,6 +85,15 @@ async function enqueue({
   if (!db.isDatabaseConfigured()) throw new Error('The database is not configured.');
 
   try {
+    // No workspace given → the project's. Callers that derive it from a crawl
+    // run inherit whatever that run carried, and a null there once filed every
+    // after-crawl Hub & Spoke run under no workspace at all.
+    // Best-effort: a failed lookup still queues the run, exactly as before.
+    if (!workspaceId && projectId) {
+      const project = await db.maybeOne(
+        `select workspace_id from crawl_projects where id = $1`, [projectId]).catch(() => null);
+      workspaceId = project?.workspace_id || null;
+    }
     return await db.maybeOne(
       `insert into project_module_runs
          (project_id, workspace_id, module_key, status, trigger,

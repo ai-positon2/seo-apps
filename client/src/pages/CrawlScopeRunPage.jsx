@@ -689,7 +689,12 @@ export default function CrawlScopeRunPage() {
       <main style={{ padding: '28px 32px' }}>
         <EmptyState
           title="Could not open this crawl"
-          description={error}
+          // The server answers 404 both for a crawl that does not exist and for
+          // one outside the viewer's workspaces (it must not confirm which), so
+          // say both rather than a bare "Run not found".
+          description={/run not found/i.test(error)
+            ? 'This crawl either no longer exists (a newer crawl of the same site replaces it) or belongs to a workspace you are not a member of. Open the project from your dashboard to see its latest crawl, or ask the project owner to add you to its workspace.'
+            : error}
           action={<Button onClick={() => navigate('/crawl-scope')}>Back to CrawlScope</Button>}
         />
       </main>

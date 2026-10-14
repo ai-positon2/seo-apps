@@ -56,6 +56,13 @@ async function scheduleInitialCrawl({ project, domains = [], ownerId, crawlOptio
     return answer({ reason: 'no_primary_domain' });
   }
 
+  // project creation hands this store.projectView's shape (workspaceId), not
+  // the raw row (workspace_id). Reading only the raw name filed every initial
+  // crawl under no workspace — readable by its creator alone, so a teammate
+  // opening the project's Tech Audit got "Run not found" — and resolved the
+  // platform's default limits instead of the workspace's.
+  const workspaceId = project.workspace_id || project.workspaceId || null;
+
   let parsed;
   try {
     // The workspace's admin limits, same as every other crawl entry path. The
@@ -64,7 +71,7 @@ async function scheduleInitialCrawl({ project, domains = [], ownerId, crawlOptio
     // corrected later is a row that lies about itself in the meantime.
     parsed = parseCrawlRequest(
       { url: target.origin, options: crawlOptions || {} },
-      await resolveLimits(project.workspace_id, (error) => {
+      await resolveLimits(workspaceId, (error) => {
         console.warn(
           `[crawlAutostart] could not resolve admin limits (${error.message}); `
           + 'falling back to the platform defaults.',
@@ -80,7 +87,7 @@ async function scheduleInitialCrawl({ project, domains = [], ownerId, crawlOptio
   try {
     run = await repo.createRun(db, {
       owner: ownerId || null,
-      workspace_id: project.workspace_id || null,
+      workspace_id: workspaceId,
       project_id: project.id,
       url: parsed.url,
       options: parsed.options,

@@ -194,7 +194,11 @@ async function syncFromCrawl({ access, crawlRunId = null }) {
   if (!db.isDatabaseConfigured()) throw notConfigured();
 
   const projectId = access.project.id;
-  const workspaceId = access.project.workspace_id || null;
+  // The crawl-completion hook passes the RUN's workspace, not the project's, so
+  // a run filed under none wrote every page under none. Fall back to the project.
+  const workspaceId = access.project.workspace_id
+    || (await db.maybeOne(`select workspace_id from crawl_projects where id = $1`, [projectId]))?.workspace_id
+    || null;
 
   // The whole inventory, not the audit budget's slice: `limit` is what bounds a
   // page AUDIT, and it must not bound what the project knows exists.

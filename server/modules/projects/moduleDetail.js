@@ -165,13 +165,37 @@ function technicalFindingRow(f) {
 }
 
 /**
+ * Asks CrawlScope's own tenancy check — the one its report page uses — whether
+ * this viewer may open a crawl, so the dashboard never offers a link that page
+ * will refuse. Never throws: a failed check must not cost the card its data.
+ */
+async function crawlReportAccess(crawlRunId, access) {
+  try {
+    const crawlRepo = require('../crawlScope/db/repo');
+    const { serviceClient } = require('../crawlScope/db/client');
+    const { accessibleWorkspaceIds } = require('../../services/projectAccess');
+    const viewer = { userId: access?.userId || null, workspaceIds: await accessibleWorkspaceIds(access?.userId) };
+    if (await crawlRepo.getRunForViewer(serviceClient(), crawlRunId, viewer)) return { ok: true };
+    return {
+      ok: false,
+      reason: access?.isPlatformAdmin && !access?.role
+        ? 'You can see this project as a platform admin, but you are not a member of its workspace, so its crawl report will not open for you. Join the workspace to open it.'
+        : 'This crawl report is not shared with your workspace yet. Ask the person who created the project, or an administrator, to check its workspace.',
+    };
+  } catch (e) {
+    console.warn('[moduleDetail] crawl report access check failed:', e.message);
+    return null;
+  }
+}
+
+/**
  * CrawlScope, whose evidence predates project_module_runs and is richer than it.
  *
  * Reuses the dashboard's own reads so the card matches exactly, including the
  * pages-crawled vs external-links-checked split that the run's own summary
  * cannot express (resultCount counts both).
  */
-async function technicalDetail({ module, projectId }) {
+async function technicalDetail({ module, projectId, access }) {
   const crawlRuns = await overview.recentCrawlRuns(projectId);
   const terminal = crawlRuns.find((r) => ['completed', 'stopped'].includes(r.status)) || null;
   const inFlight = crawlRuns.find((r) => ['queued', 'running', 'paused'].includes(r.status)) || null;
@@ -188,6 +212,7 @@ async function technicalDetail({ module, projectId }) {
 
   const card = overview.technicalCard(crawlRuns, findings, internalPages, htmlPages, [], affectedPageCounts);
   const counts = terminal?.summary?.counts || {};
+  const reportAccess = terminal ? await crawlReportAccess(terminal.id, access) : null;
   const resultCount = Number(terminal?.summary?.resultCount) || 0;
 
   return {
@@ -227,6 +252,10 @@ async function technicalDetail({ module, projectId }) {
       resultCount,
       robotsStatus: terminal.summary?.robotsStatus || null,
       elapsedMs: terminal.summary?.elapsed || null,
+      // Whether THIS viewer can open the crawl's own report. The dashboard reads
+      // crawl_runs by project; the report page authorizes the viewer. When they
+      // disagree the panel says so instead of linking to "Run not found".
+      reportAccess,
     } : null,
     payloadTruncated: false,
     history: crawlRuns.slice(0, HISTORY_LIMIT).map((r) => ({
@@ -273,7 +302,7 @@ async function buildModuleDetail({ access, moduleKey, domains = [] }) {
     : competitorCount;
 
   const detail = module.key === 'technical'
-    ? await technicalDetail({ module, projectId })
+    ? await technicalDetail({ module, projectId, access })
     : await evidenceBackedDetail({ module, projectId, competitorCount: pricedCompetitorCount });
 
   if (pendingAutoDiscovery && detail.cost) {

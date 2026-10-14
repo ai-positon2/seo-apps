@@ -255,9 +255,13 @@ async function createRun(client, run) {
 
 async function insertRun(client, run) {
   return client.one(
+    // A project crawl given no workspace takes its project's, whoever called
+    // this: one caller passing the wrong field name was enough to file eleven
+    // projects' first crawls where no teammate could open them.
     `insert into crawl_runs
        (owner, workspace_id, project_id, scheduled_for, url, options, status, trigger)
-     values ($1, $2, $3, $4, $5, $6, 'queued', $7)
+     values ($1, coalesce($2, (select workspace_id from crawl_projects where id = $3)),
+             $3, $4, $5, $6, 'queued', $7)
      returning *`,
     [
       run.owner,
@@ -282,7 +286,8 @@ async function enqueueScheduledRun(client, run) {
   const insert = (c) => c.one(
     `insert into crawl_runs
        (owner, workspace_id, project_id, scheduled_for, url, options, status, trigger)
-     values ($1, $2, $3, $4, $5, $6, 'queued', $7)
+     values ($1, coalesce($2, (select workspace_id from crawl_projects where id = $3)),
+             $3, $4, $5, $6, 'queued', $7)
      returning *`,
     [
       run.owner,
@@ -391,8 +396,38 @@ function viewerScope(viewer) {
  *  to not see — the route answers 404 for both, per the house rule that a
  *  cross-workspace read must not confirm the row exists. */
 async function getRunForViewer(client, id, viewer) {
-  const row = await client.maybeOne(`select * from crawl_runs where id = $1`, [id]);
-  return canViewRow(row, viewer) ? row : null;
+  const row = await client.maybeOne(
+    `select r.*, p.workspace_id as project_workspace_id
+       from crawl_runs r left join crawl_projects p on p.id = r.project_id
+      where r.id = $1`,
+    [id],
+  );
+  if (!row) return null;
+  const { project_workspace_id: projectWorkspaceId, ...run } = row;
+  return canViewRow(runScopeRow(run, projectWorkspaceId), viewer) ? run : null;
+}
+
+// A run attached to a project is read under that PROJECT's workspace — the same
+// authority the project dashboard uses to list it and link to it. Reading the
+// run's own workspace_id column instead let the two disagree: initial crawls
+// were once written with it null (crawlAutostart read the wrong field name), so
+// the dashboard linked every teammate to a run this file then answered 404 for.
+// The column is kept and still written; it just no longer decides alone.
+function runScopeRow(run, projectWorkspaceId) {
+  return projectWorkspaceId ? { ...run, workspace_id: projectWorkspaceId } : run;
+}
+
+/** viewerScope for crawl_runs, adding runs whose project is in the viewer's workspaces. */
+function runViewerScope(viewer) {
+  const scope = viewerScope(viewer);
+  if (!scope) return null;
+  const ids = (viewer?.workspaceIds || []).filter((id) => UUID_RE.test(String(id)));
+  if (!ids.length) return scope;
+  const params = [...scope.params, ids];
+  return {
+    sql: `(${scope.sql} or project_id in (select id from crawl_projects where workspace_id = any($${params.length})))`,
+    params,
+  };
 }
 
 // workspace_id and owner ride along so a returned row can be checked against
@@ -403,7 +438,7 @@ const RUN_LIST_COLUMNS =
    created_at, started_at, finished_at, report_path, summary->'counts' as counts`;
 
 async function listRunsForViewer(client, viewer, { limit = 50, projectId = null } = {}) {
-  const scope = viewerScope(viewer);
+  const scope = runViewerScope(viewer);
   if (!scope) return [];
   const params = [...scope.params];
   let narrow = "";

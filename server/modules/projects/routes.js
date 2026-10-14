@@ -300,7 +300,9 @@ router.post('/', async (req, res) => {
         // workspace's admin-policy maxUrlsPerCrawl (and maxCrawlDepth). Passing
         // the unclamped body here let the initial crawl bypass the policy limit
         // entirely and fall back to parseCrawlRequest's own default.
-        project, domains, ownerId: identity.userId, crawlOptions: project.options,
+        // `crawlOptions`, because `project` here is store.projectView's shape —
+        // `project.options` is the raw column name and was always undefined.
+        project, domains, ownerId: identity.userId, crawlOptions: project.crawlOptions,
       })
       .catch((e) => {
         console.error('[projects.create] initial crawl autostart skipped:', e.message);
