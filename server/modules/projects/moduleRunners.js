@@ -283,6 +283,7 @@ async function autoDiscoverCompetitors({ access, project, primary, existingCompe
   // distinction project_domains_source_check exists to preserve.
   const status = verdict === 'propose' ? 'proposed' : 'active';
   const added = [];
+  const failures = [];
   for (const candidate of discovery.candidates) {
     try {
       added.push(await store.addCompetitor({ access, domain: candidate.domain, status, source: 'accepted' }));
@@ -290,14 +291,19 @@ async function autoDiscoverCompetitors({ access, project, primary, existingCompe
       // One candidate failing to save (a duplicate, a transient DB error) is
       // not a reason to discard the others.
       console.warn(`[competitor] auto-discovery could not add ${candidate.domain}: ${e.message}`);
+      failures.push(`${candidate.domain}: ${e.message}`);
     }
   }
 
   if (!added.length) {
+    // The actual reasons, not a guess at one: "likely already tracked" was
+    // printed even for a project with no competitors at all.
     return {
       competitors: [],
-      reason: 'discovery_found_none',
-      note: 'Auto-discovery found candidates, but none could be added (likely already tracked). ',
+      reason: discovery.candidates.length ? 'discovery_add_failed' : 'discovery_found_none',
+      note: discovery.candidates.length
+        ? `Auto-discovery found ${discovery.candidates.length} candidate(s), but none could be saved — ${failures.slice(0, 3).join('; ')}. `
+        : 'Auto-discovery found no competitor candidates for this site. Add them manually instead. ',
     };
   }
 
@@ -333,6 +339,24 @@ async function runCompetitor({ access, project, domains }) {
   // approver's decision about them.
   const hasProposed = (domains || []).some((d) => d.role === 'competitor' && d.status === 'proposed');
   let autoDiscoveryNote = '';
+
+  // Competitors the analyst already picked on the standalone Competitor
+  // Analysis screen for this same site. That screen keeps its own client
+  // records, and only the project → screen direction was ever mirrored (see
+  // below), so a competitor added there left this project at zero — the card
+  // read "no data yet" while the screen beside it showed a finished run.
+  // Checked before auto-discovery, which would otherwise spend units guessing
+  // at competitors someone has already chosen.
+  let adoptedFrom = null;
+  if (!competitors.length && !hasProposed) {
+    const adopted = await adoptStandaloneCompetitors({ access, primary, project });
+    if (adopted) {
+      competitors = adopted.competitors;
+      adoptedFrom = adopted.clientRecord;
+      autoDiscoveryNote = adopted.note;
+    }
+  }
+
   if (!competitors.length && !hasProposed) {
     const knownCompetitors = (domains || [])
       .filter((d) => d.role === 'competitor')
@@ -462,10 +486,18 @@ async function runCompetitor({ access, project, domains }) {
     console.error('[competitor] client record not mirrored:', e.message);
   }
 
-  const snapshot = await fetchClientDashboardData(client, null, MAX_UNITS_PER_RUN);
+  // When the competitors came from the standalone screen, that screen has very
+  // likely just run this exact comparison. Reusing its snapshot is what makes the
+  // card show the analysis that already exists, rather than paying SEMrush a
+  // second time for the same numbers.
+  const reused = adoptedFrom ? await reusableSnapshot(adoptedFrom.id, client) : null;
+  const snapshot = reused || await fetchClientDashboardData(client, null, MAX_UNITS_PER_RUN);
+  if (reused) {
+    autoDiscoveryNote += `Reused the Competitor Analysis run from ${reused.capturedAt} — no new SEMrush units spent. `;
+  }
 
   // The snapshot its dashboard reads, saved under that module's own client id.
-  if (clientRecord) {
+  if (clientRecord && !reused) {
     try {
       await caStore.saveSnapshot(clientRecord.id, snapshot);
     } catch (e) {
@@ -602,8 +634,11 @@ async function runCompetitor({ access, project, domains }) {
       autoDiscoveryNote
       + (clientRecord ? '' : 'The comparison ran but could not be mirrored into the competitor module, so its own dashboard will not show it. ')
       + `Compared against ${competitors.length} competitor(s) in ${project.country_code} `
-      + `(SEMrush "${database}" database) using `
-      + `${snapshot.usedUnits} SEMrush units. Keyword gap computed by the competitor module's own `
+      + `(SEMrush "${database}" database) `
+      + (reused
+        ? `from the stored run, which used ${snapshot.usedUnits} SEMrush units when it was fetched. `
+        : `using ${snapshot.usedUnits} SEMrush units. `)
+      + 'Keyword gap computed by the competitor module\'s own '
       + 'gap analysis; no score, because comparative standing has no rubric.',
   };
 }
@@ -620,6 +655,74 @@ function sameSite(a, b) {
   };
   const left = hostOf(a);
   return Boolean(left) && left === hostOf(b);
+}
+
+// How old a standalone Competitor Analysis snapshot may be and still stand in
+// for a fresh fetch when the project adopts that screen's competitors.
+const ADOPTED_SNAPSHOT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * The competitors on the standalone Competitor Analysis client for this
+ * project's site, written into project_domains so the Domains panel and every
+ * later run see them too. Null when that screen has none for this site.
+ *
+ * Saving is best-effort and goes through the same manageCompetitors check a
+ * manual add does. A role that can only propose still gets this run compared
+ * against them — they were already chosen on the screen this run mirrors into —
+ * but they land as proposals for an approver, exactly as a manual add would.
+ */
+async function adoptStandaloneCompetitors({ access, primary, project }) {
+  const caStore = require('../competitorAnalysis/store');
+  const store = require('./store');
+  const siteDomain = primary?.host || primary?.normalized_origin || project.url;
+
+  const clientRecord = (await caStore.getClients().catch(() => []))
+    .find((c) => sameSite(c.domain, siteDomain));
+  const picked = (clientRecord?.competitors || []).filter((c) => c?.domain);
+  if (!picked.length) return null;
+
+  const verdict = access.can('manageCompetitors');
+  const status = verdict === 'propose' ? 'proposed' : 'active';
+  const competitors = [];
+  for (const c of picked) {
+    let saved = null;
+    if (verdict) {
+      try {
+        saved = await store.addCompetitor({ access, domain: c.domain, status, source: 'user_entered' });
+      } catch (e) {
+        console.warn(`[competitor] could not save ${c.domain} from Competitor Analysis: ${e.message}`);
+      }
+    }
+    competitors.push(saved && saved.status === 'active' ? saved : { host: c.domain, role: 'competitor', status: 'active' });
+  }
+
+  return {
+    clientRecord,
+    competitors,
+    note: `Used the ${competitors.length} competitor${competitors.length === 1 ? '' : 's'} already set on Competitor Analysis — `
+      + `${picked.map((c) => c.domain).join(', ')}. `,
+  };
+}
+
+/**
+ * The standalone client's stored snapshot, when it is recent and covers exactly
+ * the site and competitors this run would fetch. Anything else is fetched fresh:
+ * a snapshot of a different competitor set is a different comparison.
+ */
+async function reusableSnapshot(clientId, client) {
+  const caStore = require('../competitorAnalysis/store');
+  const snapshot = await caStore.getSnapshot(clientId).catch(() => null);
+  if (!snapshot?.capturedAt || !Array.isArray(snapshot.domains)) return null;
+  if (Date.now() - new Date(snapshot.capturedAt).getTime() > ADOPTED_SNAPSHOT_MAX_AGE_MS) return null;
+
+  const norm = (d) => String(d || '').replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0].toLowerCase();
+  const want = [client.domain, ...client.competitors.map((c) => c.domain)].map(norm).sort();
+  const have = [
+    ...snapshot.domains.map((d) => d.domain),
+    ...(snapshot.skipped || []).map((s) => (typeof s === 'string' ? s : s?.domain)),
+  ].map(norm).sort();
+  if (want.length !== have.length || want.some((d, i) => d !== have[i])) return null;
+  return snapshot;
 }
 
 // ── hub_spoke — Content Architect, run on the crawl's stored pages ──────────
