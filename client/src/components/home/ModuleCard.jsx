@@ -8,6 +8,19 @@ import { moduleReportRoute } from '../../lib/moduleReportRoute';
 // Same dictionary the sidebar reads (toolsMeta.js) — one source of truth for
 // a tag shown on both surfaces, per that file's own header comment.
 import { TAGS } from '../../toolsMeta';
+import { InfoDot } from '../explain';
+
+// Which explainer each module's card carries. The two AI Visibility modules
+// answer the same question, so they share one.
+const EXPLAINER_FOR = {
+  technical: 'm_technical',
+  hub_spoke: 'm_hub',
+  competitor: 'm_competitor',
+  seo_geo: 'm_seogeo',
+  ai_visibility_lite: 'm_aivis',
+  ai_visibility: 'm_aivis',
+  agent_readiness: 'm_agent',
+};
 
 // ── One module of the audit profile ─────────────────────────────────────────
 //
@@ -178,16 +191,11 @@ export default function ModuleCard({ module, onRun, crawlLive = false }) {
     <div
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      // On the card, not on the number.
-      //
-      // Every score on this dashboard carries the basis it was computed from,
-      // and that used to be a title on the span holding it. The stretched link
-      // below covers every span in the card, so the pointer never reaches one
-      // of them and the tooltip could not be opened at all. The browser walks
-      // up from whatever is hovered to find a title, so putting it here is what
-      // makes it reachable — and hovering anywhere on the card is a lower bar
-      // than finding the two characters the number is printed in.
-      title={module.scoreBasis || module.note || module.detail || undefined}
+      // The basis every score was computed from used to be a native title on
+      // this card. It now sits in the info icon's explanation ("This run: …"),
+      // which a reader can find, keep open and read on a touch screen — and a
+      // browser tooltip over the whole card would have competed with it.
+      data-explain-box
       style={{
         position: 'relative',
         display: 'flex',
@@ -248,6 +256,17 @@ export default function ModuleCard({ module, onRun, crawlLive = false }) {
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          {/* Above the stretched link (z-index 1), or the click opens the
+              report instead of the explanation. */}
+          {EXPLAINER_FOR[module.key] && (
+            <span style={{ position: 'relative', zIndex: 2, display: 'inline-flex' }}>
+              <InfoDot
+                explainKey={EXPLAINER_FOR[module.key]}
+                ctx={{ module }}
+                calcExtra={module.scoreBasis ? `This run: ${module.scoreBasis}.` : (module.note || null)}
+              />
+            </span>
+          )}
           {/* Same pill and colour the sidebar shows next to this module's own
               nav entry — so "this is new/still settling" reads the same way
               wherever a reader meets it. */}

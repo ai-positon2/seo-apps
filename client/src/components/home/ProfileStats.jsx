@@ -1,4 +1,6 @@
 import { relativeTime } from '../../lib/projectsApi';
+import { InfoDot } from '../explain';
+import { overviewExplainCtx } from './overviewExplainCtx';
 
 // ── The four numbers the top of the dashboard leads with ────────────────────
 //
@@ -61,44 +63,16 @@ export default function ProfileStats({
   const compositeValue = Number.isFinite(composite?.value) ? composite.value : null;
   const scoredCount = composite?.scoredModules || 0;
 
-  // ── To fix ────────────────────────────────────────────────────────────────
+  // To fix, pages crawled and coverage — worked out once in
+  // overviewExplainCtx.js, because the info icons and the legend explain these
+  // same figures and must not compute their own.
+  const ctx = overviewExplainCtx({ composite, modules, insights });
   const totals = insights?.backlog?.totals || null;
   const actions = Number.isFinite(totals?.actions) ? totals.actions : null;
-  const templateWide = totals?.templateWide || 0;
+  const templateWide = ctx.toFix?.templateWide || 0;
   const pagesAffected = Number.isFinite(totals?.pagesAffected) ? totals.pagesAffected : null;
-
-  // ── Pages crawled ─────────────────────────────────────────────────────────
-  //
-  // The crawl's own internal-page count, from the same field the Tech Audit card
-  // and the crawl report divide by. Read from the module rather than recounted,
-  // or the header and the card would eventually publish two figures for one
-  // crawl — the single most damaging thing this dashboard can do to itself.
-  //
-  // Labelled "crawled", not "audited": the page-level modules score a selection
-  // of these, so calling it audited would overstate what ran.
-  //
-  // The fallback matters more than it looks. While a crawl is running the Tech
-  // Audit card drops its evidence block on purpose — the previous crawl's counts
-  // printed on a card about this one get misread — so reading only that field
-  // made this stat say "no completed crawl yet" about a client that has crawled
-  // every week for a month, for as long as a crawl was in flight. The insight
-  // layer counts the last TERMINAL crawl, through the same helper, so it is the
-  // right thing to fall back to and cannot disagree with the card.
-  const technical = modules.find((m) => m.key === 'technical') || null;
-  const cardPages = Number.isFinite(technical?.evidence?.pagesCrawled)
-    ? technical.evidence.pagesCrawled
-    : null;
-  const storedPages = Number.isFinite(insights?.backlog?.totals?.crawledPages)
-    ? insights.backlog.totals.crawledPages
-    : null;
-  const pages = cardPages === null ? storedPages : cardPages;
-
-  // ── Coverage ──────────────────────────────────────────────────────────────
-  // "Has this module produced anything for this client", which is not the same
-  // question as "did it score" — Hub and Spoke reports findings and has no
-  // rubric, and counting it as uncovered would be wrong.
-  const neverRun = modules.filter((m) => m.status === 'not_run');
-  const covered = modules.length - neverRun.length;
+  const { technical, cardPages, pagesCrawled: pages, neverRun } = ctx;
+  const { covered } = ctx.coverage;
 
   return (
     <div
@@ -110,6 +84,8 @@ export default function ProfileStats({
     >
       <Stat
         label="Composite score"
+        info="composite"
+        infoCtx={ctx}
         value={compositeValue === null ? '—' : String(compositeValue)}
         unit={compositeValue === null ? null : '/ 100'}
         color={compositeValue === null ? 'var(--text-3)' : bandColor(compositeValue)}
@@ -121,6 +97,8 @@ export default function ProfileStats({
 
       <Stat
         label="To fix"
+        info="tofix"
+        infoCtx={ctx}
         value={actions === null ? '—' : String(actions)}
         unit={actions === null ? null : `action${actions === 1 ? '' : 's'}`}
         color={actions === null ? 'var(--text-3)' : 'var(--text)'}
@@ -152,6 +130,8 @@ export default function ProfileStats({
 
       <Stat
         label="Pages crawled"
+        info="pages"
+        infoCtx={ctx}
         value={pages === null ? '—' : pages.toLocaleString('en-US')}
         color={pages === null ? 'var(--text-3)' : 'var(--text)'}
         foot={pages === null
@@ -168,6 +148,8 @@ export default function ProfileStats({
 
       <Stat
         label="Coverage"
+        info="coverage"
+        infoCtx={ctx}
         value={String(covered)}
         unit={`of ${modules.length} module${modules.length === 1 ? '' : 's'}`}
         color={covered === 0 ? 'var(--text-3)' : 'var(--text)'}
@@ -181,10 +163,13 @@ export default function ProfileStats({
   );
 }
 
-function Stat({ label, value, unit, color, foot }) {
+function Stat({ label, info, infoCtx, value, unit, color, foot }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <span className="eyebrow">{label}</span>
+    <div data-explain-box style={{ display: 'flex', flexDirection: 'column', gap: 4, borderRadius: 'var(--r-sm)' }}>
+      <span className="explain-label-row">
+        <span className="eyebrow">{label}</span>
+        {info && <InfoDot explainKey={info} ctx={infoCtx} />}
+      </span>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
         <span
           className="num"

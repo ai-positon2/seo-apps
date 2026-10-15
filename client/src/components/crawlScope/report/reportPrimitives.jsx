@@ -10,6 +10,8 @@
 // radius. This report is drawn to a specific set of measurements and bending the
 // shared components to hit them would have changed every other screen too.
 
+import { InfoDot } from '../../explain';
+
 /** Severity → the dot, chip and label the whole report uses. */
 export const SEV = {
   error: {
@@ -65,8 +67,9 @@ export const Eyebrow = ({ children, tone = 'muted', style }) => (
 );
 
 /** A card. The report's own padding and radius, not the shared ui/Card's. */
-export const Panel = ({ children, pad = '20px 22px', elevation = 'sm', style }) => (
+export const Panel = ({ children, pad = '20px 22px', elevation = 'sm', style, ...rest }) => (
   <div
+    {...rest}
     style={{
       display: 'flex',
       flexDirection: 'column',
@@ -135,22 +138,29 @@ export const Pill = ({ active, onClick, children, size = 'lg' }) => (
   </button>
 );
 
-/** One number with a label above it and a sentence below. */
-export const Tile = ({ label, value, sub, color = 'var(--text)', size = 28 }) => (
+/**
+ * One number with a label above it and a sentence below. `info` is an explainer
+ * key (components/explain) for the "i" after the label.
+ */
+export const Tile = ({ label, value, sub, color = 'var(--text)', size = 28, info, infoCtx }) => (
   <div
+    data-explain-box={info ? '' : undefined}
     style={{
       display: 'flex', flexDirection: 'column', gap: 6, padding: '16px 18px',
       borderRadius: 10, background: 'var(--card)', border: '1px solid var(--border)',
       boxShadow: 'var(--shadow-sm)',
     }}
   >
-    <span
-      style={{
-        fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase',
-        fontWeight: 600, color: 'var(--text-3)',
-      }}
-    >
-      {label}
+    <span className="explain-label-row">
+      <span
+        style={{
+          fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase',
+          fontWeight: 600, color: 'var(--text-3)',
+        }}
+      >
+        {label}
+      </span>
+      {info && <InfoDot explainKey={info} ctx={infoCtx} />}
     </span>
     <span className="num" style={{ fontSize: size, fontWeight: 600, lineHeight: 1, color }}>
       {value}

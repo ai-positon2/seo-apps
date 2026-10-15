@@ -32,6 +32,7 @@ import geminiLogo from './logos/gemini.webp';
 import {
   SOURCE_TYPE_LABELS, PAGE_TYPE_LABELS, METRIC_INFO, engineLabel,
 } from './reportRegistry';
+import { InfoDot, Legend } from '../explain';
 
 // ── Shared pieces ──────────────────────────────────────────────────────────
 
@@ -702,6 +703,12 @@ export function OverviewReport({ report }) {
   const namedValue = report.headline.namedRate.value;
   const accent = stage ? stage.color : 'var(--text)';
 
+  // What the info icons and the legend quote — this report's own figures.
+  const explainCtx = {
+    answersMeasured: report.meta.answersMeasured,
+    client: clientRow ? { named: clientRow.named, answers: clientRow.answers } : null,
+  };
+
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       <Card style={{
@@ -749,12 +756,24 @@ export function OverviewReport({ report }) {
             </div>
           </div>
 
-          <ScoreRing score={report.headline.score.value} display={report.headline.score.display} color={accent} label={stage?.label} />
+          <div data-explain-box style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, borderRadius: 'var(--r-lg)' }}>
+            <ScoreRing score={report.headline.score.value} display={report.headline.score.display} color={accent} label={stage?.label} />
+            <span className="explain-label-row">
+              <Muted size={11.5}>How this score is built</Muted>
+              <InfoDot explainKey="l_score" ctx={explainCtx} />
+            </span>
+          </div>
         </div>
 
-        <div style={{ marginTop: 24 }}>
-          <EngineDotCards byEngine={report.byEngine} />
-        </div>
+        {report.byEngine?.length > 0 && (
+          <div data-explain-box style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 10, borderRadius: 'var(--r-lg)' }}>
+            <span className="explain-label-row">
+              <Kicker>By AI model</Kicker>
+              <InfoDot explainKey="l_engines" ctx={explainCtx} />
+            </span>
+            <EngineDotCards byEngine={report.byEngine} />
+          </div>
+        )}
 
         <FadingRule style={{ margin: '16px 0' }} />
 
@@ -777,8 +796,15 @@ export function OverviewReport({ report }) {
       </Card>
 
       {ranked.length >= 2 ? (
-        <Card style={{ padding: 18 }}>
-          <SectionHead title="Against the brands this project tracks" />
+        <Card style={{ padding: 18 }} data-explain-box>
+          <SectionHead
+            title={(
+              <span className="explain-label-row">
+                Against the brands this project tracks
+                <InfoDot explainKey="l_brands" ctx={explainCtx} />
+              </span>
+            )}
+          />
           <Muted size={11}>
             Counted in answers, not occurrences. Bars are relative to the brand named most.
           </Muted>
@@ -798,8 +824,15 @@ export function OverviewReport({ report }) {
       ) : null}
 
       <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))' }}>
-        <Card style={{ padding: 20, gap: 4 }}>
-          <SectionHead title="Questions where AI doesn’t mention you" />
+        <Card style={{ padding: 20, gap: 4 }} data-explain-box>
+          <SectionHead
+            title={(
+              <span className="explain-label-row">
+                Questions where AI doesn’t mention you
+                <InfoDot explainKey="l_weak" ctx={explainCtx} />
+              </span>
+            )}
+          />
           <Muted size={11.5}>
             Real customer questions, ranked by how rarely AI named you. Each dot is one AI answer.
           </Muted>
@@ -809,9 +842,14 @@ export function OverviewReport({ report }) {
           </div>
         </Card>
 
-        <Card style={{ padding: 20, gap: 4 }}>
+        <Card style={{ padding: 20, gap: 4 }} data-explain-box>
           <SectionHead
-            title="Sites helping your competitors"
+            title={(
+              <span className="explain-label-row">
+                Sites helping your competitors
+                <InfoDot explainKey="l_gaps" ctx={explainCtx} />
+              </span>
+            )}
             right={<Muted size={11}>{report.gaps.total} site{report.gaps.total === 1 ? '' : 's'}</Muted>}
           />
           <Muted size={11.5}>
@@ -830,6 +868,7 @@ export function OverviewReport({ report }) {
           </div>
         </Card>
       </div>
+      <Legend screen="aivisLite" ctx={explainCtx} />
     </div>
   );
 }

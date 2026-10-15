@@ -1,7 +1,8 @@
 import {
-  Panel, PanelTitle, Eyebrow, CountTile, Donut, InfoTip,
+  Panel, PanelTitle, Eyebrow, CountTile, Donut,
   bandColor, splitVerdict,
 } from './reportKit';
+import { InfoDot, Legend } from '../../explain';
 import { resolveBreakdown } from '../primitives';
 // The page picker's own label ("/ (home)", "/pricing"), so the report and the
 // picker above it never name the same page two ways.
@@ -129,6 +130,17 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
     ? { score: scope.average, ...ratingFor(scope.average), seo: sideOf(scope.seo), geo: sideOf(scope.geo) }
     : { score: overall, label: bandLabel, blurb: bandBlurb, seo: scores.seo, geo: scores.geo };
 
+  // What the info icons and the legend quote: the figures this view prints. In
+  // the site view the headline is the site average, not this page's score, so
+  // the page-score example (and its cap) is left out rather than quoting a
+  // number the screen does not show. The check counts stay this page's.
+  const explainCtx = {
+    overall: siteView ? null : overall,
+    cap: siteView ? null : cap,
+    checksApplied: counted.length,
+    passed,
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
 
@@ -142,16 +154,18 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
             function — and this page's own scores sit in the strip below it. Leading
             with the page made the report and the card read as two different
             results for one audit. */}
-        <Panel pad="24px 28px" elevation="md" style={{ flexDirection: 'row', alignItems: 'center', gap: 28, flexWrap: 'wrap' }}>
+        <Panel pad="24px 28px" elevation="md" style={{ flexDirection: 'row', alignItems: 'center', gap: 28, flexWrap: 'wrap' }} data-explain-box>
           <Donut score={hero.score} size={168} numberSize={42} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: '1 1 240px', minWidth: 0 }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <span className="explain-label-row">
               <Eyebrow>{siteView ? `Site average · ${scoredCount} page${scoredCount === 1 ? '' : 's'}` : 'Overall score'}</Eyebrow>
-              <InfoTip label="How the overall score works">
-                {siteView
+              <InfoDot
+                explainKey="g_score"
+                ctx={explainCtx}
+                calcExtra={siteView
                   ? <SiteAverageExplainer title="Site average" score={scope.average} count={scoredCount} />
                   : <OverallExplainer breakdown={breakdown} cap={cap} composite={composite} overall={overall} bandLabel={bandLabel} seo={scores.seo} geo={scores.geo} />}
-              </InfoTip>
+              />
             </span>
             <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>
               {hero.label || 'Not scored'}
@@ -177,14 +191,14 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
             >
               <SideScore
                 name="SEO" sub="Search engines" axis={hero.seo}
-                infoLabel="How the SEO score works"
+                infoKey="g_seo"
                 info={siteView
                   ? <SiteAverageExplainer title="SEO · site average" score={scope.seo} count={scoredCount} axis={siteSeo} />
                   : <AxisExplainer title="SEO score" axis={scores.seo} what="Can search engines like Google find, index and rank this page?" />}
               />
               <SideScore
                 name="GEO" sub="AI answer engines" axis={hero.geo}
-                infoLabel="How the GEO score works"
+                infoKey="g_geo"
                 info={siteView
                   ? <SiteAverageExplainer title="GEO · site average" score={scope.geo} count={scoredCount} axis={siteGeo} />
                   : <AxisExplainer title="GEO score" axis={scores.geo} engineTally={engineTally} what="Can AI answer engines (ChatGPT, Perplexity, Google AI Overviews, Gemini) read, trust and cite this page?" />}
@@ -231,20 +245,24 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
             sentence is worth. */}
         {summary?.priority_verdict ? (
           <div
+            data-explain-box
             style={{
               display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 14,
               padding: '22px 26px', borderRadius: 14, background: 'var(--primary)',
               boxShadow: 'var(--shadow-md)',
             }}
           >
-            <span
-              style={{
-                fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
-                letterSpacing: '0.15em', textTransform: 'uppercase',
-                color: 'var(--text-on-primary)', opacity: 0.85,
-              }}
-            >
-              Priority verdict
+            <span className="explain-label-row">
+              <span
+                style={{
+                  fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
+                  letterSpacing: '0.15em', textTransform: 'uppercase',
+                  color: 'var(--text-on-primary)', opacity: 0.85,
+                }}
+              >
+                Priority verdict
+              </span>
+              <InfoDot explainKey="g_verdict" ctx={explainCtx} tone="onAccent" />
             </span>
             <p style={{ margin: 0, fontSize: 13.5, color: 'var(--text-on-primary)', lineHeight: 1.55 }}>
               {summary.priority_verdict}
@@ -302,8 +320,11 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
             )}
           </div>
         ) : (
-          <Panel>
-            <Eyebrow>Priority verdict</Eyebrow>
+          <Panel data-explain-box>
+            <span className="explain-label-row">
+              <Eyebrow>Priority verdict</Eyebrow>
+              <InfoDot explainKey="g_verdict" ctx={explainCtx} />
+            </span>
             <span style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.5 }}>
               The AI analysis did not complete for this page, so there is no ranked verdict. The
               check results are all in “More Tech Details”.
@@ -314,10 +335,13 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
 
       {/* ── Will AI engines show this page? ──────────────────────────────── */}
       {engines.length > 0 && (
-        <Panel pad="22px 24px" style={{ gap: 14 }}>
+        <Panel pad="22px 24px" style={{ gap: 14 }} data-explain-box>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 620 }}>
-              <PanelTitle>Will AI engines show this page?</PanelTitle>
+              <span className="explain-label-row explain-label-row--title">
+                <PanelTitle>Will AI engines show this page?</PanelTitle>
+                <InfoDot explainKey="g_platforms" ctx={explainCtx} />
+              </span>
               <span style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.5 }}>
                 Whether each answer engine has what it needs to cite or recommend this page, as read
                 by the AI analysis.
@@ -362,8 +386,11 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
 
       {/* ── Quick wins ───────────────────────────────────────────────────── */}
       {summary?.quick_wins?.length > 0 && (
-        <Panel pad="22px 24px" style={{ gap: 12 }}>
-          <PanelTitle>Quick wins</PanelTitle>
+        <Panel pad="22px 24px" style={{ gap: 12 }} data-explain-box>
+          <span className="explain-label-row explain-label-row--title">
+            <PanelTitle>Quick wins</PanelTitle>
+            <InfoDot explainKey="g_wins" ctx={explainCtx} />
+          </span>
           {summary.quick_wins.map((w, i) => (
             <div
               key={i}
@@ -389,11 +416,19 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
       )}
 
       {/* ── The check counts ─────────────────────────────────────────────── */}
-      <div className="geo-counts">
-        <CountTile label="Passed" value={passed} color="var(--primary-text)" />
-        <CountTile label="Errors" value={errors} color="var(--viz-neg)" />
-        <CountTile label="Warnings" value={warnings} color="var(--viz-warn)" />
-        <CountTile label="Notices" value={notices} color="var(--text-2)" />
+      {/* Labelled with how many checks apply, so the four counts read as parts
+          of a whole rather than four unrelated numbers. */}
+      <div data-explain-box style={{ display: 'flex', flexDirection: 'column', gap: 10, borderRadius: 'var(--r-md)' }}>
+        <span className="explain-label-row">
+          <Eyebrow>Check results · {counted.length} {counted.length === 1 ? 'check applies' : 'checks apply'}</Eyebrow>
+          <InfoDot explainKey="g_counts" ctx={explainCtx} />
+        </span>
+        <div className="geo-counts">
+          <CountTile label="Passed" value={passed} color="var(--primary-text)" />
+          <CountTile label="Errors" value={errors} color="var(--viz-neg)" />
+          <CountTile label="Warnings" value={warnings} color="var(--viz-warn)" />
+          <CountTile label="Notices" value={notices} color="var(--text-2)" />
+        </div>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
@@ -409,20 +444,22 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
           See the technical detail →
         </button>
       </div>
+      <Legend screen="seogeo" ctx={explainCtx} />
     </div>
   );
 }
 
 /** A label/value pair drawn on the accent ground. */
-// One side's score in the headline card: a compact ring, its name, and the "i".
-function SideScore({ name, sub, axis, info, infoLabel }) {
+// One side's score in the headline card: a compact ring, its name, and the "i"
+// — whose popover carries this side's own bars and weights under the copy.
+function SideScore({ name, sub, axis, info, infoKey }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+    <div data-explain-box style={{ display: 'flex', alignItems: 'center', gap: 12, borderRadius: 'var(--r-md)' }}>
       <Donut score={axis?.score ?? null} size={88} numberSize={24} stroke={10} label={null} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{name}</span>
-          <InfoTip label={infoLabel} align="right">{info}</InfoTip>
+          <InfoDot explainKey={infoKey} calcExtra={info} />
         </span>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{sub}</span>
         <span style={{ fontSize: 12.5, fontWeight: 600, color: bandColor(axis?.score) }}>

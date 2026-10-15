@@ -6,7 +6,7 @@
  * @param {string} delta — delta text e.g. "+12%" or "−3"
  * @param {string} sub — small subtext below value
  */
-export function MetricCard({ label, value, delta, deltaVariant = 'neutral', sub, style: extraStyle }) {
+export function MetricCard({ label, value, delta, deltaVariant = 'neutral', sub, style: extraStyle, ...rest }) {
   const deltaColors = {
     success: { bg: 'var(--success-soft)', fg: 'var(--success)' },
     danger:  { bg: 'var(--danger-soft)',  fg: 'var(--danger)'  },
@@ -16,7 +16,7 @@ export function MetricCard({ label, value, delta, deltaVariant = 'neutral', sub,
   const dc = deltaColors[deltaVariant] || deltaColors.neutral;
 
   return (
-    <div style={{
+    <div {...rest} style={{
       background: 'var(--card)',
       border: '1px solid var(--border)',
       borderRadius: 'var(--r-lg)',

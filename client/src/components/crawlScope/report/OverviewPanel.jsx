@@ -1,5 +1,6 @@
 import { Panel, Tile, Eyebrow, AnalyzingNotice } from './reportPrimitives';
 import { healthScoreBreakdown } from '../crawlHelpers';
+import { InfoDot, Legend } from '../../explain';
 
 // ── The crawl report's Overview ─────────────────────────────────────────────
 //
@@ -55,14 +56,27 @@ export default function OverviewPanel({
   // nothing about which band cost the most.
   const worst = Math.max(1, ...breakdown.map((b) => b.points));
 
+  // What the info icons and the legend quote: the same figures this panel prints.
+  const explainCtx = {
+    health,
+    htmlCount: metrics.htmlCount,
+    breakdown,
+    urlsFetched: counts.urlsFetched,
+    pageLimit: coverage?.limit ?? null,
+    indexable: metrics.indexable,
+  };
+
   const bySeverity = (s) => groups.filter((g) => g.severity === s);
   // Findings, not pages: one page can trip the same check twice.
   const occurrences = (s) => bySeverity(s).reduce((sum, g) => sum + (g.count || 0), 0);
 
   return (
     <div className="crawl-overview">
-      <Panel pad="24px" elevation="md" style={{ gap: 16 }}>
-        <Eyebrow>Site health</Eyebrow>
+      <Panel pad="24px" elevation="md" style={{ gap: 16 }} data-explain-box>
+        <span className="explain-label-row">
+          <Eyebrow>Site health</Eyebrow>
+          <InfoDot explainKey="t_health" ctx={explainCtx} />
+        </span>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
           <span
             className="num"
@@ -87,14 +101,17 @@ export default function OverviewPanel({
                 + 'would describe a catastrophic site rather than an absent crawl.'}
           </span>
         ) : (
-          <>
-            <span
-              style={{
-                fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase',
-                fontWeight: 600, color: 'var(--text-3)',
-              }}
-            >
-              {lost ? `How the ${lost} points were lost` : 'Nothing was deducted'}
+          <div data-explain-box style={{ display: 'flex', flexDirection: 'column', gap: 16, borderRadius: 'var(--r-sm)' }}>
+            <span className="explain-label-row">
+              <span
+                style={{
+                  fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase',
+                  fontWeight: 600, color: 'var(--text-3)',
+                }}
+              >
+                {lost ? `How the ${lost} points were lost` : 'Nothing was deducted'}
+              </span>
+              <InfoDot explainKey="t_lost" ctx={explainCtx} />
             </span>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {breakdown.map((b) => (
@@ -132,7 +149,7 @@ export default function OverviewPanel({
               the {metrics.htmlCount} HTML pages audited. Redirects, error pages and external pages
               are not scored as pages.
             </span>
-          </>
+          </div>
         )}
       </Panel>
 
@@ -143,6 +160,8 @@ export default function OverviewPanel({
             // while the dashboard's "Pages crawled" counts HTML pages — two
             // different numbers under one name. This tile is the URL count.
             label="URLs fetched"
+            info="t_urls"
+            infoCtx={explainCtx}
             value={counts.urlsFetched.toLocaleString()}
             sub={coverage?.limit
               ? `Pages, images and files · page limit ${coverage.limit.toLocaleString('en-US')}`
@@ -150,6 +169,8 @@ export default function OverviewPanel({
           />
           <Tile
             label="HTML pages"
+            info="t_html"
+            infoCtx={explainCtx}
             value={metrics.htmlCount.toLocaleString()}
             sub={metrics.refusedCount
               ? `The audit universe — ${metrics.refusedCount.toLocaleString()} URL${metrics.refusedCount === 1 ? '' : 's'} refused the crawler and ${metrics.refusedCount === 1 ? 'is' : 'are'} not counted`
@@ -157,6 +178,8 @@ export default function OverviewPanel({
           />
           <Tile
             label="Findable by Google"
+            info="t_indexable"
+            infoCtx={explainCtx}
             value={metrics.indexable.toLocaleString()}
             sub={`of ${metrics.htmlCount.toLocaleString()} HTML pages are indexable`}
             color="var(--primary)"
@@ -165,6 +188,8 @@ export default function OverviewPanel({
               while the crawl runs nothing has checked. */}
           <Tile
             label="Pages with an error"
+            info="t_issues"
+            infoCtx={explainCtx}
             value={provisional ? '—' : metrics.affectedErrorPages.toLocaleString()}
             sub={provisional
               ? 'Not measured until the crawl finishes'
@@ -173,6 +198,8 @@ export default function OverviewPanel({
           />
           <Tile
             label="Pages with a warning"
+            info="t_issues"
+            infoCtx={explainCtx}
             value={provisional ? '—' : metrics.affectedWarningPages.toLocaleString()}
             sub={provisional
               ? 'Not measured until the crawl finishes'
@@ -181,6 +208,8 @@ export default function OverviewPanel({
           />
           <Tile
             label="External links checked"
+            info="t_external"
+            infoCtx={explainCtx}
             value={externalChecked.toLocaleString()}
             sub="Outbound links fetched to verify they are live"
           />
@@ -339,14 +368,17 @@ export default function OverviewPanel({
           </div>
         )}
 
-        <Panel style={{ gap: 12 }}>
-          <span
-            style={{
-              fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase',
-              fontWeight: 600, color: 'var(--text-3)',
-            }}
-          >
-            What to do first
+        <Panel style={{ gap: 12 }} data-explain-box>
+          <span className="explain-label-row">
+            <span
+              style={{
+                fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase',
+                fontWeight: 600, color: 'var(--text-3)',
+              }}
+            >
+              What to do first
+            </span>
+            <InfoDot explainKey="t_first" ctx={explainCtx} />
           </span>
           {/* Nothing while the crawl runs. This is the first three rows of the
               issue list, ranked by severity then reach — and until the full
@@ -393,6 +425,7 @@ export default function OverviewPanel({
           )}
         </Panel>
       </div>
+      <Legend screen="tech" ctx={explainCtx} />
     </div>
   );
 }

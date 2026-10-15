@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { MetricCard } from '../../ui';
+import { InfoDot } from '../explain';
 
 // ── Primitives the nine reports share ───────────────────────────────────────
 //
@@ -35,11 +36,17 @@ export function deltaVariant(metric) {
  * explains an em-dash — "insufficient_captures_per_model", "Not scored". An
  * unexplained em-dash reads as a bug; an explained one reads as an answer.
  */
-export function Metric({ label, metric, sub }) {
-  if (!metric) return <MetricCard label={label} value="—" sub={sub || 'Not available'} />;
+export function Metric({ label, metric, sub, info, infoCtx }) {
+  // `info` is an explainer key (components/explain) for an "i" after the label.
+  const heading = info
+    ? <span className="explain-label-row">{label}<InfoDot explainKey={info} ctx={infoCtx} /></span>
+    : label;
+  const box = info ? { 'data-explain-box': '' } : {};
+  if (!metric) return <MetricCard {...box} label={heading} value="—" sub={sub || 'Not available'} />;
   return (
     <MetricCard
-      label={label}
+      {...box}
+      label={heading}
       value={metric.display}
       delta={metric.deltaDisplay || undefined}
       deltaVariant={deltaVariant(metric)}

@@ -67,8 +67,9 @@ export const Eyebrow = ({ children, tone = 'muted', style }) => (
 );
 
 /** A card. The design's 14px radius, which is between --r-lg and --r-xl. */
-export const Panel = ({ children, pad = '20px 22px', elevation = 'sm', style }) => (
+export const Panel = ({ children, pad = '20px 22px', elevation = 'sm', style, ...rest }) => (
   <div
+    {...rest}
     style={{
       display: 'flex',
       flexDirection: 'column',

@@ -15,11 +15,13 @@ export function Card({
   padding = '20px',
   style: extraStyle,
   children,
+  ...rest
 }) {
   const [hovered, setHovered] = useState(false);
 
   return (
     <div
+      {...rest}
       onClick={onClick}
       onMouseEnter={() => interactive && setHovered(true)}
       onMouseLeave={() => interactive && setHovered(false)}

@@ -12,3 +12,14 @@ export function scoreVerdict(score) {
   if (s >= 60) return { label: 'Needs attention', tone: 'warn' };
   return { label: 'At risk', tone: 'neg' };
 }
+
+/**
+ * The colour a 0-100 score is drawn in, on the same bands as scoreVerdict.
+ * Null when there is no score, so the caller draws a muted dash rather than a
+ * red one.
+ */
+export function scoreBandColor(score) {
+  const verdict = scoreVerdict(score);
+  if (!verdict) return null;
+  return { accent: 'var(--primary)', warn: 'var(--viz-warn)', neg: 'var(--viz-neg)' }[verdict.tone];
+}

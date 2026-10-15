@@ -24,6 +24,7 @@ import { indexWork } from '../../lib/hubSpokeWork';
 import TopicWork from './work/TopicWork';
 import WorkTally from './work/WorkTally';
 import { EnhancementBadge, EnhancementPanel } from './work/PageEnhancement';
+import { InfoDot, Legend } from '../explain';
 
 /** Health bands, shared with the page's donut so the two cannot disagree. */
 export function healthVariant(score) {
@@ -153,9 +154,11 @@ const DashedIcon = () => (
   </svg>
 );
 
-function SummaryTile({ label, value, color, iconBg, icon }) {
+// `info` is an explainer key (components/explain) for an "i" after the label.
+function SummaryTile({ label, value, color, iconBg, icon, info, infoCtx }) {
   return (
     <div
+      data-explain-box={info ? '' : undefined}
       style={{
         display: 'flex', alignItems: 'center', gap: 14, padding: 18,
         borderRadius: 'var(--r-lg)', background: 'var(--card)',
@@ -171,7 +174,10 @@ function SummaryTile({ label, value, color, iconBg, icon }) {
         {icon}
       </span>
       <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <span style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{label}</span>
+        <span className="explain-label-row">
+          <span style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{label}</span>
+          {info && <InfoDot explainKey={info} ctx={infoCtx} />}
+        </span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 26, fontWeight: 600, lineHeight: 1, color }}>
           {value}
         </span>
@@ -763,6 +769,11 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
   const needsAttention = [...gaps, ...unclear].sort((a, b) => (a.health || 0) - (b.health || 0));
   const healthy = [...established].sort((a, b) => (b.health || 0) - (a.health || 0));
 
+  // What the info icons and the legend quote: the counts on the tiles below.
+  const explainCtx = { clusters: clusters.length, gaps: gaps.length, unclear: unclear.length };
+  // The cluster list's "i" sits on whichever of its two sections comes first.
+  const attentionShown = needsAttention.length > 0 || unassigned.length > 0;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -782,6 +793,8 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
         <SummaryTile
           label="Topic clusters"
+          info="h_clusters"
+          infoCtx={explainCtx}
           value={clusters.length}
           color="var(--text)"
           iconBg="var(--primary)"
@@ -789,6 +802,8 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
         />
         <SummaryTile
           label="Healthy hubs"
+          info="h_healthy"
+          infoCtx={explainCtx}
           value={established.length}
           color="var(--primary-text)"
           iconBg="var(--primary)"
@@ -796,6 +811,8 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
         />
         <SummaryTile
           label="Missing hubs"
+          info="h_hubs"
+          infoCtx={explainCtx}
           value={gaps.length}
           color="var(--danger)"
           iconBg="var(--danger)"
@@ -803,6 +820,8 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
         />
         <SummaryTile
           label="Unclear hub"
+          info="h_unclear"
+          infoCtx={explainCtx}
           value={unclear.length}
           color="var(--warning)"
           iconBg="var(--warning)"
@@ -844,8 +863,11 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
       )}
 
       {(needsAttention.length > 0 || unassigned.length > 0) && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <SectionLabel color="var(--danger)">Needs attention</SectionLabel>
+        <div data-explain-box style={{ display: 'flex', flexDirection: 'column', gap: 12, borderRadius: 'var(--r-lg)' }}>
+          <span className="explain-label-row">
+            <SectionLabel color="var(--danger)">Needs attention</SectionLabel>
+            <InfoDot explainKey="h_table" ctx={explainCtx} />
+          </span>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {needsAttention.map((c) => (
               <ClusterRow
@@ -868,8 +890,11 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
       )}
 
       {healthy.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <SectionLabel color="var(--primary-text)">Healthy / established</SectionLabel>
+        <div data-explain-box={attentionShown ? undefined : ''} style={{ display: 'flex', flexDirection: 'column', gap: 12, borderRadius: 'var(--r-lg)' }}>
+          <span className="explain-label-row">
+            <SectionLabel color="var(--primary-text)">Healthy / established</SectionLabel>
+            {!attentionShown && <InfoDot explainKey="h_table" ctx={explainCtx} />}
+          </span>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {healthy.map((c) => (
               <ClusterRow
@@ -902,6 +927,7 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
           workIndex={workIndex} onWorkChanged={onWorkChanged}
         />
       )}
+      <Legend screen="hub" ctx={explainCtx} />
     </div>
   );
 }
