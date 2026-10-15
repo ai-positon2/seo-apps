@@ -257,11 +257,19 @@ const VIEWS = [
   { id: 'details', label: 'More Tech Details' },
 ];
 
+// Same page? Scheme, www, and a trailing slash are not a different page.
+const samePage = (a, b) => {
+  const key = (u) => String(u || '').replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '').toLowerCase();
+  return Boolean(a) && key(a) === key(b);
+};
+
 export default function SeoGeoAuditPage() {
   // 'loading' until ProjectReportBar has worked out whether this client has a
   // stored report, then 'report' or 'none'. Starting at 'loading' is the point —
   // the input form used to render on mount and be replaced a moment later.
   const [reportState, setReportState] = useState('loading');
+  // The stored page of a multi-page run currently loaded, if any (see onOpenReport).
+  const [storedScope, setStoredScope] = useState(null);
   const [view, setView] = useState('summary');
   // Set only when someone runs an audit on this screen. Opening a stored report
   // (restored, or read from the project) must not start paid work on its own.
@@ -311,7 +319,21 @@ export default function SeoGeoAuditPage() {
           `reset` on it goes back to auditing an ad-hoc URL. */}
       <ProjectReportBar
         moduleKey="seo_geo"
-        onOpenReport={(native) => ctl.hydrate(native)}
+        onOpenReport={(native, detail, page) => {
+          ctl.hydrate(native);
+          // Which page of a multi-page run this report is, and the run's averages,
+          // so the Summary can say "this page" beside the figure the dashboard
+          // card shows. Null for a run with one report.
+          const pages = detail?.pages || [];
+          setStoredScope(page && pages.length > 1 ? {
+            url: page.url,
+            number: Math.max(1, pages.findIndex((p) => p.id === page.id) + 1),
+            count: pages.length,
+            average: Number.isFinite(detail?.card?.score) ? detail.card.score : null,
+            seo: detail?.sideScores?.seo ?? null,
+            geo: detail?.sideScores?.geo ?? null,
+          } : null);
+        }}
         onResolved={setReportState}
       />
       <style>{'@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }'}</style>
@@ -401,7 +423,14 @@ export default function SeoGeoAuditPage() {
           <UnderlineTabs tabs={VIEWS} active={view} onSelect={setView} />
 
           {view === 'summary' && (
-            <SummaryView findings={findings} ai={ai} onOpenDetails={() => setView('details')} />
+            <SummaryView
+              findings={findings}
+              ai={ai}
+              onOpenDetails={() => setView('details')}
+              // Only while the report on screen IS that stored page: an ad-hoc
+              // audit run afterwards must not inherit its label.
+              scope={storedScope && samePage(storedScope.url, findings?.meta?.url) ? storedScope : null}
+            />
           )}
           {view === 'details' && (
             <DetailsView findings={findings} ai={ai} onPage={onPage} auditedUrl={auditedUrl} />

@@ -427,6 +427,16 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
           <Eyebrow>{homepageOnly ? 'Homepage score' : 'Site average'}</Eyebrow>
           <Text>
             {scored ? <strong>{card.score}/100</strong> : <em>not scored</em>}
+            {/* SEO & GEO: the same two averages the dashboard card shows, from the
+                same server function, so the card and this bar always agree. */}
+            {detail.sideScores && (
+              <>
+                {/* Neutral, like the site average beside them: this bar applies no
+                    score bands of its own (moduleDetail.test.js). */}
+                {' · '}SEO <strong>{detail.sideScores.seo ?? '—'}</strong>
+                {' · '}GEO <strong>{detail.sideScores.geo ?? '—'}</strong>
+              </>
+            )}
             {' '}
             <Dim>
               {homepageOnly ? 'homepage only' : scored

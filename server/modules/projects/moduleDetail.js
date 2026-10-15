@@ -314,6 +314,16 @@ async function buildModuleDetail({ access, moduleKey, domains = [] }) {
     ? await technicalDetail({ module, projectId, access })
     : await evidenceBackedDetail({ module, projectId, competitorCount: pricedCompetitorCount });
 
+  // SEO & GEO: the run's SEO and GEO averages, computed by the same function the
+  // dashboard card uses (overview.seoGeoSideScores), so the report's site average
+  // and the card can never show two different sets of numbers for one run.
+  if (module.key === 'seo_geo' && detail.run?.id && !detail.pagesFromInFlightRun) {
+    detail.sideScores = await overview.seoGeoSideScores(detail.pagesRunId || detail.run.id).catch((e) => {
+      console.warn('[moduleDetail] SEO/GEO averages unavailable:', e.message);
+      return null;
+    });
+  }
+
   if (pendingAutoDiscovery && detail.cost) {
     // Flagged rather than silently repriced, so the client can say "up to" —
     // the ceiling is real (discovery finds at most this many), but so is the

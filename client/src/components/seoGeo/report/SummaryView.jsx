@@ -39,7 +39,7 @@ const PLATFORMS = [
 // server-side, and not counted as passes or failures here either.
 const UNSCORED = new Set(['skipped', 'na', 'informational']);
 
-export default function SummaryView({ findings, ai, onOpenDetails }) {
+export default function SummaryView({ findings, ai, onOpenDetails, scope = null }) {
   const scores = findings?.scores || {};
   const summary = ai?.summary || null;
   const geo = ai?.geo_analysis || null;
@@ -100,35 +100,53 @@ export default function SummaryView({ findings, ai, onOpenDetails }) {
       + (composite !== null ? ` Uncapped composite is ${composite}.` : '')
     : 'No blocking cap applied.';
 
+  // What the headline card shows: the site average on one page of a multi-page
+  // run (matching the dashboard card), otherwise this report's own scores.
+  const siteView = Boolean(scope && Number.isFinite(scope.average));
+  const sideOf = (avg) => (Number.isFinite(avg) ? { score: avg, band: { label: ratingFor(avg).label } } : null);
+  const hero = siteView
+    ? { score: scope.average, ...ratingFor(scope.average), seo: sideOf(scope.seo), geo: sideOf(scope.geo) }
+    : { score: overall, label: bandLabel, blurb: bandBlurb, seo: scores.seo, geo: scores.geo };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
         {/* The score, at the size the design gives it — with the two sides it
             blends beside it, so "which is working" is answered in the first
-            card rather than further down. */}
+            card rather than further down.
+
+            On one page of a multi-page run the headline is the SITE AVERAGE — the
+            same three numbers the dashboard card shows, from the same server
+            function — and this page's own scores sit in the strip below it. Leading
+            with the page made the report and the card read as two different
+            results for one audit. */}
         <Panel pad="24px 28px" elevation="md" style={{ flexDirection: 'row', alignItems: 'center', gap: 28, flexWrap: 'wrap' }}>
-          <Donut score={overall} size={168} numberSize={42} />
+          <Donut score={hero.score} size={168} numberSize={42} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: '1 1 240px', minWidth: 0 }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              <Eyebrow>Overall score</Eyebrow>
+              <Eyebrow>{siteView ? `Site average · ${scope.count} pages` : 'Overall score'}</Eyebrow>
               <InfoTip label="How the overall score works">
-                <OverallExplainer breakdown={breakdown} cap={cap} composite={composite} overall={overall} bandLabel={bandLabel} seo={scores.seo} geo={scores.geo} />
+                {siteView
+                  ? <SiteAverageExplainer title="Site average" score={scope.average} count={scope.count} pageScore={overall} pageUrl={scope.url} />
+                  : <OverallExplainer breakdown={breakdown} cap={cap} composite={composite} overall={overall} bandLabel={bandLabel} seo={scores.seo} geo={scores.geo} />}
               </InfoTip>
             </span>
             <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>
-              {bandLabel || 'Not scored'}
+              {hero.label || 'Not scored'}
             </span>
-            {bandBlurb && (
+            {hero.blurb && (
               <span style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5, maxWidth: 460 }}>
-                {bandBlurb}
+                {hero.blurb}
               </span>
             )}
             <span style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.5, maxWidth: 460 }}>
-              {capNote}
+              {siteView
+                ? `The mean of the ${scope.count} audited pages’ scores — the same figure as the dashboard card.`
+                : capNote}
             </span>
           </div>
-          {(scores.seo || scores.geo) && (
+          {(hero.seo || hero.geo) && (
             <div
               style={{
                 display: 'flex', gap: 22, flexWrap: 'wrap', paddingLeft: 24,
@@ -136,18 +154,47 @@ export default function SummaryView({ findings, ai, onOpenDetails }) {
               }}
             >
               <SideScore
-                name="SEO" sub="Search engines" axis={scores.seo}
+                name="SEO" sub="Search engines" axis={hero.seo}
                 infoLabel="How the SEO score works"
-                info={<AxisExplainer title="SEO score" axis={scores.seo} what="Can search engines like Google find, index and rank this page?" />}
+                info={siteView
+                  ? <SiteAverageExplainer title="SEO · site average" score={scope.seo} count={scope.count} pageScore={scores.seo?.score} pageUrl={scope.url} />
+                  : <AxisExplainer title="SEO score" axis={scores.seo} what="Can search engines like Google find, index and rank this page?" />}
               />
               <SideScore
-                name="GEO" sub="AI answer engines" axis={scores.geo}
+                name="GEO" sub="AI answer engines" axis={hero.geo}
                 infoLabel="How the GEO score works"
-                info={<AxisExplainer title="GEO score" axis={scores.geo} engineTally={engineTally} what="Can AI answer engines (ChatGPT, Perplexity, Google AI Overviews, Gemini) read, trust and cite this page?" />}
+                info={siteView
+                  ? <SiteAverageExplainer title="GEO · site average" score={scope.geo} count={scope.count} pageScore={scores.geo?.score} pageUrl={scope.url} engineTally={engineTally} />
+                  : <AxisExplainer title="GEO score" axis={scores.geo} engineTally={engineTally} what="Can AI answer engines (ChatGPT, Perplexity, Google AI Overviews, Gemini) read, trust and cite this page?" />}
               />
             </div>
           )}
         </Panel>
+
+        {/* This page, within the run: its own three scores, introducing the
+            page-level detail that follows. */}
+        {siteView && (
+          <div
+            style={{
+              display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '12px 16px',
+              borderRadius: 12, background: 'var(--surface-2)', border: '1px solid var(--border)',
+            }}
+          >
+            <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: '1 1 260px' }}>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-3)' }}>
+                This page · {scope.number} of {scope.count} — the detail below is for this page
+              </span>
+              <span style={{ fontSize: 13, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {pathOf(scope.url)}
+              </span>
+            </span>
+            <span style={{ display: 'flex', alignItems: 'baseline', gap: 12, fontSize: 13, color: 'var(--text-2)' }}>
+              <span>Overall <strong className="num" style={{ color: bandColor(overall) }}>{overall ?? '—'}</strong></span>
+              {scores.seo && <span>SEO <strong className="num" style={{ color: bandColor(scores.seo.score) }}>{scores.seo.score}</strong></span>}
+              {scores.geo && <span>GEO <strong className="num" style={{ color: bandColor(scores.geo.score) }}>{scores.geo.score}</strong></span>}
+            </span>
+          </div>
+        )}
 
         {/* ── SEO and GEO, separately ─────────────────────────────────────────
             The bars each side is made of, weakest first: the "why" behind the
@@ -156,8 +203,8 @@ export default function SummaryView({ findings, ai, onOpenDetails }) {
             derived from its stored bars (withAxisScores) on the way here. */}
         {(scores.seo || scores.geo) && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-            <AxisCard title="What drives the SEO score" axis={scores.seo} />
-            <AxisCard title="What drives the GEO score" axis={scores.geo} />
+            <AxisCard title={siteView ? 'What drives this page’s SEO score' : 'What drives the SEO score'} axis={scores.seo} />
+            <AxisCard title={siteView ? 'What drives this page’s GEO score' : 'What drives the GEO score'} axis={scores.geo} />
           </div>
         )}
 
@@ -368,6 +415,53 @@ function SideScore({ name, sub, axis, info, infoLabel }) {
 }
 
 const pct = (w) => `${Math.round(w * 100)}%`;
+
+// The rating label for a 0–100 score: SCORE_BANDS in server/checks/seoGeoChecks.js,
+// for a figure the server did not label itself (an average across pages).
+const RATINGS = [
+  { min: 90, label: 'Excellent', blurb: 'No blocking issues. What remains is refinement.' },
+  { min: 75, label: 'Good', blurb: 'Technically sound, with a few real gaps worth fixing.' },
+  { min: 60, label: 'Needs work', blurb: 'Several real defects are limiting search and AI visibility.' },
+  { min: 40, label: 'Poor', blurb: 'Significant defects across multiple areas.' },
+  { min: 0, label: 'Critical', blurb: 'Blocking problems — fix these before anything else.' },
+];
+const ratingFor = (score) => {
+  const r = RATINGS.find((b) => (score ?? 0) >= b.min) || RATINGS[RATINGS.length - 1];
+  return { label: r.label, blurb: r.blurb };
+};
+
+// The "i" for a site-average figure: what it averages, and where this page sits.
+function SiteAverageExplainer({ title, score, count, pageScore, pageUrl, engineTally }) {
+  return (
+    <>
+      <TipHeader title={title} score={score} band={Number.isFinite(score) ? ratingFor(score).label : null} />
+      <span style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5 }}>
+        The mean across the {count} audited pages — the same number the dashboard card shows. Each
+        page is scored on its own; pick one in the bar above to see it.
+      </span>
+      {Number.isFinite(pageScore) && (
+        <TipCallout label="This page">
+          {pathOf(pageUrl)} scores <strong>{pageScore}</strong>. The breakdown below is for this page.
+        </TipCallout>
+      )}
+      {engineTally?.length > 0 && (
+        <TipSection label="AI engines on this page">
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {engineTally.map(([st, n]) => <StatusPill key={st} status={st} count={n} />)}
+          </div>
+        </TipSection>
+      )}
+    </>
+  );
+}
+
+// "/features" from a full URL; the homepage reads "/ (homepage)".
+const pathOf = (url) => {
+  try {
+    const p = new URL(url).pathname.replace(/\/+$/, '');
+    return p ? p : '/ (homepage)';
+  } catch { return url || ''; }
+};
 
 // ── Explainer popovers ──────────────────────────────────────────────────────
 // Laid out to be scanned, not read: a header with the number, one plain

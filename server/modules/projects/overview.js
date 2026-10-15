@@ -1629,6 +1629,7 @@ module.exports = {
   findingInstancesForRun,
   internalPageCount,
   internalCounts,
+  seoGeoSideScores,
   internalHtmlPageCount,
   technicalCard,
   siteHealth,
