@@ -1028,9 +1028,22 @@ test('missing traffic figures withhold the score', () => {
     { domain: 'rival.test', isClient: false, domainRank: { organicTraffic: 100 } },
   ]), null);
   assert.strictEqual(moduleRunners.competitorTrafficScore([
+    { domain: 'client.test', isClient: true, domainRank: { organicTraffic: 0 } },
+    { domain: 'rival.test', isClient: false, domainRank: { organicTraffic: 0 } },
+  ]), null, 'nobody measured any traffic: there is no comparison to score');
+});
+
+test('a client with traffic, against rivals all measured at zero, leads them all', () => {
+  // Zero cannot be a denominator, but the standing is not unknown: any traffic
+  // beats none. It used to withhold the score, and the card fell back to
+  // "0 findings" for a site that was plainly ahead.
+  const scored = moduleRunners.competitorTrafficScore([
     { domain: 'client.test', isClient: true, domainRank: { organicTraffic: 100 } },
     { domain: 'rival.test', isClient: false, domainRank: { organicTraffic: 0 } },
-  ]), null, 'a rival with zero traffic cannot be a denominator');
+  ]);
+  assert.strictEqual(scored.score, 100);
+  assert.strictEqual(scored.aheadOfAll, true);
+  assert.strictEqual(scored.strongestTraffic, 0);
 });
 
 test('a client with genuinely no traffic scores 0', () => {

@@ -64,6 +64,7 @@ const auditEvents = require('../../services/auditEvents');
 const identityStore = require('../../services/identityStore');
 const { resolveIdentity } = require('../../services/workspaceContext');
 const { isDatabaseConfigured } = require('../../services/db');
+const { withAxisScores } = require('../../checks/seoGeoChecks');
 
 const router = express.Router();
 
@@ -363,7 +364,7 @@ router.patch('/:projectId', async (req, res) => {
 router.delete('/:projectId', async (req, res) => {
   if (!requireConfigured(res)) return;
   try {
-    const access = await projectAccess.requireProject(req, req.params.projectId, 'editProjectSettings');
+    const access = await projectAccess.requireProject(req, req.params.projectId, 'deleteProject');
     const project = await store.deleteProject({ access, reason: req.body?.reason });
     res.json({ project });
   } catch (e) { handleError(res, e, 'delete'); }
@@ -372,7 +373,7 @@ router.delete('/:projectId', async (req, res) => {
 router.post('/:projectId/restore', async (req, res) => {
   if (!requireConfigured(res)) return;
   try {
-    const access = await projectAccess.requireProject(req, req.params.projectId, 'editProjectSettings', {
+    const access = await projectAccess.requireProject(req, req.params.projectId, 'deleteProject', {
       includeDeleted: true,
     });
     const project = await store.restoreProject({ access });
@@ -1481,8 +1482,11 @@ router.get('/:projectId/modules/pages/:pageRunId', async (req, res) => {
         error: page.error || null,
         finishedAt: page.finished_at,
         payloadTruncated: Boolean(page.payload_truncated),
-        // The module's own report for this page.
-        native: page.payload?.native || null,
+        // The module's own report for this page. A SEO & GEO page saved before it
+        // carried separate SEO/GEO scores gets them derived from its stored bars.
+        native: page.module_key === 'seo_geo' && page.payload?.native
+          ? withAxisScores(page.payload.native)
+          : page.payload?.native || null,
         payload: page.payload || null,
       },
     });

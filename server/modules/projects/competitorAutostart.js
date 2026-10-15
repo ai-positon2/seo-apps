@@ -315,6 +315,25 @@ async function scheduleCompetitorResearch({ access, domains = [], delayMs: delay
   }
 
   const wait = delayMs(delayOverride);
+
+  // Nothing claims the queue under MODULE_WORKER=off, so a queued comparison
+  // would sit at 'queued' forever — the competitor added later never ran and the
+  // card kept its old result. Started here instead, after the same coalescing
+  // window, so several competitors added together still produce one run.
+  if (!queueHasConsumer()) {
+    scheduleInProcess({ access, wait });
+    return answer({
+      scheduled: true,
+      reason: 'queued_in_process',
+      runId: null,
+      startsInSeconds: Math.round(wait / 1000),
+      competitorCount: active.length,
+      estimate,
+      note: `Competitor Research starts in about ${Math.round(wait / 1000)}s against `
+        + `${active.length || 'auto-discovered'} competitor${active.length === 1 ? '' : 's'}.`,
+    });
+  }
+
   const startAt = pending.queued
     ? coalescedStart(pending.queued, wait)
     : new Date(Date.now() + wait);
@@ -392,6 +411,31 @@ async function scheduleCompetitorResearch({ access, domains = [], delayMs: delay
         + 'Research card.',
     });
   }
+}
+
+/** Will anything claim a queued run? Same switch, same default, as server.js. */
+const queueHasConsumer = () => String(process.env.MODULE_WORKER || 'in-process').toLowerCase() !== 'off';
+
+// One pending in-process start per project. A new request inside the window
+// replaces the timer rather than adding a second run, and the run re-reads the
+// project's domains when it fires so it compares everything tracked by then.
+const inProcessTimers = new Map();
+function scheduleInProcess({ access, wait }) {
+  const projectId = access.project.id;
+  clearTimeout(inProcessTimers.get(projectId));
+  const timer = setTimeout(async () => {
+    inProcessTimers.delete(projectId);
+    try {
+      const store = require('./store');
+      const domains = await store.listDomains(projectId);
+      const active = domains.filter((d) => d.role === 'competitor' && d.status === 'active');
+      await runDetached({ access, domains, active, estimate: null });
+    } catch (e) {
+      console.error('[competitorAutostart] in-process start failed:', e.message);
+    }
+  }, wait);
+  timer.unref?.();
+  inProcessTimers.set(projectId, timer);
 }
 
 /**

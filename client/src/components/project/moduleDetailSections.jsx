@@ -68,7 +68,7 @@ function Caveats({ items }) {
 // ── technical ───────────────────────────────────────────────────────────────
 function TechnicalDetail({ payload, navigate }) {
   if (!payload) return null;
-  const { pagesCrawled, externalChecked, resultCount, robotsStatus, crawlRunId, reportAccess } = payload;
+  const { pagesCrawled, externalChecked, resultCount, robotsStatus, crawlRunId, reportAccess, probesChecked } = payload;
   // Null means the server could not check; the link is offered as before.
   const reportBlocked = reportAccess && reportAccess.ok === false;
 
@@ -80,6 +80,12 @@ function TechnicalDetail({ payload, navigate }) {
             working 50-URL cap look broken. */}
         <MetricCard label="Pages crawled" value={num(pagesCrawled)} sub="what the URL cap limits" />
         <MetricCard label="External links checked" value={num(externalChecked)} sub="capped separately" />
+        {/* Not pages: internal URLs past the page limit that crawled pages link
+            to, status-checked so a broken link is not missed. Shown apart so the
+            page count above stays within the limit that was set. */}
+        {probesChecked > 0 && (
+          <MetricCard label="Links past the limit" value={num(probesChecked)} sub="status-checked only, not crawled" />
+        )}
         <MetricCard label="Stored results" value={num(resultCount)} sub="pages + link checks" />
         <MetricCard label="robots.txt" value={robotsStatus || NOT_MEASURED} />
       </div>

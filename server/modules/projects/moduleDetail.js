@@ -18,6 +18,7 @@ const moduleEvidence = require('./moduleEvidence');
 const moduleRunners = require('./moduleRunners');
 const { isDatabaseConfigured } = require('../../services/db');
 const crawlCatalog = require('../crawlScope/issue-catalog.json');
+const { withAxisScores } = require('../../checks/seoGeoChecks');
 
 const CRAWL_RULES = new Map(crawlCatalog.map((rule) => [rule.id, rule]));
 
@@ -136,7 +137,11 @@ async function evidenceBackedDetail({ module, projectId, competitorCount }) {
     // Every finding, in the order the module reported severity-ranked. The card
     // shows four; this is the rest of them.
     findings: Array.isArray(terminal?.findings) ? terminal.findings : [],
-    payload: terminal?.payload || null,
+    // A SEO & GEO report saved before it carried separate SEO/GEO scores gets them
+    // derived from its own stored bars, so it does not need a re-run to show them.
+    payload: module.key === 'seo_geo' && terminal?.payload?.native
+      ? { ...terminal.payload, native: withAxisScores(terminal.payload.native) }
+      : terminal?.payload || null,
     payloadTruncated: Boolean(terminal?.payload_truncated),
     history: historyView(runs),
     cost: moduleRunners.estimateCost(module.key, { competitorCount }),
@@ -200,9 +205,9 @@ async function technicalDetail({ module, projectId, access }) {
   const terminal = crawlRuns.find((r) => ['completed', 'stopped'].includes(r.status)) || null;
   const inFlight = crawlRuns.find((r) => ['queued', 'running', 'paused'].includes(r.status)) || null;
 
-  const [findings, internalPages, htmlPages, affectedPageCounts] = await Promise.all([
+  const [findings, crawlCounts, htmlPages, affectedPageCounts] = await Promise.all([
     terminal ? overview.findingsForRun(terminal.id) : Promise.resolve([]),
-    terminal ? overview.internalPageCount(terminal.id) : Promise.resolve(null),
+    terminal ? overview.internalCounts(terminal.id) : Promise.resolve(null),
     terminal ? overview.internalHtmlPageCount(terminal.id) : Promise.resolve(null),
     // Without these the card fell back to run.summary.findings, which no run
     // has carried since migration 0023 — so any crawl with an error or warning
@@ -210,7 +215,9 @@ async function technicalDetail({ module, projectId, access }) {
     terminal ? overview.healthAffectedPages(terminal.id) : Promise.resolve(null),
   ]);
 
-  const card = overview.technicalCard(crawlRuns, findings, internalPages, htmlPages, [], affectedPageCounts);
+  const internalPages = crawlCounts ? crawlCounts.pages : null;
+  const probes = crawlCounts ? crawlCounts.probes : 0;
+  const card = overview.technicalCard(crawlRuns, findings, internalPages, htmlPages, [], affectedPageCounts, probes);
   const counts = terminal?.summary?.counts || {};
   const reportAccess = terminal ? await crawlReportAccess(terminal.id, access) : null;
   const resultCount = Number(terminal?.summary?.resultCount) || 0;
@@ -248,7 +255,9 @@ async function technicalDetail({ module, projectId, access }) {
     payload: terminal ? {
       crawlRunId: terminal.id,
       pagesCrawled: internalPages,
-      externalChecked: internalPages === null ? null : Math.max(0, resultCount - internalPages),
+      externalChecked: internalPages === null ? null : Math.max(0, resultCount - internalPages - probes),
+      // Internal URLs past the page limit, status-checked for broken links only.
+      probesChecked: probes,
       resultCount,
       robotsStatus: terminal.summary?.robotsStatus || null,
       elapsedMs: terminal.summary?.elapsed || null,

@@ -326,7 +326,7 @@ async function autoDiscoverCompetitors({ access, project, primary, existingCompe
   };
 }
 
-async function runCompetitor({ access, project, domains }) {
+async function runCompetitor({ access, run, project, domains }) {
   let competitors = (domains || []).filter((d) => d.role === 'competitor' && d.status === 'active');
   const primary = (domains || []).find((d) => d.role === 'primary' && d.status === 'active');
 
@@ -490,7 +490,13 @@ async function runCompetitor({ access, project, domains }) {
   // likely just run this exact comparison. Reusing its snapshot is what makes the
   // card show the analysis that already exists, rather than paying SEMrush a
   // second time for the same numbers.
-  const reused = adoptedFrom ? await reusableSnapshot(adoptedFrom.id, client) : null;
+  //
+  // An automatic run (a competitor was just added, or the screen just ran) may
+  // reuse the screen's snapshot too, when it covers exactly this site and these
+  // competitors — that is the screen's own run of this same comparison, minutes
+  // old, and paying for it twice buys nothing. A manual Re-run always fetches.
+  const reuseFrom = adoptedFrom || (run?.trigger === 'auto_setup' ? clientRecord : null);
+  const reused = reuseFrom ? await reusableSnapshot(reuseFrom.id, client) : null;
   const snapshot = reused || await fetchClientDashboardData(client, null, MAX_UNITS_PER_RUN);
   if (reused) {
     autoDiscoveryNote += `Reused the Competitor Analysis run from ${reused.capturedAt} — no new SEMrush units spent. `;
@@ -1413,8 +1419,22 @@ function competitorTrafficScore(domains) {
   if (!client || !rivals.length) return null;
 
   const strongest = rivals.reduce((best, d) => (d.traffic > best.traffic ? d : best), rivals[0]);
-  // A competitor with no measured traffic cannot be a denominator.
-  if (!strongest.traffic) return null;
+  // Every tracked competitor measured at zero. Zero cannot be a denominator, but
+  // the comparison is not unknown: a site with any traffic is ahead of all of
+  // them, which is the ceiling (100). It used to return null, so the card showed
+  // "0 findings" and no score for a site that was plainly leading.
+  if (!strongest.traffic) {
+    if (!(client.traffic > 0)) return null;
+    return {
+      score: 100,
+      ratio: null,
+      clientTraffic: client.traffic,
+      clientDomain: client.domain,
+      strongestDomain: strongest.domain,
+      strongestTraffic: 0,
+      aheadOfAll: true,
+    };
+  }
 
   const ratio = client.traffic / strongest.traffic;
   return {

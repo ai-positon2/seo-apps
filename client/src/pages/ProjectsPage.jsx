@@ -230,6 +230,11 @@ function ProjectDetail({ project, capabilities, viewerUserId, onMutate, onOpenDa
   const [country, setCountry] = useState(project.countryCode || '');
   const [competitor, setCompetitor] = useState('');
   const [discovering, setDiscovering] = useState(false);
+  // Arriving from the dashboard's "Add a competitor": bring that section into view.
+  useEffect(() => {
+    if (window.location.hash !== '#competitors') return;
+    document.getElementById('competitors')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [project.id]);
   const [reason, setReason] = useState('');
   // Permanent deletion is behind a two-step: `purging` reveals the confirmation,
   // `purgeName` is the typed project name the server checks. Both reset when the
@@ -525,7 +530,9 @@ function ProjectDetail({ project, capabilities, viewerUserId, onMutate, onOpenDa
 
         <FadingRule />
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {/* `#competitors` is where the dashboard's Competitor Research card sends a
+            project with none tracked ("Add a competitor"). */}
+        <div id="competitors" style={{ display: 'flex', flexDirection: 'column', gap: 8, scrollMarginTop: 80 }}>
           <Muted>Competitors — used for comparative evidence only; their sites are never crawled.</Muted>
 
           {/* Awaiting a decision.
@@ -739,10 +746,10 @@ function ProjectDetail({ project, capabilities, viewerUserId, onMutate, onOpenDa
         </Card>
       )}
 
-      {/* Lifecycle — deleting is editProjectSettings (so a creator may delete
-          their own project); the permanent purge inside has its own stricter
-          gate and is NOT part of the creator grant. */}
-      {canEdit && (
+      {/* Lifecycle — deleting, restoring and permanently deleting are open to
+          every member (deleteProject / purgeProject); the server still requires
+          a project to be deleted, and its name typed, before it can be erased. */}
+      {(canEdit || capabilities.deleteProject === true) && (
         <Card style={{ padding: 18, gap: 10 }}>
           <SectionHead title="Lifecycle" right={deleted ? 'Deleted — recoverable' : 'Active'} />
           <Muted size={12.5}>

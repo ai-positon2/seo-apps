@@ -40,6 +40,24 @@ const BAND = [
 
 const bandColor = (score) => (BAND.find((b) => score >= b.min) || BAND[2]).color;
 
+// One side of the SEO & GEO split on the card: label, mini bar, number. Coloured
+// on the SEO & GEO report's own thresholds (75 / 60, the edges of its Good and
+// Needs work labels), so a side reads the same colour here as in the report.
+const sideColor = (score) => (score >= 75 ? 'var(--primary)' : score >= 60 ? 'var(--viz-warn)' : 'var(--viz-neg)');
+function SideScoreRow({ label, title, score }) {
+  const has = Number.isFinite(score);
+  const color = has ? sideColor(score) : 'var(--text-3)';
+  return (
+    <div title={`${label}: ${title}`} style={{ display: 'grid', gridTemplateColumns: '30px 52px 22px', alignItems: 'center', gap: 7 }}>
+      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', color: 'var(--text-2)' }}>{label}</span>
+      <span style={{ height: 5, borderRadius: 999, background: 'var(--border)', overflow: 'hidden' }}>
+        {has && <span style={{ display: 'block', height: '100%', width: `${Math.max(2, Math.min(100, score))}%`, background: color }} />}
+      </span>
+      <span className="num" style={{ fontSize: 13, fontWeight: 600, textAlign: 'right', color }}>{has ? score : '—'}</span>
+    </div>
+  );
+}
+
 /**
  * The card's headline number, its unit, and the colour both take.
  *
@@ -49,6 +67,9 @@ const bandColor = (score) => (BAND.find((b) => score >= b.min) || BAND[2]).color
  * rule — it has measured something, and a count is not a judgement.
  */
 function headlineNumber(module) {
+  if (module.status === 'needs_setup') {
+    return { text: '—', unit: 'no competitors yet', color: 'var(--text-3)', barWidth: null };
+  }
   if (module.scored && Number.isFinite(module.score)) {
     const score = Math.round(module.score);
     return {
@@ -115,7 +136,10 @@ export default function ModuleCard({ module, onRun }) {
   // claims it, and an enabled Run button during that minute invites a second
   // run of a module that bills per domain.
   const running = busy || isModuleInFlight(module.status);
-  const reportRoute = moduleReportRoute(module);
+  // A card that needs setup goes to where the setup is done, not to an empty report.
+  const reportRoute = module.setupLink
+    ? { path: module.setupLink, label: module.setupLabel || 'Set up' }
+    : moduleReportRoute(module);
 
   async function run(e) {
     // The whole card is a link. Running the module is the one thing on it that
@@ -235,15 +259,24 @@ export default function ModuleCard({ module, onRun }) {
         </div>
       </div>
 
-      {/* The number. */}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
-        <span
-          className="num"
-          style={{ fontSize: 40, fontWeight: 600, lineHeight: 1, color: number.color }}
-        >
-          {number.text}
-        </span>
-        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{number.unit}</span>
+      {/* The number — and, for SEO & GEO, the two sides it blends, so which one
+          is carrying the score is visible without opening the report. */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
+          <span
+            className="num"
+            style={{ fontSize: 40, fontWeight: 600, lineHeight: 1, color: number.color }}
+          >
+            {number.text}
+          </span>
+          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{number.unit}</span>
+        </div>
+        {module.sideScores && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
+            <SideScoreRow label="SEO" title="Search engines" score={module.sideScores.seo} />
+            <SideScoreRow label="GEO" title="AI answer engines" score={module.sideScores.geo} />
+          </div>
+        )}
       </div>
 
       {/* The bar is a fraction of 100, so only a scored module gets one. The
@@ -302,13 +335,28 @@ export default function ModuleCard({ module, onRun }) {
         }}
       >
         <Muted>
-          {module.updatedAt ? `Updated ${relativeTime(module.updatedAt)}` : 'Never run for this client'}
+          {module.status === 'needs_setup'
+            ? 'No competitors on this project'
+            : module.updatedAt ? `Updated ${relativeTime(module.updatedAt)}` : 'Never run for this client'}
         </Muted>
         {/* Kept from the card this replaces. The design's footer is the updated
             line alone, but re-running one module without re-running the whole
             audit is the only way to refresh a single card, and the alternative
             is a six-module audit to fix one stale number. */}
-        {canRun && (
+        {module.setupLink && (
+          <Link
+            to={module.setupLink}
+            style={{
+              position: 'relative', zIndex: 2, flexShrink: 0, textDecoration: 'none',
+              display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 10px',
+              borderRadius: 999, background: 'var(--primary)', color: 'var(--text-on-primary)',
+              fontFamily: 'var(--font-sans)', fontSize: 11.5, fontWeight: 600,
+            }}
+          >
+            {module.setupLabel || 'Set up'} →
+          </Link>
+        )}
+        {canRun && !module.setupLink && (
           <button
             type="button"
             onClick={run}

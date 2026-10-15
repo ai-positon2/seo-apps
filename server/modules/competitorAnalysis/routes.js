@@ -86,18 +86,31 @@ router.delete('/clients/:clientId', wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Adding or removing a competitor here also applies it to any project tracking
+// the same site, and re-runs that project's Competitor Research — after the
+// response, so this screen is never slowed or failed by it (projects/competitorSync).
+const syncProjects = (req, change) => {
+  require('../projects/competitorSync').syncFromCompetitorTool(req, change)
+    .catch((e) => console.error('[competitorAnalysis] project sync failed:', e.message));
+};
+
 router.post('/clients/:clientId/competitors', async (req, res) => {
   try {
     const competitor = await store.addCompetitor(req.params.clientId, req.body || {});
     res.json({ competitor });
-  } catch (err) { res.status(400).json({ error: err.message }); }
+    const client = await store.getClient(req.params.clientId).catch(() => null);
+    if (client) syncProjects(req, { clientDomain: client.domain, added: competitor.domain });
+  } catch (err) { if (!res.headersSent) res.status(400).json({ error: err.message }); }
 });
 
 router.delete('/clients/:clientId/competitors/:competitorId', async (req, res) => {
   try {
+    const before = await store.getClient(req.params.clientId).catch(() => null);
+    const removed = (before?.competitors || []).find((c) => c.id === req.params.competitorId);
     await store.removeCompetitor(req.params.clientId, req.params.competitorId);
     res.json({ ok: true });
-  } catch (err) { res.status(400).json({ error: err.message }); }
+    if (before && removed) syncProjects(req, { clientDomain: before.domain, removed: removed.domain });
+  } catch (err) { if (!res.headersSent) res.status(400).json({ error: err.message }); }
 });
 
 // Auto-discovers organic competitors — synchronous (one SEMrush call + up to
@@ -164,6 +177,12 @@ router.post('/clients/:clientId/run', wrap(async (req, res) => {
       const snapshot = await fetchClientDashboardData(client, previousSnapshot);
       await store.saveSnapshot(clientId, snapshot);
       runs.set(clientId, { status: 'done', error: null, startedAt: runs.get(clientId).startedAt, finishedAt: Date.now() });
+      // The project card for this site refreshes from this run (reusing its
+      // snapshot when the competitor set matches, so nothing is billed twice).
+      syncProjects(req, {
+        clientDomain: client.domain, rerun: true,
+        clientCompetitors: (client.competitors || []).map((c) => c.domain),
+      });
       run?.finish({ output: { clientId, clientName: client.name, competitors: client.competitors?.length ?? null } });
     } catch (err) {
       runs.set(clientId, { status: 'error', error: err.message, startedAt: runs.get(clientId)?.startedAt, finishedAt: Date.now() });

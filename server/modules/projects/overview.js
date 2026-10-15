@@ -533,17 +533,42 @@ async function healthAffectedPages(runId) {
   }
 }
 
-async function internalPageCount(runId) {
+/**
+ * A crawl's internal results, split into what its page budget covered and the
+ * probes past it.
+ *
+ * Past the budget the crawler still status-checks the internal URLs that crawled
+ * pages link to (`probe` rows, crawler.js#_processProbe, up to one per budgeted
+ * page) so a broken link is not missed because its target was over the limit.
+ * Those were counted as "pages crawled", so a crawl limited to 10,000 reported
+ * 11,000 and a 600-page limit would read ~1,200 — the limit looked ignored.
+ *
+ * Probes are only ever queued once the budget is spent, and the budget is never
+ * exceeded, so the budgeted count is exactly min(internal results, maxUrls). That
+ * keeps the index-only count (0043) instead of reading every row to find probes.
+ */
+async function internalCounts(runId) {
   try {
-    return await db.count(
-      `select count(*) from crawl_run_results
-        where run_id = $1 and data->>'scope' = 'Internal'`,
+    const row = await db.maybeOne(
+      `select (select count(*) from crawl_run_results
+                where run_id = $1 and data->>'scope' = 'Internal')::int as internal,
+              (select case when options->>'maxUrls' ~ '^[0-9]+$' then (options->>'maxUrls')::int end
+                 from crawl_runs where id = $1) as max_urls`,
       [runId]
     );
+    const internal = Number(row?.internal) || 0;
+    const pages = Number.isFinite(row?.max_urls) && row.max_urls > 0 ? Math.min(internal, row.max_urls) : internal;
+    return { internal, pages, probes: internal - pages };
   } catch (error) {
-    console.error('[projects.overview.internalPageCount]', error.message);
+    console.error('[projects.overview.internalCounts]', error.message);
     return null;
   }
+}
+
+/** Pages the crawl's budget covered — what "pages crawled" means, and what maxUrls caps. */
+async function internalPageCount(runId) {
+  const counts = await internalCounts(runId);
+  return counts ? counts.pages : null;
 }
 
 /**
@@ -891,7 +916,7 @@ const SITE_HEALTH_BASIS = 'the site crawl\'s own health score (v5, audited inter
   + 'External pages, redirects, error pages and pages that refused the crawler (bot protection, rate '
   + 'limiting) are not scored, so the score describes the pages of your site that were audited';
 
-function technicalCard(runs, findings, internalPages = null, internalHtmlPages = null, findingInstances = [], affectedPageCounts = null) {
+function technicalCard(runs, findings, internalPages = null, internalHtmlPages = null, findingInstances = [], affectedPageCounts = null, probes = 0) {
   const module = MODULES[0];
   const terminal = runs.find((r) => ['completed', 'stopped'].includes(r.status));
   const inFlight = runs.find((r) => ['queued', 'running', 'paused'].includes(r.status));
@@ -963,7 +988,8 @@ function technicalCard(runs, findings, internalPages = null, internalHtmlPages =
   const notices = Number(counts.notice) || 0;
   const results = Number(terminal.summary?.resultCount) || 0;
   const pages = Number.isFinite(internalPages) && internalPages !== null ? internalPages : null;
-  const external = pages === null ? null : Math.max(0, results - pages);
+  // Probes are internal URLs status-checked past the budget, not external links.
+  const external = pages === null ? null : Math.max(0, results - pages - (Number(probes) || 0));
 
   const top = [...findings]
     .sort((a, b) => (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9) || b.count - a.count)
@@ -1052,6 +1078,45 @@ function cardLine(text, max = 96) {
   const cut = clean.slice(0, max);
   const lastSpace = cut.lastIndexOf(' ');
   return `${(lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
+}
+
+/**
+ * SEO and GEO sub-scores for one SEO & GEO run: each side's mean across the run's
+ * scored pages, the same way the card's headline is the mean of page scores.
+ * Reads only each page's stored score summary, never the full report. A page
+ * saved before the split had it derived from its stored bars (withAxisScores),
+ * so older runs show it too. Null when no page carries a breakdown.
+ */
+async function seoGeoSideScores(runId) {
+  const { withAxisScores } = require('../../checks/seoGeoChecks');
+  // The answerability check (T3) rides along: it gates the GEO side (geoGates in
+  // seoGeoChecks.js), and without it a saved page would show its ungated GEO here
+  // while its own report showed the gated one.
+  const t3 = `(select jsonb_agg(c) from jsonb_array_elements(payload->'native'->'findings'->'checks') c
+                where c->>'id' = 'T3') as checks`;
+  let source = await db.rows(
+    `select payload->'native'->'findings'->'scores' as scores, ${t3}
+       from project_module_page_runs
+      where run_id = $1 and status = 'completed'`,
+    [runId]
+  );
+  source = source.filter((r) => r.scores);
+  if (!source.length) {
+    const own = await db.maybeOne(
+      `select payload->'native'->'findings'->'scores' as scores, ${t3} from project_module_runs where id = $1`,
+      [runId]
+    );
+    if (own?.scores) source = [own];
+  }
+  const sides = source.map(({ scores, checks }) => (
+    withAxisScores({ findings: { scores, checks: checks || [] } }).findings.scores));
+  const mean = (key) => {
+    const values = sides.map((s) => s?.[key]?.score).filter(Number.isFinite);
+    return values.length ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : null;
+  };
+  const seo = mean('seo');
+  const geo = mean('geo');
+  return seo === null && geo === null ? null : { seo, geo, pages: sides.length };
 }
 
 function evidenceCard(module, entry) {
@@ -1422,9 +1487,9 @@ async function buildOverview({ access }) {
   ]);
 
   const latestTerminal = crawlRuns.find((r) => ['completed', 'stopped'].includes(r.status));
-  const [findings, internalPages, internalHtmlPages, affectedPageCounts, evidenceByModule] = await Promise.all([
+  const [findings, crawlCounts, internalHtmlPages, affectedPageCounts, evidenceByModule] = await Promise.all([
     latestTerminal ? findingsForRun(latestTerminal.id) : Promise.resolve([]),
-    latestTerminal ? internalPageCount(latestTerminal.id) : Promise.resolve(null),
+    latestTerminal ? internalCounts(latestTerminal.id) : Promise.resolve(null),
     latestTerminal ? internalHtmlPageCount(latestTerminal.id) : Promise.resolve(null),
     // The only thing this feeds is siteHealth's count of distinct affected
     // pages per severity, so it is counted in the database: three rows instead
@@ -1465,13 +1530,26 @@ async function buildOverview({ access }) {
   );
 
   const modules = [
-    technicalCard(crawlRuns, findings, internalPages, internalHtmlPages, [], affectedPageCounts),
+    technicalCard(crawlRuns, findings, crawlCounts?.pages ?? null, internalHtmlPages, [], affectedPageCounts, crawlCounts?.probes || 0),
     ...MODULES.slice(1).map((module) => {
       const entry = evidenceByModule.get(module.key);
       if (entry && (entry.terminal || entry.inFlight)) return evidenceCard(module, entry);
       return module.runnable ? evidenceCard(module, null) : pendingCard(module);
     }),
   ];
+
+  // The SEO & GEO card also shows its two sides — SEO (search) and GEO (AI
+  // answers) — averaged over the same pages its headline averages. Only for a
+  // finished run: a run in flight shows its moving mean and nothing else.
+  const seoGeoIndex = modules.findIndex((m) => m.key === 'seo_geo');
+  const seoGeoEntry = evidenceByModule.get('seo_geo');
+  if (seoGeoIndex >= 0 && seoGeoEntry?.terminal && !seoGeoEntry.inFlight && modules[seoGeoIndex].scored) {
+    const sides = await seoGeoSideScores(seoGeoEntry.terminal.id).catch((e) => {
+      console.error('[projects.overview.seoGeoSides]', e.message);
+      return null;
+    });
+    if (sides) modules[seoGeoIndex] = { ...modules[seoGeoIndex], sideScores: sides };
+  }
 
   // Only when the project itself has no competitor run. A real project run is
   // always the better evidence — it is stored, dated, and exportable — so this
@@ -1484,6 +1562,32 @@ async function buildOverview({ access }) {
       return null;
     });
     if (fromTool) modules[competitorIndex] = { ...modules[competitorIndex], ...fromTool };
+  }
+
+  // No competitor at all — none tracked, none awaiting approval, nothing running.
+  // The card asks for one instead of showing a stale or empty result: Competitor
+  // Research has nothing to measure until somebody picks who to measure against,
+  // and adding one (here or on the Competitor Analysis screen) starts the run.
+  const competitorAt = modules.findIndex((m) => m.key === 'competitor');
+  const competitorEntry = evidenceByModule.get('competitor');
+  // A card already filled from the Competitor Analysis screen's own run of this
+  // site (competitorCardFromTool) is real evidence and is left as it is.
+  if (competitorAt >= 0 && !competitorEntry?.inFlight
+    && modules[competitorAt].source !== 'competitor_analysis_tool'
+    && !(project.competitors || []).length && !(project.proposedCompetitors || []).length) {
+    modules[competitorAt] = {
+      ...modules[competitorAt],
+      status: 'needs_setup',
+      scored: false,
+      score: null,
+      evidence: null,
+      partial: false,
+      headline: 'Add a competitor to start',
+      detail: 'Pick the sites to compare against, or let AI find them. The comparison runs on its own '
+        + 'as soon as one is added.',
+      setupLink: '/projects#competitors',
+      setupLabel: 'Add competitor',
+    };
   }
 
   // Counted from the same evidence the cards were built from, so the bar and the
@@ -1524,6 +1628,7 @@ module.exports = {
   findingsForRun,
   findingInstancesForRun,
   internalPageCount,
+  internalCounts,
   internalHtmlPageCount,
   technicalCard,
   siteHealth,

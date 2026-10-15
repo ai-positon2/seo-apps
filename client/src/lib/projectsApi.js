@@ -378,6 +378,8 @@ export const MODULE_STATUS_LABEL = {
   cancelled: 'Cancelled',
   failed: 'Failed',
   insufficient_data: 'Insufficient data',
+  // Nothing to run against yet — e.g. Competitor Research with no competitor.
+  needs_setup: 'Needs setup',
 };
 
 /**
@@ -400,6 +402,7 @@ export const MODULE_STATUS_TONE = {
   not_run: 'muted',
   queued: 'muted',
   insufficient_data: 'muted',
+  needs_setup: 'warn',
   running: 'accent',
   paused: 'warn',
   completed: 'accent',

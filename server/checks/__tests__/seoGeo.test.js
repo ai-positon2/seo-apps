@@ -12,7 +12,7 @@ const path = require('path');
 
 const KWM = require('../keywordMatch');
 const cheerio = require('cheerio');
-const { runAllChecks, calculateScores, resolvePageIntent, computeAnswerability,
+const { runAllChecks, calculateScores, withAxisScores, resolvePageIntent, computeAnswerability,
   summarizeLocalBusiness, toSameAsArray, validateOpeningHours, extractSchemaBlocks,
   countStatistics, contentOnlyText, detectPageType } = require('../seoGeoChecks');
 
@@ -508,6 +508,35 @@ group('integration — the real Arlington page (the page in the reported audit)'
       assert.strictEqual(informational.checks.find(c => c.id === id).status, 'na',
         `${id} must be na for an informational page`);
     }
+  });
+
+  group('SEO / GEO split');
+  const mk = (id, category, status, value) => ({ id, category, status, severity: status === 'fail' ? 'error' : status, value });
+  const clean = [mk('A3', 'Title Tag', 'pass'), mk('E2', 'Headings', 'pass'), mk('J1', 'Schema', 'pass'),
+    mk('G1', 'GEO Signals', 'pass'), mk('H1', 'E-E-A-T', 'pass')];
+  const withAns = (n) => calculateScores([...clean,
+    mk('T3', 'GEO Signals', n >= 7 ? 'pass' : n < 4 ? 'warning' : 'notice', `${n}/10`)]);
+
+  test('a page AI engines cannot answer from is never a "Good" GEO score', () => {
+    assert.strictEqual(withAns(8).geo.cap, null, 'answerability 7+ is GEO ready: no cap');
+    assert.strictEqual(withAns(5).geo.score, 74, 'answerability 4-6 caps GEO at the top of "Needs work"');
+    assert.strictEqual(withAns(3).geo.score, 55, 'answerability below 4 caps GEO at "Poor"');
+    assert.ok(withAns(5).geo.composite > 74, 'the cap is what lowers it, not the bars');
+  });
+
+  test('the answerability gate is GEO-only and leaves the headline alone', () => {
+    const s = withAns(2);
+    assert.strictEqual(s.seo.cap, null, 'SEO is not capped by answerability');
+    assert.strictEqual(s.overall, s.composite, 'the headline has no answerability cap');
+  });
+
+  test('a saved report without the split is gated the same way as a fresh one', () => {
+    const fresh = withAns(5);
+    const saved = { ...fresh, seo: undefined, geo: undefined };
+    const checks = [...clean, mk('T3', 'GEO Signals', 'notice', '5/10')];
+    const derived = withAxisScores({ findings: { scores: saved, checks } }).findings.scores;
+    assert.strictEqual(derived.geo.score, fresh.geo.score);
+    assert.strictEqual(derived.seo.score, fresh.seo.score);
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

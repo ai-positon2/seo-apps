@@ -156,7 +156,7 @@ test('the creator grant covers editing and nothing else', () => {
   // Approving, destroying and workspace administration are not yours just
   // because you made the project.
   for (const capability of [
-    'approveRecommendation', 'overrideMachineOutcome', 'purgeProject',
+    'approveRecommendation', 'overrideMachineOutcome',
     'manageWorkspaceMembers', 'configureLimits', 'transferOwnership',
   ]) {
     assert.strictEqual(ctx.can(capability), false, `creator must not gain ${capability}`);
@@ -206,18 +206,17 @@ test('a platform administrator does not inherit ownership-only workspace acts', 
   assert.strictEqual(projectAccess.capabilityFor('contributor', 'restorePendingDeletion', { platformAdmin: true }), false);
 });
 
-test('permanently deleting a project stops at admin and owner', () => {
-  // Deliberately narrower than editProjectSettings, which an approver holds: an
-  // approver may delete a project, which a restore undoes, but not erase it.
-  assert.strictEqual(projectAccess.capabilityFor('owner', 'purgeProject'), true);
-  assert.strictEqual(projectAccess.capabilityFor('admin', 'purgeProject'), true);
-  assert.strictEqual(projectAccess.capabilityFor('approver', 'purgeProject'), false);
-  assert.strictEqual(projectAccess.capabilityFor('contributor', 'purgeProject'), false);
-  // And withheld from a platform administrator, like the workspace lifecycle
-  // acts above — seeing every workspace is not the same as being entitled to
-  // destroy a customer's crawl history.
-  assert.strictEqual(projectAccess.capabilityFor('owner', 'purgeProject', { platformAdmin: true }), true);
-  assert.strictEqual(projectAccess.capabilityFor('contributor', 'purgeProject', { platformAdmin: true }), false);
+test('every role may delete, restore and permanently delete a project', () => {
+  // Product decision (2026-10-15): permanent deletion is no longer admin-only.
+  // The guards that remain are in store.purgeProject (already deleted, exact
+  // name typed), covered by projectPurge.test.js.
+  for (const role of ['contributor', 'approver', 'admin', 'owner']) {
+    assert.strictEqual(projectAccess.capabilityFor(role, 'deleteProject'), true, `${role} deleteProject`);
+    assert.strictEqual(projectAccess.capabilityFor(role, 'purgeProject'), true, `${role} purgeProject`);
+  }
+  assert.strictEqual(projectAccess.capabilityFor('contributor', 'purgeProject', { platformAdmin: true }), true);
+  // Deleting a project does not open its settings: a contributor still cannot edit them.
+  assert.strictEqual(projectAccess.capabilityFor('contributor', 'editProjectSettings'), false);
 });
 
 test('an unknown capability name denies instead of defaulting open', () => {

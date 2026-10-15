@@ -1834,32 +1834,38 @@ function checkPoints(c) {
   return null;
 }
 
+// `axis` splits the same bars into two sub-scores, so a reader can see WHICH side is
+// weak rather than one blended number: 'seo' is whether search engines can find, index
+// and rank the page; 'geo' is whether answer engines can read, trust and cite it
+// (structured data, answerability/GEO signals, E-E-A-T). Each bar is on exactly one side,
+// and each side is the same weighted mean as the headline, over its own bars — so the
+// two sub-scores are reproducible from the bars they list, like the headline is.
 // Every scoring category lands in exactly one bar. Previously 11 of 22 categories — 41% of all
 // checks, including every keyword check — fed the headline while appearing in no bar at all.
 const SCORE_BUCKETS = [
-  { key:'title_meta',        label:'Title & Meta',            weight:0.14, categories:['Title Tag','Meta Description','Open Graph'] },
-  { key:'content_structure', label:'Content & Structure',     weight:0.20, categories:['Headings','Content Quality','Semantic HTML'] },
-  { key:'indexability',      label:'Indexability',            weight:0.14, categories:['Meta Robots','Canonical','Hreflang'] },
-  { key:'schema',            label:'Schema',                  weight:0.13, categories:['Schema'] },
-  { key:'geo_signals',       label:'GEO Signals',             weight:0.13, categories:['GEO Signals'] },
-  { key:'eeat',              label:'E-E-A-T',                 weight:0.10, categories:['E-E-A-T'] },
-  { key:'technical',         label:'Technical & Performance', weight:0.09, categories:['Technical','URL Signals','Page Speed','Security','Miscellaneous'] },
-  { key:'links_media',       label:'Links & Media',           weight:0.07, categories:['Images','Internal Links','External Links','Accessibility'] },
-  { key:'keyword',           label:'Keyword Targeting',       weight:0.12, categories:['Keyword Analysis'] },
+  { key:'title_meta',        label:'Title & Meta',            weight:0.14, axis:'seo', categories:['Title Tag','Meta Description','Open Graph'] },
+  { key:'content_structure', label:'Content & Structure',     weight:0.20, axis:'seo', categories:['Headings','Content Quality','Semantic HTML'] },
+  { key:'indexability',      label:'Indexability',            weight:0.14, axis:'seo', categories:['Meta Robots','Canonical','Hreflang'] },
+  { key:'schema',            label:'Schema',                  weight:0.13, axis:'geo', categories:['Schema'] },
+  { key:'geo_signals',       label:'GEO Signals',             weight:0.13, axis:'geo', categories:['GEO Signals'] },
+  { key:'eeat',              label:'E-E-A-T',                 weight:0.10, axis:'geo', categories:['E-E-A-T'] },
+  { key:'technical',         label:'Technical & Performance', weight:0.09, axis:'seo', categories:['Technical','URL Signals','Page Speed','Security','Miscellaneous'] },
+  { key:'links_media',       label:'Links & Media',           weight:0.07, axis:'seo', categories:['Images','Internal Links','External Links','Accessibility'] },
+  { key:'keyword',           label:'Keyword Targeting',       weight:0.12, axis:'seo', categories:['Keyword Analysis'] },
 ];
 const CATEGORY_TO_BUCKET = SCORE_BUCKETS.reduce((m, b) => { for (const c of b.categories) m[c] = b.key; return m; }, {});
 
 // A weighted mean over a defect detector cannot go low on its own: a noindex page still averages ~85.
 // Grouped so one defect firing several checks caps once.
 const BLOCKER_GROUPS = [
-  { id:'noindex',            cap:25, ids:['C1','C3'], reason:'Page carries a noindex directive — it cannot rank or be cited.' },
-  { id:'meta_refresh',       cap:40, ids:['C10'],     reason:'Meta refresh with delay=0 acts as a hard redirect.' },
-  { id:'thin_content',       cap:50, ids:['F2'],      reason:'Content is critically thin — too little to rank or to ground an AI answer.' },
-  { id:'no_title',           cap:60, ids:['A1','A2'], reason:'No usable title element — the primary ranking and snippet surface is absent.' },
-  { id:'no_h1',              cap:65, ids:['E1','E3'], reason:'No usable H1.' },
-  { id:'no_viewport',        cap:65, ids:['M5','M6'], reason:'No mobile viewport — fails mobile-first indexing.' },
-  { id:'canonical_conflict', cap:70, ids:['D2'],      reason:'Multiple canonical tags — Google will ignore all of them.' },
-  { id:'invalid_jsonld',     cap:75, ids:['J3'],      reason:'JSON-LD fails to parse — no structured data reaches Google or LLMs.' },
+  { id:'noindex',            cap:25, axes:['seo','geo'], ids:['C1','C3'], reason:'Page carries a noindex directive — it cannot rank or be cited.' },
+  { id:'meta_refresh',       cap:40, axes:['seo','geo'], ids:['C10'],     reason:'Meta refresh with delay=0 acts as a hard redirect.' },
+  { id:'thin_content',       cap:50, axes:['seo','geo'], ids:['F2'],      reason:'Content is critically thin — too little to rank or to ground an AI answer.' },
+  { id:'no_title',           cap:60, axes:['seo'], ids:['A1','A2'], reason:'No usable title element — the primary ranking and snippet surface is absent.' },
+  { id:'no_h1',              cap:65, axes:['seo'], ids:['E1','E3'], reason:'No usable H1.' },
+  { id:'no_viewport',        cap:65, axes:['seo'], ids:['M5','M6'], reason:'No mobile viewport — fails mobile-first indexing.' },
+  { id:'canonical_conflict', cap:70, axes:['seo'], ids:['D2'],      reason:'Multiple canonical tags — Google will ignore all of them.' },
+  { id:'invalid_jsonld',     cap:75, axes:['geo'], ids:['J3'],      reason:'JSON-LD fails to parse — no structured data reaches Google or LLMs.' },
 ];
 
 const SCORE_BANDS = [
@@ -1914,7 +1920,7 @@ function calculateScores(checks, intent = 'informational') {
     // `categories` ships so the client can resolve a bar back to the exact checks that
     // scored it (for the click-through detail panel) without duplicating SCORE_BUCKETS
     // client-side, which would silently drift the moment a category is added here.
-    breakdown.push({ key:b.key, label:b.label, score, weight:b.weight, categories:[...b.categories], checks_scored:relevant.length, statuses:st });
+    breakdown.push({ key:b.key, label:b.label, axis:b.axis, score, weight:b.weight, categories:[...b.categories], checks_scored:relevant.length, statuses:st });
   }
   for (const b of SCORE_BUCKETS) if (!(b.key in flat)) flat[b.key] = null;
 
@@ -1945,6 +1951,8 @@ function calculateScores(checks, intent = 'informational') {
   return {
     overall,
     composite,
+    seo: axisScore(breakdown, triggered, 'seo'),
+    geo: axisScore(breakdown, [...triggered, ...geoGates(all)], 'geo'),
     // Legacy flat keys retained so existing consumers keep working.
     title_meta: flat.title_meta,
     content_structure: flat.content_structure,
@@ -1966,6 +1974,88 @@ function calculateScores(checks, intent = 'informational') {
       + (Math.abs(weightTotal - 1) > 1e-9 ? ` / ${weightTotal.toFixed(2)}` : '')
       + ` = ${composite}`,
     counts,
+  };
+}
+
+// The SEO and GEO sub-scores. Same mean, same caps as the headline, restricted to one
+// side's bars and to the blockers that actually stop that side (a missing H1 hurts
+// ranking; invalid JSON-LD hurts what an answer engine can read; noindex stops both).
+// `bars` are breakdown entries ({ key, label, score, weight }); `triggered` are
+// BLOCKER_GROUPS entries. The axis is looked up from SCORE_BUCKETS by key, so a stored
+// breakdown written before bars carried an axis splits exactly like a fresh one.
+const BUCKET_AXIS = SCORE_BUCKETS.reduce((m, b) => { m[b.key] = b.axis; return m; }, {});
+
+// GEO gates. A weighted mean over ~50 GEO checks cannot go low on its own: fifteen
+// passing schema checks out-vote the one finding that matters most, so a page an
+// answer engine cannot pull an answer from still averaged "Good" (80) while the
+// same audit's AI read called it not ready. The answerability rubric (T3) measures
+// exactly that question, so it caps the GEO side the way BLOCKER_GROUPS cap the
+// headline. Thresholds are T3's own: 7+ "GEO ready", 4-6 "needs work", <4 "not ready".
+// Deterministic and read from the stored check, so a saved report gates the same way.
+const AXIS_VERSION = 2;
+function geoGates(checks) {
+  const t3 = (checks || []).find((c) => c && c.id === 'T3');
+  const m = t3 && String(t3.value ?? t3.detail ?? '').match(/(\d+(?:\.\d+)?)\s*\/\s*10/);
+  if (!m) return [];
+  const ans = Number(m[1]);
+  if (ans >= 7) return [];
+  return [{
+    id: 'answerability',
+    axes: ['geo'],
+    cap: ans < 4 ? 55 : 74,
+    reason: `Answerability is ${ans}/10 — AI engines cannot reliably pull a direct answer from this page${ans < 4 ? '' : ' yet'}.`,
+  }];
+}
+function axisScore(breakdown, triggered, axis) {
+  const bars = (breakdown || []).filter(b => (b.axis || BUCKET_AXIS[b.key]) === axis && Number.isFinite(b.score));
+  const wt = bars.reduce((s, b) => s + b.weight, 0);
+  if (!(wt > 0)) return null;
+  const axisComposite = Math.round(bars.reduce((s, b) => s + b.weight * b.score, 0) / wt);
+  const blockers = triggered.filter(g => g.axes.includes(axis));
+  const axisCap = blockers.length
+    ? Math.max(10, Math.min(...blockers.map(g => g.cap)) - 5 * (blockers.length - 1))
+    : null;
+  const score = axisCap === null ? axisComposite : Math.min(axisComposite, axisCap);
+  const axisBand = SCORE_BANDS.find(b => score >= b.min) || SCORE_BANDS[SCORE_BANDS.length - 1];
+  // The bar costing this side the most weighted points — what fixing first recovers most.
+  const weakest = bars.filter(b => b.score < 100)
+    .sort((a, b) => b.weight * (100 - b.score) - a.weight * (100 - a.score))[0] || null;
+  return {
+    v: AXIS_VERSION,
+    score,
+    composite: axisComposite,
+    band: { label: axisBand.label, blurb: axisBand.blurb },
+    buckets: bars.map(b => ({ key: b.key, label: b.label, score: b.score, weight: Math.round((b.weight / wt) * 1000) / 1000 })),
+    weakest: weakest ? { key: weakest.key, label: weakest.label, score: weakest.score } : null,
+    cap: blockers.length
+      ? { applied: score < axisComposite, value: axisCap, reasons: blockers.map(g => g.reason) }
+      : null,
+  };
+}
+
+/**
+ * Adds scores.seo / scores.geo to a report stored before they existed (or before
+ * the current AXIS_VERSION), from what it already stored: its bar scores, the
+ * blocker groups that fired, and its answerability check (geoGates). Nothing is
+ * re-audited and the stored headline is untouched. Returns the report unchanged when
+ * it already has the split or has no breakdown to derive one from.
+ */
+function withAxisScores(report) {
+  const scores = report?.findings?.scores;
+  if (!scores || scores.geo?.v === AXIS_VERSION || !Array.isArray(scores.breakdown) || !scores.breakdown.length) return report;
+  const firedIds = new Set((scores.cap?.groups || []).map(g => g.id));
+  const triggered = BLOCKER_GROUPS.filter(g => firedIds.has(g.id));
+  const gates = geoGates(report.findings.checks);
+  return {
+    ...report,
+    findings: {
+      ...report.findings,
+      scores: {
+        ...scores,
+        seo: axisScore(scores.breakdown, triggered, 'seo'),
+        geo: axisScore(scores.breakdown, [...triggered, ...gates], 'geo'),
+      },
+    },
   };
 }
 
@@ -2706,7 +2796,7 @@ async function runAllChecks(rawHtml, pageUrl, httpHeaders, keywords = [], option
 module.exports = {
   runAllChecks, batchHttpChecks, headRequest,
   // exported for the zero-dependency test runner
-  calculateScores, resolvePageIntent, computeAnswerability, summarizeLocalBusiness,
+  calculateScores, withAxisScores, resolvePageIntent, computeAnswerability, summarizeLocalBusiness,
   toSameAsArray, validateOpeningHours, extractSchemaBlocks, SCORE_BUCKETS,
   countStatistics, contentOnlyText, detectPageType,
 };

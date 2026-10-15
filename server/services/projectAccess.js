@@ -72,13 +72,17 @@ const CAPABILITIES = {
   manageRecipients:            [false,       true,     true,  true,  true],
   manageWorkspaceMembers:      [false,       false,    true,  true,  true],
   configureLimits:             [false,       false,    false, false, true],
-  // Permanently destroying one project, like requesting a workspace deletion,
-  // stops at admin and owner and is withheld from a platform administrator: they
-  // can see every workspace, and that is not the same as being entitled to
-  // destroy a customer's crawl history. Deliberately narrower than
-  // editProjectSettings, which an approver holds — an approver may delete a
-  // project (recoverable) but not erase it.
-  purgeProject:                [false,       false,    true,  true,  false],
+  // Deleting a project (recoverable) and restoring it, open to every member.
+  // Its own capability rather than editProjectSettings so a contributor can take
+  // a project down — the step before a permanent delete — without also being
+  // able to change the settings colleagues rely on.
+  deleteProject:               [true,        true,     true,  true,  true],
+  // Permanently destroying one project: every role, by product decision
+  // (2026-10-15) — it used to stop at admin and owner. What still guards it is
+  // the act itself, enforced in store.purgeProject: the project must already be
+  // deleted, and the caller must type its exact name. The audit trail records
+  // who did it. Workspace deletion below is unchanged.
+  purgeProject:                [true,        true,     true,  true,  true],
   requestWorkspaceDeletion:    [false,       false,    true,  true,  false],
   restorePendingDeletion:      [false,       false,    true,  true,  false],
   transferOwnership:           [false,       false,    false, true,  true],

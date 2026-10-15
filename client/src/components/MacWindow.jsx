@@ -342,6 +342,14 @@ const ClientSwitcher = memo(function ClientSwitcher() {
   // crawl is still running). Repairing that at once bounced the header back to
   // the first client, so such a project could not be selected.
   const recheckedFor = useRef(null);
+
+  // Opening the menu brings the selected client into view, so with a long list
+  // the reader starts from where they are rather than from the top.
+  const listRef = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    listRef.current?.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest' });
+  }, [open]);
   useEffect(() => {
     if (refreshing) return;
     if (!active || active.id === activeProjectId) return;
@@ -392,8 +400,19 @@ const ClientSwitcher = memo(function ClientSwitcher() {
             background: 'var(--card)', border: '1px solid var(--border)',
             borderRadius: 'var(--r-md)', boxShadow: 'var(--shadow-md)',
             padding: 6, display: 'flex', flexDirection: 'column', gap: 2,
+            // Bounded by the window: with a dozen clients the list ran off the
+            // bottom of the screen with no way to reach the rest.
+            maxHeight: 'calc(100vh - 72px)',
           }}
         >
+          {/* Only the list scrolls; "Manage projects" stays pinned below it. */}
+          <div
+            ref={listRef}
+            style={{
+              display: 'flex', flexDirection: 'column', gap: 2, minHeight: 0,
+              overflowY: 'auto', overscrollBehavior: 'contain',
+            }}
+          >
           {projects.map((project) => {
             const isActive = active?.id === project.id;
             const ws = workspaces.find((w) => w.id === project.workspaceId);
@@ -401,8 +420,10 @@ const ClientSwitcher = memo(function ClientSwitcher() {
               <button
                 key={project.id}
                 role="menuitem"
+                data-active={isActive || undefined}
                 onClick={() => { setActiveProjectId(project.id); setOpen(false); navigate('/'); }}
                 style={{
+                  flexShrink: 0,
                   textAlign: 'left', border: 'none', cursor: 'pointer',
                   background: isActive ? 'var(--nav-active-bg)' : 'transparent',
                   color: 'var(--text)', padding: '7px 9px', borderRadius: 'var(--r-sm)',
@@ -423,7 +444,8 @@ const ClientSwitcher = memo(function ClientSwitcher() {
               </button>
             );
           })}
-          <div style={{ height: 1, background: 'var(--border)', margin: '4px 2px' }} />
+          </div>
+          <div style={{ height: 1, flexShrink: 0, background: 'var(--border)', margin: '4px 2px' }} />
           <button
             onClick={() => { setOpen(false); navigate('/projects'); }}
             style={{
