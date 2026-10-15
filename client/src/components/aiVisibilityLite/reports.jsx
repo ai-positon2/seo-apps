@@ -30,6 +30,7 @@ import geminiLogo from './logos/gemini.webp';
 import {
   SOURCE_TYPE_LABELS, PAGE_TYPE_LABELS, METRIC_INFO, engineLabel,
 } from './reportRegistry';
+import { InfoDot, Legend } from '../explain';
 
 // ── Shared pieces ──────────────────────────────────────────────────────────
 
@@ -266,27 +267,49 @@ function metricDetail(key, report) {
   }
 }
 
-/** One clickable KPI tile — visually a MetricCard, but a toggle button. */
-function ExpandableTile({ tileKey, label, metric, selected, onSelect }) {
+/**
+ * One clickable KPI tile — visually a MetricCard, but a toggle.
+ *
+ * The toggle is a button stretched over the tile rather than wrapped around it,
+ * so the info icon can sit above it as a sibling: a button inside a button is
+ * invalid markup. Same pattern as the dashboard's ModuleCard link.
+ */
+function ExpandableTile({ tileKey, label, metric, selected, onSelect, info, infoCtx }) {
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(tileKey)}
+    <div
+      data-explain-box
       style={{
-        textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit',
+        position: 'relative', textAlign: 'left',
         background: 'var(--card)',
         border: selected ? '1px solid var(--primary)' : '1px solid var(--border)',
         borderRadius: 'var(--r-lg)', padding: 16,
         display: 'flex', flexDirection: 'column', gap: 6,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-        <span style={{
-          fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 500,
-          textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)',
+      <button
+        type="button"
+        onClick={() => onSelect(tileKey)}
+        aria-expanded={selected}
+        aria-label={`${label}: ${metric ? metric.display : 'not measured'}. ${selected ? 'Hide' : 'Show'} the evidence`}
+        style={{
+          position: 'absolute', inset: 0, zIndex: 1, padding: 0, cursor: 'pointer',
+          background: 'transparent', border: 'none', borderRadius: 'var(--r-lg)',
         }}
-        >
-          {label}
+      />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+        <span className="explain-label-row">
+          <span style={{
+            fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 500,
+            textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)',
+          }}
+          >
+            {label}
+          </span>
+          {info && (
+            <span style={{ position: 'relative', zIndex: 2, display: 'inline-flex' }}>
+              <InfoDot explainKey={info} ctx={infoCtx} />
+            </span>
+          )}
         </span>
         <span style={{ fontSize: 10, color: selected ? 'var(--primary)' : 'var(--text-3)' }}>
           {selected ? '▲' : '▾'}
@@ -302,7 +325,7 @@ function ExpandableTile({ tileKey, label, metric, selected, onSelect }) {
       {metric?.note && (
         <span style={{ fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.35 }}>{metric.note}</span>
       )}
-    </button>
+    </div>
   );
 }
 
@@ -312,7 +335,7 @@ function ExpandableTile({ tileKey, label, metric, selected, onSelect }) {
  * and the metricDetail() branch, so adding a tile to a strip is one line as
  * long as `report` already carries what that key's detail needs.
  */
-function ExpandableMetricStrip({ tiles, report, min = 190 }) {
+function ExpandableMetricStrip({ tiles, report, min = 190, infoCtx }) {
   const [selected, setSelected] = useState(null);
   const active = tiles.find((t) => t.key === selected);
 
@@ -325,6 +348,8 @@ function ExpandableMetricStrip({ tiles, report, min = 190 }) {
             tileKey={t.key}
             label={t.label}
             metric={t.metric}
+            info={t.info}
+            infoCtx={infoCtx}
             selected={selected === t.key}
             onSelect={(k) => setSelected((cur) => (cur === k ? null : k))}
           />
@@ -498,6 +523,12 @@ export function OverviewReport({ report }) {
   const namedValue = report.headline.namedRate.value;
   const accent = stage ? stage.color : 'var(--text)';
 
+  // What the info icons and the legend quote — this report's own figures.
+  const explainCtx = {
+    answersMeasured: report.meta.answersMeasured,
+    client: clientRow ? { named: clientRow.named, answers: clientRow.answers } : null,
+  };
+
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       <Card style={{
@@ -545,12 +576,24 @@ export function OverviewReport({ report }) {
             </div>
           </div>
 
-          <ScoreRing score={report.headline.score.value} display={report.headline.score.display} color={accent} label={stage?.label} />
+          <div data-explain-box style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, borderRadius: 'var(--r-lg)' }}>
+            <ScoreRing score={report.headline.score.value} display={report.headline.score.display} color={accent} label={stage?.label} />
+            <span className="explain-label-row">
+              <Muted size={11.5}>How this score is built</Muted>
+              <InfoDot explainKey="l_score" ctx={explainCtx} />
+            </span>
+          </div>
         </div>
 
-        <div style={{ marginTop: 24 }}>
-          <EngineDotCards byEngine={report.byEngine} />
-        </div>
+        {report.byEngine?.length > 0 && (
+          <div data-explain-box style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 10, borderRadius: 'var(--r-lg)' }}>
+            <span className="explain-label-row">
+              <Kicker>By AI model</Kicker>
+              <InfoDot explainKey="l_engines" ctx={explainCtx} />
+            </span>
+            <EngineDotCards byEngine={report.byEngine} />
+          </div>
+        )}
 
         <FadingRule style={{ margin: '16px 0' }} />
 
@@ -558,12 +601,13 @@ export function OverviewReport({ report }) {
         <div style={{ marginTop: 10 }}>
           <ExpandableMetricStrip
             report={report}
+            infoCtx={explainCtx}
             tiles={[
-              { key: 'namedRate', label: 'Shows up in AI answers', metric: report.headline.namedRate },
-              { key: 'shareOfMentions', label: 'Share of the spotlight', metric: report.headline.shareOfMentions },
-              { key: 'citationRate', label: 'Trusted as a source', metric: report.headline.citationRate },
-              { key: 'mentionRank', label: 'Typical spot when named', metric: report.headline.mentionRank },
-              { key: 'groundedRate', label: 'Based on a live search', metric: report.headline.groundedRate },
+              { key: 'namedRate', label: 'Shows up in AI answers', metric: report.headline.namedRate, info: 'l_named' },
+              { key: 'shareOfMentions', label: 'Share of the spotlight', metric: report.headline.shareOfMentions, info: 'l_share' },
+              { key: 'citationRate', label: 'Trusted as a source', metric: report.headline.citationRate, info: 'l_cited' },
+              { key: 'mentionRank', label: 'Typical spot when named', metric: report.headline.mentionRank, info: 'l_rank' },
+              { key: 'groundedRate', label: 'Based on a live search', metric: report.headline.groundedRate, info: 'l_grounded' },
             ]}
           />
         </div>
@@ -573,8 +617,15 @@ export function OverviewReport({ report }) {
       </Card>
 
       {ranked.length >= 2 ? (
-        <Card style={{ padding: 18 }}>
-          <SectionHead title="Against the brands this project tracks" />
+        <Card style={{ padding: 18 }} data-explain-box>
+          <SectionHead
+            title={(
+              <span className="explain-label-row">
+                Against the brands this project tracks
+                <InfoDot explainKey="l_brands" ctx={explainCtx} />
+              </span>
+            )}
+          />
           <Muted size={11}>
             Counted in answers, not occurrences. Bars are relative to the brand named most.
           </Muted>
@@ -594,8 +645,15 @@ export function OverviewReport({ report }) {
       ) : null}
 
       <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))' }}>
-        <Card style={{ padding: 18 }}>
-          <SectionHead title="Prompts where you are least visible" />
+        <Card style={{ padding: 18 }} data-explain-box>
+          <SectionHead
+            title={(
+              <span className="explain-label-row">
+                Prompts where you are least visible
+                <InfoDot explainKey="l_weak" ctx={explainCtx} />
+              </span>
+            )}
+          />
           <Muted size={11}>
             Ranked by how often the models named you. Facts only — no recommendation.
           </Muted>
@@ -612,8 +670,16 @@ export function OverviewReport({ report }) {
           </div>
         </Card>
 
-        <Card style={{ padding: 18 }}>
-          <SectionHead title="Sources feeding competitors" right={<Muted size={11}>{report.gaps.total} total</Muted>} />
+        <Card style={{ padding: 18 }} data-explain-box>
+          <SectionHead
+            title={(
+              <span className="explain-label-row">
+                Sources feeding competitors
+                <InfoDot explainKey="l_gaps" ctx={explainCtx} />
+              </span>
+            )}
+            right={<Muted size={11}>{report.gaps.total} total</Muted>}
+          />
           <Muted size={11}>
             Sites the models read for answers that named a competitor and not you.
           </Muted>
@@ -641,6 +707,7 @@ export function OverviewReport({ report }) {
           </div>
         </Card>
       </div>
+      <Legend screen="aivisLite" ctx={explainCtx} />
     </div>
   );
 }

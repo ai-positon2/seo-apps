@@ -3,6 +3,8 @@ import ModuleRuns from '../components/ModuleRuns';
 import ProjectReportBar from '../components/project/ProjectReportBar';
 import ReportResolving from '../components/project/ReportResolving';
 import { useActiveProjectId } from '../lib/activeProject';
+import { scoreBandColor } from '../lib/scoreVerdict';
+import { InfoDot, Legend } from '../components/explain';
 
 const SC = {
   pass: { label: 'Pass', bg: 'var(--success-soft)', color: 'var(--success)', icon: '✓' },
@@ -183,8 +185,9 @@ function ScoreRing({ score, checkCount, size = 128 }) {
   }, [score]);
 
   const offset = circ * (1 - displayScore / 100);
-  // Use CSS variable names resolved via inline style trick; for SVG we need computed values
-  const ringColor = score >= 70 ? 'var(--success)' : score >= 45 ? 'var(--warning)' : 'var(--danger)';
+  // The dashboard's bands (80 / 60), so this ring and the dashboard card draw
+  // the same score in the same colour. It used to switch at 70 / 45.
+  const ringColor = scoreBandColor(score) || 'var(--text-3)';
 
   return (
     <svg width={size} height={size} viewBox="0 0 128 128"
@@ -204,8 +207,8 @@ function ScoreRing({ score, checkCount, size = 128 }) {
 
 // ─── CatBar component ─────────────────────────────────────────────────────────
 function CatBar({ cat }) {
-  const barColor = cat.score >= 70 ? 'var(--success)' : cat.score >= 45 ? 'var(--warning)' : 'var(--danger)';
-  const textColor = cat.score >= 70 ? 'var(--success)' : cat.score >= 45 ? 'var(--warning)' : 'var(--danger)';
+  const barColor = scoreBandColor(cat.score) || 'var(--text-3)';
+  const textColor = barColor;
   return (
     <div style={{ marginBottom: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
@@ -547,6 +550,16 @@ export default function AgentReadinessAuditPage() {
   const catFilters    = ['all', ...(result?.cats || []).map(c => c.id)];
   const hasOnPage     = onPageChecks.length > 0;
   const checkCount    = allChecks.length;
+  // The figures the info icons and the legend quote — this report's own.
+  const explainCtx = result ? {
+    score: result.site.score,
+    checkCount,
+    cats: (result.cats || []).map((c) => c.id),
+    level: result.site.level,
+    passCount,
+    failCount,
+    infoCount,
+  } : null;
 
   // Sorted + filtered checks
   const filtered = useMemo(() => {
@@ -823,12 +836,17 @@ export default function AgentReadinessAuditPage() {
             </div>
 
             {/* ══════════════════════ SUMMARY ══════════════════════ */}
+            <Legend screen="agent" ctx={explainCtx} />
+
             {view === 'summary' && (
               <div role="tabpanel" aria-labelledby="view-summary" style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 20, alignItems: 'stretch' }} className="ara-score-grid">
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 20, borderRadius: 14, background: 'var(--card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-md)' }}>
+                  <div data-explain-box style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 20, borderRadius: 14, background: 'var(--card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-md)' }}>
                     <ScoreRing score={result.site.score} checkCount={checkCount} size={140} />
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{result.site.level}</span>
+                    <span className="explain-label-row">
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{result.site.level}</span>
+                      <InfoDot explainKey="a_score" ctx={explainCtx} />
+                    </span>
                     <span style={{ fontSize: 11, color: 'var(--text-3)', textAlign: 'center' }}>
                       Based on {hasOnPage ? '23 checks across 6 categories' : '13 HTTP checks across 4 categories'}
                     </span>
@@ -863,10 +881,13 @@ export default function AgentReadinessAuditPage() {
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '24px 26px', borderRadius: 14, background: 'var(--card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
+                <div data-explain-box style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '24px 26px', borderRadius: 14, background: 'var(--card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--primary-text)' }}>
-                      Executive summary
+                    <span className="explain-label-row">
+                      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--primary-text)' }}>
+                        Executive summary
+                      </span>
+                      <InfoDot explainKey="a_brief" ctx={explainCtx} />
                     </span>
                     {result.cmoBrief && (
                       <button type="button" onClick={shareSummary} className="ara-share-btn"
@@ -955,7 +976,7 @@ export default function AgentReadinessAuditPage() {
                     <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <span style={{ fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-3)' }}>HTTP readiness</span>
-                        <span style={{ fontSize: 22, fontWeight: 700, color: result.site.httpScore >= 70 ? 'var(--success)' : result.site.httpScore >= 45 ? 'var(--warning)' : 'var(--danger)' }}>
+                        <span style={{ fontSize: 22, fontWeight: 700, color: scoreBandColor(result.site.httpScore) || 'var(--text-3)' }}>
                           {result.site.httpScore}<span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-3)' }}>/100</span>
                         </span>
                       </div>
@@ -964,7 +985,7 @@ export default function AgentReadinessAuditPage() {
                     <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <span style={{ fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-3)' }}>On-page readiness</span>
-                        <span style={{ fontSize: 22, fontWeight: 700, color: result.site.onPageScore >= 70 ? 'var(--success)' : result.site.onPageScore >= 45 ? 'var(--warning)' : 'var(--danger)' }}>
+                        <span style={{ fontSize: 22, fontWeight: 700, color: scoreBandColor(result.site.onPageScore) || 'var(--text-3)' }}>
                           {result.site.onPageScore}<span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-3)' }}>/100</span>
                         </span>
                       </div>
@@ -973,9 +994,12 @@ export default function AgentReadinessAuditPage() {
                   </div>
                 )}
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '22px 24px', borderRadius: 14, background: 'var(--card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
+                <div data-explain-box style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '22px 24px', borderRadius: 14, background: 'var(--card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                    <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>Score by category</span>
+                    <span className="explain-label-row explain-label-row--title">
+                      <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>Score by category</span>
+                      <InfoDot explainKey="a_sub" ctx={explainCtx} />
+                    </span>
                     <button type="button" aria-label="How is this score calculated?"
                       onClick={() => setScorePanelOpen(o => !o)}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: 13, padding: 0, lineHeight: 1 }}>
@@ -1011,9 +1035,12 @@ export default function AgentReadinessAuditPage() {
                   </div>
                 )}
 
-                <h6 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>
-                  Every check &mdash; {allChecks.length}
-                </h6>
+                <span data-explain-box className="explain-label-row explain-label-row--title" style={{ alignSelf: 'flex-start', borderRadius: 'var(--r-sm)' }}>
+                  <h6 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>
+                    Every check &mdash; {allChecks.length}
+                  </h6>
+                  <InfoDot explainKey="a_checks" ctx={explainCtx} />
+                </span>
               </div>
             )}
 

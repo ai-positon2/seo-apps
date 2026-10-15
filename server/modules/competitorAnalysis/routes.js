@@ -25,6 +25,7 @@ const store = require('./store');
 const { fetchClientDashboardData, refreshPageSpeedOnly, refreshStalePageSpeed } = require('./dataFetcher');
 const { MAX_UNITS_PER_RUN, estimateDomainCost, maxDomainsForBudget, estimateDiscoveryCost } = require('./unitCosts');
 const { hasSemrushKey } = require('./provider');
+const { withTrafficScore } = require('./trafficScore');
 const { runContentAnalysis, applyMappingEdits, regenerateTopPagesSummary, regenerateSitemapSummary, reclassifyTopPages } = require('./contentAnalysis/orchestrator');
 const { discoverCompetitorsForClient, DEFAULT_DISCOVERY_LIMIT } = require('./discovery');
 const { generateReportPdf } = require('../../services/competitorPdfGenerator');
@@ -144,7 +145,9 @@ router.get('/clients/:clientId/dashboard', wrap(async (req, res) => {
   const client = await store.getClient(req.params.clientId);
   if (!client) return res.status(404).json({ error: 'Client not found' });
   const snapshot = await store.getSnapshot(req.params.clientId);
-  res.json({ client, snapshot });
+  // With the dashboard card's own traffic score, so the screen's Competitive
+  // score card shows the same number (trafficScore.js).
+  res.json({ client, snapshot: withTrafficScore(snapshot) });
 }));
 
 // ── Run ──────────────────────────────────────────────────────────────────────

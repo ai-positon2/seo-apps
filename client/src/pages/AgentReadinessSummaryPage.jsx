@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
+import { scoreBandColor } from '../lib/scoreVerdict';
 
 /* ── SVG icon helpers ── */
 const IconCheck = () => (
@@ -67,10 +68,9 @@ export default function AgentReadinessSummaryPage() {
 
   const { brief, url, full, score, level, date } = data;
 
-  const scoreColor =
-    score >= 70 ? 'var(--success)' :
-    score >= 40 ? 'var(--warning)' :
-                  'var(--danger)';
+  // The dashboard's bands (80 / 60), not this page's old 70 / 40, so the score
+  // is the same colour here as on the audit page and the dashboard card.
+  const scoreColor = scoreBandColor(score) || 'var(--text-3)';
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--surface)', fontFamily: 'system-ui, sans-serif', padding: '40px 20px' }}>

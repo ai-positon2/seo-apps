@@ -380,6 +380,214 @@ textarea:focus-visible {
 }
 .ui-modal-popup[data-ending-style] { transition-duration: 150ms; }
 
+/* ── Explainers: the "i" icons, Guided mode and the legend ────────────────
+   components/explain. Tokens only, so the dark theme inverts with the rest;
+   the tooltip and legend button are ink-on-paper (--text on --bg) for that
+   reason. Measurements are the design handoff's. */
+.explain-dot {
+  position: relative;
+  flex-shrink: 0;
+  width: 16px; height: 16px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--card);
+  color: var(--text-3);
+  font-family: var(--font-sans); font-size: 10px; font-weight: 600; line-height: 1;
+  font-style: normal; text-transform: none; letter-spacing: normal;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+/* A 24px hit target around a 16px mark. */
+.explain-dot::before { content: ''; position: absolute; inset: -4px; border-radius: 50%; }
+.explain-dot:hover,
+.explain-dot:focus-visible,
+.explain-dot[data-popup-open] {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-soft);
+}
+.explain-dot--on-accent {
+  border-color: color-mix(in srgb, var(--text-on-primary) 60%, transparent);
+  background: transparent;
+  color: var(--text-on-primary);
+}
+.explain-dot--on-accent:hover,
+.explain-dot--on-accent:focus-visible,
+.explain-dot--on-accent[data-popup-open] {
+  border-color: var(--text-on-primary);
+  color: var(--text-on-primary);
+  background: color-mix(in srgb, var(--text-on-primary) 18%, transparent);
+}
+/* A label and its icon, on one line. */
+.explain-label-row { display: inline-flex; align-items: center; gap: 6px; }
+.explain-label-row--title { gap: 8px; }
+
+/* The box a popover is explaining. */
+.explain-box--active { outline: 2px solid var(--primary); outline-offset: 3px; }
+
+.explain-positioner { z-index: 70; }
+.explain-positioner--tip { z-index: 80; }
+
+.explain-tooltip {
+  display: flex; flex-direction: column; gap: 3px;
+  width: max-content; max-width: 280px;
+  padding: 9px 11px;
+  border-radius: 6px;
+  background: var(--text); color: var(--bg);
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;
+  font-family: var(--font-sans);
+}
+.explain-tooltip__title { font-size: 12px; font-weight: 600; }
+.explain-tooltip__line { font-size: 12px; line-height: 1.45; color: color-mix(in srgb, var(--bg) 85%, var(--text)); }
+
+.explain-popover {
+  width: min(360px, calc(100vw - 24px));
+  max-height: calc(var(--available-height) - 22px);
+  overflow: auto;
+  display: flex; flex-direction: column;
+  background: var(--card); color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  font-family: var(--font-sans);
+  outline: none;
+}
+.explain-popover__head { padding: 14px 16px 12px; display: flex; flex-direction: column; gap: 6px; }
+.explain-popover__row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.explain-kicker {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--primary-text);
+}
+.explain-close {
+  flex-shrink: 0;
+  width: 24px; height: 24px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 6px;
+  background: var(--bg); color: var(--text-2);
+  font-size: 15px; line-height: 1; cursor: pointer;
+}
+.explain-close--lg { width: 28px; height: 28px; font-size: 16px; }
+.explain-close:hover { color: var(--text); }
+.explain-popover__title { margin: 0; font-size: 15px; font-weight: 600; color: var(--text); }
+.explain-popover__lead { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text); text-wrap: pretty; }
+.explain-popover__body { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 10px; }
+.explain-block { display: flex; flex-direction: column; gap: 2px; }
+.explain-label {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-3);
+}
+.explain-value { font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
+.explain-calc { gap: 3px; padding: 10px 12px; border-radius: 8px; background: var(--bg); }
+.explain-calc .explain-value { color: var(--text); }
+.explain-calc__extra {
+  margin-top: 6px; padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 12px; line-height: 1.5; color: var(--text-2);
+}
+.explain-popover__foot {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+}
+.explain-src { font-size: 11.5px; color: var(--text-3); }
+.explain-next { font-size: 12px; font-weight: 500; color: var(--primary-text); text-decoration: none; }
+.explain-next:hover { text-decoration: underline; }
+
+/* The header switch. */
+.explain-toggle {
+  display: flex; align-items: center; justify-content: flex-end; gap: 14px;
+  flex: 1 1 auto; min-width: 0;
+}
+.explain-toggle__note {
+  min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 11.5px; color: var(--text-3);
+}
+@media (max-width: 1439px) { .explain-toggle__note { display: none; } }
+.explain-toggle__switch {
+  flex-shrink: 0; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 10px;
+  height: 32px; padding: 0 6px 0 12px;
+  border: 1px solid var(--border-strong); border-radius: var(--r-pill);
+  background: var(--card); color: var(--text);
+  font-family: var(--font-sans); font-size: 12.5px; font-weight: 500;
+  cursor: pointer;
+}
+.explain-toggle__switch.is-on { border-color: var(--accent-700); background: var(--accent-900); }
+.explain-toggle__track {
+  position: relative; flex-shrink: 0;
+  width: 34px; height: 20px; border-radius: var(--r-pill);
+  background: var(--border-strong);
+  transition: background 160ms var(--ease);
+}
+.explain-toggle__switch.is-on .explain-toggle__track { background: var(--primary); }
+.explain-toggle__knob {
+  position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #FFFFFF;
+  box-shadow: 0 1px 2px rgba(28, 30, 36, 0.25);
+  transition: left 160ms var(--ease);
+}
+.explain-toggle__switch.is-on .explain-toggle__knob { left: 16px; }
+
+/* The legend. Below ui-modal (1000), above page content. */
+.explain-legend-btn {
+  position: fixed; right: 24px; bottom: 24px; z-index: 900;
+  display: inline-flex; align-items: center; gap: 9px;
+  height: 42px; padding: 0 18px 0 14px;
+  border: none; border-radius: var(--r-pill);
+  background: var(--text); color: var(--bg);
+  font-family: var(--font-sans); font-size: 13px; font-weight: 500;
+  box-shadow: var(--shadow-lg);
+  cursor: pointer;
+}
+.explain-legend-btn:hover { background: var(--neutral-200); }
+.explain-legend-btn__mark { display: inline-flex; gap: 3px; }
+.explain-legend-btn__mark > span { width: 8px; height: 8px; border-radius: 50%; }
+.explain-legend {
+  position: fixed; right: 24px; bottom: 78px; z-index: 900;
+  width: 380px; max-width: calc(100vw - 48px); max-height: calc(100vh - 150px);
+  overflow: auto;
+  background: var(--card); color: var(--text);
+  border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  font-family: var(--font-sans);
+}
+.explain-legend__head {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 16px 18px 12px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+.explain-legend__heading { display: flex; flex-direction: column; gap: 2px; }
+.explain-legend__title { font-size: 15px; font-weight: 600; }
+.explain-legend__section { padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; }
+.explain-legend__section--screen { padding: 4px 18px 18px; }
+.explain-legend__grid { display: flex; flex-direction: column; gap: 10px; }
+.explain-legend__shared-row {
+  display: grid; grid-template-columns: 64px 1fr; gap: 12px; align-items: center;
+  font-size: 12.5px; line-height: 1.45; color: var(--text-2);
+}
+.explain-legend__shared-row b { font-weight: 600; color: var(--text); }
+.explain-legend__swatches { display: flex; gap: 3px; }
+.explain-legend__swatches > span { width: 18px; height: 10px; border-radius: 2px; }
+.explain-legend__dash { font-family: var(--font-mono); font-size: 18px; font-weight: 600; color: var(--text-3); text-align: center; }
+.explain-legend__arrows { display: flex; gap: 6px; justify-content: center; font-size: 12px; }
+.explain-legend__dots { display: flex; gap: 5px; justify-content: center; }
+.explain-legend__dots > span { width: 8px; height: 8px; border-radius: 50%; }
+.explain-legend__card { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 8px; background: var(--bg); }
+.explain-legend__term { font-size: 13px; font-weight: 600; }
+.explain-legend__line { font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
+.explain-legend__ex {
+  align-self: flex-start;
+  padding: 3px 7px; border-radius: 4px;
+  background: var(--card); border: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: 11.5px;
+}
+
 /* One spinner rotation for the whole app. About twenty components inject their
    own copy of the same keyframes; they keep working, and new code uses this. */
 @keyframes spin { to { transform: rotate(360deg); } }

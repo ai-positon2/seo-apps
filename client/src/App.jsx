@@ -4,6 +4,7 @@ import { getToolByPath } from './toolsMeta';
 import { notifyRouteChange } from './lib/agentRunSignal';
 import { ThemeProvider } from './components/ThemeContext';
 import { ToastProvider } from './ui/Toast';
+import { GuidedModeProvider } from './components/explain/GuidedModeContext';
 import { useAuth } from './context/AuthContext';
 import MacWindow from './components/MacWindow';
 import LoginPage from './pages/LoginPage';
@@ -111,6 +112,9 @@ export default function App() {
   return (
     <ThemeProvider>
       <ToastProvider>
+      {/* How every info icon behaves (components/explain). Inside the router,
+          because an open explanation closes when the route changes. */}
+      <GuidedModeProvider>
       <RouteBridge />
       <Routes>
         <Route element={<MacWindow />}>
@@ -176,6 +180,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
+      </GuidedModeProvider>
       </ToastProvider>
     </ThemeProvider>
   );

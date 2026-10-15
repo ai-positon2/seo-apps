@@ -9,6 +9,8 @@ import {
 import ModuleCard from '../components/home/ModuleCard';
 import SiteFavicon from '../components/home/SiteFavicon';
 import AuditRadar from '../components/home/AuditRadar';
+import { overviewExplainCtx } from '../components/home/overviewExplainCtx';
+import { InfoDot, Legend } from '../components/explain';
 import ProfileStats from '../components/home/ProfileStats';
 import ExecutiveSummary from '../components/home/ExecutiveSummary';
 import ProjectSetupCard from '../components/home/ProjectSetupCard';
@@ -584,6 +586,9 @@ export default function HomePage() {
   // displays one card/axis per module shows this list instead.
   const visibleModules = modules.filter((m) => m.card !== false);
   const composite = data?.composite;
+  // The figures the info icons and the legend quote — the same ones the header
+  // stats print (components/home/overviewExplainCtx.js).
+  const explainCtx = overviewExplainCtx({ composite, modules, insights: insights.data });
 
   const lastRunAt = modules.map((m) => m.updatedAt).filter(Boolean).sort().reverse()[0] || null;
 
@@ -895,9 +900,12 @@ export default function HomePage() {
         {data && (
           <div className="home-profile">
             {/* Audit profile */}
-            <Card style={{ padding: 16, gap: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-                <Kicker>Audit Profile</Kicker>
+            <Card data-explain-box style={{ padding: 16, gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span className="explain-label-row">
+                  <Kicker>Audit Profile</Kicker>
+                  <InfoDot explainKey="radar" ctx={explainCtx} />
+                </span>
                 <Muted>{visibleModules.length} modules</Muted>
               </div>
 
@@ -943,6 +951,8 @@ export default function HomePage() {
             </div>
           </div>
         )}
+        {/* How to read this screen. Only once there are numbers to read. */}
+        {data && <Legend screen="overview" ctx={explainCtx} />}
       </section>
 
       {/* ── The answer, after the instrumentation ────────────────────────────

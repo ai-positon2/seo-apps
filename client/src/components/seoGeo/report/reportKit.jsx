@@ -1,5 +1,3 @@
-import { useEffect, useId, useRef, useState } from 'react';
-
 // ── The SEO & GEO report's own small pieces ─────────────────────────────────
 //
 // Same role as crawlScope/report/reportPrimitives.jsx for the Tech Audit report,
@@ -67,8 +65,9 @@ export const Eyebrow = ({ children, tone = 'muted', style }) => (
 );
 
 /** A card. The design's 14px radius, which is between --r-lg and --r-xl. */
-export const Panel = ({ children, pad = '20px 22px', elevation = 'sm', style }) => (
+export const Panel = ({ children, pad = '20px 22px', elevation = 'sm', style, ...rest }) => (
   <div
+    {...rest}
     style={{
       display: 'flex',
       flexDirection: 'column',
@@ -278,68 +277,4 @@ export function splitVerdict(value) {
   if (!m) return { status: null, reason: value.trim() };
   const raw = m[1].toLowerCase().replace(/[\s-]/g, '_');
   return { status: raw === 'not_ready' ? 'not_ready' : raw, reason: value.slice(m[0].length).trim() };
-}
-
-/**
- * A small "i" that explains the number beside it. Opens on hover, keyboard
- * focus or click (touch has no hover), closes on Escape or a click outside.
- * The text is the button's accessible description, so a screen reader hears it
- * without opening anything.
- */
-export function InfoTip({ label, children, align = 'left' }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  const id = useId();
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
-    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('keydown', onKey);
-    document.addEventListener('pointerdown', onDown);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.removeEventListener('pointerdown', onDown);
-    };
-  }, [open]);
-  return (
-    <span
-      ref={ref}
-      style={{ position: 'relative', display: 'inline-flex' }}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-    >
-      <button
-        type="button"
-        aria-label={label}
-        aria-describedby={id}
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
-        style={{
-          width: 18, height: 18, borderRadius: '50%', padding: 0, cursor: 'help',
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          border: '1px solid var(--border-strong, var(--border))', background: 'var(--card)',
-          color: 'var(--text-3)', fontSize: 11, fontWeight: 700, fontStyle: 'italic',
-          fontFamily: 'Georgia, serif', lineHeight: 1,
-        }}
-      >
-        i
-      </button>
-      <span
-        id={id}
-        role="tooltip"
-        style={{
-          position: 'absolute', top: 'calc(100% + 8px)', [align]: 0, zIndex: 20,
-          width: 'min(360px, 86vw)', padding: '14px 16px', borderRadius: 12,
-          background: 'var(--card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-md)',
-          fontSize: 12.5, fontWeight: 400, fontStyle: 'normal', lineHeight: 1.5,
-          color: 'var(--text-2)', textTransform: 'none', letterSpacing: 'normal', textAlign: 'left',
-          display: open ? 'flex' : 'none', flexDirection: 'column', gap: 10,
-        }}
-      >
-        {children}
-      </span>
-    </span>
-  );
 }

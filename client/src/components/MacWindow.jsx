@@ -1,5 +1,6 @@
 import { Suspense, memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
+import GuidedModeToggle from './explain/GuidedModeToggle';
 import { NAV_GROUPS, TAGS, getToolByPath } from '../toolsMeta';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from './ThemeContext';
@@ -776,6 +777,10 @@ export default function MacWindow() {
             >
               {isDark ? <SunIcon /> : <MoonIcon />}
             </HeaderButton>
+
+            {/* Click-for-detail or hover-for-a-line, for every info icon. Last
+                before the user chip; its helper text drops out first. */}
+            <GuidedModeToggle />
 
             <UserChip email={email} onLogout={logout} />
           </div>

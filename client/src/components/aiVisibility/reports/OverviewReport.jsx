@@ -4,6 +4,7 @@ import {
 } from '../reportPrimitives';
 import { LineChart } from '../reportCharts';
 import { muted } from '../promptHelpers';
+import { InfoDot, Legend } from '../../explain';
 
 // ── Overview ────────────────────────────────────────────────────────────────
 //
@@ -21,10 +22,13 @@ import { muted } from '../promptHelpers';
 // that order, and every block names the report it came from.
 
 /** A block heading that also says which report the numbers belong to. */
-function From({ title, reportId, onOpen, children }) {
+function From({ title, reportId, onOpen, info, infoCtx, children }) {
   return (
     <Card
-      title={title}
+      data-explain-box
+      title={info
+        ? <span className="explain-label-row explain-label-row--title">{title}<InfoDot explainKey={info} ctx={infoCtx} /></span>
+        : title}
       actions={(
         <button
           type="button"
@@ -74,13 +78,15 @@ export function OverviewReport({ envelope, onOpenReport }) {
   const leader = sovRows[0];
   const you = sovRows.find((r) => r.isClient);
   const rank = you ? sovRows.indexOf(you) + 1 : null;
+  // What the info icons and the legend quote: the figures already on this page.
+  const explainCtx = { kpis, meta };
 
   return (
     <>
       <ReportWarnings warnings={warnings} meta={meta} />
 
       {/* The one sentence a reader who opens nothing else should leave with. */}
-      <Card style={{ marginBottom: 16 }}>
+      <Card style={{ marginBottom: 16 }} data-explain-box>
         <div
           className="eyebrow"
           style={{
@@ -91,7 +97,10 @@ export function OverviewReport({ envelope, onOpenReport }) {
             marginBottom: 6,
           }}
         >
-          WHERE YOU STAND
+          <span className="explain-label-row">
+            WHERE YOU STAND
+            <InfoDot explainKey="v_stand" ctx={explainCtx} />
+          </span>
         </div>
         <div style={{ fontSize: 22, color: 'var(--text)', lineHeight: 1.35, fontWeight: 600 }}>
           {rank === null ? (
@@ -114,17 +123,21 @@ export function OverviewReport({ envelope, onOpenReport }) {
       </Card>
 
       <MetricStrip>
-        <Metric label="Visibility" metric={kpis.visibility} />
-        <Metric label="Sentiment" metric={kpis.sentiment} />
-        <Metric label="Position" metric={kpis.position} />
-        <Metric label="Share of voice" metric={kpis.shareOfVoice} />
+        <Metric label="Visibility" metric={kpis.visibility} info="v_visibility" infoCtx={explainCtx} />
+        <Metric label="Sentiment" metric={kpis.sentiment} info="v_sentiment" infoCtx={explainCtx} />
+        <Metric label="Position" metric={kpis.position} info="v_position" infoCtx={explainCtx} />
+        <Metric label="Share of voice" metric={kpis.shareOfVoice} info="v_sov" infoCtx={explainCtx} />
         <Metric
           label="Strongest model"
+          info="v_models"
+          infoCtx={explainCtx}
           metric={kpis.strongestModel}
           sub={kpis.strongestModel.engine || kpis.strongestModel.note}
         />
         <Metric
           label="Weakest model"
+          info="v_models"
+          infoCtx={explainCtx}
           metric={kpis.weakestModel}
           sub={kpis.weakestModel.engine || kpis.weakestModel.note}
         />
@@ -145,7 +158,7 @@ export function OverviewReport({ envelope, onOpenReport }) {
         </Card>
       )}
 
-      <From title="Share of voice" reportId="insights" onOpen={onOpenReport}>
+      <From title="Share of voice" reportId="insights" onOpen={onOpenReport} info="v_sov" infoCtx={explainCtx}>
         {!sovRows.length && <div style={muted}>Nobody in the measured set was named.</div>}
         {sovRows.map((row) => (
           <FilledLabelBar
@@ -163,7 +176,7 @@ export function OverviewReport({ envelope, onOpenReport }) {
         display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16,
       }}
       >
-        <From title="Where ground is being lost" reportId="gaps" onOpen={onOpenReport}>
+        <From title="Where ground is being lost" reportId="gaps" onOpen={onOpenReport} info="v_gaps" infoCtx={explainCtx}>
           <div style={{ ...muted, marginBottom: 10 }}>
             Sources that feed answers in this category and cite a competitor more often
             than they cite you.
@@ -187,7 +200,7 @@ export function OverviewReport({ envelope, onOpenReport }) {
           ))}
         </From>
 
-        <From title="Weakest questions" reportId="prompts" onOpen={onOpenReport}>
+        <From title="Weakest questions" reportId="prompts" onOpen={onOpenReport} info="v_weak" infoCtx={explainCtx}>
           <div style={{ ...muted, marginBottom: 10 }}>
             Questions this client is least visible on. A measured
             <span className="num"> 0.0%</span> is a finding; an em-dash means it could not
@@ -226,6 +239,7 @@ export function OverviewReport({ envelope, onOpenReport }) {
         computed separately, so a number on this page and the same number on its own report
         cannot disagree.
       </div>
+      <Legend screen="aivis" ctx={explainCtx} />
     </>
   );
 }

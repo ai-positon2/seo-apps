@@ -89,6 +89,7 @@ const SUITES = [
   'modules/projects/__tests__/moduleReportRoute.test.js',
   'modules/projects/__tests__/perPageAudits.test.js',
   'modules/competitorAnalysis/__tests__/pageTaxonomy.test.js',
+  'modules/competitorAnalysis/__tests__/trafficScore.test.js',
   'modules/projects/__tests__/insights.test.js',
   'modules/projects/__tests__/executiveSummary.test.js',
   'modules/projects/__tests__/pages.test.js',

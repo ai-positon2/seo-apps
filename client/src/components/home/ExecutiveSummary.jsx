@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Card, Kicker, Muted, Btn, FadingRule } from '../studio/primitives';
 import { projectsApi, relativeTime } from '../../lib/projectsApi';
+import { InfoDot } from '../explain';
 
 // "Add to plan" (PriorityRow, below) turned out to lead nowhere from the
 // reader's seat — its only destination is the Recommendations sheet of the
@@ -127,6 +128,7 @@ export default function ExecutiveSummary({ projectId, onPromote }) {
   return (
     <Card
       elevation="md"
+      data-explain-box
       style={{
         padding: 0, gap: 0, overflow: 'hidden',
         // The state is carried by a rule down the left edge rather than by a
@@ -139,8 +141,14 @@ export default function ExecutiveSummary({ projectId, onPromote }) {
       {/* ── The verdict ──────────────────────────────────────────────────── */}
       <div style={{ padding: '22px 26px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span className="eyebrow">Executive summary</span>
-          <TrendChip state={trend} />
+          <span className="explain-label-row">
+            <span className="eyebrow">Executive summary</span>
+            <InfoDot explainKey="exec" />
+          </span>
+          <span className="explain-label-row">
+            <TrendChip state={trend} />
+            <InfoDot explainKey="trend" />
+          </span>
         </div>
 
         <h2 style={{ margin: 0, fontSize: 26, fontWeight: 600, letterSpacing: '-0.01em', color: tone.color }}>
@@ -169,13 +177,17 @@ export default function ExecutiveSummary({ projectId, onPromote }) {
       {/* ── What to do about it ──────────────────────────────────────────── */}
       {priorities.length > 0 && (
         <div
+          data-explain-box
           style={{
             padding: '16px 26px 18px', display: 'flex', flexDirection: 'column', gap: 12,
             borderTop: '1px solid var(--border)', background: 'var(--surface-2)',
           }}
         >
-          <span className="eyebrow">
-            {priorities.length === 1 ? 'Start here' : `Start with these ${priorities.length}`}
+          <span className="explain-label-row">
+            <span className="eyebrow">
+              {priorities.length === 1 ? 'Start here' : `Start with these ${priorities.length}`}
+            </span>
+            <InfoDot explainKey="priorities" />
           </span>
           {/* Capped at the same measure as the paragraphs above. Without it the
               row stretched the full card and parked its button 700px from the

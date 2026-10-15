@@ -1,7 +1,8 @@
 import {
-  Panel, PanelTitle, Eyebrow, CountTile, Donut, InfoTip,
+  Panel, PanelTitle, Eyebrow, CountTile, Donut,
   bandColor, splitVerdict,
 } from './reportKit';
+import { InfoDot, Legend } from '../../explain';
 import { resolveBreakdown } from '../primitives';
 import logoGoogleAio from '../../../assets/ai-engines/google_aio.png';
 import logoChatgpt from '../../../assets/ai-engines/chatgpt.png';
@@ -95,6 +96,9 @@ export default function SummaryView({ findings, ai, onOpenDetails }) {
   // discarded until now, because the object it lives on was never unpacked.
   const bandBlurb = typeof scores.band === 'object' ? scores.band?.blurb || null : null;
 
+  // What the info icons and the legend quote: the figures this view prints.
+  const explainCtx = { overall, cap, checksApplied: counted.length, passed };
+
   const capNote = cap?.applied
     ? `Capped at ${cap.value} by a blocking issue: ${cap.reason}.`
       + (composite !== null ? ` Uncapped composite is ${composite}.` : '')
@@ -107,14 +111,16 @@ export default function SummaryView({ findings, ai, onOpenDetails }) {
         {/* The score, at the size the design gives it — with the two sides it
             blends beside it, so "which is working" is answered in the first
             card rather than further down. */}
-        <Panel pad="24px 28px" elevation="md" style={{ flexDirection: 'row', alignItems: 'center', gap: 28, flexWrap: 'wrap' }}>
+        <Panel pad="24px 28px" elevation="md" style={{ flexDirection: 'row', alignItems: 'center', gap: 28, flexWrap: 'wrap' }} data-explain-box>
           <Donut score={overall} size={168} numberSize={42} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: '1 1 240px', minWidth: 0 }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <span className="explain-label-row">
               <Eyebrow>Overall score</Eyebrow>
-              <InfoTip label="How the overall score works">
-                <OverallExplainer breakdown={breakdown} cap={cap} composite={composite} overall={overall} bandLabel={bandLabel} seo={scores.seo} geo={scores.geo} />
-              </InfoTip>
+              <InfoDot
+                explainKey="g_score"
+                ctx={explainCtx}
+                calcExtra={<OverallExplainer breakdown={breakdown} cap={cap} composite={composite} overall={overall} bandLabel={bandLabel} seo={scores.seo} geo={scores.geo} />}
+              />
             </span>
             <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>
               {bandLabel || 'Not scored'}
@@ -137,12 +143,12 @@ export default function SummaryView({ findings, ai, onOpenDetails }) {
             >
               <SideScore
                 name="SEO" sub="Search engines" axis={scores.seo}
-                infoLabel="How the SEO score works"
+                infoKey="g_seo"
                 info={<AxisExplainer title="SEO score" axis={scores.seo} what="Can search engines like Google find, index and rank this page?" />}
               />
               <SideScore
                 name="GEO" sub="AI answer engines" axis={scores.geo}
-                infoLabel="How the GEO score works"
+                infoKey="g_geo"
                 info={<AxisExplainer title="GEO score" axis={scores.geo} engineTally={engineTally} what="Can AI answer engines (ChatGPT, Perplexity, Google AI Overviews, Gemini) read, trust and cite this page?" />}
               />
             </div>
@@ -168,20 +174,24 @@ export default function SummaryView({ findings, ai, onOpenDetails }) {
             sentence is worth. */}
         {summary?.priority_verdict ? (
           <div
+            data-explain-box
             style={{
               display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 14,
               padding: '22px 26px', borderRadius: 14, background: 'var(--primary)',
               boxShadow: 'var(--shadow-md)',
             }}
           >
-            <span
-              style={{
-                fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
-                letterSpacing: '0.15em', textTransform: 'uppercase',
-                color: 'var(--text-on-primary)', opacity: 0.85,
-              }}
-            >
-              Priority verdict
+            <span className="explain-label-row">
+              <span
+                style={{
+                  fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
+                  letterSpacing: '0.15em', textTransform: 'uppercase',
+                  color: 'var(--text-on-primary)', opacity: 0.85,
+                }}
+              >
+                Priority verdict
+              </span>
+              <InfoDot explainKey="g_verdict" ctx={explainCtx} tone="onAccent" />
             </span>
             <p style={{ margin: 0, fontSize: 13.5, color: 'var(--text-on-primary)', lineHeight: 1.55 }}>
               {summary.priority_verdict}
@@ -236,8 +246,11 @@ export default function SummaryView({ findings, ai, onOpenDetails }) {
             )}
           </div>
         ) : (
-          <Panel>
-            <Eyebrow>Priority verdict</Eyebrow>
+          <Panel data-explain-box>
+            <span className="explain-label-row">
+              <Eyebrow>Priority verdict</Eyebrow>
+              <InfoDot explainKey="g_verdict" ctx={explainCtx} />
+            </span>
             <span style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.5 }}>
               The AI analysis did not complete for this page, so there is no ranked verdict. The
               check results are all in “More Tech Details”.
@@ -248,10 +261,13 @@ export default function SummaryView({ findings, ai, onOpenDetails }) {
 
       {/* ── Will AI engines show this page? ──────────────────────────────── */}
       {engines.length > 0 && (
-        <Panel pad="22px 24px" style={{ gap: 14 }}>
+        <Panel pad="22px 24px" style={{ gap: 14 }} data-explain-box>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 620 }}>
-              <PanelTitle>Will AI engines show this page?</PanelTitle>
+              <span className="explain-label-row explain-label-row--title">
+                <PanelTitle>Will AI engines show this page?</PanelTitle>
+                <InfoDot explainKey="g_platforms" ctx={explainCtx} />
+              </span>
               <span style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.5 }}>
                 Whether each answer engine has what it needs to cite or recommend this page, as read
                 by the AI analysis.
@@ -296,8 +312,11 @@ export default function SummaryView({ findings, ai, onOpenDetails }) {
 
       {/* ── Quick wins ───────────────────────────────────────────────────── */}
       {summary?.quick_wins?.length > 0 && (
-        <Panel pad="22px 24px" style={{ gap: 12 }}>
-          <PanelTitle>Quick wins</PanelTitle>
+        <Panel pad="22px 24px" style={{ gap: 12 }} data-explain-box>
+          <span className="explain-label-row explain-label-row--title">
+            <PanelTitle>Quick wins</PanelTitle>
+            <InfoDot explainKey="g_wins" ctx={explainCtx} />
+          </span>
           {summary.quick_wins.map((w, i) => (
             <div
               key={i}
@@ -323,11 +342,19 @@ export default function SummaryView({ findings, ai, onOpenDetails }) {
       )}
 
       {/* ── The check counts ─────────────────────────────────────────────── */}
-      <div className="geo-counts">
-        <CountTile label="Passed" value={passed} color="var(--primary-text)" />
-        <CountTile label="Errors" value={errors} color="var(--viz-neg)" />
-        <CountTile label="Warnings" value={warnings} color="var(--viz-warn)" />
-        <CountTile label="Notices" value={notices} color="var(--text-2)" />
+      {/* Labelled with how many checks apply, so the four counts read as parts
+          of a whole rather than four unrelated numbers. */}
+      <div data-explain-box style={{ display: 'flex', flexDirection: 'column', gap: 10, borderRadius: 'var(--r-md)' }}>
+        <span className="explain-label-row">
+          <Eyebrow>Check results · {counted.length} {counted.length === 1 ? 'check applies' : 'checks apply'}</Eyebrow>
+          <InfoDot explainKey="g_counts" ctx={explainCtx} />
+        </span>
+        <div className="geo-counts">
+          <CountTile label="Passed" value={passed} color="var(--primary-text)" />
+          <CountTile label="Errors" value={errors} color="var(--viz-neg)" />
+          <CountTile label="Warnings" value={warnings} color="var(--viz-warn)" />
+          <CountTile label="Notices" value={notices} color="var(--text-2)" />
+        </div>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
@@ -343,20 +370,22 @@ export default function SummaryView({ findings, ai, onOpenDetails }) {
           See the technical detail →
         </button>
       </div>
+      <Legend screen="seogeo" ctx={explainCtx} />
     </div>
   );
 }
 
 /** A label/value pair drawn on the accent ground. */
-// One side's score in the headline card: a compact ring, its name, and the "i".
-function SideScore({ name, sub, axis, info, infoLabel }) {
+// One side's score in the headline card: a compact ring, its name, and the "i"
+// — whose popover carries this side's own bars and weights under the copy.
+function SideScore({ name, sub, axis, info, infoKey }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+    <div data-explain-box style={{ display: 'flex', alignItems: 'center', gap: 12, borderRadius: 'var(--r-md)' }}>
       <Donut score={axis?.score ?? null} size={88} numberSize={24} stroke={10} label={null} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{name}</span>
-          <InfoTip label={infoLabel} align="right">{info}</InfoTip>
+          <InfoDot explainKey={infoKey} calcExtra={info} />
         </span>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{sub}</span>
         <span style={{ fontSize: 12.5, fontWeight: 600, color: bandColor(axis?.score) }}>

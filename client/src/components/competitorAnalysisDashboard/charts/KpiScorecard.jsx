@@ -1,10 +1,12 @@
 import { fmtCompact } from '../utils';
+import { InfoDot } from '../../explain';
 
 // Client-centric KPI tile: the client's value, its rank in the set, a delta
 // vs. the leader (or vs. the median when the client IS the leader), and a
 // thin inline bar for at-a-glance context. Answers "where do we stand" in
 // one glance, before any full comparison chart.
-export function KpiScorecard({ label, stat, formatValue = fmtCompact }) {
+// `info` is an explainer key (components/explain) for an "i" after the label.
+export function KpiScorecard({ label, stat, formatValue = fmtCompact, info, infoCtx }) {
   if (!stat) return null;
   const { clientValue, rank, total, leaderValue, medianValue, isLeader } = stat;
 
@@ -33,12 +35,13 @@ export function KpiScorecard({ label, stat, formatValue = fmtCompact }) {
   const dc = deltaColors[deltaVariant];
 
   return (
-    <div style={{
+    <div data-explain-box={info ? '' : undefined} style={{
       background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)',
       padding: 16, display: 'flex', flexDirection: 'column', gap: 8,
     }}>
-      <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)' }}>
+      <div className="explain-label-row" style={{ fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)' }}>
         {label}
+        {info && <InfoDot explainKey={info} ctx={infoCtx} />}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
