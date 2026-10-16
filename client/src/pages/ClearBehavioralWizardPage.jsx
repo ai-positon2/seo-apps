@@ -1040,7 +1040,7 @@ export default function ClearBehavioralWizardPage() {
                   <li>What is … — the subsections above</li>
                   <li>Why Choose Clear Behavioral Health?</li>
                   <li>{service?.name} in {location?.city}</li>
-                  <li>Treatment — this H2 is written, not fixed</li>
+                  <li>{service?.name} experts at Clear Behavioral Health, {location?.city}</li>
                 </ul>
               </SectionCard>
 
@@ -1363,10 +1363,13 @@ export default function ClearBehavioralWizardPage() {
             </div>
           </SectionCard>
 
-          {/* The only card whose heading is editable: the writer composes this
-              H2, where every other one is fixed or built from the service and
-              location by code. */}
-          <SectionCard title="Treatment" note="The H2 here is written, not fixed — it should name the team, the service and the city.">
+          {/* On a page generated now this H2 is built by code ("<Service>
+              experts at Clear Behavioral Health, <City>") and shown like the
+              other fixed headings. A page generated before that keeps the
+              heading its writer composed, and it stays editable there. */}
+          <SectionCard title={page.meta?.fixedExpertsHeading ? page.sections?.treatment?.heading : 'Treatment'}
+            note={page.meta?.fixedExpertsHeading ? undefined : 'The H2 here is written, not fixed — it should name the team, the service and the city.'}>
+            {!page.meta?.fixedExpertsHeading && (<>
             <label style={{ ...labelStyle, display: 'flex', justifyContent: 'space-between' }}>
               <span>H2</span><Count value={page.sections?.treatment?.heading} max={limits.treatment.headingMaxChars} />
             </label>
@@ -1376,6 +1379,7 @@ export default function ClearBehavioralWizardPage() {
               <RegenButton busy={regenBusy === regenKey('treatment.heading')}
                 onClick={() => regenField('treatment.heading', null, v => editPage(p => { p.sections.treatment.heading = v; }))} />
             </div>
+            </>)}
             <label style={{ ...labelStyle, display: 'flex', justifyContent: 'space-between' }}>
               <span>Paragraph</span><Count value={page.sections?.treatment?.paragraph} max={limits.treatment.maxChars} />
             </label>

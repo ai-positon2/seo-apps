@@ -2411,7 +2411,8 @@ test('no prompt asks for a keyword frequency any more', () => {
 
   test('every heading comes out sentence case', () => {
     const j = cmsJson();
-    assert.strictEqual(j.approach.heading, 'Our approach to anxiety treatment in Anaheim Hills');
+    // No city: the client reversed the earlier "append the city" instruction.
+    assert.strictEqual(j.approach.heading, 'Our approach to anxiety treatment');
     assert.strictEqual(j.why_choose.heading, 'Why choose Clear Behavioral Health?');
     // The fixed client headings are already sentence case, so nothing moves.
     assert.strictEqual(j.approach.items[0].heading, 'Our philosophy of compassionate care');
@@ -2632,6 +2633,99 @@ test('no prompt asks for a keyword frequency any more', () => {
       .forEach(k => assert.ok(k in j, `${k} is missing`));
     assert.strictEqual(j.approach.items.length, 2, 'philosophy and therapies, always two');
     assert.ok(j.seo.title.endsWith(cbhContract.TITLE_SUFFIX), 'the shipping title carries the brand suffix');
+  });
+
+  console.log('\nCBH - the experts heading and the live location slugs');
+
+  // A page as generateFromBrief builds one now: from the real scaffold, so it
+  // carries meta.fixedExpertsHeading.
+  const cbhLoc = id => seed.CBH_LOCATIONS.find(l => l.id === id);
+  const cbhSvc = id => seed.CBH_SERVICES.find(s => s.id === id);
+  const newCbhPage = (serviceId = 'cbh_anxiety', locationId = 'cbhloc_anaheim-hills') => {
+    const location = cbhLoc(locationId);
+    const service = cbhSvc(serviceId);
+    const sc = cbhCompose.buildCbhScaffold({
+      client: { id: 'client_clear_behavioral_health', brand_static: { base_url: 'https://clearbehavioralhealth.com' } },
+      service, location,
+    }, { servicePhrase: keywordRelevance.servicePhraseDisplay });
+    return { page: cbhCompose.mergeCbhL3(sc, cbhFixture.passingL3(), location), service, location };
+  };
+
+  test('the experts heading names the service, the brand and the city', () => {
+    const h = (name, city) => cbhContract.expertsHeading(keywordRelevance.servicePhraseDisplay(name), city);
+    assert.strictEqual(h('Stress', 'Manhattan Beach'),
+      'Stress treatment experts at Clear Behavioral Health, Manhattan Beach');
+    // A therapy already names the service, so it does not grow "Treatment".
+    assert.strictEqual(h('Cognitive Behavioral Therapy', 'Manhattan Beach'),
+      'Cognitive behavioral therapy experts at Clear Behavioral Health, Manhattan Beach');
+    assert.strictEqual(h('ADHD', 'El Monte'), 'ADHD treatment experts at Clear Behavioral Health, El Monte');
+    assert.ok(!/therapy treatment/i.test(h('Family Therapy', 'Torrance')));
+  });
+
+  test('a new page gets the code-built experts heading, whatever the writer returned', () => {
+    const { page, service, location } = newCbhPage();
+    assert.strictEqual(page.meta.fixedExpertsHeading, true);
+    const expected = 'Anxiety treatment experts at Clear Behavioral Health, Anaheim Hills';
+    assert.strictEqual(page.sections.treatment.heading, expected, 'the model\'s own heading is ignored');
+    // A hand edit does not stick: the heading is rebuilt on every read and save.
+    page.sections.treatment.heading = 'Meet our team';
+    cbhCompose.refreshCbhDerived(page, { location, service });
+    assert.strictEqual(page.sections.treatment.heading, expected);
+    page.primaryKeyword = cbhFixture.PRIMARY;
+    const checks = cbhQc.runCbhQc(page).checks;
+    assert.ok(checks.find(c => c.id === 'treatment_heading').pass);
+    assert.ok(checks.find(c => c.id === 'treatment_heading_present').pass);
+    assert.strictEqual(exporter.toCbhCmsJson(page, { service, location }).experts.heading, expected);
+  });
+
+  test('a page generated before the change keeps its written experts heading', () => {
+    const old = cbhPage();
+    assert.ok(!old.meta.fixedExpertsHeading);
+    cbhCompose.refreshCbhDerived(old, {});
+    assert.strictEqual(old.sections.treatment.heading, 'Our anxiety treatment experts in Anaheim Hills');
+    assert.strictEqual(cbhQc.runCbhQc(old).checks.find(c => c.id === 'treatment_heading').pass, true,
+      'the exact-wording gate does not apply to it');
+    old.sections.treatment.heading = '';
+    assert.ok(!cbhQc.runCbhQc(old).checks.find(c => c.id === 'treatment_heading_present').pass,
+      'and it is still held to the presence check');
+  });
+
+  test('the export always names the city in the CMS treatment heading', () => {
+    const p = cbhPage();
+    p.sections.service.heading = 'Anxiety treatment programs';
+    assert.strictEqual(exporter.toCbhCmsJson(p, {}).treatment.heading, 'Anxiety treatment programs in Anaheim Hills');
+    assert.strictEqual(exporter.toCbhCmsJson(cbhPage(), {}).treatment.heading, 'Anxiety treatment programs in Anaheim Hills',
+      'a heading that already has it is unchanged');
+  });
+
+  test('each CBH location carries its live slug, and its id is unchanged', () => {
+    const anaheim = cbhLoc('cbhloc_anaheim-hills');
+    assert.strictEqual(anaheim.location_slug, 'anaheim-hills-outpatient-mental-health-services');
+    assert.strictEqual(anaheim.location_page_url, '/locations/anaheim-hills-outpatient-mental-health-services/');
+    assert.strictEqual(cbhLoc('cbhloc_los-angeles-mid-wilshire').location_slug, 'outpatient-mental-health-treatment-los-angeles');
+    assert.strictEqual(cbhLoc('cbhloc_gardena-residential').location_slug, 'residential-rehab-for-addiction-in-gardena');
+    assert.strictEqual(seed.CBH_LOCATIONS.length, 14);
+    seed.CBH_LOCATIONS.forEach(l => assert.ok(l.location_slug !== l.id.replace(/^cbhloc_/, ''), `${l.id} still has its old slug`));
+  });
+
+  test('the export and the page URL use the full location slug', () => {
+    const { page, service, location } = newCbhPage();
+    assert.strictEqual(page.meta.urlPath, '/locations/anaheim-hills-outpatient-mental-health-services/anxiety-treatment/');
+    assert.strictEqual(exporter.toCbhCmsJson(page, { service, location }).location_slug,
+      'anaheim-hills-outpatient-mental-health-services');
+  });
+
+  test('Redondo Beach outpatient picks its live page by the kind of service', () => {
+    const loc = cbhLoc('cbhloc_redondo-beach-outpatient');
+    const addiction = cbhSvc('cbh_dual-diagnosis-addiction-treatment');
+    const mh = cbhSvc('cbh_anxiety');
+    assert.strictEqual(cbhContract.cbhLocationSlug(loc, addiction), 'dual-diagnosis-outpatient-redondo-beach');
+    assert.strictEqual(cbhContract.cbhLocationSlug(loc, mh), 'outpatient-mental-health-redondo-beach');
+    assert.strictEqual(cbhContract.cbhLocationPageUrl(loc, addiction), '/locations/dual-diagnosis-outpatient-redondo-beach/');
+    const { page } = newCbhPage('cbh_dual-diagnosis-addiction-treatment', 'cbhloc_redondo-beach-outpatient');
+    assert.ok(page.meta.urlPath.startsWith('/locations/dual-diagnosis-outpatient-redondo-beach/'), page.meta.urlPath);
+    assert.strictEqual(exporter.toCbhCmsJson(page, { service: addiction, location: loc }).location_slug,
+      'dual-diagnosis-outpatient-redondo-beach');
   });
 
   test('the dental gates are not applied to a CBH page, or the reverse', () => {
@@ -3047,27 +3141,28 @@ test('no prompt asks for a keyword frequency any more', () => {
 
   test('the banner heading bolds the city', () => {
     const json = exporter.toCbhCmsJson(cmsPage, {});
-    assert.ok(json.banner.heading.includes(`<b>${cbhFixture.CITY}</b>`),
+    assert.ok(json.banner.heading.includes(`<strong>${cbhFixture.CITY}</strong>`),
       `expected the city in bold: ${json.banner.heading}`);
   });
   test('the bold survives the sentence-case pass with the city still capitalised', () => {
     // The order matters: casing first, then the tag. Wrapping first would hand
-    // sentenceCase a token starting "<b>" and lower-case the city inside it.
+    // sentenceCase a token starting "<strong>" and lower-case the city inside it.
     const json = exporter.toCbhCmsJson(cmsPage, {});
-    assert.ok(!/<b>anaheim/i.test(json.banner.heading) || /<b>Anaheim Hills<\/b>/.test(json.banner.heading),
+    assert.ok(!/<strong>anaheim/i.test(json.banner.heading) || /<strong>Anaheim Hills<\/strong>/.test(json.banner.heading),
       `the city lost its capitals: ${json.banner.heading}`);
     assert.ok(/^[A-Z]/.test(json.banner.heading), 'and the heading still opens with a capital');
   });
   test('only the banner carries markup; the other headings stay plain', () => {
     const json = exporter.toCbhCmsJson(cmsPage, {});
     [json.page_title, json.treatment.heading, json.experts.heading, json.what_is.heading]
-      .forEach(h => assert.ok(!/<b>/.test(h), `unexpected markup in "${h}"`));
+      .forEach(h => assert.ok(!/<(b|strong)>/.test(h), `unexpected markup in "${h}"`));
   });
   test('the city is bolded once, not at every mention', () => {
     const doubled = structuredClone(cmsPage);
     doubled.sections.hero.h1 = `Anxiety treatment in ${cbhFixture.CITY} for ${cbhFixture.CITY} residents`;
     const json = exporter.toCbhCmsJson(doubled, {});
-    assert.strictEqual(json.banner.heading.split('<b>').length - 1, 1);
+    assert.strictEqual(json.banner.heading.split('<strong>').length - 1, 1);
+    assert.ok(!json.banner.heading.includes('<b>'), 'the client asked for <strong>, not <b>');
   });
   test('a heading that never names the city exports unchanged', () => {
     // Should not happen -- a Critical gate requires the city in the H1 -- but an

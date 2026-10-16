@@ -1,6 +1,6 @@
 // ── Managing client feedback rules and batches ──────────────────────────────
 // What the Feedback Rules screen does, behind its routes: create, edit,
-// activate and retire rules; save a pasted feedback batch; draft rules from
+// activate, retire and delete rules; save or delete a pasted feedback batch; draft rules from
 // it; track the code-change action items it raised; and test a rule on sample
 // text before it goes live.
 //
@@ -106,7 +106,49 @@ async function setRuleStatus({ id, status }) {
   return fb.normalizeRule(saved);
 }
 
+// Permanent: for a rule added by mistake. Retire is the way to stop a rule the
+// client has changed their mind on and keep the record.
+//
+// No page is touched. A page generated under the rule keeps its stored marker
+// and review; its next QC simply no longer runs the rule, exactly as if it had
+// been retired.
+async function deleteRule({ id }) {
+  const existing = await store.get(RULES, id);
+  if (!existing) throw new FeedbackError('Rule not found.', 404);
+  await store.remove(RULES, id);
+  // The batch it was drafted from stops listing it.
+  const batch = existing.batch_id ? await store.get(BATCHES, existing.batch_id) : null;
+  if (batch && (batch.rule_keys || []).includes(existing.key)) {
+    await store.update(BATCHES, batch.id, { rule_keys: batch.rule_keys.filter(k => k !== existing.key) });
+  }
+  fb.invalidateRules(existing.client_id);
+  return { deleted: true, id, key: existing.key };
+}
+
 // ── Batches ─────────────────────────────────────────────────────────────────
+// The rules of a batch: those that name it, plus any listed on it by key (a
+// rule created before batch_id was stamped on drafts).
+async function rulesFromBatch(batch) {
+  const keys = new Set(batch.rule_keys || []);
+  return (await store.list(RULES, { client_id: batch.client_id }))
+    .filter(r => r.batch_id === batch.id || keys.has(r.key));
+}
+
+// Permanent, and the batch only: the rules drafted from it are KEPT, at the
+// user's instruction, and the wizard says so before it asks. They lose the
+// link back to the batch and nothing else. Clearing it is not an edit -- no
+// version bump -- so no page's stored review goes out of date over it.
+async function deleteBatch({ id }) {
+  const batch = await getBatch(id);
+  const kept = await rulesFromBatch(batch);
+  for (const r of kept) {
+    if (r.batch_id) await store.update(RULES, r.id, { batch_id: null });
+  }
+  await store.remove(BATCHES, id);
+  fb.invalidateRules(batch.client_id);
+  return { deleted: true, id, keptRules: kept.map(r => ({ id: r.id, key: r.key, status: r.status })) };
+}
+
 async function listBatches(clientId) {
   const rows = await store.list(BATCHES, { client_id: clientId });
   return rows.sort((a, b) => String(b.received_at || '').localeCompare(String(a.received_at || ''))
@@ -210,6 +252,6 @@ function testRule({ rule, text, section, question, city, service, condition }) {
 }
 
 module.exports = {
-  FeedbackError, vocabulary, listRules, createRule, updateRule, setRuleStatus,
-  listBatches, createBatch, draftBatch, updateActionItem, applyRevision, testRule,
+  FeedbackError, vocabulary, listRules, createRule, updateRule, setRuleStatus, deleteRule,
+  listBatches, createBatch, deleteBatch, draftBatch, updateActionItem, applyRevision, testRule,
 };

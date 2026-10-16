@@ -308,6 +308,9 @@ async function regenerateField({
   if (!cfg) throw new Error(`Unknown field: "${field}".`);
   if (cfg.scope === 'page' && !page) throw new Error('page is required for this field.');
   if (cfg.scope === 'brief' && !brief) throw new Error('brief is required for this field.');
+  if (field === 'treatment.heading' && page?.meta?.fixedExpertsHeading) {
+    throw new Error('This heading is built from the service, the brand and the city, so there is nothing to regenerate.');
+  }
 
   const layers = givenLayers || await compose.loadLayers({ clientId, serviceId, locationId });
   const scaffold = cbhCompose.buildCbhScaffold(layers, { servicePhrase: servicePhraseDisplay });

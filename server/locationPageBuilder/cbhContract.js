@@ -199,6 +199,46 @@ function serviceHeading(serviceName, locationName) {
   return casedHeading(`${programPhrase(serviceName)} in ${locationName}`, { serviceName, locationName });
 }
 
+// The clinicians section's H2 (the CMS calls it `experts`), at the client's
+// instruction: "Stress treatment experts at Clear Behavioral Health, Manhattan
+// Beach". Built from the display phrase, which appends "treatment" only to a
+// bare condition, so "Cognitive Behavioral Therapy" never becomes "...Therapy
+// Treatment experts" -- the defect that came from letting the writer word it.
+//
+// Only pages stamped meta.fixedExpertsHeading get it (see cbhCompose). A page
+// generated before this keeps the heading its writer composed.
+function expertsHeading(serviceName, locationName) {
+  return casedHeading(`${serviceName} experts at ${BRAND}, ${locationName}`, { serviceName, locationName });
+}
+
+// Which of the CMS's two buckets a service falls in. Derived from the service
+// record's own groups rather than a hand-kept list, so a service added to the
+// taxonomy is classified without editing code. Approved with the client:
+// anything carrying an addiction-* group is "addiction", everything else --
+// including the teen services, which carry only a `teen` group -- is
+// "mental_health".
+function serviceTypeFor(service) {
+  const groups = Array.isArray(service?.groups) ? service.groups : [];
+  return groups.some(g => String(g).startsWith('addiction-')) ? 'addiction' : 'mental_health';
+}
+
+// ── Location slugs ──────────────────────────────────────────────────────────
+// The slug of the client's live location page, which is what a service page
+// nests under. One office can have TWO live pages: Redondo Beach – Outpatient
+// runs addiction and mental-health outpatient care and the site gives each its
+// own page, so the record carries a per-service-type override and the service
+// decides which applies.
+function cbhLocationSlug(location, service) {
+  const byType = location?.location_slug_by_service_type || {};
+  return String(byType[serviceTypeFor(service)] || location?.location_slug || '').trim();
+}
+
+function cbhLocationPageUrl(location, service) {
+  const override = (location?.location_slug_by_service_type || {})[serviceTypeFor(service)];
+  return override ? `/locations/${override}/` : (location?.location_page_url || '');
+}
+
+
 // ── Em dashes ───────────────────────────────────────────────────────────────
 // Banned from everything this module generates, at the client's instruction:
 // no em dash in a brief, in page copy, or in a regenerated field.
@@ -325,8 +365,8 @@ const LIMITS = {
   },
 
   treatment: {
-    // The ONLY H2 on the page the writer composes. Every other heading is
-    // either fixed verbatim or built from the service and location by code.
+    // Applies only to a page generated before this H2 was built by code
+    // (expertsHeading): on those the writer composed it.
     //
     // This is NOT a QC gate any more, at the client's instruction. The shape
     // they want -- "<service> treatment experts at Clear Behavioral Health,
@@ -491,7 +531,8 @@ function titleWithoutSuffix(title) {
 
 module.exports = {
   BRAND, TITLE_SUFFIX, FIXED_HEADINGS, LIMITS, SECTION_ORDER, PROVENANCE,
-  approachHeading, educationalHeading, serviceHeading,
+  approachHeading, educationalHeading, serviceHeading, expertsHeading,
+  serviceTypeFor, cbhLocationSlug, cbhLocationPageUrl,
   lineCount, textLength, fullTitle, titleWithoutSuffix, maxBodyChars,
   sentenceCase, protectedTerms, casedHeading, PROPER_NOUNS, programPhrase, whatIsVerb,
   EM_DASH, hasEmDash, removeEmDashes,

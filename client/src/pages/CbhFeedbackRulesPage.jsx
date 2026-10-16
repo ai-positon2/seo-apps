@@ -79,6 +79,7 @@ export default function CbhFeedbackRulesPage() {
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [batchFilter, setBatchFilter] = useState('');
   const [editing, setEditing] = useState(null); // { id, rule } -- id null for a new rule
@@ -127,6 +128,32 @@ export default function CbhFeedbackRulesPage() {
     } catch (e) { setError(e.message); }
   }
 
+  async function deleteRule(rule) {
+    if (!window.confirm(`Delete the rule “${rule.title || rule.key}” permanently? This cannot be undone.\n\n`
+      + 'New pages stop using it straight away. Pages already generated are not changed.')) return;
+    setError(''); setNotice('');
+    try {
+      await lpb.feedbackDeleteRule(rule.id);
+      setRules(prev => prev.filter(r => r.id !== rule.id));
+      // The batch it came from no longer lists it.
+      setBatches(prev => prev.map(b => (b.id === rule.batch_id
+        ? { ...b, rule_keys: (b.rule_keys || []).filter(k => k !== rule.key) } : b)));
+      setNotice(`Deleted the rule “${rule.title || rule.key}”.`);
+    } catch (e) { setError(e.message); }
+  }
+
+  // The rules drafted from a deleted batch are kept, and lose only their link
+  // back to it.
+  function onBatchDeleted(batch, keptRules) {
+    const kept = new Set(keptRules.map(r => r.id));
+    setBatches(prev => prev.filter(b => b.id !== batch.id));
+    setRules(prev => prev.map(r => (kept.has(r.id) ? { ...r, batch_id: null } : r)));
+    if (batchFilter === batch.id) setBatchFilter('');
+    setNotice(`Deleted the feedback batch “${batch.title}”.${keptRules.length
+      ? ` The ${keptRules.length} rule${keptRules.length === 1 ? '' : 's'} drafted from it ${keptRules.length === 1 ? 'was' : 'were'} kept and ${keptRules.length === 1 ? 'is' : 'are'} still on the Rules tab.`
+      : ''}`);
+  }
+
   function onRuleSaved(saved) {
     setRules(prev => (prev.some(r => r.id === saved.id) ? prev.map(r => (r.id === saved.id ? saved : r)) : [saved, ...prev]));
     setEditing(null);
@@ -157,6 +184,7 @@ export default function CbhFeedbackRulesPage() {
       </div>
 
       {error && <Notice>{error}</Notice>}
+      {notice && <Notice tone="success">{notice}</Notice>}
       {loading && <p style={{ fontSize: '0.875rem', color: 'var(--text-2)' }}>Loading…</p>}
 
       {!loading && tab === 'rules' && (
@@ -196,6 +224,7 @@ export default function CbhFeedbackRulesPage() {
               key={rule.id} rule={rule} serviceName={serviceName} batchTitle={batchTitle(rule.batch_id)}
               onEdit={() => setEditing({ id: rule.id, rule: structuredClone(rule) })}
               onStatus={status => setStatus(rule, status)}
+              onDelete={() => deleteRule(rule)}
             />
           ))}
         </>
@@ -204,7 +233,7 @@ export default function CbhFeedbackRulesPage() {
       {!loading && tab === 'batches' && (
         <Batches
           batches={batches} setBatches={setBatches} rules={rules}
-          onRulesChanged={load}
+          onRulesChanged={load} onBatchDeleted={onBatchDeleted}
           onShowRules={(batchId) => { setBatchFilter(batchId); setStatusFilter('all'); setTab('rules'); }}
         />
       )}
@@ -213,7 +242,7 @@ export default function CbhFeedbackRulesPage() {
 }
 
 // ── One rule, read-only ─────────────────────────────────────────────────────
-function RuleCard({ rule, serviceName, batchTitle, onEdit, onStatus }) {
+function RuleCard({ rule, serviceName, batchTitle, onEdit, onStatus, onDelete }) {
   const [open, setOpen] = useState(false);
   const services = (rule.scope?.services || []).includes('*')
     ? ['All pages'] : (rule.scope?.services || []).map(serviceName);
@@ -242,6 +271,7 @@ function RuleCard({ rule, serviceName, batchTitle, onEdit, onStatus }) {
           {rule.status !== 'active' && <button style={btnStyle(true)} onClick={() => onStatus('active')}>Activate</button>}
           {rule.status === 'active' && <button style={btnStyle(false)} onClick={() => onStatus('retired')}>Retire</button>}
           {rule.status === 'retired' && <button style={btnStyle(false)} onClick={() => onStatus('draft')}>Back to draft</button>}
+          <button style={{ ...btnStyle(false), color: 'var(--danger,#EF4444)' }} onClick={onDelete}>Delete</button>
         </div>
       </div>
       {open && (
@@ -468,7 +498,7 @@ function RuleEditor({ initial, id, vocab, onCancel, onSaved }) {
 }
 
 // ── Feedback batches ────────────────────────────────────────────────────────
-function Batches({ batches, setBatches, rules, onRulesChanged, onShowRules }) {
+function Batches({ batches, setBatches, rules, onRulesChanged, onShowRules, onBatchDeleted }) {
   const [form, setForm] = useState({ title: '', receivedAt: new Date().toISOString().slice(0, 10), rawText: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -507,13 +537,14 @@ function Batches({ batches, setBatches, rules, onRulesChanged, onShowRules }) {
       </SectionCard>
 
       {batches.map(b => (
-        <BatchCard key={b.id} batch={b} rules={rules} onChange={replace} onRulesChanged={onRulesChanged} onShowRules={onShowRules} />
+        <BatchCard key={b.id} batch={b} rules={rules} onChange={replace} onRulesChanged={onRulesChanged} onShowRules={onShowRules}
+          onDeleted={onBatchDeleted} />
       ))}
     </>
   );
 }
 
-function BatchCard({ batch, rules, onChange, onRulesChanged, onShowRules }) {
+function BatchCard({ batch, rules, onChange, onRulesChanged, onShowRules, onDeleted }) {
   const [open, setOpen] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const [result, setResult] = useState(null);
@@ -554,6 +585,31 @@ function BatchCard({ batch, rules, onChange, onRulesChanged, onShowRules }) {
 
   const openCount = items.filter(a => a.status !== 'done').length;
 
+  // The confirmation says what happens to the batch's rules -- kept, at the
+  // user's instruction -- and what goes with it.
+  async function deleteBatch() {
+    const byStatus = ['active', 'draft', 'retired']
+      .map(s => [s, fromBatch.filter(r => r.status === s).length]).filter(([, n]) => n)
+      .map(([s, n]) => `${n} ${s}`).join(', ');
+    const pending = revisions.filter(r => !r.applied).length;
+    const lines = [
+      `Delete the feedback batch “${batch.title}” permanently? This cannot be undone.`,
+      fromBatch.length
+        ? `${fromBatch.length} rule${fromBatch.length === 1 ? ' was' : 's were'} drafted from this batch (${byStatus}). `
+          + `${fromBatch.length === 1 ? 'It' : 'They'} will be KEPT and keep working, but will no longer show which batch ${fromBatch.length === 1 ? 'it' : 'they'} came from.`
+        : '',
+      openCount ? `Its ${openCount} open code change${openCount === 1 ? '' : 's'} will be deleted with it.` : '',
+      pending ? `Its ${pending} proposed rule revision${pending === 1 ? '' : 's'} not yet applied will be deleted with it.` : '',
+      'Pages already generated are not changed.',
+    ].filter(Boolean);
+    if (!window.confirm(lines.join('\n\n'))) return;
+    setError('');
+    try {
+      const out = await lpb.feedbackDeleteBatch(batch.id);
+      onDeleted(batch, out.keptRules || []);
+    } catch (e) { setError(e.message); }
+  }
+
   return (
     <SectionCard
       title={batch.title}
@@ -562,6 +618,7 @@ function BatchCard({ batch, rules, onChange, onRulesChanged, onShowRules }) {
         <button style={btnStyle(false)} onClick={() => setOpen(o => !o)}>{open ? 'Hide feedback' : 'Show feedback'}</button>
         {fromBatch.length > 0 && <button style={btnStyle(false)} onClick={() => onShowRules(batch.id)}>View its rules</button>}
         <button style={btnStyle(true)} disabled={drafting} onClick={draftRules}>{drafting ? 'Drafting…' : 'Draft rules with AI'}</button>
+        <button style={{ ...btnStyle(false), color: 'var(--danger,#EF4444)' }} disabled={drafting} onClick={deleteBatch}>Delete</button>
       </>}
     >
       {error && <Notice>{error}</Notice>}

@@ -757,10 +757,41 @@ const CBH_LOCATION_DEFS = [
   ['Van Nuys', 'Van Nuys', ['mh-outpatient', 'teen'], ['Sherman Oaks', 'Panorama City', 'Reseda', 'North Hollywood']],
 ];
 
+// The slug of each office's live location page on clearbehavioralhealth.com,
+// as the client supplied them (2026-10-16). Every service page nests under one,
+// and the CMS export carries it as location_slug. They follow no pattern, so
+// they are listed rather than derived.
+//
+// Redondo Beach – Outpatient has TWO live pages, one per kind of care it runs:
+// the mental-health page is the default, and addiction services take the dual
+// diagnosis page (location_slug_by_service_type; see cbhContract.cbhLocationSlug).
+const CBH_LOCATION_SLUGS = {
+  'Gardena – Residential': 'residential-rehab-for-addiction-in-gardena',
+  'Redondo Beach – Residential': 'drug-rehab-alcohol-detox-redondo-beach',
+  'Redondo Beach – Outpatient': 'outpatient-mental-health-redondo-beach',
+  'Los Angeles – Residential': 'residential-mental-health-los-angeles',
+  'Manhattan Beach': 'residential-mental-health-manhattan-beach',
+  'South Bay': 'residential-mental-health-services-south-bay',
+  'Torrance': 'residential-mental-health-services-torrance',
+  'Anaheim Hills': 'anaheim-hills-outpatient-mental-health-services',
+  'El Monte': 'mental-health-treatment-teens-el-monte',
+  'El Segundo': 'teen-mental-health-treatment-el-segundo',
+  'Los Angeles – Mid Wilshire': 'outpatient-mental-health-treatment-los-angeles',
+  'Pasadena': 'teen-mental-health-services-pasadena',
+  'Santa Clarita': 'mental-health-treatment-teens-santa-clarita',
+  'Van Nuys': 'mental-health-treatment-teens-van-nuys',
+};
+const CBH_LOCATION_SLUGS_BY_SERVICE_TYPE = {
+  'Redondo Beach – Outpatient': { addiction: 'dual-diagnosis-outpatient-redondo-beach' },
+};
+
 const CBH_LOCATIONS = CBH_LOCATION_DEFS.map(([city, label, groups, nearby]) => {
-  const slug = slugify(label);
+  // The ID stays keyed to the LABEL, not the live slug: page rows reference
+  // location ids, so re-slugging an office must not orphan its pages.
+  const idSlug = slugify(label);
+  const slug = CBH_LOCATION_SLUGS[label] || idSlug;
   return {
-    id: `cbhloc_${slug}`,
+    id: `cbhloc_${idSlug}`,
     client_id: CBH_CLIENT_ID,
     location_name: label, city, state: 'California', state_abbreviation: 'CA',
     // NAP intentionally blank — see the note at the top of this section.
@@ -768,6 +799,7 @@ const CBH_LOCATIONS = CBH_LOCATION_DEFS.map(([city, label, groups, nearby]) => {
     latitude: '', longitude: '',
     location_slug: slug,
     location_page_url: `/locations/${slug}/`,
+    location_slug_by_service_type: CBH_LOCATION_SLUGS_BY_SERVICE_TYPE[label] || {},
     appointment_url: `${CBH_BASE_URL}/contact/`, gbp_url: '',
     // Blank so qaEngine's location_image_matches check no-ops rather than
     // failing on a stock image that names the wrong city.

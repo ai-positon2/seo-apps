@@ -75,6 +75,11 @@ function buildCbhScaffold(layers, { servicePhrase } = {}) {
       // Which program this page is for (see programGroupsFor). The writer is
       // told, and client feedback rules can be scoped by it.
       programGroups: programGroupsFor(service, location),
+      // Marks a page whose treatment (CMS "experts") H2 is built by code. Set
+      // only here, so every page generated from now on carries it and a page
+      // that predates it keeps the heading its writer composed. Server-owned:
+      // saveContent restores it from the stored page.
+      fixedExpertsHeading: true,
       // `title` is the part the 50-60 window applies to; `fullTitle` is what
       // ships. Both are stored so nothing downstream has to re-derive which is
       // which, and QC can gate them separately.
@@ -138,11 +143,10 @@ function buildCbhScaffold(layers, { servicePhrase } = {}) {
         paragraph: '',
       },
 
-      // Sits between Service and the FAQs. Unlike every other section, its
-      // heading is BLANK here: the writer composes it, so there is nothing for
-      // code to fill in.
+      // Sits between Service and the FAQs: the clinicians section. Its H2 used
+      // to be the writer's; it is now built from the service, brand and city.
       treatment: {
-        heading: '',
+        heading: contract.expertsHeading(svcPhrase, cityName),
         paragraph: '',
       },
 
@@ -157,7 +161,7 @@ function buildCbhScaffold(layers, { servicePhrase } = {}) {
     qc: null,
   };
 
-  return refreshCbhDerived(scaffold, { client, location });
+  return refreshCbhDerived(scaffold, { client, location, service });
 }
 
 // The page's JSON-LD. Moved here from cbhWizard so that ONE function can own
@@ -244,7 +248,13 @@ function caseCbhHeadings(page, location) {
     (s.educational.h3s || []).forEach((h) => { h.heading = cs(h.heading); });
   }
   if (s.service && svc && city) s.service.heading = contract.serviceHeading(svc, city);
-  if (s.treatment) s.treatment.heading = cs(s.treatment.heading);
+  if (s.treatment) {
+    // Rebuilt only on a page generated under the code-built heading. An older
+    // page keeps what its writer composed, just re-cased.
+    s.treatment.heading = (page.meta?.fixedExpertsHeading && svc && city)
+      ? contract.expertsHeading(svc, city)
+      : cs(s.treatment.heading);
+  }
   (s.faq?.items || []).forEach((f) => { f.q = cs(f.q); });
   // meta.title is NOT touched: it is the <title> tag, read in a SERP rather
   // than on the page, and it ships as the SEO team wrote it.
@@ -307,9 +317,12 @@ function refreshCbhDerived(page, { client, location, service } = {}) {
   caseCbhHeadings(page, location);
   const slug = slugify(page.meta.serviceSlug || '');
   page.meta.serviceSlug = slug;
-  page.meta.urlPath = cbhPageUrl(location?.location_page_url, slug);
+  // The SERVICE picks the location page where an office has two (see
+  // contract.cbhLocationSlug).
+  const locationPageUrl = contract.cbhLocationPageUrl(location, service);
+  page.meta.urlPath = cbhPageUrl(locationPageUrl, slug);
   page.meta.canonical = canonicalCbhUrl(
-    client?.brand_static?.base_url || '', location?.location_page_url, slug);
+    client?.brand_static?.base_url || '', locationPageUrl, slug);
   page.schema = buildCbhSchema({ scaffold: page, client: client || {}, location: location || {} });
   return page;
 }
@@ -354,11 +367,15 @@ function mergeCbhL3(scaffold, l3 = {}, location = null) {
   if (l3.uvp) s.uvp.paragraph = str(l3.uvp);
   if (l3.service) s.service.paragraph = str(l3.service);
 
-  // Both halves are the model's, so both are merged. The `||` keeps whatever
-  // was already there when the model omits one -- a correction pass that
-  // returns only the paragraph must not blank the heading.
+  // The paragraph is the model's. The heading is too only on a page without the
+  // code-built one; otherwise whatever the model returned is ignored, like any
+  // other fixed heading. The `||` keeps what was there when the model omits a
+  // value -- a correction pass that returns only the paragraph must not blank
+  // the heading.
   if (l3.treatment) {
-    s.treatment.heading = heading(l3.treatment.heading) || s.treatment.heading;
+    if (!scaffold.meta?.fixedExpertsHeading) {
+      s.treatment.heading = heading(l3.treatment.heading) || s.treatment.heading;
+    }
     s.treatment.paragraph = str(l3.treatment.paragraph) || s.treatment.paragraph;
   }
 

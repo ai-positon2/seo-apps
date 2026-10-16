@@ -690,6 +690,62 @@ module.exports = async function run({ test, testAsync, assert, setLlmStub }) {
     });
   });
 
+  await testAsync('a generated page has the code-built experts heading and the live location URL', async () => {
+    await withMemoryStore({ ...tablesFor(), briefs: [savedBrief('cbh_anxiety', 'cbhloc_anaheim-hills')] }, async (tables) => {
+      stubByPrompt([
+        { match: 'You are an expert local-SEO content writer', answer: cbhFixture.passingL3() },
+        { match: review.REVIEWER_MARKER, answer: { results: [] } },
+      ]);
+      try {
+        await cbhWizard.generateFromBrief({
+          clientId: seedData.CBH_CLIENT_ID, serviceId: 'cbh_anxiety', locationId: 'cbhloc_anaheim-hills',
+        });
+        const stored = tables.pages[0].page_object;
+        assert.strictEqual(stored.meta.fixedExpertsHeading, true);
+        assert.strictEqual(stored.sections.treatment.heading, 'Anxiety treatment experts at Clear Behavioral Health, Anaheim Hills');
+        assert.strictEqual(stored.meta.canonical,
+          'https://clearbehavioralhealth.com/locations/anaheim-hills-outpatient-mental-health-services/anxiety-treatment/');
+      } finally { setLlmStub(null); }
+    });
+  });
+
+  await testAsync('the experts-heading marker is the server\'s, on save as on generation', async () => {
+    const fresh = page();
+    fresh.meta.fixedExpertsHeading = true;
+    const old = page({ marker: false });
+    await withMemoryStore({
+      ...tablesFor(),
+      pages: [
+        { id: 'cbh_new', client_id: seedData.CBH_CLIENT_ID, service_id: 'cbh_anxiety', location_id: 'cbhloc_anaheim-hills',
+          page_type: cbhWizard.PAGE_TYPE, page_object: structuredClone(fresh) },
+        { id: 'cbh_old', client_id: seedData.CBH_CLIENT_ID, service_id: 'cbh_anxiety', location_id: 'cbhloc_anaheim-hills',
+          page_type: cbhWizard.PAGE_TYPE, page_object: structuredClone(old) },
+      ],
+    }, async (tables) => {
+      const dropped = structuredClone(fresh);
+      delete dropped.meta.fixedExpertsHeading;
+      await cbhWizard.saveContent({ pageId: 'cbh_new', page: dropped });
+      assert.strictEqual(tables.pages[0].page_object.meta.fixedExpertsHeading, true, 'a client that dropped it cannot unset it');
+      assert.ok(tables.pages[0].page_object.sections.treatment.heading.includes('experts at Clear Behavioral Health'));
+
+      const forged = structuredClone(old);
+      forged.meta.fixedExpertsHeading = true;
+      await cbhWizard.saveContent({ pageId: 'cbh_old', page: forged });
+      assert.ok(!tables.pages[1].page_object.meta.fixedExpertsHeading, 'nor can it set it on an old page');
+      assert.strictEqual(tables.pages[1].page_object.sections.treatment.heading, 'Our anxiety treatment experts in Anaheim Hills');
+    });
+  });
+
+  await testAsync('the experts heading cannot be regenerated on a new page', async () => {
+    const p = page();
+    p.meta.fixedExpertsHeading = true;
+    await assert.rejects(cbhRegen.regenerateField({
+      clientId: seedData.CBH_CLIENT_ID, serviceId: 'cbh_anxiety', locationId: 'cbhloc_anaheim-hills',
+      page: p, field: 'treatment.heading',
+      layers: regenLayers('cbh_anxiety', 'cbhloc_anaheim-hills', 'Anaheim Hills'), feedbackRules: SEED,
+    }), /nothing to regenerate/);
+  });
+
   await testAsync('re-checking refreshes the review on a new page and refuses an old one', async () => {
     const p = page();
     await withMemoryStore({
@@ -815,6 +871,59 @@ module.exports = async function run({ test, testAsync, assert, setLlmStub }) {
       assert.ok(applied.rule.instruction.includes('neurofeedback'));
       assert.strictEqual(applied.rule.version, 2);
       assert.strictEqual(applied.batch.proposed_revisions[0].applied, true);
+    });
+  });
+
+  // A saved page generated under the rules, so the delete tests can prove it is
+  // left exactly as it was.
+  const builtPage = () => ({ id: 'cbh_built', client_id: seedData.CBH_CLIENT_ID, service_id: 'cbh_anxiety',
+    location_id: 'cbhloc_anaheim-hills', page_type: cbhWizard.PAGE_TYPE, page_object: structuredClone(page()) });
+
+  await testAsync('deleting a rule removes it for good and touches no page', async () => {
+    await withMemoryStore({ ...tablesFor(), pages: [builtPage()] }, async (tables) => {
+      const c = seedData.CBH_CLIENT_ID;
+      const batch = await admin.createBatch({ clientId: c, title: 'Oops', rawText: 'A mistaken note.' });
+      const made = await admin.createRule({ clientId: c, batchId: batch.id, rule: { key: 'mistake', title: 'Mistake',
+        instruction: 'Never mention art therapy.', status: 'active' } });
+      const batches = () => tables.feedbackbatches || tables.feedbackBatches;
+      batches()[0].rule_keys = ['mistake'];
+      assert.ok((await fb.loadActiveRules(c)).some(r => r.key === 'mistake'));
+      const pageBefore = JSON.stringify(tables.pages);
+
+      const out = await admin.deleteRule({ id: made.id });
+      assert.strictEqual(out.deleted, true);
+      assert.ok(!tables.feedbackRules.some(r => r.id === made.id), 'the row is gone');
+      assert.ok(!(await fb.loadActiveRules(c)).some(r => r.key === 'mistake'), 'and the cache no longer serves it');
+      assert.deepStrictEqual(batches()[0].rule_keys, [], 'its batch stops listing it');
+      assert.strictEqual(JSON.stringify(tables.pages), pageBefore, 'no page was touched');
+      await assert.rejects(admin.deleteRule({ id: made.id }), e => e.status === 404);
+    });
+  });
+
+  await testAsync('deleting a batch keeps its rules, unlinked, and touches no page', async () => {
+    await withMemoryStore({ ...tablesFor(), pages: [builtPage()] }, async (tables) => {
+      const c = seedData.CBH_CLIENT_ID;
+      const batch = await admin.createBatch({ clientId: c, title: 'Wrong client', rawText: 'Pasted into the wrong place.' });
+      const a = await admin.createRule({ clientId: c, batchId: batch.id, rule: { key: 'from-batch-a', title: 'A', instruction: 'x', status: 'active' } });
+      const b = await admin.createRule({ clientId: c, batchId: batch.id, rule: { key: 'from-batch-b', title: 'B', instruction: 'y' } });
+      const versionBefore = fb.rulesVersion(await fb.loadActiveRules(c));
+      const pageBefore = JSON.stringify(tables.pages);
+
+      const out = await admin.deleteBatch({ id: batch.id });
+      assert.deepStrictEqual(out.keptRules.map(r => r.key).sort(), ['from-batch-a', 'from-batch-b']);
+      const batches = tables.feedbackbatches || tables.feedbackBatches;
+      assert.ok(!batches.some(x => x.id === batch.id), 'the batch is gone');
+      [a, b].forEach((r) => {
+        const kept = tables.feedbackRules.find(x => x.id === r.id);
+        assert.ok(kept, `${r.key} was kept`);
+        assert.strictEqual(kept.batch_id, null, 'and only its link to the batch was cleared');
+        assert.strictEqual(kept.version, 1, 'which is not an edit');
+        assert.strictEqual(kept.status, r.status);
+      });
+      assert.strictEqual(fb.rulesVersion(await fb.loadActiveRules(c)), versionBefore,
+        'so no stored page review goes out of date over it');
+      assert.strictEqual(JSON.stringify(tables.pages), pageBefore, 'no page was touched');
+      await assert.rejects(admin.deleteBatch({ id: batch.id }), e => e.status === 404);
     });
   });
 

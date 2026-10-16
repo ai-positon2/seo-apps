@@ -49,6 +49,9 @@ export const lpb = {
   feedbackUpdateRule: (id, rule) => req(`/feedback/rules/${id}`, { method: 'PUT', body: JSON.stringify({ rule }) }),
   feedbackSetStatus: (id, status) => req(`/feedback/rules/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) }),
   feedbackTestRule: (body) => req('/feedback/rules/test', { method: 'POST', body: JSON.stringify(body) }),
+  // Permanent. A deleted batch's rules are kept; neither touches a page.
+  feedbackDeleteRule: (id) => req(`/feedback/rules/${id}`, { method: 'DELETE' }),
+  feedbackDeleteBatch: (id) => req(`/feedback/batches/${id}`, { method: 'DELETE' }),
   feedbackBatches: (clientId) => req(`/feedback/batches?clientId=${encodeURIComponent(clientId)}`),
   feedbackCreateBatch: (body) => req('/feedback/batches', { method: 'POST', body: JSON.stringify(body) }),
   feedbackDraftBatch: (id) => req(`/feedback/batches/${id}/draft`, { method: 'POST' }),

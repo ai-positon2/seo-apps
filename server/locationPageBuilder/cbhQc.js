@@ -467,6 +467,20 @@ const CHECKS = [
   },
 
   // ── Treatment ───────────────────────────────────────────────────────────
+  // On a page generated from now on the H2 is built by code, and this gate
+  // holds it to that exact wording. A page generated before keeps the heading
+  // its writer composed, and only the presence check below applies to it.
+  {
+    id: 'treatment_heading', severity: 'Critical', field: 'treatment',
+    name: `Treatment H2 reads "<Service> experts at ${c.BRAND}, <Location>"`,
+    run: (ctx) => {
+      if (!ctx.meta.fixedExpertsHeading) {
+        return { pass: true, detail: 'Not applicable: this page predates the code-built heading.' };
+      }
+      const expected = c.expertsHeading(ctx.page.serviceName || '', ctx.city);
+      return { pass: ctx.treatment.heading === expected, detail: `Expected "${expected}", got "${ctx.treatment.heading || ''}".` };
+    },
+  },
   // No LENGTH gate on this H2, at the client's instruction: the shape they
   // asked for runs past any cap that would have caught a runaway heading, and
   // they would rather have the shape. What is left is a PRESENCE check -- the

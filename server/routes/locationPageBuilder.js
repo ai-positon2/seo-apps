@@ -571,6 +571,8 @@ router.post('/feedback/rules', fbRoute(req => cbhFeedbackAdmin.createRule({ clie
 router.post('/feedback/rules/test', fbRoute(req => cbhFeedbackAdmin.testRule(req.body || {})));
 router.put('/feedback/rules/:id', fbRoute(req => cbhFeedbackAdmin.updateRule({ id: req.params.id, rule: req.body.rule || {} })));
 router.post('/feedback/rules/:id/status', fbRoute(req => cbhFeedbackAdmin.setRuleStatus({ id: req.params.id, status: req.body.status })));
+router.delete('/feedback/rules/:id', fbRoute(req => cbhFeedbackAdmin.deleteRule({ id: req.params.id })));
+router.delete('/feedback/batches/:id', fbRoute(req => cbhFeedbackAdmin.deleteBatch({ id: req.params.id })));
 router.get('/feedback/batches', fbRoute(req => cbhFeedbackAdmin.listBatches(needClient(req))));
 router.post('/feedback/batches', fbRoute(req => cbhFeedbackAdmin.createBatch({
   clientId: needClient(req), title: req.body.title, receivedAt: req.body.receivedAt, rawText: req.body.rawText,

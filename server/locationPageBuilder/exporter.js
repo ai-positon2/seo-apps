@@ -347,14 +347,13 @@ async function toDentalDocxBuffer(pageObject) {
 // blocks differently from the way this module names its sections, and the two
 // do not line up one to one -- confirmed with the client:
 //
-//   CMS `treatment`  <- our SERVICE section   ("<Service> in <Location>")
+//   CMS `treatment`  <- our SERVICE section   ("<Service> programs in <Location>")
 //   CMS `experts`    <- our TREATMENT section (the clinicians one)
 //
 // Where a CMS value disagrees with what the page generates -- a question mark
-// the page's H2 does not carry, a heading the CMS wants title-cased and with
-// the city appended -- it is adapted HERE, not fixed in the generator. That was
-// the client's call, and it means nothing already written has to be
-// regenerated to export cleanly.
+// the page's H2 does not carry -- it is adapted HERE, not fixed in the
+// generator. That was the client's call, and it means nothing already written
+// has to be regenerated to export cleanly.
 
 const contract = require('./cbhContract');
 
@@ -366,13 +365,23 @@ const protectedTermsFor = (page, location) => protectedTerms({
   serviceName: page?.serviceName, locationName: page?.locationName, location,
 });
 
-// Built from the service and city rather than the page's own H2, because the
-// CMS wants the city appended and the page's heading does not carry it.
+// "Our approach to stress treatment", with NO city: the client reversed the
+// earlier instruction to append it. Rebuilt from the service rather than read
+// from the page's H2 so a stale heading on an old page cannot carry one through.
 function approachHeadingFor(page) {
   const svc = String(page.serviceName || '').trim();
+  return svc ? contract.approachHeading(svc) : (page.sections?.approach?.heading || '');
+}
+
+// The CMS `treatment` block (our Service section) always names the location:
+// "Stress treatment programs in Manhattan Beach". The page builds it that way;
+// this is the guarantee for a heading that reaches the export without the city.
+function serviceHeadingFor(page) {
+  const h = String(page.sections?.service?.heading || '').trim();
   const city = String(page.locationName || '').trim();
-  if (!svc) return page.sections?.approach?.heading || '';
-  return city ? `Our approach to ${svc} in ${city}` : `Our approach to ${svc}`;
+  if (!city || new RegExp(`\\b${city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(h)) return h;
+  const svc = String(page.serviceName || '').trim();
+  return svc ? contract.serviceHeading(svc, city) : `${h} in ${city}`;
 }
 
 // The CMS writes this one as a question; the page's H2 deliberately does not
@@ -383,11 +392,12 @@ function asQuestion(heading) {
   return s.endsWith('?') ? s : `${s}?`;
 }
 
-// The CMS banner shows the city in bold, so the H1 ships with a <b> around it:
-//   "Stress relief program in <b>Santa Clarita</b> to support a healthier mindset"
+// The CMS banner shows the city in bold, so the H1 ships with a <strong> around
+// it (the client asked for <strong> over <b>):
+//   "Stress relief program in <strong>Santa Clarita</strong> to support a healthier mindset"
 //
 // Applied AFTER sentence casing, never before. sentenceCase splits on
-// whitespace and strips punctuation to decide what a word is, so "<b>Santa"
+// whitespace and strips punctuation to decide what a word is, so "<strong>Santa"
 // reads to it as one token beginning with a lower-case "b" -- it would lower
 // the city and then have to be rescued by the phrase-restore pass. Casing the
 // plain heading first and wrapping the result is the order that cannot go
@@ -406,32 +416,20 @@ function boldTerm(heading, term) {
   const t = String(term || '').trim();
   if (!h || !t) return h;
   const pattern = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
-  return h.replace(new RegExp(`\\b${pattern}\\b`, 'i'), '<b>$&</b>');
+  return h.replace(new RegExp(`\\b${pattern}\\b`, 'i'), '<strong>$&</strong>');
 }
 
-// PROVISIONAL. The client's sample slug ("mental-health-treatment-teens-santa-
-// clarita") matches none of the 14 stored locations, whose slugs are plain
-// ("santa-clarita", "gardena-residential"), and they are sending the rule
-// separately. Until then this exports what the location record actually holds,
-// which is the honest reading of "use the location slug provided".
-//
-// Everything about that decision lives in this one function on purpose: when
-// the rule arrives, this is the only thing that changes.
-function locationSlugFor(location, page) {
-  return String(location?.location_slug || '').trim()
+// The full slug of the client's live location page
+// ("anaheim-hills-outpatient-mental-health-services"), from the location
+// record -- and, at an office with two live pages, the one this service's type
+// belongs to. The city fallback is for a page whose location row is missing.
+function locationSlugFor(location, page, service) {
+  return contract.cbhLocationSlug(location, service)
     || String(page?.locationName || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
-// Which of the CMS's two buckets a service falls in. Derived from the service
-// record's own groups rather than a hand-kept list, so a service added to the
-// taxonomy is classified without editing code. Approved with the client:
-// anything carrying an addiction-* group is "addiction", everything else --
-// including the teen services, which carry only a `teen` group -- is
-// "mental_health".
-function serviceTypeFor(service) {
-  const groups = Array.isArray(service?.groups) ? service.groups : [];
-  return groups.some(g => String(g).startsWith('addiction-')) ? 'addiction' : 'mental_health';
-}
+// Moved to cbhContract: the location slug depends on it too.
+const { serviceTypeFor } = contract;
 
 const escapeHtml = (s) => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -496,14 +494,14 @@ function toCbhCmsJson(pageObjectIn, { service, location } = {}) {
   const sc = (text) => sentenceCase(text, keep);
 
   return {
-    location_slug: locationSlugFor(location, pageObject),
+    location_slug: locationSlugFor(location, pageObject, service),
     // The PAGE's slug, not the service record's: it is editable per page, and
     // the record's value is only ever the seed for it.
     service_slug: String(m.serviceSlug || service?.slug || '').trim(),
     // The CMS sample sets this to "<Service> in <Location>" -- the Service H2 --
     // even though its comment says "use same as H1", and the same sample's H1
     // is a longer line. The VALUE is what the CMS ingests, so the value wins.
-    page_title: sc(s.service?.heading),
+    page_title: sc(serviceHeadingFor(pageObject)),
     service_type: serviceTypeFor(service),
 
     seo: {
@@ -555,14 +553,16 @@ function toCbhCmsJson(pageObjectIn, { service, location } = {}) {
       description: s.uvp?.paragraph || '',
     },
 
-    // Our SERVICE section. The CMS calls it treatment; the heading is already
-    // "<Service> in <Location>", which is what its sample shows.
+    // Our SERVICE section. The CMS calls it treatment; the heading is
+    // "<Service> programs in <Location>", which is what its sample shows.
     treatment: {
-      heading: sc(s.service?.heading),
+      heading: sc(serviceHeadingFor(pageObject)),
       description: s.service?.paragraph || '',
     },
 
-    // Our TREATMENT section -- the clinicians one.
+    // Our TREATMENT section -- the clinicians one. On a page generated now the
+    // heading is "<Service> experts at Clear Behavioral Health, <Location>",
+    // built by cbhCompose; an older page exports the heading it was written with.
     experts: {
       heading: sc(s.treatment?.heading),
       description: s.treatment?.paragraph || '',

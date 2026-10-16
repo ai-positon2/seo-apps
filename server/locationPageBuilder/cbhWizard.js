@@ -126,6 +126,10 @@ function carryFeedbackFields(next, stored) {
     else delete next[k];
   });
   if (stored?.meta?.programGroups) next.meta.programGroups = structuredClone(stored.meta.programGroups);
+  // Whether code owns the experts H2 is decided at generation, never by what
+  // the browser sends back.
+  if (stored?.meta?.fixedExpertsHeading) next.meta.fixedExpertsHeading = true;
+  else delete next.meta.fixedExpertsHeading;
   return next;
 }
 

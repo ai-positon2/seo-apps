@@ -201,15 +201,7 @@ the heading itself says neither. No superlatives, no "best", no invented credent
 SERVICE: heading "${s.service.heading}" is fixed. ONE paragraph, at most ${L.service.maxChars} characters. Natural,
 specific to the service and the location.
 
-TREATMENT: this is the ONE section where you write the H2 as well as the body. It sits between the
-section above and the FAQs.
-H2: name the service, the team and the city, in this shape:
-"<service> treatment experts at ${contract.BRAND}, ${scaffold.locationName}".
-So "Anger management treatment experts at ${contract.BRAND}, ${scaffold.locationName}" and
-"Family therapy treatment experts at ${contract.BRAND}, ${scaffold.locationName}" are both right.
-No comma between the service and "treatment experts", and do not open with "Our". Where the service
-name already ends in "treatment", do not write the word twice. At most
-${L.treatment.headingMaxChars} characters. Not a slogan, not a sentence, not a question.
+${treatmentHeadingBrief(scaffold)}
 PARAGRAPH: ONE paragraph directly under it, at most ${L.treatment.maxChars} characters, about the CLINICIANS: their
 experience and how they treat people. "We boast a team of experienced, compassionate clinicians with
 many years of experience, dedicated to treating you with the utmost care" is the register. Do not name
@@ -218,6 +210,24 @@ a qualification, a licence, a school, a headcount or a number of years, and prom
 FREQUENTLY ASKED QUESTIONS: each answer at most ${L.faqs.answerMaxChars} characters.
 ${faqBlock}
 Questions must be genuinely useful. Never force a keyword into a question or an answer.`;
+}
+
+// Every page generated now has the treatment H2 built by code; the composed
+// form is kept for a scaffold without the marker so the two never disagree.
+function treatmentHeadingBrief(scaffold) {
+  if (scaffold?.meta?.fixedExpertsHeading) {
+    return `TREATMENT: heading "${scaffold.sections.treatment.heading}" is fixed. It sits between the section above
+and the FAQs. Return "treatment.heading" as that exact string.`;
+  }
+  return `TREATMENT: this is the ONE section where you write the H2 as well as the body. It sits between the
+section above and the FAQs.
+H2: name the service, the team and the city, in this shape:
+"<service> treatment experts at ${contract.BRAND}, ${scaffold.locationName}".
+So "Anger management treatment experts at ${contract.BRAND}, ${scaffold.locationName}" and
+"Family therapy treatment experts at ${contract.BRAND}, ${scaffold.locationName}" are both right.
+No comma between the service and "treatment experts", and do not open with "Our". Where the service
+name already ends in "treatment", do not write the word twice. At most
+${L.treatment.headingMaxChars} characters. Not a slogan, not a sentence, not a question.`;
 }
 
 // The program this page belongs to at this location: the service's program
