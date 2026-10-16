@@ -493,7 +493,9 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
               borderRadius: 'var(--r-sm)', fontFamily: 'var(--font-sans)', fontSize: 12.5,
             }}
           >
-            <ScoreChip score={selected?.score} status={selected?.status} band={selected?.band} />
+            {/* No score on the closed button: beside the site average it read as a
+                second, conflicting score for the run. Each page's own score is in
+                the list this opens, where it is plainly one page's. */}
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {pathOf(selected?.url) || 'Select a page'}
             </span>

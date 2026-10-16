@@ -3,6 +3,9 @@ import {
   bandColor, splitVerdict,
 } from './reportKit';
 import { resolveBreakdown } from '../primitives';
+// The page picker's own label ("/ (home)", "/pricing"), so the report and the
+// picker above it never name the same page two ways.
+import { pathOf } from '../../../lib/pageReportPicker';
 import logoGoogleAio from '../../../assets/ai-engines/google_aio.png';
 import logoChatgpt from '../../../assets/ai-engines/chatgpt.png';
 import logoPerplexity from '../../../assets/ai-engines/perplexity.png';
@@ -103,6 +106,24 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
   // What the headline card shows: the site average on one page of a multi-page
   // run (matching the dashboard card), otherwise this report's own scores.
   const siteView = Boolean(scope && Number.isFinite(scope.average));
+  const pageStatus = Number(findings?.meta?.http_status);
+  const pageError = Number.isFinite(pageStatus) && pageStatus >= 400;
+  // Pages the site average is actually over: an error page carries no score.
+  const scoredCount = siteView ? (Number.isFinite(scope.scored) ? scope.scored : scope.count) : null;
+  const unscoredCount = siteView ? Math.max(0, scope.count - scoredCount) : 0;
+  // Each side for the site view: the average score, its bars averaged over the
+  // same pages, and how many pages a cap held down. Every figure on the Summary
+  // is then a site figure — one set of numbers, matching the dashboard card.
+  const siteAxis = (score, detail) => (Number.isFinite(score) && detail ? {
+    score,
+    band: { label: ratingFor(score).label },
+    buckets: detail.buckets || [],
+    weakest: [...(detail.buckets || [])].filter((b) => b.score < 100)
+      .sort((a, b) => b.weight * (100 - b.score) - a.weight * (100 - a.score))[0] || null,
+    cap: detail.capped > 0 ? { applied: true, siteCount: detail.capped, reasons: detail.capReasons || [] } : null,
+  } : null);
+  const siteSeo = siteView ? siteAxis(scope.seo, scope.seoDetail) : null;
+  const siteGeo = siteView ? siteAxis(scope.geo, scope.geoDetail) : null;
   const sideOf = (avg) => (Number.isFinite(avg) ? { score: avg, band: { label: ratingFor(avg).label } } : null);
   const hero = siteView
     ? { score: scope.average, ...ratingFor(scope.average), seo: sideOf(scope.seo), geo: sideOf(scope.geo) }
@@ -125,10 +146,10 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
           <Donut score={hero.score} size={168} numberSize={42} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: '1 1 240px', minWidth: 0 }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              <Eyebrow>{siteView ? `Site average · ${scope.count} pages` : 'Overall score'}</Eyebrow>
+              <Eyebrow>{siteView ? `Site average · ${scoredCount} page${scoredCount === 1 ? '' : 's'}` : 'Overall score'}</Eyebrow>
               <InfoTip label="How the overall score works">
                 {siteView
-                  ? <SiteAverageExplainer title="Site average" score={scope.average} count={scope.count} pageScore={overall} pageUrl={scope.url} />
+                  ? <SiteAverageExplainer title="Site average" score={scope.average} count={scoredCount} />
                   : <OverallExplainer breakdown={breakdown} cap={cap} composite={composite} overall={overall} bandLabel={bandLabel} seo={scores.seo} geo={scores.geo} />}
               </InfoTip>
             </span>
@@ -142,7 +163,8 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
             )}
             <span style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.5, maxWidth: 460 }}>
               {siteView
-                ? `The mean of the ${scope.count} audited pages’ scores — the same figure as the dashboard card.`
+                ? `The mean of the ${scoredCount} scored pages — the same figure as the dashboard card.`
+                  + (unscoredCount ? ` ${unscoredCount} page${unscoredCount === 1 ? '' : 's'} returned an error and ${unscoredCount === 1 ? 'is' : 'are'} not scored.` : '')
                 : capNote}
             </span>
           </div>
@@ -157,41 +179,35 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
                 name="SEO" sub="Search engines" axis={hero.seo}
                 infoLabel="How the SEO score works"
                 info={siteView
-                  ? <SiteAverageExplainer title="SEO · site average" score={scope.seo} count={scope.count} pageScore={scores.seo?.score} pageUrl={scope.url} />
+                  ? <SiteAverageExplainer title="SEO · site average" score={scope.seo} count={scoredCount} axis={siteSeo} />
                   : <AxisExplainer title="SEO score" axis={scores.seo} what="Can search engines like Google find, index and rank this page?" />}
               />
               <SideScore
                 name="GEO" sub="AI answer engines" axis={hero.geo}
                 infoLabel="How the GEO score works"
                 info={siteView
-                  ? <SiteAverageExplainer title="GEO · site average" score={scope.geo} count={scope.count} pageScore={scores.geo?.score} pageUrl={scope.url} engineTally={engineTally} />
+                  ? <SiteAverageExplainer title="GEO · site average" score={scope.geo} count={scoredCount} axis={siteGeo} />
                   : <AxisExplainer title="GEO score" axis={scores.geo} engineTally={engineTally} what="Can AI answer engines (ChatGPT, Perplexity, Google AI Overviews, Gemini) read, trust and cite this page?" />}
               />
             </div>
           )}
         </Panel>
 
-        {/* This page, within the run: its own three scores, introducing the
-            page-level detail that follows. */}
+        {/* Which page the page-level sections below (verdict, AI engines,
+            findings) describe. No scores here: the Summary shows site figures
+            only, and each page's own score is in the page list above. */}
         {siteView && (
           <div
             style={{
-              display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '12px 16px',
-              borderRadius: 12, background: 'var(--surface-2)', border: '1px solid var(--border)',
+              display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '10px 14px',
+              borderRadius: 10, background: 'var(--surface-2)', border: '1px solid var(--border)',
+              fontSize: 12.5, color: 'var(--text-2)',
             }}
           >
-            <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: '1 1 260px' }}>
-              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-3)' }}>
-                This page · {scope.number} of {scope.count} — the detail below is for this page
-              </span>
-              <span style={{ fontSize: 13, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {pathOf(scope.url)}
-              </span>
-            </span>
-            <span style={{ display: 'flex', alignItems: 'baseline', gap: 12, fontSize: 13, color: 'var(--text-2)' }}>
-              <span>Overall <strong className="num" style={{ color: bandColor(overall) }}>{overall ?? '—'}</strong></span>
-              {scores.seo && <span>SEO <strong className="num" style={{ color: bandColor(scores.seo.score) }}>{scores.seo.score}</strong></span>}
-              {scores.geo && <span>GEO <strong className="num" style={{ color: bandColor(scores.geo.score) }}>{scores.geo.score}</strong></span>}
+            <span>
+              Verdict, AI engines and findings below are for <strong style={{ color: 'var(--text)' }}>{pathOf(scope.url)}</strong>
+              {pageError ? ` — it returned HTTP ${pageStatus} when audited, so it is not scored` : ''}.
+              {' '}Pick another page in the bar above.
             </span>
           </div>
         )}
@@ -201,10 +217,10 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
             two numbers in the card above. Server-side calculateScores builds
             `scores.seo` / `scores.geo`; a report saved before that had them
             derived from its stored bars (withAxisScores) on the way here. */}
-        {(scores.seo || scores.geo) && (
+        {(siteView ? (siteSeo || siteGeo) : (scores.seo || scores.geo)) && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-            <AxisCard title={siteView ? 'What drives this page’s SEO score' : 'What drives the SEO score'} axis={scores.seo} />
-            <AxisCard title={siteView ? 'What drives this page’s GEO score' : 'What drives the GEO score'} axis={scores.geo} />
+            <AxisCard title={siteView ? 'What drives the site’s SEO score' : 'What drives the SEO score'} axis={siteView ? siteSeo : scores.seo} sitePages={siteView ? scoredCount : null} />
+            <AxisCard title={siteView ? 'What drives the site’s GEO score' : 'What drives the GEO score'} axis={siteView ? siteGeo : scores.geo} sitePages={siteView ? scoredCount : null} />
           </div>
         )}
 
@@ -234,6 +250,7 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
               {summary.priority_verdict}
             </p>
 
+            {!siteView && (
             <div
               style={{
                 display: 'flex', gap: 24, flexWrap: 'wrap', paddingTop: 6,
@@ -245,16 +262,18 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
                   page with no cap there is nothing blocking it, and inventing a
                   blocker to fill the slot is the opposite of what this card is
                   for. */}
-              {cap?.applied && (
+              {cap?.applied && !siteView && (
                 <OnAccent label="Blocking the score" value={cap.reason} />
               )}
-              {weakest && (
+              {/* Page-level figures: left out of the site view, which shows site numbers only. */}
+              {weakest && !siteView && (
                 <OnAccent label="Weakest bucket" value={`${weakest.label} — ${weakest.score}`} />
               )}
-              {cap?.applied && composite !== null && (
+              {cap?.applied && composite !== null && !siteView && (
                 <OnAccent label="Once fixed" value={`Score reaches ${composite}`} />
               )}
             </div>
+            )}
 
             {geo?.top_geo_fix && (
               <div
@@ -312,7 +331,7 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
           </div>
           {/* The GEO score and this panel measure the same thing two ways — rule
               checks and the AI's read. Said here so the two are read together. */}
-          {scores.geo && (
+          {scores.geo && !siteView && (
             <div
               style={{
                 display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '10px 14px',
@@ -430,38 +449,32 @@ const ratingFor = (score) => {
   return { label: r.label, blurb: r.blurb };
 };
 
-// The "i" for a site-average figure: what it averages, and where this page sits.
-function SiteAverageExplainer({ title, score, count, pageScore, pageUrl, engineTally }) {
+// The "i" for a site-average figure: what it averages and, for a side, its bars
+// and caps across the pages — site figures only, like the rest of the Summary.
+function SiteAverageExplainer({ title, score, count, axis = null }) {
+  const rows = axis ? [...axis.buckets].sort((a, b) => b.weight - a.weight) : [];
   return (
     <>
       <TipHeader title={title} score={score} band={Number.isFinite(score) ? ratingFor(score).label : null} />
       <span style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5 }}>
-        The mean across the {count} audited pages — the same number the dashboard card shows. Each
-        page is scored on its own; pick one in the bar above to see it.
+        The mean across the {count} scored page{count === 1 ? '' : 's'} — the same number the
+        dashboard card shows. Each page’s own score is in the page list above.
       </span>
-      {Number.isFinite(pageScore) && (
-        <TipCallout label="This page">
-          {pathOf(pageUrl)} scores <strong>{pageScore}</strong>. The breakdown below is for this page.
-        </TipCallout>
-      )}
-      {engineTally?.length > 0 && (
-        <TipSection label="AI engines on this page">
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {engineTally.map(([st, n]) => <StatusPill key={st} status={st} count={n} />)}
-          </div>
+      {rows.length > 0 && (
+        <TipSection label="Averaged across the pages">
+          <TipColumns />
+          {rows.map((b) => <TipRow key={b.key} label={b.label} score={b.score} weight={b.weight} />)}
         </TipSection>
+      )}
+      {axis?.cap?.applied && (
+        <TipCallout tone="warn" label={`Blocking cap on ${axis.cap.siteCount} of ${count} pages`}>
+          {axis.cap.reasons.join(' ')}
+        </TipCallout>
       )}
     </>
   );
 }
 
-// "/features" from a full URL; the homepage reads "/ (homepage)".
-const pathOf = (url) => {
-  try {
-    const p = new URL(url).pathname.replace(/\/+$/, '');
-    return p ? p : '/ (homepage)';
-  } catch { return url || ''; }
-};
 
 // ── Explainer popovers ──────────────────────────────────────────────────────
 // Laid out to be scanned, not read: a header with the number, one plain
@@ -673,7 +686,7 @@ function AxisExplainer({ title, axis, what, engineTally }) {
 
 // One side of the split: the bars it is made of, weakest first, so "why" is on
 // the page rather than a tab away.
-function AxisCard({ title, axis }) {
+function AxisCard({ title, axis, sitePages = null }) {
   if (!axis) {
     return (
       <Panel pad="20px 22px" style={{ gap: 8 }}>
@@ -703,9 +716,25 @@ function AxisCard({ title, axis }) {
             <span className="num" style={{ fontSize: 12.5, textAlign: 'right', color: 'var(--text)' }}>{b.score}</span>
           </div>
         ))}
+        {/* The cap as its own bar, so the bars add up to the score: three green
+            categories beside a red 55 read as a contradiction until the thing
+            holding it down is drawn too. */}
+        {axis.cap?.applied && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 90px 32px', alignItems: 'center', gap: 10, paddingTop: 6, borderTop: '1px dashed var(--border)' }}>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: bandColor(axis.score), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {sitePages ? `Blocking cap · ${axis.cap.siteCount} of ${sitePages} pages` : 'Blocking cap'}
+            </span>
+            <span style={{ height: 6, borderRadius: 3, background: 'var(--border)', overflow: 'hidden' }}>
+              <span style={{ display: 'block', height: '100%', width: `${Math.max(0, Math.min(100, axis.score))}%`, background: bandColor(axis.score) }} />
+            </span>
+            <span className="num" style={{ fontSize: 12.5, fontWeight: 600, textAlign: 'right', color: bandColor(axis.score) }}>{axis.score}</span>
+          </div>
+        )}
       </div>
       <span style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5 }}>
-        {axis.cap?.applied
+        {axis.cap?.applied && sitePages
+          ? `Held down by a blocking issue on ${axis.cap.siteCount} of ${sitePages} pages: ${axis.cap.reasons.join(' ')}`
+          : axis.cap?.applied
           ? `Capped at ${axis.cap.value}: ${axis.cap.reasons.join(' ')} Without it this side scores ${axis.composite}.`
           : axis.weakest
             ? `Losing the most points: ${axis.weakest.label} (${axis.weakest.score}). Fixing it lifts this score the most.`

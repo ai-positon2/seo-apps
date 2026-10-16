@@ -1097,9 +1097,12 @@ async function seoGeoSideScores(runId) {
   let source = await db.rows(
     `select payload->'native'->'findings'->'scores' as scores, ${t3}
        from project_module_page_runs
-      where run_id = $1 and status = 'completed'`,
+      where run_id = $1 and status = 'completed' and score is not null`,
     [runId]
   );
+  // Only scored pages — the same set the run's headline averages
+  // (moduleEvidence.aggregatePages), so a page left unscored (an error page)
+  // is out of all three averages, not just one.
   source = source.filter((r) => r.scores);
   if (!source.length) {
     const own = await db.maybeOne(
@@ -1116,7 +1119,36 @@ async function seoGeoSideScores(runId) {
   };
   const seo = mean('seo');
   const geo = mean('geo');
-  return seo === null && geo === null ? null : { seo, geo, pages: sides.length };
+  if (seo === null && geo === null) return null;
+
+  // Each side's bars averaged across the same pages, and how many of them a cap
+  // held down — so the report's site view can show WHY 53, not just 53, with
+  // bars that add up to the score instead of three green bars beside a red one.
+  const sideDetail = (key) => {
+    const byBar = new Map();
+    let capped = 0;
+    const reasons = new Set();
+    for (const page of sides) {
+      const side = page?.[key];
+      if (!side) continue;
+      for (const b of side.buckets || []) {
+        const entry = byBar.get(b.key) || { key: b.key, label: b.label, total: 0, n: 0, weight: b.weight };
+        entry.total += Number(b.score) || 0;
+        entry.n += 1;
+        byBar.set(b.key, entry);
+      }
+      if (side.cap?.applied) {
+        capped += 1;
+        for (const r of side.cap.reasons || []) reasons.add(r.replace(/\d+(\.\d+)?\/10/, 'low'));
+      }
+    }
+    return {
+      buckets: [...byBar.values()].map((e) => ({ key: e.key, label: e.label, score: Math.round(e.total / e.n), weight: e.weight })),
+      capped,
+      capReasons: [...reasons],
+    };
+  };
+  return { seo, geo, pages: sides.length, seoDetail: sideDetail('seo'), geoDetail: sideDetail('geo') };
 }
 
 function evidenceCard(module, entry) {

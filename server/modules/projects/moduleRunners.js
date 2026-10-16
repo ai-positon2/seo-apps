@@ -103,8 +103,14 @@ async function auditPageSeoGeo({ url, keywords }) {
 
   const result = await runSeoGeoAudit({ url, keywords: keywords || [], skipAi: false });
   const scores = result.findings?.scores || {};
+  // A URL that answered with an error (404, 500…) was not a page of content when
+  // it was audited — its "score" describes the site's error page. Scored, it was
+  // averaged in: Cabinet's /features returned a transient 404, scored 45, and
+  // pulled the site average from 86 to 70. Kept as a report, left unscored.
+  const httpStatus = Number(result.findings?.meta?.http_status);
+  const errorPage = Number.isFinite(httpStatus) && httpStatus >= 400;
   const overall = Number(scores.overall);
-  const hasScore = Number.isFinite(overall);
+  const hasScore = Number.isFinite(overall) && !errorPage;
 
   const findings = (result.findings?.checks || [])
     .filter((c) => ['error', 'warning', 'notice'].includes(String(c.severity || '').toLowerCase()))
@@ -124,7 +130,9 @@ async function auditPageSeoGeo({ url, keywords }) {
     scoreBasis: hasScore ? SCORE_BASIS.seo_geo : null,
     // scores.band is an object here ({ label, blurb }); the column is text, so
     // storing it whole once put raw JSON on a card.
-    band: typeof scores.band === 'string' ? scores.band : (scores.band?.label || null),
+    band: errorPage
+      ? `HTTP ${httpStatus} — not scored`
+      : (typeof scores.band === 'string' ? scores.band : (scores.band?.label || null)),
     findings,
     payload: {
       native: { findings: result.findings, ai: result.ai || null },

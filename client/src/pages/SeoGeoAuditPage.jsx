@@ -327,11 +327,15 @@ export default function SeoGeoAuditPage() {
           const pages = detail?.pages || [];
           setStoredScope(page && pages.length > 1 ? {
             url: page.url,
-            number: Math.max(1, pages.findIndex((p) => p.id === page.id) + 1),
             count: pages.length,
             average: Number.isFinite(detail?.card?.score) ? detail.card.score : null,
             seo: detail?.sideScores?.seo ?? null,
             geo: detail?.sideScores?.geo ?? null,
+            // Pages that carry a score (an error page does not), and each side's
+            // bars averaged over them — the site view shows only site figures.
+            scored: detail?.sideScores?.pages ?? null,
+            seoDetail: detail?.sideScores?.seoDetail || null,
+            geoDetail: detail?.sideScores?.geoDetail || null,
           } : null);
         }}
         onResolved={setReportState}
