@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Muted, Tag, TAG_TONES } from '../studio/primitives';
 import ModuleIcon from './moduleIcons';
+import { Spinner, stepState } from './AnalysisProgress';
 import { MODULE_STATUS_LABEL, MODULE_STATUS_TONE, relativeTime, isModuleInFlight, scoreVerdict } from '../../lib/projectsApi';
 import { moduleReportRoute } from '../../lib/moduleReportRoute';
 // Same dictionary the sidebar reads (toolsMeta.js) — one source of truth for
@@ -114,7 +115,7 @@ function blurbLines(module) {
   return { lead: module.headline, support: module.detail };
 }
 
-export default function ModuleCard({ module, onRun }) {
+export default function ModuleCard({ module, onRun, crawlLive = false }) {
   const [hover, setHover] = useState(false);
   const [busy, setBusy] = useState(false);
   const [runError, setRunError] = useState(null);
@@ -129,13 +130,27 @@ export default function ModuleCard({ module, onRun }) {
   const statusLabel = verdict ? verdict.label : (MODULE_STATUS_LABEL[module.status] || module.status);
   const tint = TAG_TONES[tone] || TAG_TONES.muted;
   const number = headlineNumber(module);
-  const blurb = blurbLines(module);
+  const blurbRaw = blurbLines(module);
   const canRun = Boolean(module.runnable && onRun);
   // 'queued' counts as in flight. A run that starts itself when a project's
   // domains are set up sits queued for its coalescing window before a worker
   // claims it, and an enabled Run button during that minute invites a second
   // run of a module that bills per domain.
   const running = busy || isModuleInFlight(module.status);
+  // Working, with no number of its own yet (a running page audit shows its
+  // moving average instead, so it is not "empty").
+  // Running, queued, or waiting on the crawl: drawn differently, so a card
+  // in line does not look like a card at work.
+  const step = stepState(module, { crawlLive });
+  const workingEmpty = (isModuleInFlight(module.status) || step === 'waiting')
+    && !(module.scored && Number.isFinite(module.score));
+  const shownLabel = step === 'waiting' ? 'Waiting for crawl' : statusLabel;
+  // Waiting on a crawl that is still running: an earlier "nothing to measure"
+  // result is about to be replaced, so the card says what happens next instead.
+  const waitingOnCrawl = step === 'waiting' && !isModuleInFlight(module.status);
+  const blurb = waitingOnCrawl
+    ? { lead: 'Waiting for the crawl to finish', support: `${module.label} runs on its own once the site crawl completes — nothing to do.` }
+    : blurbRaw;
   // A card that needs setup goes to where the setup is done, not to an empty report.
   const reportRoute = module.setupLink
     ? { path: module.setupLink, label: module.setupLabel || 'Set up' }
@@ -255,7 +270,15 @@ export default function ModuleCard({ module, onRun }) {
           {/* An interrupted run is a real caveat, but it is one word, not a
               paragraph. */}
           {module.partial && <Tag tone="warn">Partial</Tag>}
-          <Tag tone={tone}>{statusLabel}</Tag>
+          <Tag tone={tone}>
+            {/* A turning ring on a card whose module is working right now. */}
+            {step === 'running' && (
+              <span style={{ display: 'inline-flex', verticalAlign: '-2px', marginRight: 5 }}>
+                <Spinner size={11} color="currentColor" />
+              </span>
+            )}
+            {shownLabel}
+          </Tag>
         </div>
       </div>
 
@@ -267,9 +290,18 @@ export default function ModuleCard({ module, onRun }) {
             className="num"
             style={{ fontSize: 40, fontWeight: 600, lineHeight: 1, color: number.color }}
           >
-            {number.text}
+            {/* Working with nothing to show yet: a pulsing placeholder, not an
+                em dash that reads the same as "never run". */}
+            {workingEmpty
+              ? <span aria-hidden="true" style={{ display: 'inline-block', width: 56, height: 34, borderRadius: 8, background: 'var(--border)', animation: 'kr-pulse 1.4s ease-in-out infinite', verticalAlign: 'middle' }} />
+              : number.text}
           </span>
-          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{number.unit}</span>
+          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
+            {!workingEmpty ? number.unit
+              : step === 'queued' ? 'queued — starts shortly'
+                : step === 'waiting' ? 'waiting for the crawl'
+                  : 'analyzing…'}
+          </span>
         </div>
         {module.sideScores && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
@@ -283,12 +315,16 @@ export default function ModuleCard({ module, onRun }) {
           track stays either way, which is what keeps every card in the grid the
           same height. */}
       <div style={{ height: 4, borderRadius: 999, background: 'var(--border)', overflow: 'hidden' }}>
-        {number.barWidth && (
+        {number.barWidth && !workingEmpty && (
           <div
             style={{
               height: '100%', borderRadius: 999, width: number.barWidth, background: number.color,
             }}
           />
+        )}
+        {/* In flight with no figure yet: a moving bar, so the card reads as busy. */}
+        {workingEmpty && step === 'running' && (
+          <div style={{ height: '100%', width: '35%', borderRadius: 999, background: 'var(--primary)', animation: 'card-indeterminate 1.4s ease-in-out infinite' }} />
         )}
       </div>
 
@@ -337,6 +373,9 @@ export default function ModuleCard({ module, onRun }) {
         <Muted>
           {module.status === 'needs_setup'
             ? 'No competitors on this project'
+            : step === 'running' ? 'In progress — updates on its own'
+            : step === 'queued' ? 'In line — starts on its own'
+            : step === 'waiting' ? 'Starts when the crawl finishes'
             : module.updatedAt ? `Updated ${relativeTime(module.updatedAt)}` : 'Never run for this client'}
         </Muted>
         {/* Kept from the card this replaces. The design's footer is the updated
@@ -356,7 +395,7 @@ export default function ModuleCard({ module, onRun }) {
             {module.setupLabel || 'Set up'} →
           </Link>
         )}
-        {canRun && !module.setupLink && (
+        {canRun && !module.setupLink && !waitingOnCrawl && (
           <button
             type="button"
             onClick={run}

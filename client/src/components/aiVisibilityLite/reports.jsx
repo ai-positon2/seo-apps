@@ -23,6 +23,8 @@ import {
   FilledLabelBar, TypeChip, ShowMore,
 } from '../aiVisibility/reportPrimitives';
 import { LineChart } from '../aiVisibility/reportCharts';
+import { InfoTip } from '../seoGeo/report/reportKit';
+import SiteFavicon from '../home/SiteFavicon';
 import { useTheme } from '../ThemeContext';
 import openaiLogo from './logos/openai.svg';
 import claudeLogo from './logos/claude.webp';
@@ -207,14 +209,20 @@ function metricDetail(key, report) {
       const rows = report.byEngine || [];
       if (!rows.length) return <Muted size={12}>Nothing measured in this period.</Muted>;
       return (
-        <div>
-          {rows.map((e) => (
-            <DetailRow
-              key={e.engine}
-              left={engineLabel(e.engine)}
-              right={key === 'namedRate' ? e.namedRate.display : e.groundedRate.display}
-            />
-          ))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {rows.map((e) => {
+            const m = key === 'namedRate' ? e.namedRate : e.groundedRate;
+            return (
+              <BarRow
+                key={e.engine}
+                lead={<EngineLogo engine={e.engine} visual={ENGINE_VISUAL[e.engine] || DEFAULT_ENGINE_VISUAL} size={26} />}
+                label={engineLabel(e.engine)}
+                sub={key === 'namedRate' ? `mentioned in ${e.named} of ${e.measured} answers` : null}
+                value={m.value}
+                display={m.display}
+              />
+            );
+          })}
         </div>
       );
     }
@@ -225,13 +233,20 @@ function metricDetail(key, report) {
           ? (a.mentionRank.value ?? 99) - (b.mentionRank.value ?? 99)
           : (b.shareOfMentions.value ?? -1) - (a.shareOfMentions.value ?? -1)));
       if (!brands.length) return <Muted size={12}>Nothing measured in this period.</Muted>;
+      // Position: shorter is better, so the bar is drawn as how close to #1.
+      const worst = Math.max(...brands.map((b) => b.mentionRank.value ?? 0), 1);
       return (
-        <div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {brands.map((b) => (
-            <DetailRow
+            <BarRow
               key={b.name}
-              left={b.isClient ? `${b.name} (you)` : b.name}
-              right={key === 'mentionRank' ? b.mentionRank.display : b.shareOfMentions.display}
+              label={b.isClient ? `${b.name} (you)` : b.name}
+              highlight={b.isClient}
+              muted={!b.isClient}
+              value={key === 'mentionRank'
+                ? (b.mentionRank.value ? (worst + 1 - b.mentionRank.value) / worst : 0)
+                : b.shareOfMentions.value}
+              display={key === 'mentionRank' ? b.mentionRank.display : b.shareOfMentions.display}
             />
           ))}
         </div>
@@ -240,10 +255,12 @@ function metricDetail(key, report) {
     case 'citationRate': {
       const domains = (report.sources?.domains || []).slice(0, 8);
       if (!domains.length) return <Muted size={12}>No citations recorded in this period.</Muted>;
+      const most = Math.max(...domains.map((d) => d.citations), 1);
       return (
-        <div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <Muted size={11.5}>The sites AI linked to most in these answers.</Muted>
           {domains.map((d) => (
-            <DetailRow key={d.domain} left={d.domain} right={`${d.citations} citation${d.citations === 1 ? '' : 's'}`} />
+            <BarRow key={d.domain} label={d.domain} value={d.citations / most} display={`${d.citations} citation${d.citations === 1 ? '' : 's'}`} />
           ))}
         </div>
       );
@@ -267,50 +284,236 @@ function metricDetail(key, report) {
 }
 
 /** One clickable KPI tile — visually a MetricCard, but a toggle button. */
-function ExpandableTile({ tileKey, label, metric, selected, onSelect }) {
+// What each metric means, in plain words, for its "i": what it is, how it is
+// counted, and what a good result looks like. The one-liner under an opened
+// tile (METRIC_INFO) stays; this is the longer explanation.
+const METRIC_HELP = {
+  score: {
+    what: 'One 0–100 number for how visible you are in AI answers.',
+    how: 'Blends how often you are mentioned, where you appear, how you are described, and how often your site is cited.',
+    good: 'Above 60 means AI regularly includes you; under 20 means it rarely does.',
+  },
+  avgScore: {
+    what: 'Your visibility score averaged over every measurement this project has run.',
+    how: 'The same 0–100 score, across all runs rather than just the latest.',
+    good: 'Rising over time means your AI visibility is improving.',
+  },
+  namedRate: {
+    what: 'How often AI mentions your brand when it answers the questions your customers ask.',
+    how: 'Out of every AI answer we could check, the share that named you.',
+    good: 'Higher is better. 1 in 3 answers or more is strong for most brands.',
+  },
+  shareOfMentions: {
+    what: 'Your slice of the conversation — how much of the brand talk in AI answers is about you rather than your competitors.',
+    how: 'Of all the times AI named you or a tracked competitor, the share that was you.',
+    good: 'Higher is better. Over 50% means you are named more than all tracked competitors combined.',
+  },
+  citationRate: {
+    what: 'How often AI links to your own website as a source, not just mentions your name.',
+    how: 'Out of the answers that named you, the share that cited a page on your site.',
+    good: 'Higher is better. Citations send traffic and make AI trust your content.',
+  },
+  mentionRank: {
+    what: 'Where you usually appear when AI lists several brands.',
+    how: 'Your average position among the brands named in an answer. #1 means you usually come first.',
+    good: 'Lower is better. #1–#2 means AI tends to lead with you.',
+  },
+  groundedRate: {
+    what: 'How often AI looked things up on the live web before answering, instead of using only what it already knew.',
+    how: 'Out of every answer, the share where the AI ran a web search.',
+    good: 'Context, not a goal: when AI searches, fresh pages on your site can win the answer.',
+  },
+  coverage: {
+    what: 'How many of the AI answers we asked for came back usable.',
+    how: 'Answers we could measure, out of every one we attempted.',
+    good: 'Close to 100% means the numbers above rest on a full sample.',
+  },
+};
+
+const clamp01 = (v) => Math.max(0, Math.min(1, Number(v) || 0));
+const RATE_KEYS = new Set(['namedRate', 'citationRate', 'groundedRate', 'coverage']);
+
+/** A small ring filled to a 0–1 share. */
+function RateRing({ value, size = 52 }) {
+  const stroke = 6; const r = (size - stroke) / 2; const c = 2 * Math.PI * r;
+  const has = Number.isFinite(Number(value)) && value !== null;
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(tileKey)}
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true" style={{ flexShrink: 0 }}>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--border)" strokeWidth={stroke} />
+      {has && (
+        <circle
+          cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--primary)" strokeWidth={stroke}
+          strokeLinecap="round" strokeDasharray={`${c * clamp01(value)} ${c}`} transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        />
+      )}
+    </svg>
+  );
+}
+
+/** Share of voice: one bar split between you and each tracked competitor. */
+function VoiceBar({ brands = [] }) {
+  const parts = brands.filter((b) => (b.shareOfMentions?.value ?? 0) > 0)
+    .sort((a, b) => Number(b.isClient) - Number(a.isClient) || b.shareOfMentions.value - a.shareOfMentions.value);
+  if (!parts.length) return null;
+  return (
+    <div style={{ display: 'flex', height: 8, borderRadius: 999, overflow: 'hidden', gap: 2, background: 'var(--border)' }}>
+      {parts.map((b, i) => (
+        <span
+          key={b.name}
+          title={`${b.name}: ${b.shareOfMentions.display}`}
+          style={{
+            width: `${clamp01(b.shareOfMentions.value) * 100}%`,
+            background: b.isClient ? 'var(--primary)' : `color-mix(in srgb, var(--text-3) ${55 - i * 10}%, transparent)`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** "You 36.4% · 3 competitors share the rest" — the legend for VoiceBar. */
+function VoiceCaption({ brands = [] }) {
+  const you = brands.find((b) => b.isClient);
+  const others = brands.filter((b) => !b.isClient && (b.shareOfMentions?.value ?? 0) > 0).length;
+  if (!you) return null;
+  return (
+    <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--text-3)' }}>
+      <span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--primary)' }} />
+      <span>You {you.shareOfMentions?.display || '—'}</span>
+      {others > 0 && (
+        <>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: 'color-mix(in srgb, var(--text-3) 45%, transparent)', marginLeft: 4 }} />
+          <span>{others} competitor{others === 1 ? '' : 's'}</span>
+        </>
+      )}
+    </span>
+  );
+}
+
+/** Position: five slots, yours marked. */
+function RankScale({ value }) {
+  const at = Number.isFinite(Number(value)) ? Math.max(1, Math.min(5, Math.round(Number(value)))) : null;
+  return (
+    <div style={{ display: 'flex', gap: 5 }} aria-hidden="true">
+      {[1, 2, 3, 4, 5].map((n) => (
+        <span
+          key={n}
+          style={{
+            width: 22, height: 22, borderRadius: 6, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 10.5, fontWeight: 700, fontFamily: 'var(--font-mono)',
+            background: n === at ? 'var(--primary)' : 'var(--surface-2, var(--surface))',
+            color: n === at ? 'var(--text-on-primary)' : 'var(--text-3)',
+            border: n === at ? 'none' : '1px solid var(--border)',
+          }}
+        >
+          {n}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** One labelled bar in an opened tile: engine, brand or site. */
+function BarRow({ lead = null, label, sub = null, value, display, highlight = false, muted = false }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: `${lead ? '30px ' : ''}minmax(120px, 220px) minmax(0, 1fr) 64px`, alignItems: 'center', gap: 12 }}>
+      {lead}
+      <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <span style={{ fontSize: 13, fontWeight: highlight ? 700 : 500, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+        {sub && <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{sub}</span>}
+      </span>
+      <span style={{ height: 10, borderRadius: 999, background: 'var(--border)', overflow: 'hidden' }}>
+        <span style={{ display: 'block', height: '100%', borderRadius: 999, width: `${Math.max(clamp01(value) * 100, value > 0 ? 2 : 0)}%`, background: muted ? 'color-mix(in srgb, var(--text-3) 45%, transparent)' : 'var(--primary)', opacity: highlight || lead || muted ? 1 : 0.7 }} />
+      </span>
+      <span style={{ fontSize: 13, fontWeight: 600, fontFamily: 'var(--font-mono)', textAlign: 'right', color: 'var(--text)' }}>{display}</span>
+    </div>
+  );
+}
+
+/** The "i" content for one metric. */
+function MetricHelp({ tileKey, label }) {
+  const h = METRIC_HELP[tileKey];
+  if (!h) return <span>{METRIC_INFO[tileKey] || label}</span>;
+  const line = (title, text) => (
+    <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-3)' }}>{title}</span>
+      <span>{text}</span>
+    </span>
+  );
+  return (
+    <>
+      <strong style={{ color: 'var(--text)', fontSize: 13.5 }}>{label}</strong>
+      {line('What it means', h.what)}
+      {line('How it’s measured', h.how)}
+      {line('What good looks like', h.good)}
+    </>
+  );
+}
+
+/**
+ * One metric: its name and "i", the number, and a graphic that shows the
+ * number's shape — a ring for a share, the split for share of voice, the
+ * slots for a position. Clicking the tile opens the evidence below.
+ */
+function ExpandableTile({ tileKey, label, metric, selected, onSelect, report }) {
+  const open = () => onSelect(tileKey);
+  const isRate = RATE_KEYS.has(tileKey);
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-expanded={selected}
+      onClick={open}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}
       style={{
-        textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit',
-        background: 'var(--card)',
-        border: selected ? '1px solid var(--primary)' : '1px solid var(--border)',
-        borderRadius: 'var(--r-lg)', padding: 16,
-        display: 'flex', flexDirection: 'column', gap: 6,
+        textAlign: 'left', cursor: 'pointer', color: 'inherit',
+        background: selected ? 'color-mix(in srgb, var(--primary) 6%, var(--card))' : 'var(--card)',
+        border: selected ? '1.5px solid var(--primary)' : '1px solid var(--border)',
+        borderRadius: 'var(--r-lg)', padding: '14px 16px 16px',
+        display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0,
+        boxShadow: selected ? '0 6px 18px color-mix(in srgb, var(--primary) 14%, transparent)' : 'none',
+        transition: 'box-shadow 150ms, border-color 150ms',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-        <span style={{
-          fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 500,
-          textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)',
-        }}
-        >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {label}
         </span>
-        <span style={{ fontSize: 10, color: selected ? 'var(--primary)' : 'var(--text-3)' }}>
-          {selected ? '▲' : '▾'}
+        {/* Its own click: reading the explanation must not open the evidence. */}
+        <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} style={{ display: 'inline-flex', flexShrink: 0 }}>
+          <InfoTip label={`What ${label} means`} align="right"><MetricHelp tileKey={tileKey} label={label} /></InfoTip>
         </span>
       </div>
-      <span style={{
-        fontSize: 28, fontFamily: 'var(--font-mono)', fontWeight: 700,
-        lineHeight: 1, color: 'var(--text)', letterSpacing: '-0.02em',
-      }}
-      >
-        {metric ? metric.display : '—'}
-      </span>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minHeight: 52 }}>
+        {isRate && <RateRing value={metric?.value} />}
+        <span style={{ fontSize: 26, fontFamily: 'var(--font-mono)', fontWeight: 700, lineHeight: 1, color: 'var(--text)', letterSpacing: '-0.02em' }}>
+          {metric ? metric.display : '—'}
+        </span>
+      </div>
+
+      {tileKey === 'shareOfMentions' && (
+        <span style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <VoiceBar brands={report?.brands} />
+          <VoiceCaption brands={report?.brands} />
+        </span>
+      )}
+      {tileKey === 'mentionRank' && <RankScale value={metric?.value} />}
       {metric?.note && (
         <span style={{ fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.35 }}>{metric.note}</span>
       )}
-    </button>
+
+      <span style={{ fontSize: 11.5, fontWeight: 600, color: selected ? 'var(--primary-text, var(--primary))' : 'var(--text-3)' }}>
+        {selected ? 'Hide breakdown ▴' : 'See breakdown ▾'}
+      </span>
+    </div>
   );
 }
 
 /**
  * A KPI strip whose tiles expand into the evidence behind them. `tiles` is
  * `[{ key, label, metric }]` — `key` selects both the METRIC_INFO one-liner
- * and the metricDetail() branch, so adding a tile to a strip is one line as
- * long as `report` already carries what that key's detail needs.
+ * and the detail view.
  */
 function ExpandableMetricStrip({ tiles, report, min = 190 }) {
   const [selected, setSelected] = useState(null);
@@ -325,6 +528,7 @@ function ExpandableMetricStrip({ tiles, report, min = 190 }) {
             tileKey={t.key}
             label={t.label}
             metric={t.metric}
+            report={report}
             selected={selected === t.key}
             onSelect={(k) => setSelected((cur) => (cur === k ? null : k))}
           />
@@ -332,13 +536,13 @@ function ExpandableMetricStrip({ tiles, report, min = 190 }) {
       </div>
       {active && (
         <div style={{
-          marginTop: 10, padding: 16, background: 'var(--surface)',
-          border: '1px solid var(--border)', borderRadius: 'var(--r-lg)',
+          marginTop: 12, padding: '18px 20px', background: 'var(--card)',
+          border: '1px solid color-mix(in srgb, var(--primary) 30%, var(--border))', borderRadius: 'var(--r-lg)',
         }}
         >
-          <div style={{ fontSize: 13, fontWeight: 600 }}>{active.label}</div>
+          <div style={{ fontSize: 14, fontWeight: 600 }}>{active.label}</div>
           {METRIC_INFO[active.key] && (
-            <Muted size={11.5} style={{ display: 'block', marginTop: 3, marginBottom: 8 }}>
+            <Muted size={12} style={{ display: 'block', marginTop: 3, marginBottom: 14 }}>
               {METRIC_INFO[active.key]}
             </Muted>
           )}
@@ -554,16 +758,16 @@ export function OverviewReport({ report }) {
 
         <FadingRule style={{ margin: '16px 0' }} />
 
-        <Kicker>The details behind the score — click a number to see the evidence</Kicker>
+        <Kicker>The details behind the score — tap a metric for its breakdown, or “i” for what it means</Kicker>
         <div style={{ marginTop: 10 }}>
           <ExpandableMetricStrip
             report={report}
             tiles={[
-              { key: 'namedRate', label: 'Shows up in AI answers', metric: report.headline.namedRate },
-              { key: 'shareOfMentions', label: 'Share of the spotlight', metric: report.headline.shareOfMentions },
-              { key: 'citationRate', label: 'Trusted as a source', metric: report.headline.citationRate },
-              { key: 'mentionRank', label: 'Typical spot when named', metric: report.headline.mentionRank },
-              { key: 'groundedRate', label: 'Based on a live search', metric: report.headline.groundedRate },
+              { key: 'namedRate', label: 'Mentioned in AI answers', metric: report.headline.namedRate },
+              { key: 'shareOfMentions', label: 'Share of voice', metric: report.headline.shareOfMentions },
+              { key: 'citationRate', label: 'Cited as a source', metric: report.headline.citationRate },
+              { key: 'mentionRank', label: 'Average position', metric: report.headline.mentionRank },
+              { key: 'groundedRate', label: 'Uses live web search', metric: report.headline.groundedRate },
             ]}
           />
         </div>
@@ -594,45 +798,30 @@ export function OverviewReport({ report }) {
       ) : null}
 
       <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))' }}>
-        <Card style={{ padding: 18 }}>
-          <SectionHead title="Prompts where you are least visible" />
-          <Muted size={11}>
-            Ranked by how often the models named you. Facts only — no recommendation.
+        <Card style={{ padding: 20, gap: 4 }}>
+          <SectionHead title="Questions where AI doesn’t mention you" />
+          <Muted size={11.5}>
+            Real customer questions, ranked by how rarely AI named you. Each dot is one AI answer.
           </Muted>
-          <div style={{ marginTop: 10 }}>
-            {weakest.length ? weakest.map((q) => (
-              <div key={q.promptId || q.text} style={{ padding: '9px 0', borderBottom: '1px solid var(--neutral-800)' }}>
-                <div style={{ fontSize: 13 }}>{q.text}</div>
-                <Muted size={11}>
-                  named in {q.named} of {q.measured} answers
-                  {q.competitors.length ? ` · models named ${q.competitors.slice(0, 3).join(', ')} instead` : ''}
-                </Muted>
-              </div>
-            )) : <Muted size={12}>Nothing measured in this period.</Muted>}
+          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {weakest.length ? weakest.map((q) => <QuestionRow key={q.promptId || q.text} q={q} />)
+              : <Muted size={12}>Nothing measured in this period.</Muted>}
           </div>
         </Card>
 
-        <Card style={{ padding: 18 }}>
-          <SectionHead title="Sources feeding competitors" right={<Muted size={11}>{report.gaps.total} total</Muted>} />
-          <Muted size={11}>
-            Sites the models read for answers that named a competitor and not you.
+        <Card style={{ padding: 20, gap: 4 }}>
+          <SectionHead
+            title="Sites helping your competitors"
+            right={<Muted size={11}>{report.gaps.total} site{report.gaps.total === 1 ? '' : 's'}</Muted>}
+          />
+          <Muted size={11.5}>
+            Sites AI read when it named a competitor instead of you — getting featured here is how you win those answers.
           </Muted>
-          <div style={{ marginTop: 10 }}>
-            {report.gaps.rows.length ? report.gaps.rows.slice(0, 5).map((g) => (
-              <div key={g.domain} style={{ padding: '9px 0', borderBottom: '1px solid var(--neutral-800)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-                  <span style={{ fontSize: 13 }}>{g.domain}</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-3)' }}>
-                    priority {g.gapScore}
-                  </span>
-                </div>
-                <Muted size={11}>
-                  {SOURCE_TYPE_LABELS[g.sourceType] || g.sourceType}
-                  {' · named a competitor in '}{g.namedCompetitor} of {g.answers} answers that used it
-                  {' · named you in '}{g.namedYou}
-                </Muted>
-              </div>
-            )) : (
+          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {report.gaps.rows.length ? (() => {
+              const top = Math.max(...report.gaps.rows.slice(0, 5).map((g) => g.gapScore || 0), 1);
+              return report.gaps.rows.slice(0, 5).map((g) => <SourceRow key={g.domain} g={g} top={top} />);
+            })() : (
               <Muted size={12}>
                 No gaps found — no answer in this period named a tracked competitor, so there is
                 nothing to compare against.
@@ -641,6 +830,126 @@ export function OverviewReport({ report }) {
           </div>
         </Card>
       </div>
+    </div>
+  );
+}
+
+// One question AI rarely mentions you for: the question as a chat bubble, one
+// dot per AI answer (green where it named you), and who it named instead.
+function QuestionRow({ q }) {
+  const measured = Math.max(0, Number(q.measured) || 0);
+  const named = Math.max(0, Math.min(measured, Number(q.named) || 0));
+  const dots = Math.min(measured, 12);
+  return (
+    <div
+      style={{
+        display: 'flex', gap: 12, padding: '12px 14px', borderRadius: 12,
+        background: 'var(--surface-2, var(--surface))', border: '1px solid var(--border)',
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          width: 30, height: 30, borderRadius: 9, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text-3)',
+        }}
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" /></svg>
+      </span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0, flex: 1 }}>
+        <span style={{ fontSize: 13.5, color: 'var(--text)', lineHeight: 1.4 }}>{q.text}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ display: 'inline-flex', gap: 4 }} aria-label={`named you in ${named} of ${measured} answers`}>
+            {Array.from({ length: dots }, (_, i) => (
+              <span
+                key={i}
+                style={{
+                  width: 10, height: 10, borderRadius: '50%',
+                  background: i < named ? 'var(--primary)' : 'color-mix(in srgb, var(--viz-neg) 22%, var(--card))',
+                  border: i < named ? 'none' : '1px solid color-mix(in srgb, var(--viz-neg) 45%, transparent)',
+                }}
+              />
+            ))}
+          </span>
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: named ? 'var(--text-2)' : 'var(--viz-neg)' }}>
+            {named} of {measured} answers mention you
+          </span>
+        </div>
+        {q.competitors?.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, color: 'var(--text-3)' }}>Named instead:</span>
+            {q.competitors.slice(0, 3).map((c) => (
+              <span key={c} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text-2)' }}>
+                {c}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** "Competitor ▮▮▮ 3/3": how many of a site's answers named someone. */
+function MiniMeter({ label, n, of, color }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+      <span style={{ fontSize: 11.5, color: 'var(--text-3)', minWidth: 62 }}>{label}</span>
+      <span style={{ width: 70, height: 6, borderRadius: 999, background: 'var(--border)', overflow: 'hidden' }}>
+        <span style={{ display: 'block', height: '100%', width: `${of ? (n / of) * 100 : 0}%`, background: color, borderRadius: 999 }} />
+      </span>
+      <span className="num" style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-2)' }}>{n}/{of}</span>
+    </span>
+  );
+}
+
+// A site feeding competitor answers: its icon, what kind of site, how the
+// answers that read it split between naming a competitor and naming you, and
+// how much it matters — a level, not a bare "priority 17".
+function SourceRow({ g, top }) {
+  const answers = Math.max(1, Number(g.answers) || 0);
+  const comp = Math.min(answers, Number(g.namedCompetitor) || 0);
+  const you = Math.min(answers, Number(g.namedYou) || 0);
+  const share = (Number(g.gapScore) || 0) / top;
+  const level = share >= 0.66 ? { label: 'High', bars: 3, color: 'var(--viz-neg)' }
+    : share >= 0.33 ? { label: 'Medium', bars: 2, color: 'var(--viz-warn)' }
+      : { label: 'Low', bars: 1, color: 'var(--text-3)' };
+  return (
+    <div
+      style={{
+        display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 12,
+        background: 'var(--surface-2, var(--surface))', border: '1px solid var(--border)',
+      }}
+    >
+      <span style={{ flexShrink: 0, display: 'inline-flex', borderRadius: 9, overflow: 'hidden', background: '#fff', border: '1px solid var(--border)' }}>
+        <SiteFavicon origin={`https://${g.domain}`} name={g.domain} size={30} />
+      </span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0, flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.domain}</span>
+          <span style={{ fontSize: 10.5, padding: '1px 7px', borderRadius: 999, background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
+            {SOURCE_TYPE_LABELS[g.sourceType] || g.sourceType}
+          </span>
+        </div>
+        {/* Of the answers that used this site: how many named a competitor and
+            how many named you. One answer can do both, so these are two meters,
+            not one split bar. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <MiniMeter label="Competitor" n={comp} of={answers} color="var(--viz-neg)" />
+          <MiniMeter label="You" n={you} of={answers} color="var(--primary)" />
+        </div>
+      </div>
+      <span
+        title={`Priority score ${g.gapScore}`}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, padding: '4px 9px', borderRadius: 999, border: '1px solid var(--border)', background: 'var(--card)' }}
+      >
+        <span style={{ display: 'inline-flex', alignItems: 'flex-end', gap: 2, height: 12 }} aria-hidden="true">
+          {[1, 2, 3].map((b) => (
+            <span key={b} style={{ width: 3, height: 4 + b * 2.5, borderRadius: 1, background: b <= level.bars ? level.color : 'var(--border)' }} />
+          ))}
+        </span>
+        <span style={{ fontSize: 11.5, fontWeight: 600, color: level.color }}>{level.label}</span>
+      </span>
     </div>
   );
 }
@@ -658,13 +967,13 @@ export function InsightsReport({ report }) {
         <ExpandableMetricStrip
           report={report}
           tiles={[
-            { key: 'score', label: 'Score, this run', metric: report.headline.score },
-            { key: 'avgScore', label: 'Avg score, all runs', metric: report.headline.avgScore },
-            { key: 'namedRate', label: 'Named in answers', metric: report.headline.namedRate },
-            { key: 'shareOfMentions', label: 'Share of mentions', metric: report.headline.shareOfMentions },
-            { key: 'mentionRank', label: 'Mention order', metric: report.headline.mentionRank },
-            { key: 'groundedRate', label: 'Answers that searched', metric: report.headline.groundedRate },
-            { key: 'coverage', label: 'Answers captured', metric: report.meta.coverage },
+            { key: 'score', label: 'Visibility score', metric: report.headline.score },
+            { key: 'avgScore', label: 'Average score (all runs)', metric: report.headline.avgScore },
+            { key: 'namedRate', label: 'Mentioned in AI answers', metric: report.headline.namedRate },
+            { key: 'shareOfMentions', label: 'Share of voice', metric: report.headline.shareOfMentions },
+            { key: 'mentionRank', label: 'Average position', metric: report.headline.mentionRank },
+            { key: 'groundedRate', label: 'Uses live web search', metric: report.headline.groundedRate },
+            { key: 'coverage', label: 'Answers checked', metric: report.meta.coverage },
           ]}
         />
         <Basis>{report.meta.basis}</Basis>

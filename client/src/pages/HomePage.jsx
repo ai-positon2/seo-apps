@@ -13,12 +13,16 @@ import ProfileStats from '../components/home/ProfileStats';
 import ExecutiveSummary from '../components/home/ExecutiveSummary';
 import ProjectSetupCard from '../components/home/ProjectSetupCard';
 import HomeSkeleton from '../components/home/HomeSkeleton';
+import AnalysisProgress from '../components/home/AnalysisProgress';
 import { takePrefetch } from '../lib/homePrefetch';
 
 // How often the dashboard re-reads itself while a crawl is running. The crawl
 // BAR is not this — that lives in the app shell and polls a cheap endpoint of its
 // own. This is the dashboard's own numbers, which a running crawl keeps changing.
 const CRAWL_POLL_MS = 8000;
+// While a module is queued or running with no crawl to follow — the minutes
+// right after a project is created, when its modules start themselves.
+const MODULE_POLL_MS = 8000;
 
 // ── Home — the project dashboard ────────────────────────────────────────────
 // The home screen leads with one client site's audit profile (PRD §20.1
@@ -268,6 +272,22 @@ export default function HomePage() {
     // Keyed on the run id rather than on the status object, which is a new object
     // on every poll and would restart the interval on each tick.
   }, [liveCrawlRunId, activeProject?.id, loadOverview]);
+
+  // ── Follow modules still working ──────────────────────────────────────────
+  //
+  // The page only refreshed while a crawl ran, so after a project was created
+  // its homepage audits, Competitor Research and AI Visibility — queued and
+  // running on their own — finished without the dashboard noticing: the cards
+  // sat at "no data yet" until a manual reload. While any module is in flight
+  // (and no crawl poller is already doing this) the overview is re-read, and the
+  // loop ends when the last one settles.
+  const anyModuleInFlight = (overview.data?.modules || []).some((m) => isModuleInFlight(m.status));
+  useEffect(() => {
+    if (!anyModuleInFlight || liveCrawlRunId || !activeProject?.id) return undefined;
+    const projectId = activeProject.id;
+    const timer = setInterval(() => { loadOverview(projectId, { quiet: true }); }, MODULE_POLL_MS);
+    return () => clearInterval(timer);
+  }, [anyModuleInFlight, liveCrawlRunId, activeProject?.id, loadOverview]);
 
   /**
    * Runs one module against the project and reloads the profile.
@@ -873,6 +893,17 @@ export default function HomePage() {
         </Card>
       )}
 
+      {/* What is still being worked out, per module, while anything is — the
+          first minutes after a project is created above all. */}
+      {data && (
+        <AnalysisProgress
+          modules={visibleModules}
+          projectName={data.project?.name || activeProject?.name}
+          createdAt={data.project?.createdAt || activeProject?.createdAt}
+          crawlLive={Boolean(liveCrawlRunId)}
+        />
+      )}
+
       {/* ── Audit insights ───────────────────────────────────────────────── */}
       <section>
         <SectionHead
@@ -938,7 +969,7 @@ export default function HomePage() {
                   question as the API module, and two cards for one question
                   shows an implementation detail rather than a client's profile. */}
               {visibleModules.map((module) => (
-                <ModuleCard key={module.key} module={module} onRun={runModule} />
+                <ModuleCard key={module.key} module={module} onRun={runModule} crawlLive={Boolean(liveCrawlRunId)} />
               ))}
             </div>
           </div>
