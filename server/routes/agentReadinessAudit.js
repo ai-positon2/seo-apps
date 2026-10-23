@@ -320,13 +320,16 @@ Guidance:
 - If HTTP score is high but on-page score is low: note the gap between infrastructure and user-facing agent readiness
 - If score >= 75: shift tone from risk to optimization opportunity
 
-Generate an executive summary. Be specific to this site's industry based on its domain. Address the CMO directly as "you". Plain language — no technical jargon. Return ONLY this JSON object, no markdown or preamble:
+Generate an executive summary. Be specific to this site's industry based on its domain. Address the CMO directly as "you". Plain language — no technical jargon. Be brief: a busy executive scans this in ten seconds, so every field is short and concrete — no filler, no repetition between fields. Return ONLY this JSON object, no markdown or preamble:
 {
-  "headline": "A punchy 10-15 word headline capturing the core risk or opportunity",
-  "summary": "2-3 sentences explaining what this score means for the business, the competitive context, and what is at stake",
-  "risk": "1 sentence naming the single most important business risk from this scan",
-  "opportunity": "1 sentence on the top opportunity available if they act within the next 60 days",
-  "competitive": "1 sentence on competitive positioning specific to their industry"
+  "headline": "A punchy headline of at most 10 words capturing the core risk or opportunity",
+  "summary": "1-2 short sentences (at most 35 words in total) on what this score means for the business",
+  "riskTitle": "2-4 word label for the top risk, e.g. 'Invisible to AI assistants'",
+  "risk": "1 sentence, at most 18 words, naming the single most important business risk",
+  "opportunityTitle": "2-4 word label for the opportunity, e.g. 'Open bot access'",
+  "opportunity": "1 sentence, at most 18 words, on the top opportunity if they act within 60 days",
+  "competitiveTitle": "2-4 word label for the competitive position, e.g. 'First-mover advantage'",
+  "competitive": "1 sentence, at most 18 words, on competitive positioning in their industry"
 }`;
 
   const response = await openai.chat.completions.create({

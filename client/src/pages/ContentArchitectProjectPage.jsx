@@ -10,6 +10,7 @@ import { ProgressSteps } from '../ui/ProgressSteps';
 import { useToast } from '../ui/Toast';
 import ModuleRuns from '../components/ModuleRuns';
 import HubSpokeReport, { healthVariant } from '../components/contentArchitect/HubSpokeReport';
+import { InfoTip } from '../components/seoGeo/report/reportKit';
 import { ca } from '../lib/contentArchitectApi';
 import { useActiveProjectId } from '../lib/activeProject';
 import { useActiveProject } from '../lib/useActiveProject';
@@ -513,52 +514,52 @@ export default function ContentArchitectProjectPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           {/* Mean health and the run's own controls. The report below is about
               individual clusters; this is the one figure that is about the site,
-              plus what you can do to the analysis as a whole. */}
-          <Card>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-                <HealthDonut value={meanHealth} />
-                <div style={{ maxWidth: 520 }}>
-                  {/* Every figure the four KPI boxes used to carry. They moved
-                      here so the report's own four tiles stay a summary of hub
-                      state rather than becoming one of eight numbers. */}
-                  <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{analysis.pages.length} pages analysed</span>
-                    <span style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{analysis.clusters.length} clusters</span>
-                    <span style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{totalSpokes} spokes mapped</span>
-                    <span style={{ fontSize: 12.5, color: analysis.unassignedPages.length ? 'var(--text)' : 'var(--text-2)' }}>
-                      {analysis.unassignedPages.length} unassigned ({pctUnassigned}%)
+              plus what you can do to the analysis as a whole. Overflow visible
+              so the health "i" can open past the card's edge. */}
+          <Card style={{ overflow: 'visible' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 22, flexWrap: 'wrap', flex: '1 1 560px', minWidth: 0 }}>
+                {/* The site figure: the ring, its rating, and the "i" with the formula. */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <HealthDonut value={meanHealth} />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--text-3)' }}>
+                        Hub &amp; spoke health
+                      </span>
+                      <InfoTip label="How hub and spoke health is scored">
+                        <HealthExplainer meanHealth={meanHealth} clusterCount={analysis.clusters.length} />
+                      </InfoTip>
                     </span>
-                    {analysis.orphanDetectionWithheld ? (
-                      <span style={{ fontSize: 12.5, color: 'var(--text-2)' }} title="The crawl did not cover the whole site, so a page with no inbound link may be linked from a page it never fetched.">
-                        orphans not assessed
-                      </span>
-                    ) : (
-                      <span style={{ fontSize: 12.5, color: orphanCount ? 'var(--danger)' : 'var(--text-2)' }}>
-                        {orphanCount} orphaned
-                      </span>
-                    )}
+                    <span
+                      style={{
+                        alignSelf: 'flex-start', fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 999,
+                        color: `var(--${healthVariant(meanHealth)})`,
+                        background: `color-mix(in srgb, var(--${healthVariant(meanHealth)}) 14%, var(--card))`,
+                      }}
+                    >
+                      {HEALTH_LABEL[healthVariant(meanHealth)]}
+                    </span>
+                    <span style={{ fontSize: 12, color: 'var(--text-2)' }}>Average of {analysis.clusters.length} clusters</span>
                   </div>
-                  {selectionSummary ? (
-                    <div style={{ fontSize: 11.5, color: 'var(--text-2)', marginTop: 6 }}>
-                      Informational pages only: {selectionSummary.analysedPageCount} of {selectionSummary.crawledPageCount} found in its sitemaps and listings.
-                      {leftOut ? ` Left out: ${leftOut}.` : ''}
-                    </div>
-                  ) : project?.platformProjectId ? (
-                    <div role="note" style={{ fontSize: 11.5, color: 'var(--warning)', marginTop: 6 }}>
-                      This analysis includes every crawled page. Re-run it to cluster informational pages only.
-                    </div>
-                  ) : null}
-                  <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
-                    {estimatedCount > 0
-                      ? `${estimatedCount} page(s) were estimated from their URL rather than crawled.`
-                      : 'Every page in this selection was fully crawled.'}
-                  </div>
-                  {/* The health number appears on every row below, so what it
-                      measures is said once, here, rather than nowhere. */}
-                  <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 6, maxWidth: 460 }}>
-                    <strong>Health</strong> (0-100, averaged across clusters) scores whether a cluster has a hub page, how well that hub covers the topic, a healthy spoke count, internal link density, and how many clicks its pages sit from the homepage.
-                  </div>
+                </div>
+
+                {/* Every figure the four KPI boxes used to carry, as tiles. */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(118px, 1fr))', gap: 10, flex: '1 1 520px', minWidth: 0 }}>
+                  <MiniStat label="Pages analysed" value={analysis.pages.length} />
+                  <MiniStat label="Clusters" value={analysis.clusters.length} />
+                  <MiniStat label="Spokes mapped" value={totalSpokes} />
+                  <MiniStat
+                    label="Unassigned"
+                    value={analysis.unassignedPages.length}
+                    sub={`${pctUnassigned}% of pages`}
+                    tone={analysis.unassignedPages.length ? 'warning' : null}
+                  />
+                  {analysis.orphanDetectionWithheld ? (
+                    <MiniStat label="Orphaned" value="—" sub="not assessed" title="The crawl did not cover the whole site, so a page with no inbound link may be linked from a page it never fetched." />
+                  ) : (
+                    <MiniStat label="Orphaned" value={orphanCount} sub="no internal links in" tone={orphanCount ? 'danger' : null} />
+                  )}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -571,6 +572,27 @@ export default function ContentArchitectProjectPage() {
                   Download Markdown
                 </Button>
               </div>
+            </div>
+
+            {/* Why the score is what it is: the clusters by health band, and how
+                many have no hub page — the single biggest deduction (30 + 20). */}
+            <ClusterHealthBar clusters={analysis.clusters} />
+
+            {/* Notes about what this analysis covered. */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
+              {selectionSummary ? (
+                <Note kind="info">
+                  Informational pages only: {selectionSummary.analysedPageCount} of {selectionSummary.crawledPageCount} found in its sitemaps and listings.
+                  {leftOut ? ` Left out: ${leftOut}.` : ''}
+                </Note>
+              ) : project?.platformProjectId ? (
+                <Note kind="warn">This analysis includes every crawled page. Re-run it to cluster informational pages only.</Note>
+              ) : null}
+              <Note kind={estimatedCount > 0 ? 'info' : 'ok'}>
+                {estimatedCount > 0
+                  ? `${estimatedCount} page(s) were estimated from their URL rather than crawled.`
+                  : 'Every page in this selection was fully crawled.'}
+              </Note>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
@@ -632,19 +654,137 @@ export default function ContentArchitectProjectPage() {
   );
 }
 
+const HEALTH_LABEL = { success: 'Healthy', warning: 'Needs work', danger: 'Weak' };
+
+// The "i" for hub & spoke health: what one cluster is scored on, and how the
+// site figure is made from them. Weights are contentArchitect/config.js's
+// CLUSTER_HEALTH_WEIGHTS; bands are healthVariant's (70 / 40).
+function HealthExplainer({ meanHealth, clusterCount }) {
+  const rows = [
+    ['Has a hub page', 30],
+    ['Hub covers the cluster’s topic', 20],
+    ['3–12 pages in the cluster', 15],
+    ['Its pages link to each other', 20],
+    ['Pages close to the homepage', 15],
+  ];
+  return (
+    <>
+      <strong style={{ color: 'var(--text)', fontSize: 13.5 }}>How hub &amp; spoke health is scored</strong>
+      <span>How well the site’s content is organised into topic clusters, each led by a hub page.</span>
+      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-3)' }}>
+        Each cluster, out of 100
+      </span>
+      <span style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+        {rows.map(([label, pts]) => (
+          <span key={label} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 60px 30px', alignItems: 'center', gap: 8 }}>
+            <span>{label}</span>
+            <span style={{ height: 5, borderRadius: 999, background: 'var(--border)', overflow: 'hidden' }}>
+              <span style={{ display: 'block', height: '100%', width: `${(pts / 30) * 100}%`, background: 'var(--primary)', borderRadius: 999 }} />
+            </span>
+            <span style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{pts}</span>
+          </span>
+        ))}
+      </span>
+      <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
+        Closeness is full marks at the homepage and falls to zero at 8 clicks deep.
+      </span>
+      <span style={{
+        padding: '8px 10px', borderRadius: 8, background: 'var(--surface-2, var(--surface))',
+        border: '1px solid var(--border)', fontSize: 12.5, color: 'var(--text)', fontWeight: 600,
+      }}>
+        This analysis: the average of {clusterCount} clusters = {meanHealth}
+      </span>
+      <span style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 11.5 }}>
+        <span><span style={{ color: 'var(--success)', fontWeight: 700 }}>70+</span> Healthy</span>
+        <span><span style={{ color: 'var(--warning)', fontWeight: 700 }}>40–69</span> Needs work</span>
+        <span><span style={{ color: 'var(--danger)', fontWeight: 700 }}>&lt;40</span> Weak</span>
+      </span>
+    </>
+  );
+}
+
+/** One figure about the analysis as a small tile. */
+function MiniStat({ label, value, sub = null, tone = null, title }) {
+  const color = tone ? `var(--${tone})` : 'var(--text)';
+  return (
+    <div title={title} style={{
+      display: 'flex', flexDirection: 'column', gap: 3, padding: '10px 12px', borderRadius: 10,
+      background: 'var(--surface)', border: '1px solid var(--border)', minWidth: 0,
+    }}>
+      <span style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+      <span style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.1, color }}>{value}</span>
+      {sub && <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{sub}</span>}
+    </div>
+  );
+}
+
+/** Clusters by health band as one bar, with how many have no hub page. */
+function ClusterHealthBar({ clusters = [] }) {
+  if (!clusters.length) return null;
+  const bands = [
+    { key: 'success', label: 'Healthy', n: clusters.filter((c) => healthVariant(c.health || 0) === 'success').length },
+    { key: 'warning', label: 'Needs work', n: clusters.filter((c) => healthVariant(c.health || 0) === 'warning').length },
+    { key: 'danger', label: 'Weak', n: clusters.filter((c) => healthVariant(c.health || 0) === 'danger').length },
+  ];
+  const noHub = clusters.filter((c) => c.isGap).length;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--text-3)' }}>
+          Cluster health
+        </span>
+        {noHub > 0 && (
+          <span style={{ fontSize: 12, color: 'var(--danger)', fontWeight: 600 }}>
+            {noHub} of {clusters.length} clusters have no hub page — the biggest drag on the score
+          </span>
+        )}
+      </div>
+      <div style={{ display: 'flex', height: 10, borderRadius: 999, overflow: 'hidden', gap: 2, background: 'var(--border)' }}>
+        {bands.filter((b) => b.n > 0).map((b) => (
+          <span key={b.key} title={`${b.n} ${b.label.toLowerCase()}`} style={{ width: `${(b.n / clusters.length) * 100}%`, background: `var(--${b.key})` }} />
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+        {bands.map((b) => (
+          <span key={b.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-2)' }}>
+            <span style={{ width: 9, height: 9, borderRadius: 3, background: `var(--${b.key})` }} />
+            <strong style={{ color: 'var(--text)' }}>{b.n}</strong> {b.label.toLowerCase()}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** A one-line note with an icon for its kind. */
+function Note({ kind = 'info', children }) {
+  const color = kind === 'warn' ? 'var(--warning)' : kind === 'ok' ? 'var(--success)' : 'var(--text-3)';
+  const icon = {
+    warn: <><path d="M12 3l9.5 17h-19z" /><path d="M12 10v4M12 17v.5" /></>,
+    ok: <><circle cx="12" cy="12" r="9" /><path d="M8 12.5l2.8 2.8L16.5 9.5" /></>,
+    info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7.5v.5" /></>,
+  }[kind];
+  return (
+    <div role={kind === 'warn' ? 'note' : undefined} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, color: kind === 'warn' ? 'var(--warning)' : 'var(--text-2)', lineHeight: 1.45 }}>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }} aria-hidden="true">{icon}</svg>
+      <span>{children}</span>
+    </div>
+  );
+}
+
 function HealthDonut({ value }) {
   const color = `var(--${healthVariant(value)})`;
   return (
     <div style={{
-      position: 'relative', width: 88, height: 88, flexShrink: 0, borderRadius: '50%',
+      position: 'relative', width: 112, height: 112, flexShrink: 0, borderRadius: '50%',
       background: `conic-gradient(${color} ${value * 3.6}deg, var(--border) 0)`,
     }}>
       <div style={{
-        position: 'absolute', inset: 6, borderRadius: '50%', background: 'var(--card)',
+        position: 'absolute', inset: 10, borderRadius: '50%', background: 'var(--card)',
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
       }}>
-        <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', lineHeight: 1 }}>{value}</span>
-        <span style={{ fontSize: 9, letterSpacing: '.08em', color: 'var(--text-3)' }}>HEALTH</span>
+        <span style={{ fontSize: 32, fontWeight: 700, color, lineHeight: 1 }}>{value}</span>
+        <span style={{ fontSize: 10, letterSpacing: '.08em', color: 'var(--text-3)' }}>/ 100</span>
       </div>
     </div>
   );

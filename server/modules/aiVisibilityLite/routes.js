@@ -348,102 +348,106 @@ router.get('/:projectId/runs', async (req, res) => {
 
 // ── The report ─────────────────────────────────────────────────────────────
 
+/**
+ * The live report for a project — the one the report page shows, built from
+ * every stored answer re-matched against the current brand and competitors.
+ *
+ * Shared with the dashboard card (projects/overview.js) so the card shows THIS
+ * score. The card used to show the score stored when the run finished, computed
+ * by v1's scoring (scoring.summarise), while this report scores with
+ * report.js's composite — two formulas over the same answers, so Gentle
+ * Dental's card read 43 beside a report reading 47.
+ *
+ * @returns {Promise<null | { built, budget, prompts, captures, checked, brand,
+ *   nameCheck, described, answerTones, answerBrands }>} null when nothing was measured
+ */
+async function buildLiveReport(projectRow, { from = null, to = null, budget: wantBudget = true } = {}) {
+  const projectId = projectRow.id;
+  const domains = await projectsStore.listDomains(projectId);
+  const project = projectsStore.projectView(projectRow, domains);
+
+  const [captures, prompts, profile, budget] = await Promise.all([
+    store.capturesForProject(projectId),
+    store.listPrompts(projectId),
+    store.getProfile(projectId),
+    wantBudget ? store.runBudget(projectId) : Promise.resolve(null),
+  ]);
+  if (!captures.length) return { built: null, budget, prompts, captures };
+
+  // Competitors as well as the brand: the comparison table, share of
+  // mentions and the 'competitor' source category all need them, and
+  // identityFor already merges the project's configured domains with the
+  // names the profile found on the site.
+  const identity = await runner.identityFor(project, profile);
+  const { brand, nameCheck } = identity;
+
+  // The descriptor and sentiment history come from runs' payloads rather
+  // than being recomputed here: they cost a model call, so they are produced
+  // once when a run happens and read back afterwards. `described` is the
+  // NEWEST RUN THAT HAS THEM (a failed or running latest run must not blank
+  // the panel); `sentimentByRun` is each run's own reading, which
+  // report.build's composite score needs.
+  const {
+    latest: described, sentimentByRun, answerTones, answerBrands,
+  } = await describedHistory(projectId);
+
+  // Configured competitors under the names the answers actually use for
+  // them ("Foot Locker" for footlocker.com), then every stored answer
+  // re-matched against the current brand and competitor lists.
+  const competitors = report.enrichCompetitors(identity.competitors, captures, answerBrands);
+  const checked = rematch(captures, brand, competitors);
+
+  const built = report.build({
+    captures: checked,
+    prompts,
+    brand,
+    competitors,
+    options: { from, to },
+    runSentiment: sentimentByRun,
+    answerTones,
+    answerBrands,
+  });
+  return { built, budget, prompts, captures, checked, brand, nameCheck, described, answerTones, answerBrands };
+}
+
 router.get('/:projectId/report', async (req, res) => {
   try {
     const access = await projectAccess.requireProject(req, req.params.projectId, 'view');
     const projectId = access.project.id;
-    const project = await projectViewFor(access);
+    const live = await buildLiveReport(access.project, { from: req.query.from || null, to: req.query.to || null });
 
-    const [captures, prompts, profile, budget] = await Promise.all([
-      store.capturesForProject(projectId),
-      store.listPrompts(projectId),
-      store.getProfile(projectId),
-      store.runBudget(projectId),
-    ]);
-
-    if (!captures.length) {
+    if (!live.built) {
       // Not an error and not an empty report — a state. A project that has
       // never run has no numbers, and inventing zeroes for it is the failure
       // this whole module is careful about.
       return res.json({
         state: 'not_run',
-        budget,
-        promptsLive: prompts.length,
+        budget: live.budget,
+        promptsLive: live.prompts.length,
         report: null,
       });
     }
-
-    // Competitors as well as the brand: the comparison table, share of
-    // mentions and the 'competitor' source category all need them, and
-    // identityFor already merges the project's configured domains with the
-    // names the profile found on the site.
-    const identity = await runner.identityFor(project, profile);
-    const { brand, nameCheck } = identity;
-
-    // The descriptor and sentiment history come from runs' payloads rather
-    // than being recomputed here: they cost a model call, so they are produced
-    // once when a run happens and read back afterwards. Everything else on the
-    // report is rebuilt from stored captures on every read.
-    //
-    // For `described`: the NEWEST RUN THAT HAS THEM, not simply the newest
-    // run. Reading only the latest meant one failed or still-running
-    // measurement blanked the whole panel — no attributes, no sentiment, no
-    // quotes — even though the run before it had produced a perfectly good
-    // set. An empty panel then looked like "the models said nothing about
-    // you", which is a finding, rather than "the last run did not finish",
-    // which is not. It carries its own timestamp and answer count because it
-    // is NOT scoped by the ?from/?to period the rest of the report obeys: it
-    // is a frozen artefact of one run over at most 20 answers. Labelling it
-    // with its own basis is what stops it being read as covering the selected
-    // window.
-    //
-    // For `sentimentByRun`: report.build's composite `score` needs each run's
-    // OWN reading (see report.js's runSentiment doc), so this is fetched
-    // ahead of build() rather than after it.
-    const {
-      latest: described, sentimentByRun, answerTones, answerBrands,
-    } = await describedHistory(projectId);
-
-    // Configured competitors under the names the answers actually use for
-    // them ("Foot Locker" for footlocker.com), then every stored answer
-    // re-matched against the current brand and competitor lists.
-    const competitors = report.enrichCompetitors(identity.competitors, captures, answerBrands);
-    const checked = rematch(captures, brand, competitors);
-
-    const built = report.build({
-      captures: checked,
-      prompts,
-      brand,
-      competitors,
-      options: {
-        from: req.query.from || null,
-        to: req.query.to || null,
-      },
-      runSentiment: sentimentByRun,
-      answerTones,
-      answerBrands,
-    });
 
     // Answers not yet read for tone (sentiment) or for who they recommend
     // (gaps, competitor suggestions) — runs from before either existed. Read
     // in the background rather than in this request, and the page is told so
     // it can re-read when they land.
     const analysing = startBackfill({
-      projectId, captures: checked, brand, answerTones, answerBrands,
+      projectId, captures: live.checked, brand: live.brand, answerTones: live.answerTones, answerBrands: live.answerBrands,
     });
 
     res.json({
       state: 'ok',
-      budget,
-      report: built,
-      described: described?.payload || null,
-      describedAt: described?.at || null,
-      describedRunId: described?.runId || null,
+      budget: live.budget,
+      report: live.built,
+      described: live.described?.payload || null,
+      describedAt: live.described?.at || null,
+      describedRunId: live.described?.runId || null,
       sentimentAnalysing: analysing.tones,
       gapsAnalysing: analysing.brands,
       // Which names count as a mention of this business, and which of the
       // profile's names were set aside and why — shown on Setup & runs.
-      nameCheck,
+      nameCheck: live.nameCheck,
     });
   } catch (e) { handleError(res, e, 'report'); }
 });
@@ -528,3 +532,5 @@ function startBackfill({
 }
 
 module.exports = router;
+// The live report, for the dashboard card (projects/overview.js).
+module.exports.buildLiveReport = buildLiveReport;
