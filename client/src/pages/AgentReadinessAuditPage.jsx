@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import ModuleRuns from '../components/ModuleRuns';
+import { InfoTip } from '../components/seoGeo/report/reportKit';
 import ProjectReportBar from '../components/project/ProjectReportBar';
 import ReportResolving from '../components/project/ReportResolving';
 import { useActiveProjectId } from '../lib/activeProject';
@@ -206,6 +207,358 @@ function ScoreRing({ score, checkCount, size = 128 }) {
 }
 
 // ─── CatBar component ─────────────────────────────────────────────────────────
+// ─── Score explanation ───────────────────────────────────────────────────────
+// The level steps, low to high, with the score each starts at (levelFromScore
+// in server/routes/agentReadinessAudit.js).
+const LADDER = [
+  { min: 0, short: 'Not indexed' },
+  { min: 25, short: 'Basic' },
+  { min: 50, short: 'AI aware' },
+  { min: 75, short: 'Agent ready' },
+  { min: 90, short: 'Agent native' },
+];
+
+/** Five steps, the current one lit, and the points to the next level. */
+function LevelLadder({ score }) {
+  const at = LADDER.reduce((idx, l, i) => (score >= l.min ? i : idx), 0);
+  const next = LADDER[at + 1];
+  const color = score >= 75 ? 'var(--success)' : score >= 50 ? 'var(--warning)' : 'var(--danger)';
+  return (
+    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 3 }}>
+        {LADDER.map((l, i) => (
+          <span key={l.min} title={`Level ${i} — ${l.short} (${l.min}+)`}
+            style={{ height: i === at ? 8 : 5, marginTop: i === at ? 0 : 1.5, borderRadius: 3, background: i <= at ? color : 'var(--border)', opacity: i < at ? 0.45 : 1 }} />
+        ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 3 }}>
+        {LADDER.map((l, i) => (
+          <span key={l.min} style={{ fontSize: 9.5, textAlign: 'center', lineHeight: 1.2, color: i === at ? 'var(--text)' : 'var(--text-3)', fontWeight: i === at ? 700 : 500 }}>
+            {l.short}
+          </span>
+        ))}
+      </div>
+      {next && (
+        <span style={{ fontSize: 11.5, textAlign: 'center', color: 'var(--text-2)' }}>
+          <strong style={{ color: 'var(--text)' }}>{next.min - score} pts</strong> to Level {at + 1} — {next.short}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** The "i": the formula, the weights, and this audit's own category scores. */
+function ReadinessExplainer({ score, cats = [], hasOnPage }) {
+  // Only the categories this audit actually scored (a Forms category with no
+  // form URL never ran); falls back to the always-run ones without that list.
+  const ran = new Set(cats.map((c) => c.id));
+  const weights = SCORE_WEIGHTS_TABLE.filter((w) => (ran.size ? ran.has(w.cat) : (hasOnPage || !/when run/.test(w.weight))));
+  const maxW = Math.max(...weights.map((w) => parseInt(w.weight, 10) || 0), 1);
+  const head = (t) => (
+    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-3)' }}>{t}</span>
+  );
+  const bar = (label, value, max, right, color = 'var(--primary)') => (
+    <span key={label} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 64px 34px', alignItems: 'center', gap: 8 }}>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+      <span style={{ height: 5, borderRadius: 999, background: 'var(--border)', overflow: 'hidden' }}>
+        <span style={{ display: 'block', height: '100%', width: `${Math.max(0, Math.min(100, (value / max) * 100))}%`, background: color, borderRadius: 999 }} />
+      </span>
+      <span style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{right}</span>
+    </span>
+  );
+  return (
+    <>
+      <strong style={{ color: 'var(--text)', fontSize: 13.5 }}>How the Agent Readiness score works</strong>
+      <span>How easily AI agents can find, read and act on this site — from crawl access to protocols like MCP and OAuth.</span>
+      <span>Every check carries points for its business impact. A pass earns its points; the score is <strong>points earned ÷ points possible</strong>.</span>
+      <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
+        13 web checks (100 pts) always run; 10 on-page checks add up to 63 pts when an action page or form URL is given.
+      </span>
+      {head('Points by category')}
+      <span style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+        {weights.map((w) => bar(w.cat, parseInt(w.weight, 10) || 0, maxW, parseInt(w.weight, 10) || 0))}
+      </span>
+      {cats.length > 0 && head('This audit')}
+      {cats.length > 0 && (
+        <span style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          {cats.map((c) => bar(c.id, c.score, 100, c.score,
+            c.score >= 70 ? 'var(--success)' : c.score >= 45 ? 'var(--warning)' : 'var(--danger)'))}
+        </span>
+      )}
+      <span style={{ padding: '8px 10px', borderRadius: 8, background: 'var(--surface-2, var(--surface))', border: '1px solid var(--border)', fontSize: 12.5, color: 'var(--text)', fontWeight: 600 }}>
+        Overall: {score}/100
+      </span>
+      {head('Levels')}
+      <span style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11.5 }}>
+        {LEVELS.map((l) => (
+          <span key={l.level} style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+            <span>Level {l.level} — {l.label}</span><span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-3)' }}>{l.score}</span>
+          </span>
+        ))}
+      </span>
+    </>
+  );
+}
+
+// ─── Executive summary, easy to scan ────────────────────────────────────────
+// The brief is the model's prose; this lays it out to be read in seconds:
+// the headline, one takeaway line (the rest folded), the audit's own results as
+// working / needs-work / blocking chips, and three cards led by a short title.
+// Briefs written before the titles existed fall back to a clamped sentence.
+const firstSentence = (t) => {
+  const m = String(t || '').match(/^.+?[.!?](\s|$)/);
+  return m ? m[0].trim() : String(t || '');
+};
+
+function BriefView({ brief, cats = [] }) {
+  const [more, setMore] = useState(false);
+  const lead = firstSentence(brief.summary);
+  const rest = String(brief.summary || '').slice(lead.length).trim();
+  const working = cats.filter((c) => c.score >= 70);
+  const middle = cats.filter((c) => c.score >= 45 && c.score < 70);
+  const blocking = cats.filter((c) => c.score < 45);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <p style={{ margin: 0, fontSize: 21, fontWeight: 600, color: 'var(--text)', lineHeight: 1.3, letterSpacing: '-0.01em' }}>
+          {brief.headline}
+        </p>
+        <p style={{ margin: 0, fontSize: 14.5, color: 'var(--text-2)', lineHeight: 1.55, maxWidth: 820 }}>
+          {lead}
+          {rest && !more && (
+            <button type="button" onClick={() => setMore(true)}
+              style={{ marginLeft: 6, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--primary-text)', fontSize: 13, fontWeight: 600 }}>
+              Read more
+            </button>
+          )}
+          {rest && more && <> {rest}</>}
+        </p>
+      </div>
+
+      {/* At a glance, from the checks themselves — not the model's words. */}
+      {cats.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+          <GlanceGroup tone="success" mark="✓" title="Working" cats={working} empty="Nothing scoring 70+ yet" />
+          {middle.length > 0 && <GlanceGroup tone="warning" mark="!" title="Needs work" cats={middle} />}
+          <GlanceGroup tone="danger" mark="✕" title="Blocking AI agents" cats={blocking} empty="Nothing blocking" />
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }} className="ara-brief-grid">
+        <BriefCard tone="danger" icon="risk" label="Top risk" title={brief.riskTitle} text={brief.risk} />
+        <BriefCard tone="primary" icon="up" label="60-day opportunity" title={brief.opportunityTitle} text={brief.opportunity} />
+        <BriefCard tone="neutral" icon="compete" label="Competitive context" title={brief.competitiveTitle} text={brief.competitive} />
+      </div>
+    </div>
+  );
+}
+
+function GlanceGroup({ tone, mark, title, cats, empty = null }) {
+  const color = `var(--${tone})`;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '12px 14px', borderRadius: 12, background: 'var(--surface)', border: '1px solid var(--border)' }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, color }}>
+        <span aria-hidden="true" style={{ width: 20, height: 20, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: `color-mix(in srgb, ${color} 16%, var(--card))`, fontSize: 11 }}>{mark}</span>
+        {title}
+      </span>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {cats.length ? cats.map((c) => (
+          <span key={c.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '3px 9px', borderRadius: 999, background: 'var(--card)', border: `1px solid color-mix(in srgb, ${color} 30%, var(--border))`, color: 'var(--text)' }}>
+            {c.id}
+            <strong style={{ color, fontFamily: 'var(--font-mono)', fontSize: 11.5 }}>{c.score}</strong>
+          </span>
+        )) : <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{empty}</span>}
+      </div>
+    </div>
+  );
+}
+
+const BRIEF_ICONS = {
+  risk: <><path d="M12 3l9.5 17h-19z" /><path d="M12 10v4M12 17v.5" /></>,
+  up: <><path d="M4 17l6-6 4 4 6-7" /><path d="M14 8h6v6" /></>,
+  compete: <><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z" /><path d="M7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4" /></>,
+};
+
+function BriefCard({ tone, icon, label, title, text }) {
+  const [open, setOpen] = useState(false);
+  const color = tone === 'neutral' ? 'var(--text-2)' : tone === 'primary' ? 'var(--primary-text, var(--primary))' : `var(--${tone})`;
+  const tint = tone === 'neutral' ? 'var(--text-3)' : tone === 'primary' ? 'var(--primary)' : `var(--${tone})`;
+  const clamp = !title && !open;
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', gap: 8, padding: '16px 16px 14px', borderRadius: 12,
+      background: `color-mix(in srgb, ${tint} 8%, var(--card))`, border: `1px solid color-mix(in srgb, ${tint} 28%, var(--border))`,
+    }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
+        <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: 9, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color, background: `color-mix(in srgb, ${tint} 16%, var(--card))` }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{BRIEF_ICONS[icon]}</svg>
+        </span>
+        <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color }}>{label}</span>
+      </span>
+      {title && <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', lineHeight: 1.3 }}>{title}</span>}
+      <span style={{
+        fontSize: 13, color: title ? 'var(--text-2)' : 'var(--text)', lineHeight: 1.5,
+        ...(clamp ? { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' } : {}),
+      }}>
+        {text}
+      </span>
+      {!title && String(text || '').length > 110 && (
+        <button type="button" onClick={() => setOpen((v) => !v)}
+          style={{ alignSelf: 'flex-start', background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--primary-text)', fontSize: 12, fontWeight: 600 }}>
+          {open ? 'Less' : 'More'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── The two halves of the score ────────────────────────────────────────────
+// HTTP readiness: the 13 site-level checks, points earned of 100. On-page
+// readiness: the 10 page-level checks run on the action page / form URL, points
+// earned of up to 63. The overall score pools both sets of points
+// (server/routes/agentReadinessAudit.js: (httpScore + onPageEarned) / (100 + onPageMax)).
+const HALF = {
+  http: {
+    title: 'Site-level readiness',
+    tag: 'HTTP',
+    question: 'Can AI agents reach and understand your site from the outside?',
+    what: 'Checks made against the site itself — the files and headers an agent reads before it ever opens a page.',
+    cats: ['Discoverability', 'Content', 'Bot Access', 'API / Auth / MCP'],
+    points: '100 points',
+    icon: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" /></>,
+  },
+  onpage: {
+    title: 'Page-level readiness',
+    tag: 'On-page',
+    question: 'Can AI agents read and use your pages — forms, buttons and structured data?',
+    what: 'Checks made on the action page or form you gave — what an agent meets when it tries to do something there.',
+    cats: ['On-Page Signals', 'Forms'],
+    points: 'up to 63 points',
+    icon: <><path d="M5 3h10l4 4v14H5z" /><path d="M9 13h6M9 17h4M8.5 9h3" /></>,
+  },
+};
+const toneOf = (score) => (score >= 70 ? 'success' : score >= 45 ? 'warning' : 'danger');
+const RATING = { success: 'Good', warning: 'Needs work', danger: 'Weak' };
+
+function MiniRing({ score, size = 68 }) {
+  const stroke = 7; const r = (size - stroke) / 2; const c = 2 * Math.PI * r;
+  const color = `var(--${toneOf(score)})`;
+  return (
+    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--border)" strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round"
+          strokeDasharray={`${(Math.max(0, Math.min(100, score)) / 100) * c} ${c}`} transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+      </svg>
+      <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 700, color }}>
+        {score}
+      </span>
+    </div>
+  );
+}
+
+const CHECK_TONE = { pass: 'var(--success)', fail: 'var(--danger)', info: 'var(--warning)' };
+
+function ReadinessHalf({ kind, score, checks = [], cats = [] }) {
+  const h = HALF[kind];
+  const tone = toneOf(score);
+  const myCats = cats.filter((c) => h.cats.includes(c.id));
+  const scored = checks.filter((c) => !c.flagOnly);
+  const passed = scored.filter((c) => c.status === 'pass').length;
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', gap: 14, padding: '18px 20px', borderRadius: 14,
+      background: 'var(--card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)', minWidth: 0,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          <span aria-hidden="true" style={{
+            width: 32, height: 32, borderRadius: 10, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            color: 'var(--primary-text)', background: 'color-mix(in srgb, var(--primary) 12%, var(--card))',
+          }}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{h.icon}</svg>
+          </span>
+          <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{h.title}</span>
+            <span style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.04em' }}>
+              {h.tag} · {scored.length} {kind === 'http' ? 'site' : 'page'} check{scored.length === 1 ? '' : 's'} ran
+            </span>
+          </span>
+        </span>
+        <InfoTip label={`How ${h.title.toLowerCase()} is scored`} align="right">
+          <HalfExplainer kind={kind} score={score} checks={scored} />
+        </InfoTip>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <MiniRing score={score} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, minWidth: 0 }}>
+          <span style={{
+            alignSelf: 'flex-start', fontSize: 11.5, fontWeight: 700, padding: '2px 9px', borderRadius: 999,
+            color: `var(--${tone})`, background: `color-mix(in srgb, var(--${tone}) 14%, var(--card))`,
+          }}>{RATING[tone]}</span>
+          <span style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.45 }}>{h.question}</span>
+        </div>
+      </div>
+
+      {/* One dot per check: green pass, red fail, amber advisory. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
+          {scored.map((c) => (
+            <span key={c.id} title={`${c.label || c.id}: ${c.status}`}
+              style={{ width: 11, height: 11, borderRadius: '50%', background: CHECK_TONE[c.status] || 'var(--border)' }} />
+          ))}
+        </span>
+        <span style={{ fontSize: 12, color: 'var(--text-2)' }}>
+          <strong style={{ color: 'var(--text)' }}>{passed} of {scored.length}</strong> checks pass
+        </span>
+      </div>
+
+      {myCats.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+          {myCats.map((c) => (
+            <div key={c.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 90px 34px', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 12.5, color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.id}</span>
+              <span style={{ height: 6, borderRadius: 999, background: 'var(--border)', overflow: 'hidden' }}>
+                <span style={{ display: 'block', height: '100%', width: `${c.score}%`, background: `var(--${toneOf(c.score)})`, borderRadius: 999 }} />
+              </span>
+              <span style={{ fontSize: 12.5, fontWeight: 600, textAlign: 'right', color: `var(--${toneOf(c.score)})` }}>{c.score}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The "i" for one half: what it measures, every check with its result, the formula. */
+function HalfExplainer({ kind, score, checks }) {
+  const h = HALF[kind];
+  return (
+    <>
+      <strong style={{ color: 'var(--text)', fontSize: 13.5 }}>{h.title} ({h.tag})</strong>
+      <span>{h.what}</span>
+      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-3)' }}>
+        The {checks.length} checks
+      </span>
+      <span style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {checks.map((c) => (
+          <span key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span aria-hidden="true" style={{ width: 16, textAlign: 'center', fontWeight: 800, color: CHECK_TONE[c.status] || 'var(--text-3)' }}>
+              {c.status === 'pass' ? '✓' : c.status === 'fail' ? '✕' : '!'}
+            </span>
+            <span style={{ fontSize: 12 }}>{c.label || c.id}</span>
+          </span>
+        ))}
+      </span>
+      <span>Each check is worth points for its business impact; a pass earns them. This score is <strong>points earned ÷ points possible</strong> = <strong>{score}</strong>.</span>
+      <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
+        The overall score pools both halves’ points — site-level checks are worth 100, page-level up to 63 — so site-level readiness weighs more.
+      </span>
+    </>
+  );
+}
+
 function CatBar({ cat }) {
   const barColor = scoreBandColor(cat.score) || 'var(--text-3)';
   const textColor = barColor;
@@ -840,13 +1193,20 @@ export default function AgentReadinessAuditPage() {
 
             {view === 'summary' && (
               <div role="tabpanel" aria-labelledby="view-summary" style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 20, alignItems: 'stretch' }} className="ara-score-grid">
-                  <div data-explain-box style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 20, borderRadius: 14, background: 'var(--card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-md)' }}>
-                    <ScoreRing score={result.site.score} checkCount={checkCount} size={140} />
-                    <span className="explain-label-row">
-                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{result.site.level}</span>
-                      <InfoDot explainKey="a_score" ctx={explainCtx} />
+                <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: 20, alignItems: 'stretch' }} className="ara-score-grid">
+                  <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '20px 20px 18px', borderRadius: 14, background: 'var(--card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-md)' }}>
+                    {/* The "i": how the number is made, from this audit's own figures. */}
+                    <span style={{ position: 'absolute', top: 12, right: 12 }}>
+                      <InfoTip label="How the Agent Readiness score is calculated" align="left">
+                        <ReadinessExplainer score={result.site.score} cats={result.cats} hasOnPage={hasOnPage} />
+                      </InfoTip>
                     </span>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-3)' }}>
+                      Agent readiness
+                    </span>
+                    <ScoreRing score={result.site.score} checkCount={checkCount} size={140} />
+                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{result.site.level}</span>
+                    <LevelLadder score={result.site.score} />
                     <span style={{ fontSize: 11, color: 'var(--text-3)', textAlign: 'center' }}>
                       Based on {hasOnPage ? '23 checks across 6 categories' : '13 HTTP checks across 4 categories'}
                     </span>
@@ -869,15 +1229,47 @@ export default function AgentReadinessAuditPage() {
                     )}
                   </div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 12, padding: '22px 26px', borderRadius: 14, background: 'var(--primary)', boxShadow: 'var(--shadow-md)' }}>
-                    <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--text-on-primary)', opacity: 0.85 }}>
-                      Why this matters
+                  <div style={{
+                    position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 16,
+                    padding: '26px 30px', borderRadius: 14, boxShadow: 'var(--shadow-md)',
+                    background: 'linear-gradient(135deg, var(--primary) 0%, color-mix(in srgb, var(--primary) 78%, #000) 100%)',
+                  }}>
+                    {/* A large, faint agent mark behind the copy. */}
+                    <svg aria-hidden="true" width="220" height="220" viewBox="0 0 24 24" fill="none" stroke="var(--text-on-primary)" strokeWidth="0.8" strokeLinecap="round" strokeLinejoin="round"
+                      style={{ position: 'absolute', right: -30, bottom: -40, opacity: 0.08 }}>
+                      <rect x="4" y="7" width="16" height="12" rx="3" /><path d="M12 7V4M9 12h.01M15 12h.01M9.5 15.5h5" /><circle cx="12" cy="3" r="1" />
+                    </svg>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                      <span aria-hidden="true" style={{
+                        width: 32, height: 32, borderRadius: 10, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        background: 'color-mix(in srgb, var(--text-on-primary) 16%, transparent)', color: 'var(--text-on-primary)',
+                      }}>
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="4" y="7" width="16" height="12" rx="3" /><path d="M12 7V4M9 12h.01M15 12h.01" />
+                        </svg>
+                      </span>
+                      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--text-on-primary)', opacity: 0.9 }}>
+                        Why this matters
+                      </span>
                     </span>
-                    <p style={{ margin: 0, fontSize: 15, color: 'var(--text-on-primary)', lineHeight: 1.55 }}>
-                      AI agents are replacing browsers as the primary interface to the web. Sites optimized
-                      for agents get found, cited, and transacted with &mdash; those that aren&rsquo;t get
-                      bypassed entirely. By 2027, agents will initiate the majority of commercial queries.
+                    <p style={{ position: 'relative', margin: 0, fontSize: 19, fontWeight: 500, color: 'var(--text-on-primary)', lineHeight: 1.45, maxWidth: 640 }}>
+                      AI agents are replacing browsers as the primary interface to the web.
                     </p>
+                    <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
+                      {[
+                        ['Found & cited', 'Sites built for agents get recommended and quoted.'],
+                        ['Transacted with', 'Agents can book, buy and fill forms on them.'],
+                        ['Or bypassed', 'Sites agents can’t read get skipped entirely.'],
+                      ].map(([title, text]) => (
+                        <div key={title} style={{ padding: '10px 12px', borderRadius: 10, background: 'color-mix(in srgb, var(--text-on-primary) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--text-on-primary) 18%, transparent)' }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-on-primary)' }}>{title}</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-on-primary)', opacity: 0.85, lineHeight: 1.45, marginTop: 2 }}>{text}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <span style={{ position: 'relative', fontSize: 12, color: 'var(--text-on-primary)', opacity: 0.8 }}>
+                      By 2027, agents will initiate the majority of commercial queries.
+                    </span>
                   </div>
                 </div>
 
@@ -897,28 +1289,7 @@ export default function AgentReadinessAuditPage() {
                     )}
                   </div>
                   {result.cmoBrief ? (
-                    <>
-                      <p style={{ margin: 0, fontSize: 18, fontWeight: 500, color: 'var(--text)', lineHeight: 1.4 }}>
-                        {result.cmoBrief.headline}
-                      </p>
-                      <p style={{ margin: 0, fontSize: 14, color: 'var(--text-2)', lineHeight: 1.65 }}>
-                        {result.cmoBrief.summary}
-                      </p>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginTop: 4 }} className="ara-brief-grid">
-                        <div style={{ padding: '14px 16px', borderRadius: 10, background: 'color-mix(in srgb, var(--danger) 14%, transparent)', border: '1px solid color-mix(in srgb, var(--danger) 35%, transparent)' }}>
-                          <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--danger)' }}>Top risk</span>
-                          <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text)', lineHeight: 1.55 }}>{result.cmoBrief.risk}</p>
-                        </div>
-                        <div style={{ padding: '14px 16px', borderRadius: 10, background: 'color-mix(in srgb, var(--primary) 14%, transparent)', border: '1px solid color-mix(in srgb, var(--primary) 35%, transparent)' }}>
-                          <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--primary-text)' }}>60-day opportunity</span>
-                          <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text)', lineHeight: 1.55 }}>{result.cmoBrief.opportunity}</p>
-                        </div>
-                        <div style={{ padding: '14px 16px', borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border)' }}>
-                          <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-3)' }}>Competitive context</span>
-                          <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text)', lineHeight: 1.55 }}>{result.cmoBrief.competitive}</p>
-                        </div>
-                      </div>
-                    </>
+                    <BriefView brief={result.cmoBrief} cats={result.cats} />
                   ) : (
                     <div>
                       <SkeletonLine w="55%" />
@@ -972,25 +1343,9 @@ export default function AgentReadinessAuditPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 22, marginBottom: 22 }}>
                 {/* The two halves of the score, when the on-page half ran. */}
                 {hasOnPage && result.site.onPageScore !== null && (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }} className="ara-sub-scores">
-                    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-3)' }}>HTTP readiness</span>
-                        <span style={{ fontSize: 22, fontWeight: 700, color: scoreBandColor(result.site.httpScore) || 'var(--text-3)' }}>
-                          {result.site.httpScore}<span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-3)' }}>/100</span>
-                        </span>
-                      </div>
-                      <span style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5 }}>robots, sitemap, headers, bot access, MCP/OAuth</span>
-                    </div>
-                    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-3)' }}>On-page readiness</span>
-                        <span style={{ fontSize: 22, fontWeight: 700, color: scoreBandColor(result.site.onPageScore) || 'var(--text-3)' }}>
-                          {result.site.onPageScore}<span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-3)' }}>/100</span>
-                        </span>
-                      </div>
-                      <span style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5 }}>forms, schema, CAPTCHA, rendering, interactivity</span>
-                    </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }} className="ara-sub-scores">
+                    <ReadinessHalf kind="http" score={result.site.httpScore} checks={httpChecks} cats={result.cats} />
+                    <ReadinessHalf kind="onpage" score={result.site.onPageScore} checks={onPageChecks} cats={result.cats} />
                   </div>
                 )}
 

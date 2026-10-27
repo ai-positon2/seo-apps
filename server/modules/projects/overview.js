@@ -1151,6 +1151,97 @@ async function seoGeoSideScores(runId) {
   return { seo, geo, pages: sides.length, seoDetail: sideDetail('seo'), geoDetail: sideDetail('geo') };
 }
 
+/**
+ * Hub and Spoke: the card follows the analysis Content Architect is showing.
+ *
+ * The card read the last hub_spoke module run, while Content Architect shows the
+ * project's saved full_analysis — and an analysis re-run or saved from Content
+ * Architect itself writes that artifact without a module run. Gentle Dental's
+ * card sat at 48 (a 9/25 run of 960 pages, whose analysis record no longer
+ * exists) beside a 62 on the page (the 10/09 analysis of 193 pages).
+ *
+ * When the saved analysis is newer than the last completed run — or there is no
+ * completed run — the card takes its figures from that analysis, by the same
+ * formula both screens use (the mean of cluster health). Computed in the
+ * database, so the dashboard never loads the whole analysis.
+ */
+async function freshHubSpokeTerminal(projectId, terminal) {
+  const row = await db.maybeOne(
+    `select ca.id as ca_id, a.updated_at,
+            jsonb_array_length(coalesce(a.data->'clusters', '[]'::jsonb)) as clusters,
+            jsonb_array_length(coalesce(a.data->'pages', '[]'::jsonb)) as pages,
+            jsonb_array_length(coalesce(a.data->'unassignedPages', '[]'::jsonb)) as unassigned,
+            (select round(avg(coalesce((c->>'health')::numeric, 0)))
+               from jsonb_array_elements(coalesce(a.data->'clusters', '[]'::jsonb)) c)::int as mean_health,
+            (select count(*) from jsonb_array_elements(coalesce(a.data->'clusters', '[]'::jsonb)) c
+              where (c->>'isGap')::boolean)::int as gaps
+       from content_architect_projects ca
+       join content_architect_artifacts a on a.project_id = ca.id and a.kind = 'full_analysis'
+      where ca.platform_project_id = $1`,
+    [projectId]
+  );
+  if (!row || !row.clusters || !Number.isFinite(row.mean_health)) return terminal;
+
+  const savedAt = Date.parse(row.updated_at);
+  const runAt = Date.parse(terminal?.finished_at || terminal?.created_at || '');
+  // A completed run at least as new as the saved analysis is that analysis
+  // (the runner saves it just before closing the run), so the card is current.
+  if (terminal?.status === 'completed' && Number.isFinite(runAt) && runAt >= savedAt - 60_000) return terminal;
+
+  const day = new Date(row.updated_at).toISOString().slice(0, 10);
+  return {
+    ...(terminal || {}),
+    status: 'completed',
+    score: row.mean_health,
+    score_max: 100,
+    score_basis: 'the mean of every cluster\u2019s health in the Content Architect analysis',
+    band: `${row.clusters} cluster${row.clusters === 1 ? '' : 's'}`,
+    counts: {},
+    findings: [],
+    error: null,
+    interrupted: null,
+    cardNote: null,
+    note: `From the Content Architect analysis saved ${day}: ${row.pages} page(s), ${row.clusters} cluster(s), `
+      + `${row.gaps} with no hub, ${row.unassigned} unassigned.`,
+    reportRef: row.ca_id,
+    finished_at: row.updated_at,
+    created_at: row.updated_at,
+  };
+}
+
+/**
+ * AI Visibility: the card shows the score the AI Visibility report shows.
+ *
+ * The run stores v1's score (scoring.summarise) when it finishes; the report
+ * scores the same answers with report.js's composite (named 40, position 25,
+ * sentiment 20, cited 15), re-matched against the current brand and
+ * competitors. Two formulas, so Gentle Dental's card read 43 beside a 47.
+ * The card now takes the report's own number from the same builder the report
+ * route uses (aiVisibilityLite/routes.js buildLiveReport). Kept for five
+ * minutes per project and run — the dashboard polls, and the report is a
+ * second or two to build.
+ */
+const liveAivCache = new Map();
+async function liveAiVisibilityTerminal(projectRow, terminal) {
+  if (!terminal || terminal.status !== 'completed') return terminal;
+  const key = `${projectRow.id}:${terminal.id}`;
+  const hit = liveAivCache.get(key);
+  let value = hit && Date.now() - hit.at < 5 * 60_000 ? hit.value : undefined;
+  if (value === undefined) {
+    const { buildLiveReport } = require('../aiVisibilityLite/routes');
+    const live = await buildLiveReport(projectRow, { budget: false });
+    const v = live?.built?.headline?.score?.value;
+    value = Number.isFinite(v) ? Math.round(v) : null;
+    liveAivCache.set(key, { at: Date.now(), value });
+  }
+  if (value === null || value === terminal.score) return terminal;
+  return {
+    ...terminal,
+    score: value,
+    score_basis: 'the AI Visibility report\u2019s score: named in answers 40%, position 25%, sentiment 20%, cited 15%',
+  };
+}
+
 function evidenceCard(module, entry) {
   const terminal = entry?.terminal || null;
   const inFlight = entry?.inFlight || null;
@@ -1536,6 +1627,29 @@ async function buildOverview({ access }) {
       return new Map();
     }),
   ]);
+
+  // AI Visibility shows the report's own score (see liveAiVisibilityTerminal).
+  const aivEntry = evidenceByModule.get('ai_visibility_lite');
+  if (aivEntry?.terminal && !aivEntry.inFlight) {
+    const live = await liveAiVisibilityTerminal(projectRow, aivEntry.terminal).catch((e) => {
+      console.error('[projects.overview.aivLive]', e.message);
+      return aivEntry.terminal;
+    });
+    if (live !== aivEntry.terminal) evidenceByModule.set('ai_visibility_lite', { ...aivEntry, terminal: live });
+  }
+
+  // Hub and Spoke follows the analysis Content Architect shows (see
+  // freshHubSpokeTerminal), unless a run is in flight.
+  const hubSpokeEntry = evidenceByModule.get('hub_spoke');
+  if (!hubSpokeEntry?.inFlight) {
+    const fresh = await freshHubSpokeTerminal(projectRow.id, hubSpokeEntry?.terminal || null).catch((e) => {
+      console.error('[projects.overview.hubSpokeFresh]', e.message);
+      return hubSpokeEntry?.terminal || null;
+    });
+    if (fresh && fresh !== hubSpokeEntry?.terminal) {
+      evidenceByModule.set('hub_spoke', { ...(hubSpokeEntry || {}), terminal: fresh });
+    }
+  }
 
   // Which card shape each module gets is decided by what is stored, not by a
   // hardcoded list: a module becomes "live" the moment it has evidence, and

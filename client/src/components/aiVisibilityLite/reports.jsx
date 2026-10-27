@@ -617,6 +617,113 @@ function ScoreRing({ score, display, color, label }) {
   );
 }
 
+// ── The score's "i" ─────────────────────────────────────────────────────────
+// The headline is report.js compositeScore: four factors, weighted 40/25/20/15,
+// reweighted across just the factors that could be measured. Each factor's
+// points = its 0-100 value × its share of the weight — the same arithmetic the
+// server ran, spelled out in the "i" so the reader can add it up.
+const FACTOR_COLOR = {
+  named: 'var(--viz-1)', rank: 'var(--viz-2)', perception: 'var(--viz-3)', cited: 'var(--viz-4)',
+};
+const FACTOR_SHORT = {
+  named: 'Named in answers', rank: 'Position when named', perception: 'Sentiment', cited: 'Cited as a source',
+};
+const FACTOR_HOW = {
+  named: 'how often AI brings you up for real customer questions',
+  rank: 'how early in the answer you’re named (#1 scores 100)',
+  perception: 'how warmly AI describes you',
+  cited: 'how often AI links to your site as a source',
+};
+
+function scoreParts(headline) {
+  const rows = headline.scoreBreakdown || [];
+  const total = rows.filter((r) => r.included).reduce((sum, r) => sum + r.weight, 0) || 1;
+  return rows.map((r) => {
+    const share = r.included ? (r.weight * 100) / total : 0;
+    const value = r.included ? Math.max(0, Math.min(100, r.value)) : 0;
+    return { ...r, share, value, points: (value * share) / 100 };
+  });
+}
+
+/** Five 20-point stages as a strip, with the score marked on it. */
+function StageLadder({ score }) {
+  if (typeof score !== 'number') return null;
+  const current = stageFor(score);
+  return (
+    <div style={{ width: 210 }}>
+      <div style={{ position: 'relative', display: 'flex', gap: 3 }}>
+        {SCORE_STAGES.map((s) => (
+          <span
+            key={s.label}
+            style={{
+              flex: 1, height: 6, borderRadius: 999,
+              background: s === current ? s.color : `color-mix(in srgb, ${s.color} 22%, transparent)`,
+            }}
+          />
+        ))}
+        <span
+          aria-hidden="true"
+          style={{
+            position: 'absolute', top: -4, left: `calc(${Math.max(0, Math.min(100, score))}% - 7px)`,
+            width: 14, height: 14, borderRadius: '50%', background: 'var(--card)', border: `3px solid ${current.color}`,
+          }}
+        />
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
+        <span>0</span><span>20</span><span>40</span><span>60</span><span>80</span><span>100</span>
+      </div>
+    </div>
+  );
+}
+
+/** The "i": the formula, this report's arithmetic, and what each stage means. */
+function ScoreExplainer({ headline }) {
+  const parts = scoreParts(headline);
+  const used = parts.filter((r) => r.included);
+  const skipped = parts.filter((r) => !r.included);
+  const stage = stageFor(headline.score.value);
+  return (
+    <>
+      <strong style={{ color: 'var(--text)', fontSize: 13.5 }}>How the visibility score works</strong>
+      <span>A 0–100 blend of four things AI answers show about you, each scored 0–100 and weighted:</span>
+      <span style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+        {parts.map((r) => (
+          <span key={r.key} style={{ display: 'grid', gridTemplateColumns: '10px 1fr auto', alignItems: 'center', gap: 8, opacity: r.included ? 1 : 0.55 }}>
+            <span style={{ width: 9, height: 9, borderRadius: 3, background: FACTOR_COLOR[r.key] }} />
+            <span style={{ fontSize: 12 }}><strong>{FACTOR_SHORT[r.key]}</strong> — {FACTOR_HOW[r.key]}</span>
+            <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)' }}>{r.weight}%</span>
+          </span>
+        ))}
+      </span>
+      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-3)' }}>
+        This report
+      </span>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+        {used.map((r) => Math.round(r.points)).join(' + ')}
+        {used.reduce((sum, r) => sum + Math.round(r.points), 0) === Number(headline.score.display) ? ' = ' : ' ≈ '}
+        <strong>{headline.score.display}</strong>
+      </span>
+      {skipped.length > 0 && (
+        <span style={{ fontSize: 11.5 }}>
+          {skipped.map((r) => FACTOR_SHORT[r.key]).join(' and ')} couldn’t be measured yet, so {skipped.length === 1 ? 'its' : 'their'} weight
+          is spread across the others — a missing reading never counts as zero.
+        </span>
+      )}
+      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-3)' }}>
+        Stages
+      </span>
+      <span style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        {SCORE_STAGES.map((s, i) => (
+          <span key={s.label} style={{ fontSize: 12, fontWeight: s === stage ? 700 : 400, color: s === stage ? 'var(--text)' : undefined }}>
+            {i * 20}{s.max === Infinity ? '–100' : `–${s.max}`} · {s.label}{s === stage ? '  ← you' : ''}
+          </span>
+        ))}
+      </span>
+      <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>The project dashboard card shows this same number.</span>
+    </>
+  );
+}
+
 /**
  * Each model's share as a slim bar filled to its mention rate, with the exact
  * count spelled out underneath ("3 of 58 answers").
@@ -756,12 +863,18 @@ export function OverviewReport({ report }) {
             </div>
           </div>
 
-          <div data-explain-box style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, borderRadius: 'var(--r-lg)' }}>
-            <ScoreRing score={report.headline.score.value} display={report.headline.score.display} color={accent} label={stage?.label} />
-            <span className="explain-label-row">
-              <Muted size={11.5}>How this score is built</Muted>
-              <InfoDot explainKey="l_score" ctx={explainCtx} />
-            </span>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, margin: '0 auto' }}>
+            <div style={{ position: 'relative' }}>
+              <ScoreRing score={report.headline.score.value} display={report.headline.score.display} color={accent} label={stage?.label} />
+              {report.headline.score.value !== null && (
+                <span style={{ position: 'absolute', top: 4, right: -6 }}>
+                  <InfoTip label="How the visibility score is calculated" align="right">
+                    <ScoreExplainer headline={report.headline} />
+                  </InfoTip>
+                </span>
+              )}
+            </div>
+            <StageLadder score={report.headline.score.value} />
           </div>
         </div>
 
