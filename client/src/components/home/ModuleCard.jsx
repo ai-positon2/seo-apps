@@ -84,6 +84,19 @@ function headlineNumber(module) {
   if (module.status === 'needs_setup') {
     return { text: '—', unit: 'no competitors yet', color: 'var(--text-3)', barWidth: null };
   }
+  // Competitor Research and AI Visibility: a percentage, not a 0-100 score, so
+  // it is not banded green/amber/red — a share is a measurement, not a grade.
+  if (module.metric) {
+    const has = Number.isFinite(module.metric.value);
+    return {
+      text: module.metric.display,
+      unit: module.metric.unit,
+      color: has ? 'var(--text)' : 'var(--text-3)',
+      barWidth: has ? `${Math.max(2, Math.min(100, module.metric.value))}%` : null,
+      barColor: 'var(--text-2)',
+      rank: module.metric.rank || null,
+    };
+  }
   if (module.scored && Number.isFinite(module.score)) {
     const score = Math.round(module.score);
     return {
@@ -138,7 +151,9 @@ export default function ModuleCard({ module, onRun, crawlLive = false }) {
   // read "Healthy" above a red 3/100. Running, queued, failed and unscored
   // modules still show their run status; an interrupted run keeps its "Partial".
   const finished = module.status === 'completed' || module.status === 'completed_with_errors';
-  const verdict = finished && module.scored ? scoreVerdict(module.score) : null;
+  const verdict = finished && module.metric
+    ? { tone: 'muted', label: module.metric.tag }
+    : finished && module.scored ? scoreVerdict(module.score) : null;
   const tone = verdict ? verdict.tone : (MODULE_STATUS_TONE[module.status] || 'muted');
   const statusLabel = verdict ? verdict.label : (MODULE_STATUS_LABEL[module.status] || module.status);
   const tint = TAG_TONES[tone] || TAG_TONES.muted;
@@ -322,6 +337,11 @@ export default function ModuleCard({ module, onRun, crawlLive = false }) {
                   : 'analyzing…'}
           </span>
         </div>
+        {number.rank && !workingEmpty && (
+          <span style={{ fontSize: 11.5, color: 'var(--text-2)', textAlign: 'right', maxWidth: 70, lineHeight: 1.3, flexShrink: 0 }}>
+            {number.rank}
+          </span>
+        )}
         {module.sideScores && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
             <SideScoreRow label="SEO" title="Search engines" score={module.sideScores.seo} />
@@ -337,7 +357,7 @@ export default function ModuleCard({ module, onRun, crawlLive = false }) {
         {number.barWidth && !workingEmpty && (
           <div
             style={{
-              height: '100%', borderRadius: 999, width: number.barWidth, background: number.color,
+              height: '100%', borderRadius: 999, width: number.barWidth, background: number.barColor || number.color,
             }}
           />
         )}

@@ -68,6 +68,47 @@ function msSince(iso) {
  * how current the picture is — not the oldest, which would describe the audit as
  * stale because one module has not been re-run.
  */
+// The modules that report a percentage (traffic share, share of AI answers)
+// rather than a 0-100 score. They are context, not a grade, so they never count
+// as the "weakest area".
+const PERCENT_KEYS = new Set(['competitor', 'ai_visibility_lite', 'ai_visibility']);
+
+/** The dashboard's own cards: a module hidden from the grid is not part of the audit. */
+const onDashboard = (modules) => modules.filter((m) => m.card !== false);
+
+/**
+ * Every module that scored out of 100, weakest first — the reader's "where are
+ * we weakest" in the module's own numbers, nothing recomputed.
+ */
+function buildAreas(modules) {
+  return onDashboard(modules)
+    .filter((m) => !PERCENT_KEYS.has(m.key) && !m.metric && m.scored && Number.isFinite(m.score))
+    .map((m) => {
+      const score = Math.round(m.score);
+      return {
+        key: m.key,
+        label: m.label,
+        score,
+        band: score >= HEALTHY_AT ? 'good' : score >= WATCH_AT ? 'fair' : 'poor',
+      };
+    })
+    .sort((a, b) => a.score - b.score);
+}
+
+/** The percentage modules, as the cards print them: "5.4% of vanta.com's traffic". */
+function buildMarket(modules) {
+  return onDashboard(modules)
+    .filter((m) => m.metric && Number.isFinite(m.metric.value))
+    .map((m) => ({ key: m.key, label: m.label, display: m.metric.display, unit: m.metric.unit }));
+}
+
+/** " Agent Readiness is the weakest area, at 22/100." — or nothing. */
+function weakestClause(areas) {
+  const weakest = areas[0];
+  if (!weakest || weakest.score >= WATCH_AT) return '';
+  return ` ${weakest.label} is the weakest area, at ${weakest.score}/100.`;
+}
+
 function lastEvidenceAt(modules) {
   const times = modules
     .map((m) => m.updatedAt && new Date(m.updatedAt).getTime())
@@ -82,7 +123,7 @@ function lastEvidenceAt(modules) {
 // is a mean and a mean hides a broken thing. A site scoring 84 with eleven pages
 // returning 5xx is not "healthy", and a summary that said so would be worse than
 // no summary.
-function buildVerdict({ composite, totals, scoredModules, everRun }) {
+function buildVerdict({ composite, totals, everRun, areas = [] }) {
   if (!everRun) {
     return {
       state: NOT_MEASURED,
@@ -102,11 +143,13 @@ function buildVerdict({ composite, totals, scoredModules, everRun }) {
     return {
       state: 'at_risk',
       headline: 'Action needed',
-      sentence: `${plural(errors, 'issue is', 'issues are')} serious enough to be costing this site `
+      // The composite is not quoted: it is a mean, the dashboard no longer
+      // shows it, and the weakest module says more than an average does.
+      sentence: `${plural(errors, 'critical issue is', 'critical issues are')} costing this site `
         + `search visibility right now`
         + (pages ? `, across ${plural(pages, 'page', 'pages')}` : '')
         + '.'
-        + (score === null ? '' : ` The audit scores the site ${score} out of 100 overall.`),
+        + weakestClause(areas),
       basis: 'Findings the auditing modules classify as errors, counted from stored runs.',
     };
   }
@@ -115,8 +158,7 @@ function buildVerdict({ composite, totals, scoredModules, everRun }) {
     return {
       state: 'healthy',
       headline: 'In good shape',
-      sentence: `Nothing found is serious enough to be losing search visibility, and the audit `
-        + `scores the site ${score} out of 100.`
+      sentence: 'Nothing found is serious enough to be losing search visibility.'
         + (warnings
           ? ` ${plural(warnings, 'improvement is', 'improvements are')} worth making when there is capacity.`
           : ''),
@@ -128,8 +170,9 @@ function buildVerdict({ composite, totals, scoredModules, everRun }) {
     return {
       state: 'needs_attention',
       headline: 'Below where it should be',
-      sentence: `Nothing is broken outright, but the audit scores the site ${score} out of 100 — `
-        + `far enough below par that competitors with cleaner sites will out-rank it on equal content.`
+      sentence: 'Nothing is broken outright, but the site is below par — competitors with cleaner '
+        + 'sites will out-rank it on equal content.'
+        + weakestClause(areas)
         + (warnings ? ` ${plural(warnings, 'issue', 'issues')} to work through.` : ''),
       basis: 'Composite below 60, with no error-severity finding.',
     };
@@ -142,8 +185,9 @@ function buildVerdict({ composite, totals, scoredModules, everRun }) {
     sentence: score === null
       ? `${plural(totals?.actions || 0, 'issue is', 'issues are')} open. No module has produced a `
         + 'score yet, so there is no overall number to put against them.'
-      : `No errors, but ${plural(warnings || totals?.actions || 0, 'issue is', 'issues are')} `
-        + `holding the site at ${score} out of 100.`,
+      : `No critical issues, but ${plural(warnings || totals?.actions || 0, 'issue is', 'issues are')} `
+        + 'holding the site back.'
+        + weakestClause(areas),
     basis: score === null
       ? 'Findings are stored, but no module has produced a score.'
       : 'Composite between 60 and 80, with no error-severity finding.',
@@ -178,7 +222,10 @@ function buildLeverage(totals) {
   }
 
   const share = Math.round((templateWide / actions) * 100);
-  const siteShare = crawledPages ? Math.round((pagesAffected / crawledPages) * 100) : null;
+  // Findings can name pages an older inventory had and the latest crawl does
+  // not (pagesAffectedNote). A share over 100% is that mismatch, not a reach.
+  const siteShare = crawledPages && pagesAffected <= crawledPages
+    ? Math.round((pagesAffected / crawledPages) * 100) : null;
 
   const parts = [];
   if (templateWide) {
@@ -223,9 +270,37 @@ function buildLeverage(totals) {
 // existed and had nothing pointing at it.
 const TOP_N = 3;
 
-function buildPriorities(actions = []) {
-  return actions.slice(0, TOP_N).map((item, index) => ({
+function buildPriorities(actions = [], areas = []) {
+  const picked = actions.slice(0, TOP_N).map((item) => ({ ...item, kind: 'finding' }));
+
+  // A whole module scoring below par is a bigger fact than the third-ranked
+  // finding of another one: Agent Readiness at 22/100 outranks one broken image.
+  // It takes the last place when its module has no item in the list already.
+  // The backlog's own order is otherwise kept.
+  const weakest = areas[0];
+  if (weakest && weakest.score < WATCH_AT && !picked.some((p) => p.moduleKey === weakest.key)) {
+    const area = {
+      kind: 'area',
+      key: `area:${weakest.key}`,
+      title: `Raise ${weakest.label} from ${weakest.score}/100`,
+      moduleKey: weakest.key,
+      moduleLabel: weakest.label,
+      severity: weakest.score < 40 ? 'error' : 'warning',
+      effortHint: `The weakest area · ${weakest.score}/100`,
+      basisLine: `${weakest.label}'s own stored score, the lowest of the modules that scored.`,
+      scope: null,
+      pageCount: null,
+    };
+    if (picked.length >= TOP_N) picked[TOP_N - 1] = area;
+    else picked.push(area);
+    // Most serious first, the backlog's order kept within a severity.
+    const rank = { error: 0, warning: 1, notice: 2, info: 3 };
+    picked.sort((a, b) => (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9));
+  }
+
+  return picked.map((item, index) => ({
     rank: index + 1,
+    kind: item.kind,
     key: item.key,
     title: item.title,
     moduleKey: item.moduleKey,
@@ -242,6 +317,22 @@ function buildPriorities(actions = []) {
   }));
 }
 
+// ── The issue mix ────────────────────────────────────────────────────────────
+//
+// The counts the verdict is built from, as figures rather than a sentence, so
+// the summary can show how much is critical at a glance.
+function buildIssues(totals) {
+  const by = totals?.bySeverity || {};
+  return {
+    critical: by.error || 0,
+    important: by.warning || 0,
+    minor: (by.notice || 0) + (by.info || 0),
+    pagesWithCritical: totals?.pagesWithErrors || 0,
+    crawledPages: totals?.crawledPages || null,
+    templateWide: totals?.templateWide || 0,
+  };
+}
+
 // ── 4. Confidence ────────────────────────────────────────────────────────────
 //
 // §30: a capability gap is surfaced, never quietly absent. This is where the two
@@ -251,7 +342,10 @@ function buildPriorities(actions = []) {
 //
 // A summary that does not say what it missed is how a dashboard tells somebody
 // their site is clean when nobody checked.
-function buildConfidence({ modules, totals, lastAt }) {
+function buildConfidence({ modules: all, totals, lastAt }) {
+  // A module hidden from the dashboard (the scraped AI Visibility) is not part of
+  // this audit, so "6 of 7, X has not run" would report a gap nobody can see.
+  const modules = onDashboard(all);
   const neverRun = modules.filter((m) => m.status === 'not_run');
   const failed = modules.filter((m) => m.status === 'failed');
   const covered = modules.length - neverRun.length;
@@ -420,9 +514,13 @@ function buildExecutiveSummary({ overview, backlog }) {
   // be wrong in the direction that loses trust fastest.
   const everRun = modules.some((m) => m.status !== 'not_run');
   const lastAt = lastEvidenceAt(modules);
+  const areas = buildAreas(modules);
 
   return {
-    verdict: buildVerdict({ composite, totals, scoredModules, everRun }),
+    verdict: buildVerdict({ composite, totals, everRun, areas }),
+    issues: buildIssues(totals),
+    areas,
+    market: buildMarket(modules),
     standing: {
       // Echoed, never recomputed. §6.2: the composite is the server's own mean of
       // the modules that scored, and a second arithmetic here would eventually
@@ -440,7 +538,7 @@ function buildExecutiveSummary({ overview, backlog }) {
           + 'Each is on its own scale, so this is a summary, not a measurement of its own.',
     },
     leverage: buildLeverage(totals),
-    priorities: buildPriorities(actions),
+    priorities: buildPriorities(actions, areas),
     confidence: buildConfidence({ modules, totals, lastAt }),
     generatedAt: new Date().toISOString(),
   };
@@ -453,6 +551,8 @@ module.exports = {
   buildLeverage,
   buildPriorities,
   buildConfidence,
+  buildAreas,
+  buildIssues,
   lastEvidenceAt,
   HEALTHY_AT,
   WATCH_AT,

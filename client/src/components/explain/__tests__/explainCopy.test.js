@@ -103,35 +103,12 @@ const MODULES = [
   { key: 'agent_readiness', label: 'Agent Readiness', scored: false, score: null, status: 'not_run' },
 ];
 
-test('the composite shows its own arithmetic and names what it left out', () => {
-  const { calc } = resolveExplainer('composite', {
-    modules: MODULES, composite: { value: 80, scoredModules: 2, totalModules: 4 },
-  });
-  assert.match(calc, /\(82 \+ 77\) ÷ 2 = 80/);
-  assert.match(calc, /Hub and Spoke reports findings rather than a score/);
-  assert.match(calc, /Agent Readiness hasn’t run yet/);
-});
-
-test('a composite with nothing scored says so instead of printing a number', () => {
-  const { calc } = resolveExplainer('composite', {
-    modules: [MODULES[3]], composite: { value: null, scoredModules: 0, totalModules: 1 },
-  });
-  assert.match(calc, /Not measured yet/);
-  assert.doesNotMatch(calc, /÷/);
-});
-
-test('a module card left out of the dashboard is left out of the composite sum', () => {
-  const { calc } = resolveExplainer('composite', {
-    modules: [...MODULES, { key: 'ai_visibility', label: 'Old AI Vis', scored: true, score: 10, card: false }],
-    composite: { value: 80, scoredModules: 2, totalModules: 4 },
-  });
-  assert.doesNotMatch(calc, /10/);
-});
-
-test('the radar points at the lowest-scoring audit', () => {
+test('the radar points at the lowest-scoring audit on its own axes', () => {
+  // Competitor Research (77) reports a percentage and is not on the radar, so
+  // the lowest axis is Tech Audit (82), not it.
   const { next } = resolveExplainer('radar', { modules: MODULES });
-  assert.match(next.label, /Competitor Research/);
-  assert.strictEqual(next.screen, 'comp');
+  assert.match(next.label, /Tech Audit/);
+  assert.doesNotMatch(next.label, /Competitor Research/);
 });
 
 test('the tech health breakdown adds up to the published score', () => {

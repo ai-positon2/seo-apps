@@ -472,28 +472,85 @@ textarea:focus-visible {
 .explain-close:hover { color: var(--text); }
 .explain-popover__title { margin: 0; font-size: 15px; font-weight: 600; color: var(--text); }
 .explain-popover__lead { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text); text-wrap: pretty; }
-.explain-popover__body { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 10px; }
+.explain-popover__body { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 12px; }
 .explain-block { display: flex; flex-direction: column; gap: 2px; }
 .explain-label {
   font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--text-3);
 }
-.explain-value { font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
-.explain-calc { gap: 3px; padding: 10px 12px; border-radius: 8px; background: var(--bg); }
+.explain-value { font-size: 12.5px; line-height: 1.5; color: var(--text-2); text-wrap: pretty; }
+
+/* Why it matters / What good looks like: two short rows, each with its mark. */
+.explain-facts { display: flex; flex-direction: column; gap: 8px; }
+.explain-fact { display: flex; align-items: flex-start; gap: 10px; }
+.explain-fact__icon {
+  flex-shrink: 0; margin-top: 1px; padding: 5px; box-sizing: content-box;
+  border-radius: 8px; color: var(--text-2); background: var(--bg);
+}
+.explain-fact--good .explain-fact__icon { color: var(--primary); background: var(--primary-soft); }
+.explain-fact__text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+
+/* How it's calculated: short numbered steps on a tinted panel. */
+.explain-calc { display: flex; flex-direction: column; gap: 6px; padding: 11px 12px; border-radius: 10px; background: var(--bg); }
 .explain-calc .explain-value { color: var(--text); }
+.explain-steps { margin: 0; padding: 0; list-style: none; counter-reset: step; display: flex; flex-direction: column; gap: 6px; }
+.explain-steps li {
+  counter-increment: step; position: relative; padding-left: 24px;
+  font-size: 12.5px; line-height: 1.45; color: var(--text); text-wrap: pretty;
+}
+.explain-steps li::before {
+  content: counter(step); position: absolute; left: 0; top: 1px;
+  width: 16px; height: 16px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 9.5px; font-weight: 700; color: var(--primary-text); background: var(--primary-soft);
+}
+.explain-more {
+  align-self: flex-start; padding: 0; border: none; background: none; cursor: pointer;
+  font-size: 11.5px; font-weight: 600; color: var(--primary-text);
+}
+.explain-more:hover { text-decoration: underline; }
 .explain-calc__extra {
-  margin-top: 6px; padding-top: 8px;
+  margin-top: 4px; padding-top: 8px;
   border-top: 1px solid var(--border);
   font-size: 12px; line-height: 1.5; color: var(--text-2);
 }
+.explain-run { margin-top: 2px; font-size: 11.5px; line-height: 1.5; color: var(--text-2); }
+.explain-run summary {
+  cursor: pointer; width: max-content; list-style: none;
+  font-size: 11.5px; font-weight: 600; color: var(--text-3);
+}
+.explain-run summary::-webkit-details-marker { display: none; }
+.explain-run summary::before { content: '▸'; display: inline-block; margin-right: 5px; transition: transform var(--dur-fast) var(--ease); }
+.explain-run[open] summary::before { transform: rotate(90deg); }
+.explain-run > span { display: block; margin-top: 6px; }
+
 .explain-popover__foot {
-  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;
-  padding: 10px 16px;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 16px 12px;
   border-top: 1px solid var(--border);
 }
-.explain-src { font-size: 11.5px; color: var(--text-3); }
-.explain-next { font-size: 12px; font-weight: 500; color: var(--primary-text); text-decoration: none; }
-.explain-next:hover { text-decoration: underline; }
+.explain-src { font-size: 11px; color: var(--text-3); }
+.explain-next {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px 10px; border-radius: 8px;
+  font-size: 12.5px; font-weight: 500; line-height: 1.4; color: var(--primary-text); text-decoration: none;
+  background: var(--primary-soft);
+}
+.explain-next:hover { background: color-mix(in srgb, var(--primary) 18%, var(--card)); }
+.explain-next__arrow { flex-shrink: 0; font-size: 14px; }
+.explain-next--static { background: var(--bg); color: var(--text-2); }
+
+/* The other "i" — a hover panel of custom content (InfoTip, reportKit.jsx) —
+   drawn as the same card so every explanation on the platform looks alike. */
+.explain-tip {
+  position: absolute; top: calc(100% + 8px); z-index: 20;
+  width: min(360px, 86vw); padding: 14px 16px;
+  border-radius: var(--r-lg); border: 1px solid var(--border);
+  background: var(--card); box-shadow: var(--shadow-lg);
+  font-family: var(--font-sans); font-size: 12.5px; font-weight: 400; font-style: normal;
+  line-height: 1.5; color: var(--text-2); text-transform: none; letter-spacing: normal; text-align: left;
+  flex-direction: column; gap: 10px;
+}
 
 /* The header switch. */
 .explain-toggle {
@@ -967,3 +1024,20 @@ html.embedded main  { padding-top: 0 !important; }
 [data-theme='light'] .text-\[\#8792A2\] {
   color: var(--text-3) !important;
 }
+
+/* Executive summary (components/home/ExecutiveSummary.jsx): the verdict with
+   the issue mix beside it, then the top three as cards. Stacks on narrow screens. */
+.exec-top { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 28px; align-items: start; }
+.exec-priorities {
+  margin: 0; padding: 0; list-style: none;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px;
+}
+.exec-priority {
+  display: flex; flex-direction: column; gap: 8px; padding: 14px 16px 12px;
+  border-radius: 12px; background: var(--card); border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+.exec-chip { transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease); }
+.exec-chip:hover { background: var(--surface-2); border-color: var(--primary); }
+.exec-open:hover { text-decoration: underline; }
+@media (max-width: 900px) { .exec-top { grid-template-columns: 1fr; } }

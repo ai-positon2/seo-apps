@@ -1,8 +1,8 @@
-// ── The overview's figures, for the header stats and the info icons ─────────
+// ── The overview's figures, for the info icons and the legend ───────────────
 //
-// ProfileStats prints these, and the info icons and legend explain them with
-// worked examples. Both read this one function, so an explanation can never
-// quote a different count from the number printed beside it.
+// The info icons and the legend explain the dashboard's figures with worked
+// examples. Both read this one function, so an explanation can never quote a
+// different count from the number printed beside it.
 
 /**
  * @param {object} params

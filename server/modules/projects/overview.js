@@ -1231,15 +1231,70 @@ async function liveAiVisibilityTerminal(projectRow, terminal) {
     const { buildLiveReport } = require('../aiVisibilityLite/routes');
     const live = await buildLiveReport(projectRow, { budget: false });
     const v = live?.built?.headline?.score?.value;
-    value = Number.isFinite(v) ? Math.round(v) : null;
+    const named = live?.built?.headline?.namedRate?.value;
+    value = {
+      score: Number.isFinite(v) ? Math.round(v) : null,
+      named: Number.isFinite(named) ? named : null,
+      built: Boolean(live?.built),
+    };
     liveAivCache.set(key, { at: Date.now(), value });
   }
-  if (value === null || value === terminal.score) return terminal;
-  return {
-    ...terminal,
-    score: value,
-    score_basis: 'the AI Visibility report\u2019s score: named in answers 40%, position 25%, sentiment 20%, cited 15%',
+  const out = { ...terminal };
+  if (value.score !== null && value.score !== terminal.score) {
+    out.score = value.score;
+    out.score_basis = 'the AI Visibility report\u2019s score: named in answers 40%, position 25%, sentiment 20%, cited 15%';
+  }
+  // The dashboard shows this module as a percentage: the share of AI answers
+  // that name the brand \u2014 the report's "Mentioned in AI answers" figure.
+  if (value.named !== null) {
+    out.metric = { value: value.named * 100, display: pctDisplay(value.named * 100), unit: 'of AI answers', tag: 'Measured' };
+  } else if (value.built) {
+    // The report reads the last 30 days, and this project's answers are older.
+    out.metric = { value: null, display: '—', unit: 'no AI answers in the last 30 days', tag: 'Re-run due' };
+  }
+  return out;
+}
+
+/** 5.4% under 10, 28% above \u2014 the precision a reader can use. */
+function pctDisplay(pct) {
+  return `${pct < 10 ? (Math.round(pct * 10) / 10) : Math.round(pct)}%`;
+}
+
+/**
+ * Competitor Research as a percentage: this site's organic traffic as a share
+ * of the strongest tracked competitor's, plus where it ranks among them. The
+ * same ratio competitorTrafficScore turns into the 0-100, without the rounding.
+ *
+ * @param {Array<{domain:string,isClient:boolean,traffic:number}>} domains
+ */
+function competitorMetric(domains) {
+  const rows = (domains || []).filter((d) => Number.isFinite(d.traffic));
+  const client = rows.find((d) => d.isClient);
+  const rivals = rows.filter((d) => !d.isClient);
+  if (!client || !rivals.length) return null;
+  const strongest = rivals.reduce((best, d) => (d.traffic > best.traffic ? d : best), rivals[0]);
+  const position = [...rows].sort((a, b) => b.traffic - a.traffic).indexOf(client) + 1;
+  const ordinal = (n) => {
+    const teen = n % 100 >= 11 && n % 100 <= 13;
+    return `${n}${(!teen && { 1: 'st', 2: 'nd', 3: 'rd' }[n % 10]) || 'th'}`;
   };
+  const rank = `${ordinal(position)} of ${rows.length} tracked`;
+  if (!strongest.traffic) {
+    return { value: 100, display: 'Leading', unit: 'ahead of every tracked competitor', rank, tag: 'Market position' };
+  }
+  const pct = (client.traffic / strongest.traffic) * 100;
+  return { value: Math.min(100, pct), display: pctDisplay(pct), unit: `of ${strongest.domain}\u2019s traffic`, rank, tag: 'Market position' };
+}
+
+/** competitorMetric over a stored competitor run's payload. */
+async function competitorRunMetric(runId) {
+  const row = await db.maybeOne(
+    `select payload->'domains' as domains from project_module_runs where id = $1`,
+    [runId],
+  );
+  return competitorMetric((row?.domains || []).map((d) => ({
+    domain: d.domain, isClient: Boolean(d.isClient), traffic: Number(d.organicTraffic),
+  })));
 }
 
 function evidenceCard(module, entry) {
@@ -1562,6 +1617,9 @@ async function competitorCardFromTool(project) {
 
   const rivals = snapshot.domains.filter((d) => !d.isClient).length;
   return {
+    metric: competitorMetric(snapshot.domains.map((d) => ({
+      domain: d.domain, isClient: Boolean(d.isClient), traffic: Number(d.domainRank?.organicTraffic),
+    }))),
     scored: true,
     score: traffic.score,
     scoreMax: 100,
@@ -1571,13 +1629,12 @@ async function competitorCardFromTool(project) {
     // than a project run has to carry that, or the next reader will look for a
     // run that does not exist.
     source: 'competitor_analysis_tool',
-    headline: traffic.aheadOfAll
-      ? `Ahead of all ${rivals} tracked competitor${rivals === 1 ? '' : 's'} on organic traffic`
-      : `${traffic.score}% of ${traffic.strongestDomain}'s organic traffic`,
-    detail: `${traffic.clientTraffic.toLocaleString('en-US')} vs `
-      + `${traffic.strongestTraffic.toLocaleString('en-US')} estimated monthly visits. `
-      + 'From the Competitor Research screen, not a project run — run it here to store it as '
-      + 'project evidence.',
+    // The card leads with the percentage (`metric`), so the line under it is
+    // the two traffic figures that percentage divides.
+    headline: `${traffic.clientTraffic.toLocaleString('en-US')} vs `
+      + `${traffic.strongestTraffic.toLocaleString('en-US')} estimated monthly visits`,
+    detail: 'Semrush estimate, from the Competitor Research screen, not a project run — run it here '
+      + 'to store it as project evidence.',
     updatedAt: snapshot.capturedAt || null,
     evidence: {
       competitorCount: rivals,
@@ -1695,6 +1752,33 @@ async function buildOverview({ access }) {
       return null;
     });
     if (sides) modules[seoGeoIndex] = { ...modules[seoGeoIndex], sideScores: sides };
+  }
+
+  // Competitor Research and AI Visibility are shown as percentages, not as
+  // 0-100 scores (`metric`; the card and the audit profile read it).
+  const aivIndex = modules.findIndex((m) => m.key === 'ai_visibility_lite');
+  const aivMetric = evidenceByModule.get('ai_visibility_lite')?.terminal?.metric;
+  if (aivIndex >= 0 && aivMetric && !evidenceByModule.get('ai_visibility_lite').inFlight) {
+    // The "51/100" headline is the score this card no longer leads with.
+    const m = modules[aivIndex];
+    modules[aivIndex] = { ...m, metric: aivMetric, headline: m.detail || m.headline, detail: null };
+  }
+  const compIndex = modules.findIndex((m) => m.key === 'competitor');
+  const compEntry = evidenceByModule.get('competitor');
+  if (compIndex >= 0 && compEntry?.terminal?.id && !compEntry.inFlight && modules[compIndex].scored) {
+    const metric = await competitorRunMetric(compEntry.terminal.id).catch((e) => {
+      console.error('[projects.overview.competitorMetric]', e.message);
+      return null;
+    });
+    if (metric) {
+      const m = modules[compIndex];
+      modules[compIndex] = {
+        ...m,
+        metric,
+        headline: m.band ? m.band.replace(/monthly visits$/, 'estimated monthly visits') : m.headline,
+        detail: 'Semrush estimate',
+      };
+    }
   }
 
   // Only when the project itself has no competitor run. A real project run is

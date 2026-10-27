@@ -18,9 +18,9 @@ export const TOOL_GROUPS = [
     label: 'Research',
     tools: [
       { id: 'keyword-research',       path: '/keyword-research',       label: 'Keyword Research',       icon: '🔍' },
-      { id: 'content-research',       path: '/content-research',       label: 'Content Research',       icon: '📄', tag: 'internal' },
+      { id: 'content-research',       path: '/content-research',       label: 'Content Research',       icon: '📄', tag: 'internal', hidden: true },
       { id: 'article-recommendation', path: '/article-recommendation', label: 'Article Recommendation', icon: '📰' },
-      { id: 'market-potential',       path: '/market-potential',       label: 'Market Potential',       icon: '🗺️', tag: 'beta' },
+      { id: 'market-potential',       path: '/market-potential',       label: 'Market Potential',       icon: '🗺️', tag: 'beta', hidden: true },
       { id: 'competitor-analysis',    path: '/competitor-analysis',    label: 'Competitor Analysis',    icon: '🆚', tag: 'beta' },
     ],
   },
@@ -38,14 +38,14 @@ export const TOOL_GROUPS = [
       { id: 'ai-visibility',          path: '/ai-visibility',          label: 'AI Visibility (scraped)', icon: '🛰️', tag: 'beta', hidden: true },
       { id: 'seo-geo-audit',          path: '/seo-geo-audit',          label: 'SEO & GEO Audit',        icon: '🌐', tag: 'beta' },
       { id: 'agent-readiness-audit',  path: '/agent-readiness-audit',  label: 'Agent Readiness Audit',  icon: '🤖' },
-      { id: 'image-alt-audit',        path: '/image-alt-audit',        label: 'Image Alt Tag Audit',    icon: '🖼️', tag: 'beta' },
+      { id: 'image-alt-audit',        path: '/image-alt-audit',        label: 'Image Alt Tag Audit',    icon: '🖼️', tag: 'beta', hidden: true },
     ],
   },
   {
     label: 'Build',
     tools: [
       { id: 'content-writer', path: '/content-writer', label: 'Content Writer', icon: '✍' },
-      { id: 'location-page-builder',  path: '/location-page-builder',  label: 'Location + Service Pages', icon: '📍', tag: 'testing' },
+      { id: 'location-page-builder',  path: '/location-page-builder',  label: 'Location + Service Pages', icon: '📍', tag: 'testing', hidden: true },
       { id: 'content-architect',      path: '/content-architect',      label: 'Content Architect',      icon: '🗺️', tag: 'testing' },
       { id: 'knowledge-base',         path: '/kb',                     label: 'Knowledge Base',         icon: '📚', tag: 'internal' },
     ],

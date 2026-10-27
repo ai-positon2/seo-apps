@@ -1,7 +1,9 @@
 // ── Audit profile radar ──────────────────────────────────────────────────────
 //
-// Six modules, six axes. What makes this version different from the one it
-// replaces, in the order the problems mattered:
+// One axis per module that scores out of 100 — Competitor Research and AI
+// Visibility report percentages and are listed under the chart instead
+// (PercentRow). What makes this version different from the one it replaces, in
+// the order the problems mattered:
 //
 //   1. Real names. The old labels had to fit an axis so they were four characters
 //      — "COMP 7", "PAGE 69" — which only somebody who already knew the six

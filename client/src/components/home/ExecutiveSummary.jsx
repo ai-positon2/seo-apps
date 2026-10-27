@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Card, Kicker, Muted, Btn, FadingRule } from '../studio/primitives';
 import { projectsApi, relativeTime } from '../../lib/projectsApi';
 import { InfoDot } from '../explain';
+import { moduleReportRoute } from '../../lib/moduleReportRoute';
 
-// "Add to plan" (PriorityRow, below) turned out to lead nowhere from the
+// "Add to plan" (PriorityCard, below) turned out to lead nowhere from the
 // reader's seat — its only destination is the Recommendations sheet of the
 // downloadable report, not a screen anyone lands on. Off until there's a
 // visible place for it to actually go.
@@ -63,8 +65,9 @@ const SEVERITY_TONE = {
  * @param {object}   props
  * @param {string}   props.projectId
  * @param {function} props.onPromote  turns a priority into a recommendation draft
+ * @param {Array}    props.modules    the dashboard's module cards, so each item links to its report
  */
-export default function ExecutiveSummary({ projectId, onPromote }) {
+export default function ExecutiveSummary({ projectId, onPromote, modules = [] }) {
   const [summary, setSummary] = useState({ loading: true, error: null, data: null });
   // Fetched separately and rendered when it arrives. See the comment on the
   // trend endpoint: it is the expensive layer, and the three blocks above it do
@@ -123,54 +126,86 @@ export default function ExecutiveSummary({ projectId, onPromote }) {
   }
 
   const { verdict, standing, leverage, priorities, confidence } = summary.data;
+  const issues = summary.data.issues || null;
+  const areas = summary.data.areas || [];
+  const market = summary.data.market || [];
   const tone = STATE_TONE[verdict.state] || STATE_TONE.not_measured;
+  // The areas worth naming: below par, weakest first. A summary that lists every
+  // module repeats the cards above; this lists only the ones that need work.
+  const weakAreas = areas.filter((a) => a.band !== 'good').slice(0, 3);
+  const routeFor = (moduleKey) => {
+    const m = modules.find((x) => x.key === moduleKey);
+    return m ? moduleReportRoute(m).path : null;
+  };
 
   return (
     <Card
       elevation="md"
       data-explain-box
-      style={{
-        padding: 0, gap: 0, overflow: 'hidden',
-        // The state is carried by a rule down the left edge rather than by a
-        // tinted card. A whole panel washed red is the kind of alarm a dashboard
-        // can only raise once before it is ignored, and this one is on screen
-        // every visit.
-        borderLeft: `3px solid ${tone.tint}`,
-      }}
+      style={{ padding: 0, gap: 0, overflow: 'hidden', borderTop: `3px solid ${tone.tint}` }}
     >
-      {/* ── The verdict ──────────────────────────────────────────────────── */}
-      <div style={{ padding: '22px 26px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span className="explain-label-row">
-            <span className="eyebrow">Executive summary</span>
-            <InfoDot explainKey="exec" />
-          </span>
-          <span className="explain-label-row">
-            <TrendChip state={trend} />
-            <InfoDot explainKey="trend" />
-          </span>
+      {/* ── The verdict, and the issue mix beside it ─────────────────────── */}
+      <div className="exec-top" style={{ padding: '22px 26px 20px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span className="explain-label-row">
+              <span className="eyebrow">Executive summary</span>
+              <InfoDot explainKey="exec" />
+            </span>
+            <span className="explain-label-row">
+              <TrendChip state={trend} />
+              <InfoDot explainKey="trend" />
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <StateMark state={verdict.state} color={tone.color} />
+            <h2 style={{ margin: 0, fontSize: 28, fontWeight: 700, letterSpacing: '-0.015em', color: tone.color, lineHeight: 1.1 }}>
+              {verdict.headline}
+            </h2>
+          </div>
+
+          <p style={{ margin: 0, fontSize: 15.5, lineHeight: 1.55, color: 'var(--text)', maxWidth: 680, textWrap: 'pretty' }}>
+            {verdict.sentence}
+          </p>
+
+          {trend.data?.state === 'compared' && (
+            <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5, color: 'var(--text-2)', maxWidth: 680 }}>
+              {trend.data.sentence}
+            </p>
+          )}
+
+          {/* What needs work, and where the site stands in its market — chips,
+              each one a link to the report behind it. */}
+          {(weakAreas.length > 0 || market.length > 0) && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 2 }}>
+              {weakAreas.length > 0 && (
+                <ChipRow label="Needs work">
+                  {weakAreas.map((a) => (
+                    <AreaChip key={a.key} to={routeFor(a.key)} color={BAND_COLOR[a.band]}>
+                      {a.label}
+                      <strong className="num" style={{ color: BAND_COLOR[a.band] }}>{a.score}</strong>
+                    </AreaChip>
+                  ))}
+                </ChipRow>
+              )}
+              {market.length > 0 && (
+                <ChipRow label="Market">
+                  {market.map((m) => (
+                    <AreaChip key={m.key} to={routeFor(m.key)} color="var(--text-2)">
+                      {m.key.startsWith('ai_visibility') ? 'Named in' : null}
+                      <strong className="num" style={{ color: 'var(--text)' }}>{m.display}</strong>
+                      {m.unit}
+                    </AreaChip>
+                  ))}
+                </ChipRow>
+              )}
+            </div>
+          )}
         </div>
 
-        <h2 style={{ margin: 0, fontSize: 26, fontWeight: 600, letterSpacing: '-0.01em', color: tone.color }}>
-          {verdict.headline}
-        </h2>
-
-        {/* The one sentence the whole layer exists to produce. Set at reading
-            size, not at caption size — it is the content, not a label for it. */}
-        <p style={{ margin: 0, fontSize: 15, lineHeight: 1.55, color: 'var(--text)', maxWidth: 780 }}>
-          {verdict.sentence}
-        </p>
-
-        {leverage.sentence && (
-          <p style={{ margin: 0, fontSize: 14, lineHeight: 1.55, color: 'var(--text-2)', maxWidth: 780 }}>
-            {leverage.sentence}
-          </p>
-        )}
-
-        {trend.data?.state === 'compared' && (
-          <p style={{ margin: 0, fontSize: 14, lineHeight: 1.55, color: 'var(--text-2)', maxWidth: 780 }}>
-            {trend.data.sentence}
-          </p>
+        {issues && (issues.critical + issues.important + issues.minor) > 0 && (
+          <IssueMix issues={issues} leverage={leverage} />
         )}
       </div>
 
@@ -179,28 +214,17 @@ export default function ExecutiveSummary({ projectId, onPromote }) {
         <div
           data-explain-box
           style={{
-            padding: '16px 26px 18px', display: 'flex', flexDirection: 'column', gap: 12,
+            padding: '18px 26px 22px', display: 'flex', flexDirection: 'column', gap: 12,
             borderTop: '1px solid var(--border)', background: 'var(--surface-2)',
           }}
         >
           <span className="explain-label-row">
-            <span className="eyebrow">
-              {priorities.length === 1 ? 'Start here' : `Start with these ${priorities.length}`}
-            </span>
+            <span className="eyebrow">{priorities.length === 1 ? 'Do this first' : `Do these ${priorities.length} first`}</span>
             <InfoDot explainKey="priorities" />
           </span>
-          {/* Capped at the same measure as the paragraphs above. Without it the
-              row stretched the full card and parked its button 700px from the
-              title it belongs to on a wide screen — two columns that read as
-              unrelated. */}
-          <ol
-            style={{
-              margin: 0, padding: 0, listStyle: 'none', maxWidth: 820,
-              display: 'flex', flexDirection: 'column', gap: 10,
-            }}
-          >
+          <ol className="exec-priorities">
             {priorities.map((item) => (
-              <PriorityRow key={item.key} item={item} onPromote={onPromote} />
+              <PriorityCard key={item.key} item={item} to={routeFor(item.moduleKey)} onPromote={onPromote} />
             ))}
           </ol>
         </div>
@@ -243,13 +267,8 @@ export default function ExecutiveSummary({ projectId, onPromote }) {
       </div>
 
       {showBasis && (
-        <div
-          style={{
-            padding: '0 26px 18px', display: 'flex', flexDirection: 'column', gap: 8,
-          }}
-        >
+        <div style={{ padding: '0 26px 18px', display: 'flex', flexDirection: 'column', gap: 8 }}>
           <FadingRule />
-          <BasisLine label="Overall score">{standing.basis}</BasisLine>
           <BasisLine label="This verdict">{verdict.basis}</BasisLine>
           {leverage.basis && <BasisLine label="Reach">{leverage.basis}</BasisLine>}
           {trend.data?.basis && <BasisLine label="Direction">{trend.data.basis}</BasisLine>}
@@ -263,17 +282,108 @@ export default function ExecutiveSummary({ projectId, onPromote }) {
   );
 }
 
+const BAND_COLOR = { good: 'var(--primary)', fair: 'var(--viz-warn)', poor: 'var(--viz-neg)' };
+
+const SEVERITY_LABEL = { error: 'Critical', warning: 'Important', notice: 'Minor', info: 'Minor' };
+
+/** A round mark beside the headline: ! for trouble, ✓ for fine, – for unmeasured. */
+function StateMark({ state, color }) {
+  const glyph = state === 'healthy' ? '✓' : state === 'not_measured' ? '–' : '!';
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        flexShrink: 0, width: 34, height: 34, borderRadius: '50%',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 18, fontWeight: 800, color,
+        background: `color-mix(in srgb, ${color} 14%, var(--card))`,
+      }}
+    >
+      {glyph}
+    </span>
+  );
+}
+
+function ChipRow({ label, children }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <span style={{ width: 84, flexShrink: 0, whiteSpace: 'nowrap', fontSize: 10.5, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-3)' }}>
+        {label}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+function AreaChip({ to, color, children }) {
+  const style = {
+    display: 'inline-flex', alignItems: 'center', gap: 7, padding: '4px 11px', borderRadius: 999,
+    fontSize: 12.5, color: 'var(--text)', textDecoration: 'none', background: 'var(--card)',
+    border: `1px solid color-mix(in srgb, ${color} 35%, var(--border))`,
+  };
+  return to ? <Link to={to} className="exec-chip" style={style}>{children}</Link> : <span style={style}>{children}</span>;
+}
+
 /**
- * One of the three things to do.
- *
- * The title is the finding's own, the middle line is what it costs and covers,
- * and the basis is the full audit trail for why it sits at this rank — kept as a
- * tooltip rather than a third line, because three lines per row turns a decision
- * into a document.
+ * The issue counts as three figures and one bar, so "how bad, and how much of
+ * it is critical" is read at a glance rather than out of a sentence.
  */
-function PriorityRow({ item, onPromote }) {
+function IssueMix({ issues, leverage }) {
+  const total = issues.critical + issues.important + issues.minor;
+  const parts = [
+    { key: 'critical', label: 'Critical', n: issues.critical, color: 'var(--viz-neg)' },
+    { key: 'important', label: 'Important', n: issues.important, color: 'var(--viz-warn)' },
+    { key: 'minor', label: 'Minor', n: issues.minor, color: 'var(--text-3)' },
+  ];
+  return (
+    <div
+      style={{
+        display: 'flex', flexDirection: 'column', gap: 12, padding: '16px 18px', borderRadius: 14,
+        background: 'var(--surface-2)', border: '1px solid var(--border)', alignSelf: 'start',
+      }}
+    >
+      <span className="eyebrow">Issues found · {total}</span>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+        {parts.map((p) => (
+          <div key={p.key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span className="num" style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, color: p.n ? p.color : 'var(--text-3)' }}>{p.n}</span>
+            <span style={{ fontSize: 11.5, color: 'var(--text-2)' }}>{p.label}</span>
+          </div>
+        ))}
+      </div>
+      <div aria-hidden="true" style={{ display: 'flex', height: 8, borderRadius: 999, overflow: 'hidden', gap: 2, background: 'var(--border)' }}>
+        {parts.filter((p) => p.n).map((p) => (
+          <span key={p.key} style={{ width: `${(p.n / total) * 100}%`, background: p.color }} />
+        ))}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--text-2)' }}>
+        {issues.pagesWithCritical > 0 && (
+          <span>
+            <strong style={{ color: 'var(--text)' }}>{issues.pagesWithCritical.toLocaleString('en-US')}</strong>
+            {' '}page{issues.pagesWithCritical === 1 ? '' : 's'} with a critical issue
+            {issues.crawledPages ? ` of ${issues.crawledPages.toLocaleString('en-US')} crawled` : ''}
+          </span>
+        )}
+        {issues.templateWide > 0 && (
+          <span>
+            <strong style={{ color: 'var(--primary-text)' }}>{issues.templateWide}</strong>
+            {' '}fixable with one template change each
+            {leverage?.templateShare ? ` (${leverage.templateShare}% of the work)` : ''}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One of the three things to do, as a card: its rank, how serious it is, what
+ * it is, what it covers, and where to go to do it.
+ */
+function PriorityCard({ item, to, onPromote }) {
   const [state, setState] = useState('idle');   // idle | saving | done | error
   const [error, setError] = useState(null);
+  const color = SEVERITY_TONE[item.severity] || 'var(--text-3)';
 
   async function promote() {
     if (!onPromote) return;
@@ -289,60 +399,50 @@ function PriorityRow({ item, onPromote }) {
   }
 
   return (
-    // `flexWrap` so the button drops under the title on a phone rather than
-    // squeezing it to two characters a line.
-    <li style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
-      <span
-        aria-hidden="true"
-        style={{
-          flexShrink: 0, marginTop: 5, width: 8, height: 8, borderRadius: '50%',
-          background: SEVERITY_TONE[item.severity] || 'var(--text-3)',
-        }}
-      />
-      <div style={{ flex: 1, minWidth: 180, display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <span style={{ fontSize: 14, color: 'var(--text)', lineHeight: 1.4 }} title={item.basis || undefined}>
-          {item.title}
+    <li
+      className="exec-priority"
+      style={{ borderTop: `3px solid ${color}` }}
+      title={item.basis || undefined}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <span
+          className="num"
+          style={{
+            width: 26, height: 26, borderRadius: 8, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 13, fontWeight: 700, color, background: `color-mix(in srgb, ${color} 13%, var(--card))`,
+          }}
+        >
+          {item.rank}
         </span>
-        <Muted size={12}>
-          {[item.reach, item.moduleLabel].filter(Boolean).join(' · ')}
-        </Muted>
-        {state === 'error' && (
-          <Muted size={11.5} style={{ color: 'var(--viz-neg)' }}>{error}</Muted>
+        <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color }}>
+          {SEVERITY_LABEL[item.severity] || 'To do'}
+        </span>
+      </div>
+      <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', lineHeight: 1.35 }}>{item.title}</span>
+      <span style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{item.reach}</span>
+      {state === 'error' && <Muted size={11.5} style={{ color: 'var(--viz-neg)' }}>{error}</Muted>}
+      <div style={{ marginTop: 'auto', paddingTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{item.moduleLabel}</span>
+        {to && (
+          <Link to={to} className="exec-open" style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--primary-text)', textDecoration: 'none' }}>
+            Open →
+          </Link>
         )}
       </div>
 
-      {/* The one action this row offers. POST /insights/promote has existed since
-          the recommendation lifecycle was built and had nothing in the product
-          pointing at it, so the board it fills stayed empty while the API to
-          fill it sat there working.
-          The confirmation names where the item actually went. "Added to
-          recommendations" is true and useless: recommendations have no screen of
-          their own, and the place they surface is the Recommendations sheet of
-          the workbook behind Download report — which is the artifact this
-          reader forwards to whoever does the work.
-
-          Hidden for now (on request) — from the reader's seat this button
-          appeared to lead nowhere, since its only destination is that
-          download, not a visible screen. onPromote/promote() are left wired
-          so this is a one-line revert (drop ADD_TO_PLAN_ENABLED, restore the
-          plain `{onPromote && (` condition) once there's a screen it feeds
-          directly. */}
-      {ADD_TO_PLAN_ENABLED && onPromote && (
+      {/* "Add to plan" — see ADD_TO_PLAN_ENABLED at the top of this file. */}
+      {ADD_TO_PLAN_ENABLED && onPromote && item.kind !== 'area' && (
         state === 'done' ? (
-          <Muted
-            size={12}
-            title="It is on the Recommendations sheet of the workbook behind Download report."
-            style={{ marginTop: 4, whiteSpace: 'nowrap' }}
-          >
+          <Muted size={12} title="It is on the Recommendations sheet of the workbook behind Download report.">
             ✓ Added to the report
           </Muted>
         ) : (
           <Btn
             onClick={promote}
             disabled={state === 'saving'}
-            title={'Adds this finding, with its evidence, to the project\u2019s recommendations. '
+            title={'Adds this finding, with its evidence, to the project’s recommendations. '
               + 'It appears in the Recommendations sheet of the downloadable report.'}
-            style={{ height: 28, fontSize: 12, padding: '0 10px', flexShrink: 0 }}
+            style={{ height: 28, fontSize: 12, padding: '0 10px', alignSelf: 'flex-start' }}
           >
             {state === 'saving' ? 'Adding…' : 'Add to plan'}
           </Btn>

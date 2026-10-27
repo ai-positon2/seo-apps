@@ -9,9 +9,9 @@ import {
 import ModuleCard from '../components/home/ModuleCard';
 import SiteFavicon from '../components/home/SiteFavicon';
 import AuditRadar from '../components/home/AuditRadar';
+import PercentRow, { PERCENT_MODULES } from '../components/home/PercentRow';
 import { overviewExplainCtx } from '../components/home/overviewExplainCtx';
 import { InfoDot, Legend } from '../components/explain';
-import ProfileStats from '../components/home/ProfileStats';
 import ExecutiveSummary from '../components/home/ExecutiveSummary';
 import ProjectSetupCard from '../components/home/ProjectSetupCard';
 import HomeSkeleton from '../components/home/HomeSkeleton';
@@ -810,19 +810,6 @@ export default function HomePage() {
             every screen, so a crawl stays visible when you walk over to another
             tool — see components/MacWindow.jsx and lib/useCrawlStatus.js. */}
 
-        {/* The answer, at the top, in the reader's numbers.
-            This was one line — "12 things to fix, 7 of them one template change"
-            — which answered one of the four questions somebody opens this page
-            with and left the other three to be assembled out of the six cards
-            below. See components/home/ProfileStats.jsx. */}
-        <FadingRule style={{ marginTop: 4 }} />
-        <ProfileStats
-          composite={composite}
-          modules={modules}
-          insights={insights.data}
-          insightsLoading={insights.loading}
-          insightsError={insights.error}
-        />
       </Card>
 
       {/* An audit that could not start.
@@ -952,18 +939,16 @@ export default function HomePage() {
 
                   The rings carry their own "N of 6 scored" footer, which is what
                   the block that used to sit here said. */}
-              <AuditRadar modules={visibleModules} />
+              {/* Only the modules that score out of 100. Competitor Research and
+                  AI Visibility report a percentage, which is not a point on a
+                  0-100 axis, so they are listed under the chart instead. */}
+              <AuditRadar modules={visibleModules.filter((m) => !PERCENT_MODULES[m.key])} />
 
-              <FadingRule style={{ marginTop: 4 }} />
-
-              {/* The chart cannot say this and must not be read as saying the
-                  opposite: the polygon's shape is not a statement about balance,
-                  because each axis is a different module's own scale. */}
-              <Muted style={{ lineHeight: 1.45 }}>
-                Each axis is that module’s own score on its own scale. They are not
-                averaged, and the shape is not a measure of balance — the six
-                measure different things.
-              </Muted>
+              <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column' }}>
+                {visibleModules.filter((m) => PERCENT_MODULES[m.key]).map((m) => (
+                  <PercentRow key={m.key} module={m} />
+                ))}
+              </div>
             </Card>
 
             {/* Module cards. Three to a row, which is what makes six of them
@@ -1011,6 +996,7 @@ export default function HomePage() {
         key={activeProject.id}
         projectId={activeProject.id}
         onPromote={promoteInsight}
+        modules={visibleModules}
       />
 
       {/* ── Run Full Audit confirmation ─────────────────────────────────── */}

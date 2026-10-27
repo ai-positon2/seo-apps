@@ -317,27 +317,18 @@ export function InfoTip({ label, children, align = 'left' }) {
         onClick={() => setOpen((v) => !v)}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
-        style={{
-          width: 18, height: 18, borderRadius: '50%', padding: 0, cursor: 'help',
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          border: '1px solid var(--border-strong, var(--border))', background: 'var(--card)',
-          color: 'var(--text-3)', fontSize: 11, fontWeight: 700, fontStyle: 'italic',
-          fontFamily: 'Georgia, serif', lineHeight: 1,
-        }}
+        // The same mark as the guided explanations (InfoDot), so every "i" on
+        // the platform looks alike.
+        className="explain-dot"
+        data-popup-open={open ? '' : undefined}
       >
         i
       </button>
       <span
         id={id}
         role="tooltip"
-        style={{
-          position: 'absolute', top: 'calc(100% + 8px)', [align]: 0, zIndex: 20,
-          width: 'min(360px, 86vw)', padding: '14px 16px', borderRadius: 12,
-          background: 'var(--card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-md)',
-          fontSize: 12.5, fontWeight: 400, fontStyle: 'normal', lineHeight: 1.5,
-          color: 'var(--text-2)', textTransform: 'none', letterSpacing: 'normal', textAlign: 'left',
-          display: open ? 'flex' : 'none', flexDirection: 'column', gap: 10,
-        }}
+        className="explain-tip"
+        style={{ [align]: 0, display: open ? 'flex' : 'none' }}
       >
         {children}
       </span>

@@ -167,8 +167,8 @@ test('a high composite does not become "healthy" while errors are open', () => {
   });
   assert.strictEqual(s.verdict.state, 'at_risk');
   assert.match(s.verdict.headline, /action needed/i);
-  // The flattering number is still reported — suppressed would be its own lie.
-  assert.match(s.verdict.sentence, /84 out of 100/);
+  // The composite is a mean the dashboard no longer shows, so it is not quoted.
+  assert.doesNotMatch(s.verdict.sentence, /out of 100/);
 });
 
 test('"in good shape" requires both a high score and no errors', () => {
@@ -177,7 +177,7 @@ test('"in good shape" requires both a high score and no errors', () => {
     backlog: backlogOf([{ severity: 'warning', pages: somePages(2) }]),
   });
   assert.strictEqual(s.verdict.state, 'healthy');
-  assert.match(s.verdict.sentence, /88 out of 100/);
+  assert.doesNotMatch(s.verdict.sentence, /out of 100/);
 });
 
 test('a low score with no errors reads as below par, not as broken', () => {
@@ -413,6 +413,88 @@ test('every block states what it was built from', () => {
     assert.ok(s[block].basis, `${block} has no stated basis`);
   }
   assert.ok(s.generatedAt);
+});
+
+// ── 7. What matters most ────────────────────────────────────────────────────
+
+section('The weakest area, and the issue mix');
+
+test('the weakest scored module is named, and percentage modules never are', () => {
+  const mods = modules({
+    on_page: { score: 22, label: 'Agent Readiness' },
+    // A traffic share of 5% is context, not a 5/100 grade.
+    competitor: { score: 5, label: 'Competitor Research', metric: { value: 5.4, display: '5.4%', unit: 'of x.com’s traffic' } },
+  });
+  const s = executive.buildExecutiveSummary({
+    overview: overview({ mods }),
+    backlog: backlogOf([{ severity: 'error', pages: somePages(3) }]),
+  });
+  assert.match(s.verdict.sentence, /Agent Readiness is the weakest area, at 22\/100/);
+  assert.strictEqual(s.areas[0].key, 'on_page');
+  assert.ok(!s.areas.some((a) => a.key === 'competitor'));
+  assert.deepStrictEqual(s.market.map((m) => m.display), ['5.4%']);
+});
+
+test('a module scoring below par takes a place in the top three', () => {
+  const mods = modules({ on_page: { score: 22, label: 'Agent Readiness' } });
+  const s = executive.buildExecutiveSummary({
+    overview: overview({ mods }),
+    backlog: backlogOf([
+      { severity: 'error', pages: somePages(9) },
+      { severity: 'warning', pages: somePages(5) },
+      { severity: 'notice', pages: somePages(1) },
+    ]),
+  });
+  assert.strictEqual(s.priorities.length, 3);
+  const area = s.priorities.find((p) => p.kind === 'area');
+  assert.ok(area, 'the weakest area is missing from the priorities');
+  assert.strictEqual(area.moduleKey, 'on_page');
+  // Below 40 it is as serious as an error, so it ranks with them.
+  assert.strictEqual(area.severity, 'error');
+  assert.ok(!s.priorities.some((p) => p.severity === 'notice'), 'the area should replace the least serious item');
+});
+
+test('no area is added when every module is at or above par', () => {
+  const s = executive.buildExecutiveSummary({
+    overview: overview(),
+    backlog: backlogOf([{ severity: 'error', pages: somePages(2) }]),
+  });
+  assert.ok(!s.priorities.some((p) => p.kind === 'area'));
+});
+
+test('the issue mix is the severity counts, as figures', () => {
+  const s = executive.buildExecutiveSummary({
+    overview: overview(),
+    backlog: backlogOf([
+      { severity: 'error', pages: somePages(4) },
+      { severity: 'warning', pages: somePages(2) },
+      { severity: 'warning', pages: somePages(2) },
+      { severity: 'notice', pages: somePages(1) },
+    ]),
+  });
+  assert.strictEqual(s.issues.critical, 1);
+  assert.strictEqual(s.issues.important, 2);
+  assert.strictEqual(s.issues.minor, 1);
+  assert.strictEqual(s.issues.pagesWithCritical, 4);
+});
+
+test('more pages named than crawled never prints a share over 100%', () => {
+  const s = executive.buildExecutiveSummary({
+    overview: overview(),
+    backlog: backlogOf([{ severity: 'warning', pages: somePages(120) }], 100),
+  });
+  assert.strictEqual(s.leverage.siteShare, null);
+  assert.doesNotMatch(s.leverage.sentence || '', /1\d\d%/);
+});
+
+test('a module hidden from the dashboard is not counted as a gap', () => {
+  const mods = [...modules(), { key: 'ai_visibility_scraped', label: 'Hidden', status: 'not_run', card: false }];
+  const s = executive.buildExecutiveSummary({
+    overview: overview({ mods }),
+    backlog: backlogOf([{ severity: 'warning', pages: somePages(1) }]),
+  });
+  assert.strictEqual(s.confidence.modulesTotal, MODULE_KEYS.length);
+  assert.ok(!s.confidence.caveats.some((c) => c.includes('Hidden')));
 });
 
 test('it survives a completely empty input rather than throwing', () => {

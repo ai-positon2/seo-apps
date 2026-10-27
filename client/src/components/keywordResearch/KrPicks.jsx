@@ -142,7 +142,7 @@ export function CompactRow({ kw, lead, actions }) {
         {lead}
         <span style={{ fontSize: 12.5, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{kw.keyword}</span>
         {kw.reason && (
-          <span title={kw.reason} aria-label={`Why: ${kw.reason}`} style={{ flexShrink: 0, fontSize: 11, color: 'var(--text-3)', cursor: 'help' }}>ⓘ</span>
+          <span className="explain-dot" title={kw.reason} aria-label={`Why: ${kw.reason}`} style={{ cursor: 'help' }}>i</span>
         )}
       </span>
       <span style={{ fontSize: 11.5, color: 'var(--text-2)', fontFamily: 'var(--font-mono)', textAlign: 'right' }}>{volumeText(kw.volume)}</span>

@@ -19,7 +19,7 @@ export const SCREENS = {
 
 /** The icons each screen carries, in reading order. */
 export const EXPLAINER_KEYS_BY_SCREEN = {
-  overview: ['exec', 'trend', 'priorities', 'composite', 'tofix', 'pages', 'coverage', 'radar',
+  overview: ['exec', 'trend', 'priorities', 'radar',
     'm_technical', 'm_hub', 'm_competitor', 'm_seogeo', 'm_aivis', 'm_agent'],
   tech: ['t_health', 't_lost', 't_urls', 't_html', 't_indexable', 't_issues', 't_external', 't_first'],
   seogeo: ['g_score', 'g_seo', 'g_geo', 'g_verdict', 'g_platforms', 'g_wins', 'g_counts'],

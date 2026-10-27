@@ -32,50 +32,6 @@ export { EXPLAINER_KEYS_BY_SCREEN };
 const onDashboard = (ctx) => (ctx.modules || []).filter((m) => m.card !== false);
 const hasScore = (m) => Boolean(m.scored) && isNum(m.score);
 
-/** Why a module card is not in the composite, as a verb phrase for N modules. */
-function leftOutReason(m, many) {
-  if (m.status === 'not_run') return many ? 'haven’t run yet' : 'hasn’t run yet';
-  if (m.status === 'needs_setup') return many ? 'aren’t set up yet' : 'isn’t set up yet';
-  if (!m.scored) return many ? 'report findings rather than a score' : 'reports findings rather than a score';
-  return many ? 'have no score yet' : 'has no score yet';
-}
-
-/** "(82 + 77) ÷ 2 = 80", or null when nothing has scored. */
-function compositeFormula(ctx) {
-  const scored = onDashboard(ctx).filter(hasScore);
-  if (!scored.length) return null;
-  const scores = scored.map((m) => Math.round(m.score));
-  const value = isNum(ctx.composite?.value)
-    ? ctx.composite.value
-    : Math.round(scored.reduce((sum, m) => sum + m.score, 0) / scored.length);
-  return `(${scores.join(' + ')}) ÷ ${scored.length} = ${value}`;
-}
-
-function compositeCalc(ctx) {
-  const never = 'An audit with no score is never counted as zero.';
-  const mods = onDashboard(ctx);
-  if (!mods.length) {
-    return 'The plain average of the audit scores that exist. Audits that report findings rather '
-      + `than a score, or haven’t run yet, are left out. ${never}`;
-  }
-  const formula = compositeFormula(ctx);
-  if (!formula) return `Not measured yet: no audit has produced a score. ${never}`;
-
-  // One sentence per reason, so "Hub and Spoke reports findings" and "Agent
-  // Readiness hasn't run yet" are not blurred into one excuse.
-  const groups = new Map();
-  for (const m of mods.filter((x) => !hasScore(x))) {
-    const reason = leftOutReason(m, false);
-    if (!groups.has(reason)) groups.set(reason, []);
-    groups.get(reason).push(m);
-  }
-  const leftOut = [...groups.values()].map((ms) => {
-    const many = ms.length > 1;
-    return `${list(ms.map((m) => m.label))} ${leftOutReason(ms[0], many)}, so ${many ? 'they are' : 'it is'} left out.`;
-  });
-  return [`The plain average of the audit scores that exist: ${formula}.`, ...leftOut, never].join(' ');
-}
-
 /** The traffic division behind the competitor score, or null. */
 function trafficFormula(ts) {
   if (!ts || !isNum(ts.ratio) || !isNum(ts.clientTraffic) || !isNum(ts.strongestTraffic)) return null;
@@ -134,7 +90,7 @@ export const EXPLAINERS = {
     s: 'The one-paragraph answer: is the site in good shape, which way is it heading, and what should happen first.',
     why: 'It tells you in seconds whether search performance is a risk to the business right now, without reading any of the detail below.',
     good: 'A green “Healthy” headline, an “Improving” trend and a short list of fixes.',
-    calc: 'The verdict follows the most serious problem found in any audit, together with the composite score. Every sentence is written from stored audit results. Nothing is estimated or invented.',
+    calc: 'The verdict follows the most serious problem found in any audit. Every sentence is written from stored audit results. Nothing is estimated or invented.',
     src: (ctx) => (isNum(ctx.coverage?.covered) && isNum(ctx.coverage?.total) && ctx.coverage.covered > 0
       ? `Stored results from ${ctx.coverage.covered} of ${ctx.coverage.total} audits`
       : 'Stored audit results'),
@@ -158,64 +114,16 @@ export const EXPLAINERS = {
     src: 'Ranked list of fixes from all audits',
     next: { label: 'Share the list with your web team.' },
   },
-  composite: {
-    t: 'Composite score',
-    s: 'One overall number for the site: the average of every audit that produced a score.',
-    why: 'A single figure you can track month to month and compare across sites.',
-    good: '80 or above is Good. 60–79 Needs attention. Below 60 is At risk.',
-    calc: compositeCalc,
-    src: (ctx) => (isNum(ctx.composite?.scoredModules) && isNum(ctx.composite?.totalModules) && ctx.composite.scoredModules > 0
-      ? `${ctx.composite.scoredModules} of ${ctx.composite.totalModules} audits scored`
-      : 'Audits that produced a score'),
-    next: { label: 'Find the lowest card below. That’s the audit pulling the average down.' },
-  },
-  tofix: {
-    t: 'To fix',
-    s: 'How many separate things need fixing, and how many are a single change that fixes many pages at once.',
-    why: 'It sizes the workload. Template changes are the best value: one change by a developer improves many pages.',
-    good: 'A small number, with a large share of template changes.',
-    calc: 'Each kind of problem counts as one action, however many pages it affects. A “template change” is a problem in a shared layout that many pages use, so fixing it once fixes them all.',
-    src: 'Ranked list of fixes from all audits',
-    next: (ctx) => {
-      const n = ctx.toFix?.templateWide;
-      return isNum(n) && n > 0
-        ? { label: `Do the ${n} template ${plural(n, 'change')} first. Each one fixes many pages at once.` }
-        : { label: 'Start with the first item in the executive summary’s list.' };
-    },
-  },
-  pages: {
-    t: 'Pages crawled',
-    s: 'How many web pages the latest site crawl read.',
-    why: 'It shows how much of the site the scores describe. If it is far below the site’s real size, the scores only describe part of the site.',
-    good: 'Close to the number of pages you expect the site to have.',
-    calc: 'Counts real web pages only, not images or files. Crawled isn’t the same as audited: page-level audits such as SEO & GEO check a selection of these pages in depth.',
-    src: 'Latest site crawl',
-    next: { label: 'Open the Tech Audit to see what the crawl found.', screen: 'tech' },
-  },
-  coverage: {
-    t: 'Coverage',
-    s: 'How many of the audits have run for this client.',
-    why: 'A high score with low coverage can mislead, because it only reflects what was checked. An audit that hasn’t run is a blind spot, not a pass.',
-    good: 'Every audit run.',
-    calc: 'An audit counts once it has stored any results, whether or not it gives a score.',
-    src: 'Audit run history',
-    next: (ctx) => {
-      const notRun = onDashboard(ctx).filter((m) => m.status === 'not_run');
-      if (!ctx.modules) return { label: 'Run any audit that hasn’t run yet.' };
-      return notRun.length
-        ? { label: `Run ${list(notRun.map((m) => m.label))} to close the blind ${plural(notRun.length, 'spot')}.` }
-        : { label: 'Nothing to do. Every audit has run.' };
-    },
-  },
   radar: {
     t: 'Audit profile',
     s: 'The audit scores laid out in a circle so the weak spots stand out.',
     why: 'It shows at a glance which area is holding the site back.',
     good: 'Every point green and close to the outer ring.',
-    calc: 'Each point is one audit’s own score out of 100, coloured with the same bands. The audits use different methods, so the shape doesn’t measure “balance”. A dash at the rim means that audit doesn’t give a score, not that it scored zero.',
+    calc: 'Each point is one audit’s own score out of 100, coloured with the same bands. The audits use different methods, so the shape doesn’t measure “balance”. A dash at the rim means that audit doesn’t give a score, not that it scored zero. Competitor Research and AI Visibility report a percentage, not a score, so they are listed under the chart.',
     src: 'Latest run of each audit',
     next: (ctx) => {
-      const scored = onDashboard(ctx).filter(hasScore);
+      // Only the radar's own axes: the two percentage modules are not on it.
+      const scored = onDashboard(ctx).filter(hasScore).filter((m) => !['competitor', 'ai_visibility_lite', 'ai_visibility'].includes(m.key));
       if (!scored.length) return { label: 'Open the audit with the lowest point.' };
       const lowest = scored.reduce((lo, m) => (m.score < lo.score ? m : lo), scored[0]);
       return { label: `Open the audit with the lowest point: ${lowest.label}.`, screen: MODULE_SCREEN[lowest.key] };
@@ -241,8 +149,8 @@ export const EXPLAINERS = {
     t: 'Hub and Spoke',
     s: 'How well the site’s content is organised into topics, each with a main “hub” page.',
     why: 'Search engines and AI assistants favour sites that clearly own a topic. Scattered content competes with itself.',
-    good: 'Few findings, and every topic has a hub.',
-    calc: 'This audit reports findings rather than a score, so the card shows a count and the audit is left out of the composite.',
+    good: '80+, with every topic led by its own hub page.',
+    calc: 'Each topic cluster is scored out of 100. Points: a hub page 30, the hub covers the topic 20, 3–12 spoke pages 15, links between them 20, close to the homepage 15. The card shows the average across all clusters.',
     src: 'Content map from the site crawl',
     next: { label: 'Open Hub and Spoke to see which topics need a hub.', screen: 'hub' },
   },
@@ -250,8 +158,8 @@ export const EXPLAINERS = {
     t: 'Competitor Research',
     s: 'How much search traffic the site wins compared with its strongest competitor.',
     why: 'It’s the clearest single read on your market share in Google.',
-    good: '80+ means you are close to, or ahead of, the leader.',
-    calc: 'Your estimated monthly visits from Google ÷ the strongest tracked competitor’s × 100, capped at 100.',
+    good: '100% or more: as much traffic as the leader, or more.',
+    calc: 'Your estimated monthly visits from Google as a percentage of the strongest tracked competitor’s. Over 100% means you get more than every competitor tracked. The rank is your place by traffic among all the sites tracked, you included.',
     src: 'Semrush estimates',
     next: { label: 'Open Competitor Research to see where the gap is.', screen: 'comp' },
   },
@@ -809,25 +717,11 @@ export const LEGEND_SHARED = [
 /** "The numbers on this screen". `ex` may be a function of ctx; null hides the chip. */
 export const LEGEND_BY_SCREEN = {
   overview: [
-    { term: 'Composite score', line: 'The average of every audit that gave a score. Audits without one are left out, never counted as zero.', ex: compositeFormula },
-    { term: 'Audit scores', line: 'Each audit scores itself out of 100 in its own way. The (i) on each card explains how.', ex: null },
-    {
-      term: 'To fix',
-      line: 'One action per kind of problem. A template change is one fix that improves many pages at once.',
-      ex: (ctx) => (isNum(ctx.toFix?.actions) && ctx.toFix.actions > 0
-        ? `${num(ctx.toFix.actions)} ${plural(ctx.toFix.actions, 'action')} · ${num(ctx.toFix.templateWide || 0)} template ${plural(ctx.toFix.templateWide || 0, 'change')}`
-        : null),
-    },
+    { term: 'Audit scores', line: 'Each audit scores itself out of 100 in its own way; Competitor Research and AI Visibility show a percentage instead. The (i) on each card explains how.', ex: null },
     {
       term: 'Crawled vs. audited',
       line: 'Crawled pages were read by the crawler. Audited pages are a selection checked in depth.',
       ex: (ctx) => (isNum(ctx.pagesCrawled) && ctx.pagesCrawled > 0 ? `${num(ctx.pagesCrawled)} crawled` : null),
-    },
-    {
-      term: 'Coverage',
-      line: 'How many of the audits have run. One that hasn’t run is a blind spot, not a pass.',
-      ex: (ctx) => (isNum(ctx.coverage?.covered) && isNum(ctx.coverage?.total) && ctx.coverage.covered > 0
-        ? `${ctx.coverage.covered} of ${ctx.coverage.total} audits` : null),
     },
     { term: 'Profile chart', line: 'The scores use different methods. Compare the numbers, not the shape.', ex: null },
   ],
