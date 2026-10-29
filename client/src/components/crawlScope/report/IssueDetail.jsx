@@ -4,6 +4,7 @@ import {
   TableFrame, Th, Pager, SearchField, sevOf, REVIEW_TONE,
 } from './reportPrimitives';
 import { REVIEW_STATUSES, findingEvidence, findingFix } from '../crawlHelpers';
+import { splitSentences } from '../../explain/ExplainPopover';
 
 // ── One problem's own page ──────────────────────────────────────────────────
 //
@@ -31,7 +32,6 @@ const PAGE_SIZE = 25;
  *   load to fail
  * @param {Map}      props.titleByUrl     url → page title, for the row's second line
  * @param {object}   props.metrics        for the health-cost tile's denominator
- * @param {Array}    props.breakdown      healthScoreBreakdown(metrics)
  * @param {object?}  props.next           the next issue group, for the footer band
  * @param {string}   props.backLabel
  * @param {Function} props.onBack
@@ -41,7 +41,7 @@ const PAGE_SIZE = 25;
  * @param {Function} props.onExport       exports the listed URLs as CSV
  */
 export default function IssueDetail({
-  group, entry, findings, titleByUrl, metrics, breakdown = [],
+  group, entry, findings, titleByUrl, metrics,
   next, backLabel, onBack, onOpenNext, onReview, onBulkReview = null, onExport,
 }) {
   const [review, setReview] = useState('all');
@@ -66,13 +66,6 @@ export default function IssueDetail({
   const shown = filtered.slice(start, start + PAGE_SIZE);
 
   const triaged = findings.filter((f) => (f.reviewStatus || 'Needs review') !== 'Needs review').length;
-
-  // The band's deduction, not this issue's own. There is no per-rule figure to
-  // report: the score counts each affected PAGE once per severity band, so a
-  // page carrying three warnings costs the same as a page carrying one. Saying
-  // "−5, shared across this band" is the truth; splitting the band's points
-  // between the rules in it would be a number the formula never computed.
-  const band = (breakdown || []).find((b) => b.label === BAND_LABEL[group.severity]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
@@ -118,7 +111,8 @@ export default function IssueDetail({
         </div>
       </div>
 
-      <div className="crawl-detail-tiles">
+      {/* Two tiles since "Health cost" was removed; two columns so neither row has a gap. */}
+      <div className="crawl-detail-tiles" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
         <Tile
           label="Pages affected"
           value={group.pages.toLocaleString()}
@@ -127,15 +121,9 @@ export default function IssueDetail({
           size={26}
         />
         <Tile
-          label="Health cost"
-          value={band ? `−${band.points}` : '—'}
-          sub={band
-            ? `points, shared across every ${group.severity} in this crawl`
-            : 'this crawl produced no score'}
-          size={26}
-        />
-        <Tile
           label="Triaged"
+          info="t_triaged"
+          infoCtx={{ triaged, total: findings.length }}
           value={`${triaged} / ${findings.length}`}
           sub="findings with a review decision recorded"
           size={26}
@@ -143,34 +131,16 @@ export default function IssueDetail({
       </div>
 
       <div className="crawl-detail-cards">
-        <Panel>
-          {/* The design leads this card with a "Why it matters" paragraph in the
-              client's language. The catalog has no such field, so the card is
-              the check's own description until those are written. */}
-          <Eyebrow>What the check looks for</Eyebrow>
-          <p style={{ margin: 0, fontSize: 15, lineHeight: 1.55, color: 'var(--text)', textWrap: 'pretty' }}>
-            {entry?.description || 'No description is recorded for this check.'}
-          </p>
-        </Panel>
-        <Panel>
-          <Eyebrow>The fix</Eyebrow>
-          <p style={{ margin: 0, fontSize: 15, lineHeight: 1.55, color: 'var(--text)', textWrap: 'pretty' }}>
-            {entry?.recommendation || 'No remediation is recorded for this check.'}
-          </p>
-          <div style={{ height: 1, background: 'var(--border)', margin: '6px 0' }} />
-          <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <Eyebrow>Detection</Eyebrow>
-              <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{entry?.detection || '—'}</span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <Eyebrow>Rule id</Eyebrow>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--text-3)' }}>
-                {group.id}
-              </span>
-            </div>
-          </div>
-        </Panel>
+        <CheckCard
+          severity={group.severity}
+          color={s.chipFg}
+          description={entry?.description}
+        />
+        <FixCard
+          recommendation={entry?.recommendation}
+          detection={entry?.detection}
+          ruleId={group.id}
+        />
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -398,4 +368,129 @@ export default function IssueDetail({
   );
 }
 
-const BAND_LABEL = { error: 'Errors', warning: 'Warnings', notice: 'Notices' };
+// ── The two explanation cards ───────────────────────────────────────────────
+//
+// The catalog's description and remediation are written as paragraphs. They
+// are laid out here to be scanned: what it means for the site in one line, the
+// check's first sentence as the lead (the rest a click away), and the fix as
+// numbered steps with the action itself in bold.
+
+const SEVERITY_MEANS = {
+  error: 'Likely stopping these pages from performing in search.',
+  warning: 'Holding these pages back.',
+  notice: 'Worth tidying when there is time.',
+};
+
+const CARD_ICONS = {
+  check: <><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></>,
+  fix: <path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z" />,
+};
+
+function CardHead({ icon, children, tint = 'var(--text-2)' }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+      <span
+        aria-hidden="true"
+        style={{
+          width: 30, height: 30, borderRadius: 9, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          color: tint, background: `color-mix(in srgb, ${tint} 13%, var(--card))`,
+        }}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          {CARD_ICONS[icon]}
+        </svg>
+      </span>
+      <Eyebrow>{children}</Eyebrow>
+    </span>
+  );
+}
+
+function CheckCard({ severity, color, description }) {
+  const [more, setMore] = useState(false);
+  const sentences = splitSentences(description);
+  const lead = sentences[0] || 'No description is recorded for this check.';
+  const rest = sentences.slice(1);
+  return (
+    <Panel style={{ gap: 14 }}>
+      <CardHead icon="check">What the check looks for</CardHead>
+      {SEVERITY_MEANS[severity] && (
+        <span
+          style={{
+            alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 8,
+            padding: '6px 12px', borderRadius: 999, fontSize: 13, fontWeight: 600, color,
+            background: `color-mix(in srgb, ${color} 11%, var(--card))`,
+          }}
+        >
+          <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: color }} />
+          {SEVERITY_MEANS[severity]}
+        </span>
+      )}
+      <p style={{ margin: 0, fontSize: 15, fontWeight: 500, lineHeight: 1.5, color: 'var(--text)', textWrap: 'pretty' }}>
+        {lead}
+      </p>
+      {rest.length > 0 && (more ? (
+        <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.55, color: 'var(--text-2)', textWrap: 'pretty' }}>
+          {rest.join(' ')}
+        </p>
+      ) : (
+        <button type="button" className="issue-more" onClick={() => setMore(true)}>More detail</button>
+      ))}
+    </Panel>
+  );
+}
+
+/** "Let the crawler through, then crawl again: allow-list…" → bold head, plain rest. */
+function stepParts(step) {
+  const at = step.indexOf(': ');
+  if (at > 0 && at <= 70) return [step.slice(0, at), step.slice(at + 2)];
+  return [null, step];
+}
+
+/**
+ * "Restore it, redirect it, or remove the links." → three alternatives. Only
+ * when the sentence is a plain list ending in ", or …", so a comma inside an
+ * ordinary clause is never split.
+ */
+function alternatives(step) {
+  const parts = step.replace(/\.$/, '').split(', ');
+  if (parts.length < 3 || !parts[parts.length - 1].startsWith('or ')) return null;
+  const opts = parts.map((t, i) => (i === parts.length - 1 ? t.slice(3) : t));
+  if (opts.some((t) => t.split(' ').length < 3)) return null;
+  return opts.map((t) => t.charAt(0).toUpperCase() + t.slice(1));
+}
+
+function FixCard({ recommendation, detection, ruleId }) {
+  const steps = splitSentences(recommendation);
+  const options = steps.length === 1 ? alternatives(steps[0]) : null;
+  return (
+    <Panel style={{ gap: 14 }}>
+      <CardHead icon="fix" tint="var(--primary)">The fix</CardHead>
+      {options ? (
+        <>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Any one of these:</span>
+          <ul className="issue-options">
+            {options.map((o) => <li key={o}>{o}</li>)}
+          </ul>
+        </>
+      ) : steps.length ? (
+        <ol className={`issue-steps${steps.length === 1 ? ' issue-steps--single' : ''}`}>
+          {steps.map((step) => {
+            const [head, body] = stepParts(step);
+            return (
+              <li key={step}>
+                {head && <strong>{head}. </strong>}
+                {head ? body.charAt(0).toUpperCase() + body.slice(1) : body}
+              </li>
+            );
+          })}
+        </ol>
+      ) : (
+        <p style={{ margin: 0, fontSize: 14, color: 'var(--text-2)' }}>No remediation is recorded for this check.</p>
+      )}
+      <div style={{ marginTop: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {detection && <span className="issue-meta">{detection} check</span>}
+        <span className="issue-meta" style={{ fontFamily: 'var(--font-mono)' }}>{ruleId}</span>
+      </div>
+    </Panel>
+  );
+}

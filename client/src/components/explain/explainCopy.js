@@ -223,17 +223,6 @@ export const EXPLAINERS = {
         : { label: 'Start with the longest bar.' };
     },
   },
-  t_urls: {
-    t: 'URLs fetched',
-    s: 'Everything the crawler downloaded: pages, images, scripts and files.',
-    why: 'It confirms the crawl went deep enough. It is always bigger than the page count.',
-    good: 'Comfortably under the page limit, so nothing was cut off.',
-    calc: (ctx) => (num(ctx.pageLimit)
-      ? `A straight count of addresses fetched, up to the page limit set for this crawl (${num(ctx.pageLimit)}).`
-      : 'A straight count of addresses fetched, up to the page limit set for this crawl.'),
-    src: 'Site crawl',
-    next: { label: 'If this is at the page limit, part of the site wasn’t crawled. Raise the limit and crawl again.' },
-  },
   t_html: {
     t: 'HTML pages',
     s: 'The actual web pages found. Every score on this screen is calculated over these.',
@@ -242,15 +231,6 @@ export const EXPLAINERS = {
     calc: 'Addresses that returned a web page. Images, files, feeds and pages that refused the crawler are left out.',
     src: 'Site crawl',
     next: { label: 'Check this against the size of the site in your CMS.' },
-  },
-  t_indexable: {
-    t: 'Findable by Google',
-    s: 'Pages that Google is allowed to show in its results.',
-    why: 'A page that isn’t findable can’t bring in search traffic, however good it is.',
-    good: 'Every page you want customers to land on.',
-    calc: 'Web pages that load properly and aren’t marked “don’t index” or redirected somewhere else.',
-    src: 'Site crawl',
-    next: { label: 'Check that every page you want customers to land on is findable.' },
   },
   t_issues: {
     t: 'Pages with an error or warning',
@@ -261,15 +241,6 @@ export const EXPLAINERS = {
     src: 'Site crawl',
     next: { label: 'Start with the errors. They are listed first under “What to do first”.' },
   },
-  t_external: {
-    t: 'External links checked',
-    s: 'Links to other websites, checked to make sure they still work.',
-    why: 'Broken links make pages look neglected to visitors and to search engines.',
-    good: 'All of them working.',
-    calc: 'Each outgoing link is visited once. Any that fail appear as findings.',
-    src: 'Site crawl',
-    next: { label: 'Fix any broken ones that appear in the issue list.' },
-  },
   t_first: {
     t: 'What to do first',
     s: 'The most important technical fixes, with what to do about each.',
@@ -278,6 +249,22 @@ export const EXPLAINERS = {
     calc: 'Ranked by seriousness first, then by how many pages each problem touches. These are the top rows of the full issue list.',
     src: 'Site crawl',
     next: { label: 'Send these to your developers.' },
+  },
+
+  t_triaged: {
+    t: 'Triaged',
+    s: 'How many of this problem’s findings someone has reviewed and marked.',
+    why: 'An automatic check can be wrong. Marking findings separates real problems from noise and tracks what’s been fixed.',
+    good: 'Every finding marked, so nothing is left “Needs review”.',
+    calc: (ctx) => {
+      const base = 'Each finding starts as “Needs review”. It counts as triaged once it’s marked Confirmed issue, '
+        + 'False positive or Resolved in the list below. False positives and resolved findings no longer count against Site Health, and a false positive stays marked on the next crawl.';
+      return isNum(ctx.triaged) && isNum(ctx.total)
+        ? `${base} Here: ${ctx.triaged} of ${ctx.total} marked.`
+        : base;
+    },
+    src: 'Your team’s review decisions',
+    next: { label: 'Set a status on each row in the list below, or set every row shown at once from the menu above it.' },
   },
 
   // ── SEO & GEO ──
@@ -641,11 +628,11 @@ export const EXPLAINERS = {
     next: { label: 'Check that every service you sell has its own cluster.' },
   },
   h_healthy: {
-    t: 'Healthy hubs',
+    t: 'Clear hub',
     s: 'Clusters where one page clearly stands out as the main page for the topic.',
     why: 'A clear hub lets search engines and AI assistants see the site owns the topic.',
     good: 'Every cluster.',
-    calc: 'A cluster where one page scores high enough to be its hub, well ahead of the next. A glossary’s index page counts as the hub for its entries.',
+    calc: 'A cluster where one page scores high enough to be its hub, well ahead of the next. A glossary’s index page counts as the hub for its entries. An existing page suggested as the hub is not counted here: it is listed on its own under “Use an existing page as hub” until it is linked up. Having a clear hub is not the same as a healthy cluster: the health score (shown as healthy, needs work or weak) also counts the hub’s topic coverage, spoke count, links and depth.',
     src: 'Content Architect analysis of the crawled pages',
     next: { label: 'Nothing to do for these clusters.' },
   },
@@ -654,7 +641,7 @@ export const EXPLAINERS = {
     s: 'Topics with no main page tying the related pages together.',
     why: 'Without a hub, related pages compete with each other instead of lifting each other.',
     good: 'None.',
-    calc: 'A cluster where no page scores high enough to be its hub. The hub score weighs the page’s address, title and links, with an AI suggestion as one input among several.',
+    calc: 'A cluster where no page scores high enough to be its hub, and no existing page already covers the whole topic. The hub score weighs the page’s address, title and links, with an AI suggestion as one input among several. When a broad page does exist, it is suggested as the hub instead of a new page.',
     src: 'Content Architect analysis of the crawled pages',
     next: { label: 'Create a hub page for the largest cluster without one first.' },
   },
@@ -735,18 +722,6 @@ export const LEGEND_BY_SCREEN = {
         if (!pts.every(isNum) || !isNum(ctx.health)) return null;
         return `100 − (${pts.join(' + ')}) = ${ctx.health}`;
       },
-    },
-    {
-      term: 'URLs vs. pages',
-      line: 'URLs include images and files. Only web pages are scored.',
-      ex: (ctx) => (isNum(ctx.urlsFetched) && isNum(ctx.htmlCount) && ctx.htmlCount > 0
-        ? `${num(ctx.urlsFetched)} URLs → ${num(ctx.htmlCount)} pages` : null),
-    },
-    {
-      term: 'Findable by Google',
-      line: 'Pages Google is allowed to show. The rest can’t earn search traffic.',
-      ex: (ctx) => (isNum(ctx.indexable) && isNum(ctx.htmlCount) && ctx.htmlCount > 0
-        ? `${num(ctx.indexable)} of ${num(ctx.htmlCount)}` : null),
     },
   ],
   seogeo: [

@@ -47,6 +47,9 @@ function withReferenceHub(hubResult, cluster, pages) {
 function assignmentReason(pageIndex, cluster, hubResult, pages, profiles, idf) {
   const page = pages[pageIndex];
   const isHub = hubResult.hubPageIndex === pageIndex;
+  if (isHub && hubResult.hubSuggestion) {
+    return `Suggested as hub — ${hubResult.hubSuggestion.reason} ${page.wordCount || 0} words.`;
+  }
   if (isHub) {
     const breadth = hubResult.scores.get(pageIndex)?.breakdown.breadth || 0;
     return `Selected as hub — covers ${Math.round(breadth * 100)}% of this cluster's topic vocabulary, ${page.wordCount || 0} words.`;
@@ -214,6 +217,8 @@ async function analyzeCrawledPages(crawlResult, project, { onProgress, linkGraph
       gapSuggestion: hubResult.gapSuggestion,
       // Set for a cluster of glossary entries: the glossary's index is its hub.
       ...(hubResult.referenceIndexUrl ? { referenceIndexUrl: hubResult.referenceIndexUrl } : {}),
+      // An existing page suggested as the hub instead of a gap (hubSelection.promotableHub).
+      ...(hubResult.hubSuggestion ? { hubSuggestion: hubResult.hubSuggestion } : {}),
       spokeIds: c.memberIndices.filter((i) => i !== hubResult.hubPageIndex).map((i) => pageIdByIndex[i]),
       hubConfidence: hubResult.hubConfidence,
       ambiguous: hubResult.ambiguous,

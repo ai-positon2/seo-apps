@@ -44,6 +44,11 @@ function hubState(cluster) {
     // Glossary entries: the glossary's own index page is their hub.
     return { key: 'reference', color: 'var(--primary)', status: 'Glossary', action: 'Index is hub' };
   }
+  if (cluster.hubSuggestion) {
+    // An existing page that already covers the whole topic, suggested as the
+    // hub instead of a new page (server hubSelection.promotableHub).
+    return { key: 'suggested', color: 'var(--warning)', status: 'Use existing hub', action: 'Assign hub' };
+  }
   if (cluster.ambiguous) {
     return { key: 'ambiguous', color: 'var(--warning)', status: 'Hub unclear', action: 'Review' };
   }
@@ -546,8 +551,17 @@ function ClusterRow({ cluster, pageById, navigate, projectId, kbClient, suggesti
             </div>
           ) : hub && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {cluster.hubSuggestion && (
+                <div style={{ padding: '12px 14px', borderRadius: 'var(--r-md)', border: '1px solid color-mix(in srgb, var(--warning) 45%, var(--border))', background: 'color-mix(in srgb, var(--warning) 9%, var(--card))' }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', color: 'var(--text-3)' }}>USE THIS EXISTING PAGE AS THE HUB</div>
+                  <div style={{ fontSize: 13, color: 'var(--text)', marginTop: 4, lineHeight: 1.5 }}>{cluster.hubSuggestion.reason}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 6, lineHeight: 1.5 }}>
+                    To make it the hub: link it to each of the {spokes.length} page{spokes.length === 1 ? '' : 's'} below, and link each of them back to it.
+                  </div>
+                </div>
+              )}
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--r-md)', border: '1px solid var(--border)', background: 'var(--surface)' }}>
-                <Badge variant={cluster.ambiguous ? 'warning' : 'success'}>HUB</Badge>
+                <Badge variant={cluster.ambiguous || cluster.hubSuggestion ? 'warning' : 'success'}>{cluster.hubSuggestion ? 'SUGGESTED HUB' : 'HUB'}</Badge>
                 <a
                   href={hub.url}
                   target="_blank"
@@ -619,58 +633,6 @@ function ClusterRow({ cluster, pageById, navigate, projectId, kbClient, suggesti
               </div>
             </div>
           )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Work saved against clusters or pages this analysis no longer has — made
-// before a re-run regrouped the site. Read-only here: the topics' rails still
-// open their keywords, brief and draft, and enhancements still open.
-function EarlierWorkRow({ orphans, projectId, kbClient, navigate, workIndex, onWorkChanged }) {
-  const [open, setOpen] = useState(false);
-  const [openUrl, setOpenUrl] = useState(null);
-  const count = orphans.topics.length + orphans.enhancements.length;
-  return (
-    <div style={{ borderRadius: 'var(--r-lg)', background: 'var(--card)', border: '1px dashed var(--border-strong)', overflow: 'hidden' }}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 16, padding: '14px 18px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--font-sans)' }}
-      >
-        <span aria-hidden="true" style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, border: '2px dashed var(--text-3)', boxSizing: 'border-box' }} />
-        <span style={{ fontSize: 14.5, fontWeight: 500, color: 'var(--text)' }}>Work from an earlier analysis</span>
-        <span style={{ fontSize: 13, color: 'var(--primary-text)', textDecoration: 'underline', textUnderlineOffset: 2 }}>
-          {count} item{count === 1 ? '' : 's'} {open ? '▲' : '▾'}
-        </span>
-        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-3)' }}>Saved for clusters or pages this run no longer lists</span>
-      </button>
-      {open && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '14px 18px 16px 62px', borderTop: '1px solid var(--border)' }}>
-          {orphans.topics.map((e) => (
-            <div key={`${e.clusterId}:${e.topic}`} style={{ padding: '10px 14px', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>{e.topic}</div>
-              <TopicWork
-                projectId={projectId} clusterId={e.clusterId} topic={e.topic} client={kbClient} navigate={navigate}
-                entry={workIndex.forTopic(e.clusterId, e.topic)} saved={null} onWorkChanged={onWorkChanged}
-              />
-            </div>
-          ))}
-          {orphans.enhancements.map((en) => (
-            <div key={en.url} style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 14px', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 12.5, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{en.title || en.url}</span>
-                <span style={{ marginLeft: 'auto' }}>
-                  <EnhancementBadge enhancement={en} open={openUrl === en.url} onToggle={() => setOpenUrl(openUrl === en.url ? null : en.url)} />
-                </span>
-              </div>
-              {openUrl === en.url && (
-                <EnhancementPanel projectId={projectId} url={en.url} onReEnhance={() => navigate(enhanceHref(en.url, en.contentType || 'article', { caProjectId: projectId }))} />
-              )}
-            </div>
-          ))}
         </div>
       )}
     </div>
@@ -751,28 +713,43 @@ const SectionLabel = ({ children, color }) => (
 // reloads it after a panel here saves something new.
 export default function HubSpokeReport({ analysis, pageById, navigate, projectId, kbClient = '', onSuggestions, actionStatus, work = null, onWorkChanged }) {
   const workIndex = useMemo(() => indexWork(work), [work]);
-  const orphans = useMemo(() => workIndex.orphans(
-    (analysis.clusters || []).map((c) => c.id),
-    (analysis.clusters || []).flatMap((c) => [c.hubPageId, ...(c.spokeIds || [])]).map((id) => pageById.get(id)?.url).filter(Boolean),
-  ), [workIndex, analysis.clusters, pageById]);
   const clusters = analysis.clusters || [];
   const unassigned = analysis.unassignedPages || [];
   const spokeSuggestionsByCluster = analysis.spokeSuggestionsByCluster || {};
 
   const gaps = clusters.filter((c) => c.isGap);
   const unclear = clusters.filter((c) => !c.isGap && c.ambiguous);
-  const established = clusters.filter((c) => !c.isGap && !c.ambiguous);
+  // An existing page suggested as the hub has a job to do (assign it), so it is
+  // listed on its own rather than mixed in with hubs already in place.
+  const toAssign = clusters.filter((c) => !c.isGap && !c.ambiguous && c.hubSuggestion);
+  const established = clusters.filter((c) => !c.isGap && !c.ambiguous && !c.hubSuggestion);
 
   // Needs attention first, worst health first — the same ordering the old
   // browser used for its list, kept so the top of this screen is still the
   // thing to look at first.
   const needsAttention = [...gaps, ...unclear].sort((a, b) => (a.health || 0) - (b.health || 0));
   const healthy = [...established].sort((a, b) => (b.health || 0) - (a.health || 0));
+  const assignList = [...toAssign].sort((a, b) => (a.health || 0) - (b.health || 0));
 
   // What the info icons and the legend quote: the counts on the tiles below.
   const explainCtx = { clusters: clusters.length, gaps: gaps.length, unclear: unclear.length };
   // The cluster list's "i" sits on whichever of its two sections comes first.
-  const attentionShown = needsAttention.length > 0 || unassigned.length > 0;
+  const attentionShown = needsAttention.length > 0 || unassigned.length > 0 || assignList.length > 0;
+  const rowFor = (c) => (
+    <ClusterRow
+      key={c.id}
+      cluster={c}
+      pageById={pageById}
+      navigate={navigate}
+      projectId={projectId}
+      kbClient={kbClient}
+      suggestions={spokeSuggestionsByCluster[c.id] || null}
+      onSuggestions={(result) => onSuggestions(c.id, result)}
+      actionStatus={actionStatus}
+      workIndex={workIndex}
+      onWorkChanged={onWorkChanged}
+    />
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
@@ -801,7 +778,9 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
           icon={<ClustersIcon />}
         />
         <SummaryTile
-          label="Healthy hubs"
+          // "Clear hub", not "Healthy": this counts hub pages, while "healthy"
+          // elsewhere means a cluster health score of 70+.
+          label="Clear hub"
           info="h_healthy"
           infoCtx={explainCtx}
           value={established.length}
@@ -869,22 +848,26 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
             <InfoDot explainKey="h_table" ctx={explainCtx} />
           </span>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {needsAttention.map((c) => (
-              <ClusterRow
-                key={c.id}
-                cluster={c}
-                pageById={pageById}
-                navigate={navigate}
-                projectId={projectId}
-                kbClient={kbClient}
-                suggestions={spokeSuggestionsByCluster[c.id] || null}
-                onSuggestions={(result) => onSuggestions(c.id, result)}
-                actionStatus={actionStatus}
-                workIndex={workIndex}
-                onWorkChanged={onWorkChanged}
-              />
-            ))}
+            {needsAttention.map(rowFor)}
             {unassigned.length > 0 && <UnassignedRow pages={unassigned} />}
+          </div>
+        </div>
+      )}
+
+      {assignList.length > 0 && (
+        <div
+          data-explain-box={needsAttention.length > 0 || unassigned.length > 0 ? undefined : ''}
+          style={{ display: 'flex', flexDirection: 'column', gap: 12, borderRadius: 'var(--r-lg)' }}
+        >
+          <span className="explain-label-row">
+            <SectionLabel color="var(--warning)">Use an existing page as hub · {assignList.length}</SectionLabel>
+            {needsAttention.length === 0 && unassigned.length === 0 && <InfoDot explainKey="h_table" ctx={explainCtx} />}
+          </span>
+          <span style={{ fontSize: 13, color: 'var(--text-2)', marginTop: -6 }}>
+            The hub page already exists — it only needs linking to its spokes. No new content needed.
+          </span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {assignList.map(rowFor)}
           </div>
         </div>
       )}
@@ -896,21 +879,7 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
             {!attentionShown && <InfoDot explainKey="h_table" ctx={explainCtx} />}
           </span>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {healthy.map((c) => (
-              <ClusterRow
-                key={c.id}
-                cluster={c}
-                pageById={pageById}
-                navigate={navigate}
-                projectId={projectId}
-                kbClient={kbClient}
-                suggestions={spokeSuggestionsByCluster[c.id] || null}
-                onSuggestions={(result) => onSuggestions(c.id, result)}
-                actionStatus={actionStatus}
-                workIndex={workIndex}
-                onWorkChanged={onWorkChanged}
-              />
-            ))}
+            {healthy.map(rowFor)}
           </div>
         </div>
       )}
@@ -921,12 +890,6 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
         </p>
       )}
 
-      {orphans.topics.length + orphans.enhancements.length > 0 && (
-        <EarlierWorkRow
-          orphans={orphans} projectId={projectId} kbClient={kbClient} navigate={navigate}
-          workIndex={workIndex} onWorkChanged={onWorkChanged}
-        />
-      )}
       <Legend screen="hub" ctx={explainCtx} />
     </div>
   );

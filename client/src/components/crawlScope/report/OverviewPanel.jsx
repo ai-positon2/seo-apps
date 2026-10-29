@@ -26,7 +26,6 @@ import { InfoDot, Legend } from '../../explain';
  * @param {Array}  props.groups    one row per rule that fired, page- and
  *   site-scoped merged, each carrying `count` (occurrences) and `pages`
  * @param {Map}    props.catalogById    rule id → catalog entry
- * @param {number} props.externalChecked
  * @param {boolean} props.provisional  a crawl is still running, so `findings` is
  *   empty and everything derived from it is not yet a measurement
  * @param {object?} props.reconciliation  the analyser's own finding totals
@@ -35,8 +34,8 @@ import { InfoDot, Legend } from '../../explain';
  *   page budget and why it stopped short, if it did
  */
 export default function OverviewPanel({
-  metrics, counts, groups, catalogById, externalChecked, provisional = false, crawled = null,
-  reconciliation = null, coverage = null, comparison = null,
+  metrics, counts, groups, catalogById, provisional = false, crawled = null,
+  reconciliation = null, coverage = null, comparison = null, onOpenIssue = null,
 }) {
   const breakdown = healthScoreBreakdown(metrics);
   const lost = breakdown.reduce((sum, b) => sum + b.points, 0);
@@ -159,19 +158,6 @@ export default function OverviewPanel({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
         <div className="crawl-tiles">
           <StatTile
-            icon="globe"
-            // "Pages crawled" here counted every URL (images, scripts, files)
-            // while the dashboard's "Pages crawled" counts HTML pages — two
-            // different numbers under one name. This tile is the URL count.
-            label="URLs fetched"
-            info="t_urls"
-            infoCtx={explainCtx}
-            value={counts.urlsFetched.toLocaleString()}
-            sub={coverage?.limit
-              ? `Pages, images and files · page limit ${coverage.limit.toLocaleString('en-US')}`
-              : 'Pages, images and files'}
-          />
-          <StatTile
             icon="page"
             label="HTML pages"
             info="t_html"
@@ -180,16 +166,6 @@ export default function OverviewPanel({
             sub={metrics.refusedCount
               ? `The audit universe — ${metrics.refusedCount.toLocaleString()} URL${metrics.refusedCount === 1 ? '' : 's'} refused the crawler and ${metrics.refusedCount === 1 ? 'is' : 'are'} not counted`
               : 'The audit universe — the rest are files and feeds'}
-          />
-          <StatTile
-            icon="search"
-            label="Findable by Google"
-            info="t_indexable"
-            infoCtx={explainCtx}
-            value={metrics.indexable.toLocaleString()}
-            sub={`of ${metrics.htmlCount.toLocaleString()} HTML pages are indexable`}
-            color="var(--primary)"
-            share={metrics.htmlCount ? metrics.indexable / metrics.htmlCount : null}
           />
           {/* An em dash, not a zero. "0 pages with an error" is a claim, and
               while the crawl runs nothing has checked. */}
@@ -216,14 +192,6 @@ export default function OverviewPanel({
               : `${bySeverity('warning').length} type${bySeverity('warning').length === 1 ? '' : 's'} of problem · ${occurrences('warning')} instances`}
             color={provisional ? 'var(--text-3)' : 'var(--viz-warn)'}
             share={!provisional && metrics.htmlCount ? metrics.affectedWarningPages / metrics.htmlCount : null}
-          />
-          <StatTile
-            icon="link"
-            label="External links checked"
-            info="t_external"
-            infoCtx={explainCtx}
-            value={externalChecked.toLocaleString()}
-            sub="Outbound links fetched to verify they are live"
           />
         </div>
 
@@ -279,17 +247,12 @@ export default function OverviewPanel({
             the site (coverage.partial); this names them. */}
         {(coverage?.notEvaluated?.length > 0 || coverage?.partlyChecked?.length > 0
           || coverage?.pagesNotAudited?.length > 0) && (
-          <div
-            style={{
-              display: 'flex', flexDirection: 'column', gap: 6, padding: '12px 16px',
-              borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border)',
-            }}
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 600, color: 'var(--text)', lineHeight: 1.5 }}>
-              <NoticeIcon kind="info" />
-              Not every check could run on this crawl. These found nothing because they were not
-              evaluated, not because they passed.
-            </span>
+          // A quiet footnote, folded: it qualifies the findings rather than
+          // being one, so it should not compete with them for attention.
+          <details className="crawl-unrun">
+            <summary>
+              Some checks couldn’t run on this crawl — they found nothing because they weren’t evaluated, not because they passed.
+            </summary>
             {coverage.notEvaluated.map(({ reason, titles }) => (
               <span key={`n-${reason}`} style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>
                 <strong style={{ fontWeight: 600, color: 'var(--text)' }}>Not evaluated:</strong>
@@ -308,7 +271,7 @@ export default function OverviewPanel({
                 {' '}{reason}
               </span>
             ))}
-          </div>
+          </details>
         )}
 
         {/* ── Is this the whole audit? ───────────────────────────────────
@@ -415,13 +378,21 @@ export default function OverviewPanel({
           {!provisional && groups.slice(0, 3).map((g, i) => {
             const entry = catalogById.get(g.id);
             const sev = SEVERITY[g.severity] || SEVERITY.notice;
+            // The whole card opens this problem's own page — the pages it is
+            // on, with the evidence — the same view a row on the issue list opens.
+            const Tag = onOpenIssue ? 'button' : 'div';
             return (
-              <div
+              <Tag
                 key={g.id}
+                type={onOpenIssue ? 'button' : undefined}
+                onClick={onOpenIssue ? () => onOpenIssue(g.id) : undefined}
+                aria-label={onOpenIssue ? `Open ${entry?.title || g.label || g.id}` : undefined}
+                className={onOpenIssue ? 'fix-first-card' : undefined}
                 style={{
                   display: 'flex', alignItems: 'flex-start', gap: 14, padding: '14px 16px', borderRadius: 12,
                   background: 'var(--surface)', border: '1px solid var(--border)',
-                  borderLeft: `3px solid ${sev.color}`,
+                  borderLeft: `3px solid ${sev.color}`, width: '100%', textAlign: 'left',
+                  font: 'inherit', color: 'inherit',
                 }}
               >
                 <span
@@ -445,8 +416,13 @@ export default function OverviewPanel({
                   <span style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5 }}>
                     {entry?.recommendation || 'No remediation is recorded for this check.'}
                   </span>
+                  {onOpenIssue && (
+                    <span className="fix-first-card__go">
+                      See the {g.pages === 1 ? 'page' : `${g.pages.toLocaleString()} pages`} →
+                    </span>
+                  )}
                 </div>
-              </div>
+              </Tag>
             );
           })}
           {!groups.length && !provisional && (

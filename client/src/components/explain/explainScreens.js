@@ -21,7 +21,7 @@ export const SCREENS = {
 export const EXPLAINER_KEYS_BY_SCREEN = {
   overview: ['exec', 'trend', 'priorities', 'radar',
     'm_technical', 'm_hub', 'm_competitor', 'm_seogeo', 'm_aivis', 'm_agent'],
-  tech: ['t_health', 't_lost', 't_urls', 't_html', 't_indexable', 't_issues', 't_external', 't_first'],
+  tech: ['t_health', 't_lost', 't_html', 't_issues', 't_first', 't_triaged'],
   seogeo: ['g_score', 'g_seo', 'g_geo', 'g_verdict', 'g_platforms', 'g_wins', 'g_counts'],
   agent: ['a_score', 'a_sub', 'a_brief', 'a_checks'],
   aivisLite: ['l_score', 'l_named', 'l_share', 'l_cited', 'l_rank', 'l_grounded', 'l_engines',

@@ -45,7 +45,7 @@ import UrlsTable from '../components/crawlScope/report/UrlsTable';
 import IssueDetail from '../components/crawlScope/report/IssueDetail';
 import UrlDetail from '../components/crawlScope/report/UrlDetail';
 import {
-  healthMetrics, issueGroups, siteScopedGroups, mergeRuleGroups, healthScoreBreakdown, pageIssueCards, crawlCoverageNotice,
+  healthMetrics, issueGroups, siteScopedGroups, mergeRuleGroups, pageIssueCards, crawlCoverageNotice,
   crawlComparison, reviewBatches, orderIssueGroups,
   runStatusVariant, formatDuration, TERMINAL_STATUSES, withEffectiveIssues,
   buildCountHierarchy, isHtmlPage, describeBudgetSource,
@@ -132,6 +132,12 @@ export default function CrawlScopeRunPage() {
   // ── Which of the six views is showing, and what is open inside it ─────────
   const [tab, setTab] = useState('overview');
   const [openIssueId, setOpenIssueId] = useState(null);
+  // Opening a problem from further down the page (the overview's "What to fix
+  // first") brings its view into sight rather than changing content off-screen.
+  const issueTopRef = useRef(null);
+  useEffect(() => {
+    if (openIssueId) issueTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [openIssueId]);
   const [openUrl, setOpenUrl] = useState(null);
 
   // Results arrive one event at a time and a large crawl is thousands of rows,
@@ -292,12 +298,6 @@ export default function CrawlScopeRunPage() {
   const nonHtmlInternal = effectivePages.length - htmlPages.length;
 
   const metrics = useMemo(() => healthMetrics(effectivePages, findings), [effectivePages, findings]);
-
-  // The score's own arithmetic, per severity band. The Overview panel derives
-  // this itself from `metrics`, but an issue's page needs it too — for the
-  // "health cost" tile — and it was being passed down from here without ever
-  // being computed, so opening any issue threw and blanked the report.
-  const breakdown = useMemo(() => healthScoreBreakdown(metrics), [metrics]);
 
   const pageGroups = useMemo(() => issueGroups(effectivePages, findings), [effectivePages, findings]);
   const siteGroups = useMemo(() => siteScopedGroups(findings), [findings]);
@@ -1009,13 +1009,13 @@ export default function CrawlScopeRunPage() {
 
       {/* ── One problem's own page ────────────────────────────────────────── */}
       {openGroup && (
+        <div ref={issueTopRef} style={{ scrollMarginTop: 80 }}>
         <IssueDetail
           group={openGroup}
           entry={catalogById.get(openGroup.id)}
           findings={findingsByRule.get(openGroup.id) || []}
           titleByUrl={titleByUrl}
           metrics={metrics}
-          breakdown={breakdown}
           next={(() => {
             const i = groups.indexOf(openGroup);
             const n = groups[i + 1] || groups[0];
@@ -1042,6 +1042,7 @@ export default function CrawlScopeRunPage() {
           onBulkReview={onBulkReview}
           onExport={exportFindings}
         />
+        </div>
       )}
 
       {/* ── One crawled page's own view ───────────────────────────────────── */}
@@ -1098,6 +1099,7 @@ export default function CrawlScopeRunPage() {
               crawled={crawledSoFar}
               coverage={coverage}
               comparison={comparison}
+              onOpenIssue={setOpenIssueId}
             />
           )}
 

@@ -53,39 +53,6 @@ const CLASSIFICATION_META = {
 
 const VERTICAL_OPTIONS = ['dental', 'healthcare', 'legal', 'saas', 'ecommerce', 'home-services', 'other'];
 
-// Short nouns for the exclusion codes informationalSelection.js records, for a
-// one-line "Left out: 216 location · 77 service · 121 people" summary. The full
-// labels, and every URL, are in the Excel "Excluded" tab.
-const LEFT_OUT_NOUNS = {
-  location: 'location',
-  service: 'service & product',
-  people: 'people',
-  listing: 'listing',
-  news: 'news & events',
-  media: 'podcast & video',
-  other: 'other',
-  not_indexable: 'noindex',
-  canonical_elsewhere: 'canonicalised',
-  canonical_to_homepage: 'canonical to homepage',
-  parameterised: 'parameterised',
-  paginated: 'paginated',
-  duplicate: 'duplicate',
-  other_language: 'other language',
-  utility: 'form & confirmation',
-  homepage: 'homepage',
-  unknown: 'unclassified',
-  unclassified: 'unjudged',
-  not_checked: 'not yet checked',
-};
-
-function leftOutLine(excludedByReason = [], shown = 5) {
-  const reasons = excludedByReason || [];
-  const head = reasons.slice(0, shown).map((r) => `${r.count} ${LEFT_OUT_NOUNS[r.code] || String(r.label || r.code).toLowerCase()}`);
-  const restCount = reasons.slice(shown).reduce((sum, r) => sum + (Number(r.count) || 0), 0);
-  if (restCount) head.push(`${restCount} more`);
-  return head.join(' · ');
-}
-
 export default function ContentArchitectProjectPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -384,7 +351,6 @@ export default function ContentArchitectProjectPage() {
   // records what it left out. Said next to the page count, because "12 pages
   // analysed" on a 590-page site reads as a broken crawl unless it says why.
   const selectionSummary = analysis?.selection?.summary || null;
-  const leftOut = selectionSummary ? leftOutLine(selectionSummary.excludedByReason) : '';
 
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto' }}>
@@ -392,7 +358,6 @@ export default function ContentArchitectProjectPage() {
         eyebrow="Build · Content Architect"
         title={project?.name || 'Loading…'}
         subtitle={project?.domain}
-        actions={<Button variant="secondary" onClick={() => navigate('/content-architect')}>All Projects</Button>}
       />
 
       {error && (
@@ -555,9 +520,9 @@ export default function ContentArchitectProjectPage() {
                     sub={`${pctUnassigned}% of pages`}
                     tone={analysis.unassignedPages.length ? 'warning' : null}
                   />
-                  {analysis.orphanDetectionWithheld ? (
-                    <MiniStat label="Orphaned" value="—" sub="not assessed" title="The crawl did not cover the whole site, so a page with no inbound link may be linked from a page it never fetched." />
-                  ) : (
+                  {/* Left out when orphans could not be assessed (the crawl did not
+                      cover the whole site): an empty tile says nothing. */}
+                  {!analysis.orphanDetectionWithheld && (
                     <MiniStat label="Orphaned" value={orphanCount} sub="no internal links in" tone={orphanCount ? 'danger' : null} />
                   )}
                 </div>
@@ -580,12 +545,7 @@ export default function ContentArchitectProjectPage() {
 
             {/* Notes about what this analysis covered. */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
-              {selectionSummary ? (
-                <Note kind="info">
-                  Informational pages only: {selectionSummary.analysedPageCount} of {selectionSummary.crawledPageCount} found in its sitemaps and listings.
-                  {leftOut ? ` Left out: ${leftOut}.` : ''}
-                </Note>
-              ) : project?.platformProjectId ? (
+              {!selectionSummary && project?.platformProjectId ? (
                 <Note kind="warn">This analysis includes every crawled page. Re-run it to cluster informational pages only.</Note>
               ) : null}
               <Note kind={estimatedCount > 0 ? 'info' : 'ok'}>
@@ -722,16 +682,16 @@ function MiniStat({ label, value, sub = null, tone = null, title }) {
 function ClusterHealthBar({ clusters = [] }) {
   if (!clusters.length) return null;
   const bands = [
-    { key: 'success', label: 'Healthy', n: clusters.filter((c) => healthVariant(c.health || 0) === 'success').length },
-    { key: 'warning', label: 'Needs work', n: clusters.filter((c) => healthVariant(c.health || 0) === 'warning').length },
-    { key: 'danger', label: 'Weak', n: clusters.filter((c) => healthVariant(c.health || 0) === 'danger').length },
+    { key: 'success', label: 'Healthy', range: '70+', n: clusters.filter((c) => healthVariant(c.health || 0) === 'success').length },
+    { key: 'warning', label: 'Needs work', range: '40–69', n: clusters.filter((c) => healthVariant(c.health || 0) === 'warning').length },
+    { key: 'danger', label: 'Weak', range: 'under 40', n: clusters.filter((c) => healthVariant(c.health || 0) === 'danger').length },
   ];
   const noHub = clusters.filter((c) => c.isGap).length;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--text-3)' }}>
-          Cluster health
+          Cluster health scores
         </span>
         {noHub > 0 && (
           <span style={{ fontSize: 12, color: 'var(--danger)', fontWeight: 600 }}>
@@ -749,6 +709,7 @@ function ClusterHealthBar({ clusters = [] }) {
           <span key={b.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-2)' }}>
             <span style={{ width: 9, height: 9, borderRadius: 3, background: `var(--${b.key})` }} />
             <strong style={{ color: 'var(--text)' }}>{b.n}</strong> {b.label.toLowerCase()}
+            <span style={{ color: 'var(--text-3)' }}>({b.range})</span>
           </span>
         ))}
       </div>

@@ -2,7 +2,9 @@
 // Scores every page in a cluster; the LLM's hubRecommendation (Stage 5e) is
 // one input to the score, never the decision itself — matches Stage 5's
 // "deterministic signals decide, the LLM only names/suggests" architecture.
-const { HUB_WEIGHTS, HUB_SCORE_THRESHOLD, HUB_AMBIGUOUS_MARGIN } = require('./config');
+const {
+  HUB_WEIGHTS, HUB_SCORE_THRESHOLD, HUB_AMBIGUOUS_MARGIN, HUB_PROMOTION_CORE_SHARE, HUB_PROMOTION_MIN_WORDS,
+} = require('./config');
 const { CITY_LIST } = require('./patternClassifier');
 
 const SPOKE_TITLE_PATTERNS = [
@@ -161,11 +163,38 @@ function selectHub(cluster, pages, profiles, graph, llmHubUrl) {
   const [topIdx, topEntry] = ranked[0];
   const second = ranked[1];
 
+  const suggested = (promoted) => ({
+    scores,
+    hubPageIndex: promoted.pageIndex,
+    hubConfidence: 'suggested',
+    isGap: false,
+    ambiguous: false,
+    gapSuggestion: null,
+    hubSuggestion: { reason: promoted.reason, coreTerms: promoted.coreTerms },
+  });
+
   if (topEntry.score < HUB_SCORE_THRESHOLD) {
+    // Not a gap yet: a page that already names the cluster's whole topic is a
+    // better hub than a new page that would overlap it.
+    const promoted = promotableHub(memberIndices, pages, scores, llmHubUrl);
+    if (promoted) return suggested(promoted);
     return {
       scores, hubPageIndex: null, hubConfidence: null, isGap: true, ambiguous: false,
       gapSuggestion: buildGapSuggestion(cluster, pages),
     };
+  }
+
+  // The top score can go to a page about one angle of the topic ("Wisdom Tooth
+  // Removal Cost") while the page about the whole of it ("Wisdom Teeth Removal:
+  // A Complete Guide") sits in the cluster as a spoke. The broad page wins.
+  // Only when the pick is that same topic plus an angle (its slug holds every
+  // word of the broad page's, and more), or a location page: two pages on
+  // different angles are not swapped just because one has fewer words.
+  const broad = promotableHub(memberIndices, pages, scores, llmHubUrl, { replacing: topIdx });
+  if (broad && broad.pageIndex !== topIdx && !broad.eligible.includes(topIdx)) {
+    const pickWords = new Set(slugWords(pages[topIdx].url));
+    const narrowerOfSame = slugWords(pages[broad.pageIndex].url).every((w) => pickWords.has(w));
+    if (narrowerOfSame || topEntry.breakdown.locationPenalty) return suggested(broad);
   }
 
   const margin = second ? (topEntry.score - second[1].score) / Math.max(Math.abs(topEntry.score), 1e-6) : 1;
@@ -178,6 +207,93 @@ function selectHub(cluster, pages, profiles, graph, llmHubUrl) {
     isGap: false,
     ambiguous,
     gapSuggestion: null,
+  };
+}
+
+// ── An existing page instead of a gap ────────────────────────────────────────
+//
+// The weighted score can leave every page just under HUB_SCORE_THRESHOLD in a
+// cluster whose broad page plainly exists: breadth is an absolute share of the
+// cluster's whole vocabulary, so it is low for every page in a varied cluster.
+// "Teeth Whitening: What You Need to Know" sat under the bar while seven
+// narrower whitening articles surrounded it, and the cluster was reported as
+// needing a new "Whitening & Teeth" page that would only overlap it.
+//
+// So before calling a gap, look for a page whose URL is made of the cluster's
+// core words and nothing narrower: the words most of the cluster's slugs share
+// ("teeth", "whitening"), with no angle of its own ("cost", "insurance",
+// "safe"). It must not read as a spoke (a question, "how to", "vs", a year), be
+// a location or legal page, or be thin. The model's own hub pick wins when it
+// qualifies; otherwise the broadest such page does.
+
+const SLUG_STOPWORDS = new Set(['a', 'an', 'the', 'and', 'or', 'of', 'for', 'to', 'in', 'on', 'with', 'your', 'you', 'is', 'are', 'do', 'does', 'how', 'what', 'why', 'when', 'can', 'it', 'its', 'my', 'vs', 'guide', 'overview']);
+
+// "implants" and "implant" are one word to a reader: a plain plural is folded
+// so a slug's singular does not hide it from the cluster's core. "Teeth" and
+// "tooth" are the irregular one a dental site uses constantly.
+const IRREGULAR_PLURALS = { teeth: 'tooth', feet: 'foot', children: 'child', women: 'woman', men: 'man' };
+const singular = (w) => IRREGULAR_PLURALS[w]
+  || (w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w);
+
+const DEFINITION_TITLE = /^what (is|are) (a |an |the )?[^?]+\?/i;
+
+function rawSlugWords(url) {
+  const segs = pathSegments(url);
+  const last = (segs[segs.length - 1] || '').toLowerCase();
+  return last.split(/[-_]/).filter((w) => w && !SLUG_STOPWORDS.has(w) && !/^\d+$/.test(w));
+}
+
+function slugWords(url) {
+  return [...new Set(rawSlugWords(url).map(singular))];
+}
+
+// `replacing` is the page the score picked, when the broad page would take its
+// place rather than fill a gap; it changes only the reason's wording.
+function promotableHub(memberIndices, pages, scores, llmHubUrl, { replacing } = {}) {
+  if (memberIndices.length < 3) return null;
+  const wordsByPage = new Map(memberIndices.map((i) => [i, slugWords(pages[i].url)]));
+
+  // The cluster's core words: carried by most of its slugs.
+  const freq = new Map();
+  for (const words of wordsByPage.values()) for (const w of words) freq.set(w, (freq.get(w) || 0) + 1);
+  const core = new Set([...freq.entries()]
+    .filter(([, n]) => n / memberIndices.length >= HUB_PROMOTION_CORE_SHARE)
+    .map(([w]) => w));
+  if (!core.size) return null;
+
+  const eligible = memberIndices.filter((i) => {
+    const words = wordsByPage.get(i);
+    const b = scores.get(i)?.breakdown || {};
+    // "What Is a Root Canal?" is a question, but on the page whose slug is the
+    // topic itself it defines the whole topic — the hub's job, not a spoke's.
+    const spokeTitle = b.titlePenalty && !DEFINITION_TITLE.test(pages[i].title || '');
+    return words.length > 0
+      && words.every((w) => core.has(w))
+      && words.length >= Math.min(2, core.size)
+      && !spokeTitle && !b.locationPenalty && !b.legalUtilityPenalty
+      && (pages[i].wordCount || 0) >= HUB_PROMOTION_MIN_WORDS;
+  });
+  if (!eligible.length) return null;
+
+  const llmPick = llmHubUrl ? eligible.find((i) => pages[i].url === llmHubUrl) : undefined;
+  const best = llmPick ?? eligible.sort((a, b) => (
+    wordsByPage.get(b).length - wordsByPage.get(a).length          // names more of the core
+    || (scores.get(b)?.score || 0) - (scores.get(a)?.score || 0)    // then the stronger page
+  ))[0];
+
+  // The page's own words, so "wisdom teeth removal" is not shown as "tooth".
+  const topic = rawSlugWords(pages[best].url).join(' ');
+  const others = memberIndices.length - 1;
+  const narrower = replacing !== undefined && replacing !== best ? pages[replacing] : null;
+  return {
+    pageIndex: best,
+    eligible,
+    coreTerms: [...core],
+    reason: `Already covers the whole topic (“${topic}”) that the other ${others} pages each cover one angle of`
+      + (llmPick !== undefined ? ', and the topic analysis picked it as the hub too' : '')
+      + (narrower
+        ? `. Make it the hub instead of “${(narrower.title || narrower.url).split(' | ')[0]}”, which covers only one part of the topic.`
+        : '. Make it the hub rather than creating a new page that would overlap it.'),
   };
 }
 
@@ -203,4 +319,4 @@ function buildGapSuggestion(cluster, pages) {
   return { title: cluster.name, slug: `/${slugify(cluster.name)}/`, outline };
 }
 
-module.exports = { selectHub, looksLikeSpokeTitlePattern, hasLocationTerm, isLegalUtilityPage, slugTokenCount, urlDepth, breadthScore, buildGapSuggestion };
+module.exports = { selectHub, promotableHub, slugWords, looksLikeSpokeTitlePattern, hasLocationTerm, isLegalUtilityPage, slugTokenCount, urlDepth, breadthScore, buildGapSuggestion };

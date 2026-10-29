@@ -76,6 +76,13 @@ module.exports = {
   },
   HUB_SCORE_THRESHOLD: 0.5, // below this, no page qualifies -> gap hub
   HUB_AMBIGUOUS_MARGIN: 0.15, // top two within this relative margin -> ambiguous-hub flag
+  // Before a cluster is called a gap, an existing page that already names the
+  // cluster's whole topic is suggested as its hub (hubSelection.promotableHub).
+  // A slug word counts as the cluster's topic when at least this share of the
+  // cluster's slugs carry it, and the page needs this many words to stand as a
+  // hub at all (the THIN_WORD_COUNT floor below).
+  HUB_PROMOTION_CORE_SHARE: 0.6,
+  HUB_PROMOTION_MIN_WORDS: 500,
 
   // ── Stage 7: diagnostics ─────────────────────────────────────────────────
   BURIED_CLICK_DEPTH: 4,
