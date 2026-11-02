@@ -3,6 +3,7 @@ import {
   bandColor, splitVerdict,
 } from './reportKit';
 import { InfoDot, Legend } from '../../explain';
+import { seoGeoWorking } from '../../chat/screenWorking';
 import { resolveBreakdown } from '../primitives';
 // The page picker's own label ("/ (home)", "/pricing"), so the report and the
 // picker above it never name the same page two ways.
@@ -444,7 +445,7 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
           See the technical detail →
         </button>
       </div>
-      <Legend screen="seogeo" ctx={explainCtx} />
+      <Legend screen="seogeo" ctx={explainCtx} working={() => seoGeoWorking({ findings, scores, breakdown })} />
     </div>
   );
 }

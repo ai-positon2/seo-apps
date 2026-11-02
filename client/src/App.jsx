@@ -5,6 +5,8 @@ import { notifyRouteChange } from './lib/agentRunSignal';
 import { ThemeProvider } from './components/ThemeContext';
 import { ToastProvider } from './ui/Toast';
 import { GuidedModeProvider } from './components/explain/GuidedModeContext';
+import { ChatScreenProvider } from './components/chat/ChatContext';
+import ChatBubble from './components/chat/ChatBubble';
 import { useAuth } from './context/AuthContext';
 import MacWindow from './components/MacWindow';
 import LoginPage from './pages/LoginPage';
@@ -115,7 +117,11 @@ export default function App() {
       {/* How every info icon behaves (components/explain). Inside the router,
           because an open explanation closes when the route changes. */}
       <GuidedModeProvider>
+      {/* The report assistant learns which report is on screen from each
+          report's Legend (components/chat/ChatContext). */}
+      <ChatScreenProvider>
       <RouteBridge />
+      <ChatBubble />
       <Routes>
         <Route element={<MacWindow />}>
           <Route path="/" element={<HomePage />} />
@@ -180,6 +186,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
+      </ChatScreenProvider>
       </GuidedModeProvider>
       </ToastProvider>
     </ThemeProvider>

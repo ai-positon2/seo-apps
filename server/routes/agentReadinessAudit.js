@@ -1002,5 +1002,7 @@ module.exports = router;
 // so server.js's `app.use(...)` keeps working unchanged.
 module.exports.runAgentReadiness = runAgentReadiness;
 module.exports.levelFromScore = levelFromScore;
+// The report assistant (modules/reportChat/working.js) prices each failed check with these.
+module.exports.WEIGHTS = WEIGHTS;
 // Exposed for routes/__tests__/egressWiring.test.js.
 module.exports._private = { safeFetch, buildPdfHtml };

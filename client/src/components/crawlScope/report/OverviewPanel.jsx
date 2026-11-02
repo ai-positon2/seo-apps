@@ -3,6 +3,7 @@ import { healthScoreBreakdown, HEALTH_WEIGHTS } from '../crawlHelpers';
 import { InfoTip } from '../../seoGeo/report/reportKit';
 import { scoreVerdict } from '../../../lib/scoreVerdict';
 import { InfoDot, Legend } from '../../explain';
+import { techWorking } from '../../chat/screenWorking';
 
 // ── The crawl report's Overview ─────────────────────────────────────────────
 //
@@ -432,7 +433,7 @@ export default function OverviewPanel({
           )}
         </Panel>
       </div>
-      <Legend screen="tech" ctx={explainCtx} />
+      <Legend screen="tech" ctx={explainCtx} working={() => techWorking({ metrics, breakdown, groups })} />
     </div>
   );
 }

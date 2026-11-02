@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
 import { LEGEND_SHARED, resolveLegend } from './explainCopy';
 import { SCREENS } from './explainScreens';
+import { useRegisterChatScreen } from '../chat/ChatContext';
 
 // ── The floating legend ─────────────────────────────────────────────────────
 //
@@ -43,10 +44,22 @@ function SharedVisual({ kind }) {
   );
 }
 
-export default function Legend({ screen, ctx }) {
+/**
+ * @param {object}    props
+ * @param {string}    props.screen
+ * @param {object}    props.ctx      the figures the info icons explain
+ * @param {function} [props.working] returns the report's per-item scoring
+ *   inputs for the report assistant (components/chat/screenWorking.js); called
+ *   only when a question is asked
+ */
+export default function Legend({ screen, ctx, working = null }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const { pathname } = useLocation();
+
+  // The report assistant reads the same figures this legend explains, so a
+  // question about "this score" is about the one on screen.
+  useRegisterChatScreen(screen, ctx, working);
 
   useEffect(() => { setOpen(false); }, [pathname]);
 

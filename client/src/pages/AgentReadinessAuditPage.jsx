@@ -6,6 +6,7 @@ import ReportResolving from '../components/project/ReportResolving';
 import { useActiveProjectId } from '../lib/activeProject';
 import { scoreBandColor } from '../lib/scoreVerdict';
 import { InfoDot, Legend } from '../components/explain';
+import { agentWorking } from '../components/chat/screenWorking';
 
 const SC = {
   pass: { label: 'Pass', bg: 'var(--success-soft)', color: 'var(--success)', icon: '✓' },
@@ -1189,7 +1190,7 @@ export default function AgentReadinessAuditPage() {
             </div>
 
             {/* ══════════════════════ SUMMARY ══════════════════════ */}
-            <Legend screen="agent" ctx={explainCtx} />
+            <Legend screen="agent" ctx={explainCtx} working={() => agentWorking(result)} />
 
             {view === 'summary' && (
               <div role="tabpanel" aria-labelledby="view-summary" style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>

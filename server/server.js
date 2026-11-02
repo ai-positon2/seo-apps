@@ -38,6 +38,7 @@ const profileRoutes = require('./routes/profile');
 const workspaceRoutes = require('./routes/workspaces');
 const runsRoutes = require('./routes/runs');
 const projectsRoutes = require('./modules/projects/routes');
+const reportChatRoutes = require('./modules/reportChat/routes');
 const adminRoutes = require('./routes/admin');
 const platformAdmin = require('./services/platformAdmin');
 const db = require('./services/db');
@@ -227,6 +228,9 @@ app.use('/api/runs',                    kbLimiter, requireAuth, runsRoutes);
 // the matcher does not fire for them, and a request with no matcher passes
 // straight through without the middleware wrapping anything.
 app.use('/api/projects',                lpbLimiter, requireAuth, track('projects'), projectsRoutes);
+// The "Ask about this report" assistant. Its own record of every question and
+// answer (with tokens) lives in report_chat_messages, so no track() here.
+app.use('/api/report-chat',             lpbLimiter, requireAuth, reportChatRoutes);
 // Platform administration (PRD §18.7). requireAuth establishes *who*; the router
 // itself re-checks the persisted platform-admin grant on every request.
 app.use('/api/admin',                   kbLimiter, requireAuth, adminRoutes);

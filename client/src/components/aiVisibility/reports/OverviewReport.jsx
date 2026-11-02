@@ -5,6 +5,7 @@ import {
 import { LineChart } from '../reportCharts';
 import { muted } from '../promptHelpers';
 import { InfoDot, Legend } from '../../explain';
+import { aivisWorking } from '../../chat/screenWorking';
 
 // ── Overview ────────────────────────────────────────────────────────────────
 //
@@ -239,7 +240,7 @@ export function OverviewReport({ envelope, onOpenReport }) {
         computed separately, so a number on this page and the same number on its own report
         cannot disagree.
       </div>
-      <Legend screen="aivis" ctx={explainCtx} />
+      <Legend screen="aivis" ctx={explainCtx} working={() => aivisWorking({ kpis, meta, shareOfVoice: data.shareOfVoice })} />
     </>
   );
 }

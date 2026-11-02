@@ -42,6 +42,17 @@ const SUITES = [
   // A Content Architect project created from the tool page belongs to a workspace.
   'modules/contentArchitect/__tests__/newProjectWorkspace.test.js',
   'modules/contentArchitect/__tests__/hubPromotion.test.js',
+  // The report assistant: its screen maps match the client's, it answers only
+  // from the project's own data, and only to someone who can view the project.
+  'modules/reportChat/__tests__/screens.test.js',
+  'modules/reportChat/__tests__/context.test.js',
+  'modules/reportChat/__tests__/routes.test.js',
+  // How exactly a figure was reached: per-item costs, and exact arithmetic.
+  'modules/reportChat/__tests__/working.test.js',
+  'modules/reportChat/__tests__/calculator.test.js',
+  'modules/reportChat/__tests__/webSearch.test.js',
+  // Skips without TEST_DATABASE_URL.
+  'modules/reportChat/__tests__/storeDb.test.js',
   // Outbound fetches to a user's URL refuse private hosts on every hop, and
   // the headless browser never opens file:// or an internal address.
   'services/__tests__/safeEgress.test.js',

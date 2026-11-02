@@ -33,6 +33,7 @@ import {
   SOURCE_TYPE_LABELS, PAGE_TYPE_LABELS, METRIC_INFO, engineLabel,
 } from './reportRegistry';
 import { InfoDot, Legend } from '../explain';
+import { aivisLiteWorking } from '../chat/screenWorking';
 
 // ── Shared pieces ──────────────────────────────────────────────────────────
 
@@ -981,7 +982,7 @@ export function OverviewReport({ report }) {
           </div>
         </Card>
       </div>
-      <Legend screen="aivisLite" ctx={explainCtx} />
+      <Legend screen="aivisLite" ctx={explainCtx} working={() => aivisLiteWorking(report)} />
     </div>
   );
 }

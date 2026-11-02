@@ -25,6 +25,7 @@ import TopicWork from './work/TopicWork';
 import WorkTally from './work/WorkTally';
 import { EnhancementBadge, EnhancementPanel } from './work/PageEnhancement';
 import { InfoDot, Legend } from '../explain';
+import { hubWorking } from '../chat/screenWorking';
 
 /** Health bands, shared with the page's donut so the two cannot disagree. */
 export function healthVariant(score) {
@@ -890,7 +891,7 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
         </p>
       )}
 
-      <Legend screen="hub" ctx={explainCtx} />
+      <Legend screen="hub" ctx={explainCtx} working={() => hubWorking({ clusters, pageById })} />
     </div>
   );
 }

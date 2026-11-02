@@ -188,4 +188,7 @@ async function capture(prompt) {
 
 module.exports = {
   capture, ENGINE, PROVIDER, LABEL, ACCESS, ALWAYS_ANSWERS, hasKey,
+  // Also read by the report assistant's web search (modules/reportChat/webSearch.js),
+  // which reads the same Responses API output.
+  answerFrom, citationsFrom,
 };

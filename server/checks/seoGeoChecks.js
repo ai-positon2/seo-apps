@@ -2799,4 +2799,7 @@ module.exports = {
   calculateScores, withAxisScores, resolvePageIntent, computeAnswerability, summarizeLocalBusiness,
   toSameAsArray, validateOpeningHours, extractSchemaBlocks, SCORE_BUCKETS,
   countStatistics, contentOnlyText, detectPageType,
+  // The report assistant (modules/reportChat/working.js) attributes a page's
+  // score to each check with these, so its answers use this file's own weights.
+  checkTier, checkPoints, BLOCKER_GROUPS,
 };

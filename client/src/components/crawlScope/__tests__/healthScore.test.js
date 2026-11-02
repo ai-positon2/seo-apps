@@ -203,3 +203,28 @@ test('pages that refused the crawler are neither clean nor broken: they are not 
   for (const r of results) r.crawlRefused = true;
   assert.strictEqual(healthMetrics(results, findings).health, null, 'a site that refused every page has no score');
 });
+
+test('each rule’s cost adds up to its severity’s loss, cap included', () => {
+  // Page 0 fails eleven rules (3 errors, 5 warnings, 3 notices = 176 raw
+  // points), so the 100-point cap scales every one of its rules down.
+  const heavy = { url: 'https://example.com/0', scope: 'Internal', contentType: 'text/html', issues: [
+    ...['e1', 'e2', 'e3'].map((id) => ({ id, severity: 'error' })),
+    ...['w1', 'w2', 'w3', 'w4', 'w5'].map((id) => ({ id, severity: 'warning' })),
+    ...['n1', 'n2', 'n3'].map((id) => ({ id, severity: 'notice' })),
+  ] };
+  const light = [1, 2, 3].map((i) => ({
+    url: `https://example.com/${i}`, scope: 'Internal', contentType: 'text/html',
+    issues: [{ id: 'w1', severity: 'warning' }, { id: 'w1', severity: 'warning' }, { id: 'n1', severity: 'notice' }],
+  }));
+  const metrics = healthMetrics([heavy, ...light], []);
+  for (const severity of ['error', 'warning', 'notice']) {
+    const sum = metrics.ruleLoss.filter((r) => r.severity === severity).reduce((s, r) => s + r.points, 0);
+    assert.ok(Math.abs(sum - metrics.bandLoss[severity]) < 1e-9, `${severity}: ${sum} vs ${metrics.bandLoss[severity]}`);
+  }
+  const w1 = metrics.ruleLoss.find((r) => r.ruleId === 'w1');
+  assert.strictEqual(w1.pages, 4, 'counted once per page, however often it repeats');
+  assert.strictEqual(w1.cappedPages, 1);
+  // Three uncapped pages at 10 points, one capped page at 10 × 100/176, over 4 pages.
+  assert.ok(Math.abs(w1.points - (30 + 1000 / 176) / 4) < 1e-9);
+  assert.deepStrictEqual(metrics.ruleLoss.map((r) => r.points), [...metrics.ruleLoss.map((r) => r.points)].sort((a, b) => b - a));
+});

@@ -381,6 +381,32 @@ export function healthMetrics(results, findings = []) {
     ? Math.max(0, Math.round(100 - bandLoss.error - bandLoss.warning - bandLoss.notice))
     : null;
 
+  // The same loss, attributed to each rule: on every scored page a failing rule
+  // costs its severity's weight, scaled by that page's share of the 100-point
+  // cap, over the pages scored. The points of one severity's rules add up to
+  // that severity's bandLoss — it is healthLoss's arithmetic, kept per rule so
+  // "why did warnings cost 22" can be answered rule by rule.
+  const ruleLoss = new Map();
+  if (htmlResults.length) {
+    for (const page of rulesByPage.values()) {
+      const raw = page.error.size * HEALTH_WEIGHTS.error
+        + page.warning.size * HEALTH_WEIGHTS.warning
+        + page.notice.size * HEALTH_WEIGHTS.notice;
+      if (!raw) continue;
+      const scale = Math.min(100, raw) / raw;
+      for (const severity of Object.keys(HEALTH_WEIGHTS)) {
+        for (const rule of page[severity]) {
+          const key = `${severity}|${rule}`;
+          const entry = ruleLoss.get(key) || { ruleId: rule, severity, pages: 0, cappedPages: 0, points: 0 };
+          entry.pages += 1;
+          if (scale < 1) entry.cappedPages += 1;
+          entry.points += (HEALTH_WEIGHTS[severity] * scale) / htmlResults.length;
+          ruleLoss.set(key, entry);
+        }
+      }
+    }
+  }
+
   return {
     errors,
     warnings,
@@ -388,6 +414,8 @@ export function healthMetrics(results, findings = []) {
     health,
     // Exact points each severity cost (healthScoreBreakdown apportions them).
     bandLoss,
+    // Exact points each rule cost, largest first; per severity they sum to bandLoss.
+    ruleLoss: [...ruleLoss.values()].sort((a, b) => b.points - a.points),
     indexable: htmlResults.filter((item) => item.indexability === 'Indexable').length,
     htmlCount: htmlResults.length,
     refusedCount: internalResults.filter((item) => item.crawlRefused).length,

@@ -590,8 +590,9 @@ textarea:focus-visible {
 .explain-toggle__switch.is-on .explain-toggle__knob { left: 16px; }
 
 /* The legend. Below ui-modal (1000), above page content. */
+/* Sits left of the report assistant's bubble, which owns the corner. */
 .explain-legend-btn {
-  position: fixed; right: 24px; bottom: 24px; z-index: 900;
+  position: fixed; right: 84px; bottom: 24px; z-index: 900;
   display: inline-flex; align-items: center; gap: 9px;
   height: 42px; padding: 0 18px 0 14px;
   border: none; border-radius: var(--r-pill);
@@ -643,6 +644,124 @@ textarea:focus-visible {
   padding: 3px 7px; border-radius: 4px;
   background: var(--card); border: 1px solid var(--border);
   font-family: var(--font-mono); font-size: 11.5px;
+}
+
+/* The report assistant (components/chat). The bubble owns the bottom-right
+   corner; its panel opens above it and over the legend, which is the more
+   recent thing the reader asked for. Below ui-modal (1000). */
+.report-chat-btn {
+  position: fixed; right: 24px; bottom: 21px; z-index: 950;
+  width: 48px; height: 48px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; background: var(--primary); color: var(--text-on-primary);
+  box-shadow: var(--shadow-lg); cursor: pointer;
+}
+.report-chat-btn:hover { background: var(--primary-hover); }
+.report-chat-btn:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.report-chat {
+  position: fixed; right: 24px; bottom: 80px; z-index: 950;
+  width: 400px; max-width: calc(100vw - 32px);
+  height: min(620px, calc(100vh - 110px));
+  display: flex; flex-direction: column;
+  background: var(--card); color: var(--text);
+  border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  font-family: var(--font-sans);
+}
+.report-chat__head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 14px 16px 12px; border-bottom: 1px solid var(--border);
+}
+.report-chat__heading { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.report-chat__scope { font-size: 13.5px; font-weight: 600; overflow-wrap: anywhere; }
+.report-chat__actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.report-chat__new {
+  border: 1px solid var(--border); background: var(--card); color: var(--text-2);
+  border-radius: var(--r-pill); padding: 4px 10px;
+  font-family: inherit; font-size: 12px; cursor: pointer;
+}
+.report-chat__new:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); }
+.report-chat__list {
+  flex: 1; overflow-y: auto; padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.report-chat__intro { display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; line-height: 1.5; color: var(--text-2); }
+.report-chat__intro p { margin: 0; }
+.report-chat__hint { margin: 0; font-size: 12px; color: var(--text-3); }
+.report-chat__starters { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.report-chat__starter {
+  text-align: left; padding: 8px 12px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  font-family: inherit; font-size: 13px; line-height: 1.4; cursor: pointer;
+}
+.report-chat__starter:hover { border-color: var(--primary); }
+.report-chat__msg { font-size: 13.5px; line-height: 1.55; overflow-wrap: anywhere; }
+.report-chat__msg--user {
+  align-self: flex-end; max-width: 85%;
+  padding: 8px 12px; border-radius: 12px 12px 4px 12px;
+  background: var(--primary-soft); color: var(--text); white-space: pre-wrap;
+}
+.report-chat__msg--assistant { align-self: stretch; color: var(--text); }
+.report-chat__msg--assistant p { margin: 0 0 8px; }
+.report-chat__msg--assistant p:last-child { margin-bottom: 0; }
+.report-chat__msg--assistant ul, .report-chat__msg--assistant ol { margin: 0 0 8px; padding-left: 20px; }
+.report-chat__msg--assistant ul { list-style: disc; }
+.report-chat__msg--assistant ol { list-style: decimal; }
+.report-chat__msg--assistant li + li { margin-top: 4px; }
+.report-chat__msg--assistant a { color: var(--primary-text); font-weight: 500; }
+/* Under an answer: the web pages a search cited, then the Position2 offer. */
+.report-chat__sources {
+  margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border);
+  font-size: 12px; color: var(--text-2);
+}
+.report-chat__sources-label { font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; font-size: 10.5px; }
+.report-chat__sources ol { margin: 4px 0 0; padding-left: 18px; list-style: decimal; }
+.report-chat__sources li + li { margin-top: 2px; }
+.report-chat__sources a { color: var(--primary-text); font-weight: 500; }
+.report-chat__source-host { color: var(--text-3); }
+.report-chat__expert {
+  margin-top: 10px; padding: 10px 12px; border-radius: 8px;
+  background: var(--primary-soft); color: var(--text);
+  display: flex; flex-direction: column; gap: 8px;
+  font-size: 12.5px; line-height: 1.45;
+}
+.report-chat__expert p { margin: 0; }
+.report-chat__expert-btn {
+  align-self: flex-start; padding: 6px 12px; border: none; border-radius: var(--r-pill);
+  background: var(--primary); color: var(--text-on-primary);
+  font-family: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer;
+}
+.report-chat__expert-btn:hover { background: var(--primary-hover); }
+.report-chat__expert-note { color: var(--text-2); font-style: italic; }
+.report-chat__typing { display: inline-flex; gap: 4px; padding: 4px 0; }
+.report-chat__typing > span {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--text-3);
+  animation: kr-pulse 1.2s ease-in-out infinite;
+}
+.report-chat__typing > span:nth-child(2) { animation-delay: 0.2s; }
+.report-chat__typing > span:nth-child(3) { animation-delay: 0.4s; }
+.report-chat__error { margin: 0; font-size: 12.5px; color: var(--viz-neg); }
+.report-chat__form {
+  display: flex; gap: 8px; align-items: flex-end;
+  padding: 10px 12px 12px; border-top: 1px solid var(--border);
+}
+.report-chat__input {
+  flex: 1; resize: none; min-height: 40px; max-height: 120px;
+  padding: 8px 10px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  font-family: inherit; font-size: 13.5px; line-height: 1.4;
+}
+.report-chat__input:focus { outline: none; border-color: var(--primary); }
+.report-chat__send {
+  height: 40px; padding: 0 16px; border: none; border-radius: 8px;
+  background: var(--primary); color: var(--text-on-primary);
+  font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer;
+}
+.report-chat__send:disabled { opacity: 0.5; cursor: default; }
+@media (max-width: 640px) {
+  .report-chat { left: 16px; right: 16px; width: auto; max-width: none; bottom: 80px; }
+  .report-chat-btn { right: 16px; }
+  .explain-legend-btn { right: 76px; }
 }
 
 /* One spinner rotation for the whole app. About twenty components inject their
