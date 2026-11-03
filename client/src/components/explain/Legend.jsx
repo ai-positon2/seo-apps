@@ -119,9 +119,9 @@ export default function Legend({ screen, ctx, working = null }) {
         onClick={() => setOpen((o) => !o)}
       >
         <span className="explain-legend-btn__mark" aria-hidden="true">
-          <span style={{ background: '#5FAF97' }} />
-          <span style={{ background: '#D3A45E' }} />
-          <span style={{ background: '#E9998C' }} />
+          <span style={{ background: '#5AA37F' }} />
+          <span style={{ background: '#D39A45' }} />
+          <span style={{ background: '#D0604F' }} />
         </span>
         {open ? 'Close legend' : 'Legend'}
       </button>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useActiveProject } from '../../lib/useActiveProject';
 import { reportChatApi } from '../../lib/reportChatApi';
@@ -6,7 +6,7 @@ import { useChatScreen } from './ChatContext';
 import ChatMessage from './ChatMessage';
 import { buildScreenCopy, screenName, starterQuestions } from './chatModel';
 
-// ── "Ask about this report" ─────────────────────────────────────────────────
+// ── Ask Vimi ────────────────────────────────────────────────────────────────
 //
 // A floating assistant for the header's project. On a report screen (one that
 // renders a Legend) it answers about that report and the project; anywhere
@@ -15,15 +15,61 @@ import { buildScreenCopy, screenName, starterQuestions } from './chatModel';
 // The conversation is the server's: it loads when the panel first opens for a
 // project and is kept per person, per project. An answer keeps streaming if
 // the panel is closed mid-way, and is there when it opens again.
+//
+// The launcher sits in the bottom-right corner with the Legend pill to its
+// left. Its width changes with its label ("Ask Vimi" / "Close"), so it
+// publishes that width as --chat-launcher-w and the Legend positions itself
+// from it.
 
-function BubbleIcon() {
+function ChatIcon() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.2 3.6c-.5.4-1.3.1-1.3-.6V16A2.5 2.5 0 0 1 4 13.5v-8Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
-      <path d="M8.5 8.5h7M8.5 11.5h4.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 5h16v11H10l-6 4z" stroke="currentColor" strokeWidth="1.9" strokeLinejoin="round" />
     </svg>
   );
 }
+
+function CloseIcon({ size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function SparkleIcon() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 3l2.2 6.8L21 12l-6.8 2.2L12 21l-2.2-6.8L3 12l6.8-2.2z" />
+    </svg>
+  );
+}
+
+function ArrowUpIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 19V5M6 11l6-6 6 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// "/" opens the panel only when the reader is not typing somewhere.
+function isTypingTarget(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+}
+
+// The composer grows with its text up to about five lines, then scrolls.
+const INPUT_MAX_PX = 110;
 
 export default function ChatBubble() {
   const { project } = useActiveProject();
@@ -46,6 +92,7 @@ export default function ChatBubble() {
   const listRef = useRef(null);
   const inputRef = useRef(null);
   const abortRef = useRef(null);
+  const launcherRef = useRef(null);
 
   // A different project is a different conversation.
   useEffect(() => {
@@ -75,9 +122,38 @@ export default function ChatBubble() {
   }, [open]);
 
   useEffect(() => {
+    if (!projectId) return undefined;
+    const onKey = (e) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || isTypingTarget(e.target)) return;
+      e.preventDefault();
+      setOpen((o) => !o);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [projectId]);
+
+  useEffect(() => {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, open]);
+
+  useLayoutEffect(() => {
+    const el = launcherRef.current;
+    const root = document.documentElement;
+    if (!el) return undefined;
+    const publish = () => root.style.setProperty('--chat-launcher-w', `${el.offsetWidth}px`);
+    publish();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(publish) : null;
+    ro?.observe(el);
+    return () => { ro?.disconnect(); root.style.removeProperty('--chat-launcher-w'); };
+  }, [projectId]);
+
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, INPUT_MAX_PX)}px`;
+  }, [input, open]);
 
   const send = useCallback(async (text) => {
     const question = text.trim();
@@ -135,10 +211,16 @@ export default function ChatBubble() {
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
       if (failed) setMessages((list) => list.filter((m) => !(m.id === tempAnswer.id && !m.content)));
-      setMessages((list) => list.map((m) => (m.id === tempAnswer.id ? { ...m, pending: false } : m)));
+      setMessages((list) => list
+        .filter((m) => !(m.id === tempAnswer.id && !m.content && controller.signal.aborted))
+        .map((m) => (m.id === tempAnswer.id ? { ...m, pending: false } : m)));
       setSending(false);
     }
   }, [sending, projectId, screen, getCtx, getWorking]);
+
+  // Stops the answer being written. The server keeps what had arrived, marked
+  // as stopped, so the conversation reads the same when it is reloaded.
+  const stop = useCallback(() => { abortRef.current?.abort(); }, []);
 
   const connectExpert = useCallback((message) => {
     setConnectRequested((prev) => new Set(prev).add(message.id));
@@ -157,44 +239,43 @@ export default function ChatBubble() {
   if (!projectId) return null;
 
   const name = screenName(screen);
-  const scope = name ? `${name} report and ${project.name} project data` : `${project.name} project data`;
+  const reading = `Reading ${name || 'project data'} · ${project.name}`;
+  const contextChip = name ? `${name} + project data` : 'Project data';
   const empty = loadedFor === projectId && messages.length === 0;
 
   return createPortal(
     <>
       {open && (
-        <div id={panelId} role="dialog" aria-label="Ask about this report" className="report-chat">
+        <div id={panelId} role="dialog" aria-label="Ask Vimi" className="report-chat">
           <div className="report-chat__head">
+            <span className="report-chat__avatar"><SparkleIcon /></span>
             <div className="report-chat__heading">
-              <span className="explain-kicker">Ask about this report</span>
-              <span className="report-chat__scope">Reading: {scope}</span>
+              <span className="report-chat__title">Vimi</span>
+              <span className="report-chat__scope"><span className="report-chat__dot" aria-hidden="true" />{reading}</span>
             </div>
-            <div className="report-chat__actions">
-              {messages.length > 0 && (
-                <button type="button" className="report-chat__new" onClick={newConversation} disabled={sending}>
-                  New conversation
-                </button>
-              )}
-              <button type="button" className="explain-close explain-close--lg" aria-label="Close assistant" onClick={() => setOpen(false)}>×</button>
-            </div>
+            <button
+              type="button"
+              className="report-chat__icon-btn"
+              aria-label="New conversation"
+              title="New conversation"
+              onClick={newConversation}
+              disabled={sending || messages.length === 0}
+            >
+              <PlusIcon />
+            </button>
+            <button type="button" className="report-chat__icon-btn" aria-label="Close" title="Close" onClick={() => setOpen(false)}>
+              <CloseIcon size={14} />
+            </button>
           </div>
 
           <div className="report-chat__list" ref={listRef} aria-live="polite">
             {loadError && <p className="report-chat__error">Could not load the conversation: {loadError}</p>}
             {!loadError && loadedFor !== projectId && <p className="report-chat__hint">Loading…</p>}
             {empty && (
-              <div className="report-chat__intro">
-                <p>
-                  {name
-                    ? `Ask about this ${name} report (how a score is worked out, what to fix first) or any SEO and AI-search question.`
-                    : 'Ask about this project, or any SEO and AI-search question. This page has no report of its own I can read, so project questions use its overall data.'}
-                </p>
-                <p className="report-chat__hint">Figures about your site come only from its data. For anything recent I check current sources.</p>
-                <div className="report-chat__starters">
-                  {starterQuestions(screen).map((q) => (
-                    <button key={q} type="button" className="report-chat__starter" onClick={() => send(q)}>{q}</button>
-                  ))}
-                </div>
+              <div className="report-chat__chips">
+                {starterQuestions(screen).map((q) => (
+                  <button key={q} type="button" className="report-chat__chip" onClick={() => send(q)}>{q}</button>
+                ))}
               </div>
             )}
             {messages.map((m) => (
@@ -217,34 +298,47 @@ export default function ChatBubble() {
             className="report-chat__form"
             onSubmit={(e) => { e.preventDefault(); send(input); }}
           >
-            <textarea
-              ref={inputRef}
-              className="report-chat__input"
-              rows={2}
-              maxLength={2000}
-              placeholder={name ? `Ask about the ${name} report, or any SEO question…` : 'Ask about this project, or any SEO question…'}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input); }
-              }}
-            />
-            <button type="submit" className="report-chat__send" disabled={sending || !input.trim()}>
-              {sending ? 'Answering…' : 'Ask'}
-            </button>
+            <div className="report-chat__composer">
+              <textarea
+                ref={inputRef}
+                className="report-chat__input"
+                rows={1}
+                maxLength={2000}
+                aria-label="Your question"
+                placeholder="Ask anything about this report…"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input); }
+                }}
+              />
+              <div className="report-chat__composer-row">
+                <span className="report-chat__context"><span className="report-chat__dot" aria-hidden="true" />{contextChip}</span>
+                {sending
+                  ? <button type="button" className="report-chat__send" onClick={stop}>Stop</button>
+                  : (
+                    <button type="submit" className="report-chat__send" disabled={!input.trim()}>
+                      Ask <ArrowUpIcon />
+                    </button>
+                  )}
+              </div>
+            </div>
           </form>
         </div>
       )}
       <button
+        ref={launcherRef}
         type="button"
         className="report-chat-btn"
         aria-expanded={open}
         aria-controls={panelId}
-        aria-label={open ? 'Close the report assistant' : 'Ask about this report'}
-        title="Ask about this report"
+        aria-keyshortcuts="/"
+        aria-label={open ? 'Close Ask Vimi' : 'Ask Vimi'}
         onClick={() => setOpen((o) => !o)}
       >
-        <BubbleIcon />
+        {open ? <CloseIcon /> : <ChatIcon />}
+        <span>{open ? 'Close' : 'Ask Vimi'}</span>
+        <span className="report-chat-btn__key" aria-hidden="true">/</span>
       </button>
     </>,
     document.body,
