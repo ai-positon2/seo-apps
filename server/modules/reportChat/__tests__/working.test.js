@@ -241,3 +241,28 @@ test('SEO & GEO: the caps this page actually has, or none', () => {
   const geo = buildWorking('seogeo', { overall: 84, composite: 84, areas: [], checks: [], sides: { geo: { score: 55, cap: { applied: true, value: 55, reasons: ['Answerability is 0/10'] } } } });
   assert.equal(geo.capsOnThisPage, 'GEO side held at 55 (Answerability is 0/10). No other cap applies to this page.');
 });
+
+test('Tech Audit (3.6): on capped pages the what-if uses the exact gain, and site rules are their own bar', () => {
+  const w = buildWorking('tech', {
+    score: 0,
+    pagesScored: 1,
+    bands: [{ severity: 'error', exactPoints: 100, barShows: 95, pages: 1 }, { severity: 'site', exactPoints: 5, barShows: 5, pages: 0 }],
+    rules: [
+      // One page with three error rules: 120 points, capped at 100, so each
+      // rule's share is 33.3 — but fixing one leaves 80, a gain of 20.
+      { rule: 'a', severity: 'error', pagesAffected: 1, pagesCapped: 1, points: 33.33, gainIfFixed: 20 },
+      { rule: 'b', severity: 'error', pagesAffected: 1, pagesCapped: 1, points: 33.33, gainIfFixed: 20 },
+      { rule: 'c', severity: 'error', pagesAffected: 1, pagesCapped: 1, points: 33.33, gainIfFixed: 20 },
+      { rule: 'crawl-blocked', severity: 'error', pagesAffected: 0, points: 5, gainIfFixed: 5, siteLevel: 'site' },
+    ],
+    fewestFixesToReach: { 50: '3 fixes (the fewest that reach 50): a, b, c → the score becomes 95 (exact 95)' },
+  });
+  const a = w.rules.find((r) => r.rule === 'a');
+  assert.equal(a.scoreIfOnlyThisWereFixed, Math.round(100 - 105 + 20), 'not 100 − 105 + 33.33');
+  assert.equal(a.gainIfFixed, 20);
+  const site = w.rules.find((r) => r.rule === 'crawl-blocked');
+  assert.match(site.calculation, /charged once for the site/);
+  assert.equal(w.rulesTotalBySeverity.site.points, 5);
+  assert.equal(w.rulesTotalBySeverity.error.points, 99.99);
+  assert.match(w.fewestFixesToReach[50], /a, b, c/, 'the report\'s exact plan is used as sent');
+});

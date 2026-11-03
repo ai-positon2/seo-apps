@@ -9,6 +9,17 @@ const { structuredDataFromPage } = require("./structured-data");
 // Pages with less main text than this are not fingerprinted: too little of
 // their own to be a duplicate of anything.
 const NEAR_DUPLICATE_MIN_WORDS = 50;
+// A page whose served HTML has an empty <title> is rendered before it is
+// charged "Missing page title" (an error, 40 points): some sites set the title
+// with JavaScript, which Google runs. SoundHound lost 32 points on 1,485
+// newsroom pages whose titles were real in a browser. Rendered one by one up to
+// this many; once most of the first ones turn out to be set by JavaScript (or
+// to redirect elsewhere), the rest of the crawl renders every page instead.
+const TITLE_RENDER_LIMIT = 50;
+const TITLE_RENDER_SWITCH_AFTER = 10;
+const TITLE_RENDER_SWITCH_SHARE = 0.8;
+const servedTitleEmpty = (html) => !/<title[^>]*>\s*[^<\s][^<]*<\/title>/i.test(String(html || "").slice(0, 200000));
+
 // Browser tabs rendering at once when a crawl renders every page.
 const RENDER_SLOTS = 2;
 // Static files a rendered page loads (scripts, styles, fonts, images) are kept
@@ -69,6 +80,10 @@ const BROWSER_RECHECK_USER_AGENT =
 const SHARE_ENDPOINT =
   /^https?:\/\/(?:www\.)?(?:(?:twitter|x)\.com\/(?:intent|share)|facebook\.com\/(?:sharer|share\.php|dialog\/share)|linkedin\.com\/(?:shareArticle|sharing\/share-offsite)|reddit\.com\/submit|pinterest\.[a-z.]+\/pin\/create|api\.whatsapp\.com\/send|wa\.me\/|t\.me\/share|tumblr\.com\/(?:share|widgets\/share)|news\.ycombinator\.com\/submitlink|bsky\.app\/intent)/i;
 const SKIP_SCHEMES = /^(mailto:|tel:|javascript:|data:|blob:)/i;
+// Cloudflare's email-protection address stands in for a mailto: link and is
+// skipped with them (cdnPaths.js).
+const { isCdnManagedLink } = require("./cdnPaths");
+const skipLink = (raw) => SKIP_SCHEMES.test(raw) || isCdnManagedLink(raw);
 const ASSET_EXTENSIONS =
   /\.(?:avif|bmp|css|eot|gif|ico|jpe?g|js|json|map|mp3|mp4|ogg|otf|pdf|png|svg|tiff?|ttf|wav|webm|webp|woff2?|xml|zip)(?:$|\?)/i;
 const TEXT_ASSET = /(?:javascript|json|css|xml|text\/)/i;
@@ -649,7 +664,7 @@ function imageSourceFromElement($, element, baseUrl) {
         };
         continue;
       }
-      if (SKIP_SCHEMES.test(raw)) continue;
+      if (skipLink(raw)) continue;
       const url = normalizeUrl(raw, baseUrl);
       if (url) {
         return {
@@ -670,7 +685,7 @@ function imageSourceFromElement($, element, baseUrl) {
       .reverse();
     for (const source of pictureSources) {
       for (const raw of srcsetUrls($(source).attr("srcset"))) {
-        if (!raw || SKIP_SCHEMES.test(raw)) continue;
+        if (!raw || skipLink(raw)) continue;
         const url = normalizeUrl(raw, baseUrl);
         if (url) {
           return {
@@ -693,7 +708,7 @@ function imageResourceSourcesFromElement($, element, baseUrl) {
   const addCandidates = (sourceElement, attribute, values) => {
     for (const candidate of values) {
       const raw = String(candidate || "").trim();
-      if (!raw || SKIP_SCHEMES.test(raw)) continue;
+      if (!raw || skipLink(raw)) continue;
       const url = normalizeUrl(raw, baseUrl);
       if (!url) continue;
       candidates.push({
@@ -3881,6 +3896,8 @@ class SeoCrawler extends EventEmitter {
       // is audited as served, and counted.
       let renderedWithJavaScript = false;
       let javascriptRedirectUrl = "";
+      // Whether the HTML as served had no title, for "title set only by JavaScript".
+      const titleMissingAsServed = Boolean(body) && contentType.includes("html") && servedTitleEmpty(body);
       if (
         this.options.renderJavaScript &&
         !job.external &&
@@ -3990,8 +4007,68 @@ class SeoCrawler extends EventEmitter {
           }
         }
       }
+      // The served HTML has no title: render this page before calling it missing.
+      if (
+        !renderedWithJavaScript &&
+        !javascriptRedirectUrl &&
+        !this.options.renderJavaScript &&
+        !job.external &&
+        body &&
+        contentType.includes("html") &&
+        usable.status >= 200 &&
+        usable.status < 300 &&
+        !result.title
+      ) {
+        const titleRender = (this._titleRender ||= { tried: 0, fixed: 0 });
+        if (titleRender.tried < TITLE_RENDER_LIMIT) {
+          titleRender.tried += 1;
+          const rendered = await this._renderedHtml(job.url, body, usable.status);
+          if (rendered?.javascriptRedirect) {
+            javascriptRedirectUrl = rendered.javascriptRedirect;
+            titleRender.fixed += 1;
+          } else if (typeof rendered === "string" && rendered) {
+            this.linkEdges.length = edgeMarks[0];
+            this.resourceEdges.length = edgeMarks[1];
+            let renderedResult = null;
+            try {
+              renderedResult = this._extract({
+                job, response: usable, body: rendered, contentType, contentLength, bodyBytes, bodyTruncated,
+                bodyError, sniffedHtml, charsetDeclared, responseTime, redirectUrl, redirectLocation,
+              });
+            } catch {
+              renderedResult = null;
+            }
+            if (renderedResult?.title) {
+              result = renderedResult;
+              renderedWithJavaScript = true;
+              titleRender.fixed += 1;
+            } else {
+              this.linkEdges.length = edgeMarks[0];
+              this.resourceEdges.length = edgeMarks[1];
+              result = this._extract({
+                job, response: usable, body, contentType, contentLength, bodyBytes, bodyTruncated,
+                bodyError, sniffedHtml, charsetDeclared, responseTime, redirectUrl, redirectLocation,
+              });
+            }
+          }
+          if (
+            titleRender.tried >= TITLE_RENDER_SWITCH_AFTER &&
+            titleRender.fixed / titleRender.tried >= TITLE_RENDER_SWITCH_SHARE
+          ) {
+            this.options.renderJavaScript = true;
+            this.siteDiagnostics.titleRenderSwitch = { tried: titleRender.tried, fixed: titleRender.fixed };
+            this.emit("log", {
+              level: "warning",
+              message: "Page titles are set by JavaScript: rendering JavaScript for the rest of the crawl.",
+            });
+          }
+        }
+      }
       if (renderedWithJavaScript) {
         result.renderedWithJavaScript = true;
+        // Google runs the script and sees the title; crawlers that read the
+        // served HTML do not. Reported as one site-level warning (analyzer).
+        if (titleMissingAsServed && result.title) result.titleOnlyAfterJavaScript = true;
       } else if (javascriptRedirectUrl) {
         // Visitors are sent on to another URL: this page's served body is not
         // what anyone reads. Reported like a meta refresh (analyzer.js).
@@ -4415,7 +4492,7 @@ class SeoCrawler extends EventEmitter {
       } = {},
     ) => {
       for (const reference of cssResourceReferences(css, { allowImports })) {
-        if (SKIP_SCHEMES.test(reference.raw)) continue;
+        if (skipLink(reference.raw)) continue;
         const targetUrl = normalizeUrl(reference.raw, baseUrl);
         if (!targetUrl) continue;
         const sourceAttribute = attributePrefix
@@ -4699,7 +4776,7 @@ class SeoCrawler extends EventEmitter {
     $("a[href], area[href]").each((_, element) => {
       const link = $(element);
       const href = (link.attr("href") || "").trim();
-      if (!href || SKIP_SCHEMES.test(href)) return;
+      if (!href || skipLink(href)) return;
       const normalized = normalizeUrl(href, documentBase.url);
       if (!normalized) return;
       anchorCount += 1;
@@ -4876,7 +4953,7 @@ class SeoCrawler extends EventEmitter {
       $(selector).each((_, element) => {
         if (!predicate(element)) return;
         const raw = ($(element).attr(attribute) || "").trim();
-        if (!raw || SKIP_SCHEMES.test(raw)) return;
+        if (!raw || skipLink(raw)) return;
         const normalized = normalizeUrl(raw, documentBase.url);
         if (!normalized) return;
         const source = { attribute, raw };

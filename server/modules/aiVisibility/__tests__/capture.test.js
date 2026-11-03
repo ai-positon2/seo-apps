@@ -31,6 +31,25 @@ function withSurface(id, impl) {
 
 section('a failed capture is never an absence');
 
+// ── Everyday words are not brand mentions ──────────────────────────────────
+// IDFC's product "FIRST" matched every "digital-first"; Cabinet's "Core"
+// matched "core factors"; NiCE matched "nice-to-have".
+
+test('a capitalised one-word name must be written as a name', () => {
+  assert.strictEqual(capture.namesBrand('A digital-first, safety-first approach', ['FIRST']), false);
+  assert.strictEqual(capture.namesBrand('Online-First and fintech-friendly banks', ['FIRST']), false);
+  assert.strictEqual(capture.namesBrand('IDFC FIRST Bank offers home loans', ['FIRST']), true);
+  assert.strictEqual(capture.namesBrand('the core factors you should consider', ['Core']), false);
+  assert.strictEqual(capture.namesBrand('Core by Cabinet automates compliance', ['Core']), true);
+  assert.strictEqual(capture.namesBrand('a nice-to-have feature', ['NiCE']), false);
+  assert.strictEqual(capture.namesBrand('NICE CXone and NiCE Enlighten', ['NiCE']), true);
+});
+
+test('names of several words, and lower-case names, still match in any case', () => {
+  assert.strictEqual(capture.namesBrand('try gentle dental in boston', ['Gentle Dental']), true);
+  assert.strictEqual(capture.namesBrand('HDFC and ICICI', ['hdfc']), true);
+});
+
 test('a provider that throws leaves mentioned null, not false', async () => {
   const undo = withSurface('x:boom', async () => { throw new Error('DataForSEO task 40402: out of credit'); });
   const row = await capture.measure({ surfaceId: 'x:boom', prompt: 'best dentist', brand: BRAND });

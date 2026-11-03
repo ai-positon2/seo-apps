@@ -704,15 +704,15 @@ test("SUMMARY follows the run's importance order within a tier, and says why", a
     id: `f-${ruleId}-${n}`, ruleId, ...definitions[ruleId], url, targetUrl: "", detail: "",
     statusCode: 200, detectedValue: "", reviewStatus: "Needs review", reviewerNotes: "",
   });
-  assert.equal(definitions["title-long"].priority, definitions["h1-missing"].priority, "fixture: same tier");
+  assert.equal(definitions["title-duplicate"].priority, definitions["h1-missing"].priority, "fixture: same tier");
   const findings = [
-    make(1, "title-long", "https://example.com/"),
+    make(1, "title-duplicate", "https://example.com/"),
     make(1, "h1-missing", "https://example.com/tag/a"),
     make(2, "h1-missing", "https://example.com/tag/b"),
     make(3, "h1-missing", "https://example.com/tag/c"),
   ];
   const ruleOrder = [
-    { ruleId: "title-long", rank: 1, reason: "On 1 page, the homepage." },
+    { ruleId: "title-duplicate", rank: 1, reason: "On 1 page, the homepage." },
     { ruleId: "h1-missing", rank: 2, reason: "On 3 pages." },
   ];
   const buffer = await buildAuditWorkbook({ findings, catalog, siteUrl: "https://example.com/", crawlDate: "2026-09-23T10:00:00.000Z", ruleOrder });
@@ -724,7 +724,7 @@ test("SUMMARY follows the run's importance order within a tier, and says why", a
     const cell = row.getCell(2);
     if (cell.value?.hyperlink) titles.push({ text: cell.value.text, note: cell.note });
   });
-  assert.deepEqual(titles.map((t) => t.text), [definitions["title-long"].title, definitions["h1-missing"].title]);
+  assert.deepEqual(titles.map((t) => t.text), [definitions["title-duplicate"].title, definitions["h1-missing"].title]);
   const noteText = (note) => (typeof note === "string" ? note : (note?.texts || []).map((t) => t.text).join(""));
   assert.match(noteText(titles[0].note), /the homepage/);
 });

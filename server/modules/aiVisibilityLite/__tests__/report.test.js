@@ -444,7 +444,7 @@ test('all four factors combine by SCORE_WEIGHTS when every one is available', ()
   }));
   const runSentiment = new Map([['run1', { score: 60, at: ago(1) }]]);
 
-  const out = report.build({
+  const out = report.build({ options: { minMeasured: 1 },
     captures, prompts: PROMPTS, brand: BRAND, competitors: [RIVAL], runSentiment,
   });
 
@@ -497,7 +497,7 @@ test('a missing perception reweights across named/rank/cited, never scores it 0'
     id: `s${i}`, promptId, runId: 'run1', mentioned: true, cited: true, answerText: text,
   }));
   // No runSentiment passed at all.
-  const out = report.build({ captures, prompts: PROMPTS, brand: BRAND, competitors: [RIVAL] });
+  const out = report.build({ options: { minMeasured: 1 }, captures, prompts: PROMPTS, brand: BRAND, competitors: [RIVAL] });
 
   // (100*40 + 0*25 + 100*15) / 80 = 68.75 -> 69. NOT (100*40+0*25+0*20+100*15)/100
   // = 55, which is what treating the missing factor as a zero would give —
@@ -513,7 +513,7 @@ test('rank is excluded, not zeroed, with only one brand tracked', () => {
     cap({ mentioned: true, runId: 'run1' }),
     cap({ mentioned: false, promptId: 'p2', runId: 'run1' }),
   ];
-  const out = report.build({ captures, prompts: PROMPTS, brand: BRAND });
+  const out = report.build({ options: { minMeasured: 1 }, captures, prompts: PROMPTS, brand: BRAND });
 
   // named=50, cited=0 (default cited:false), reweighted over named+cited only:
   // (50*40 + 0*15) / 55 = 36.36 -> 36.
@@ -527,6 +527,46 @@ test('nothing measured leaves score as — , the same as namedRate', () => {
   assert.strictEqual(out.headline.score.display, '—');
 });
 
+section('No score without enough measured answers');
+
+// Twelve measured answers in the current window, all naming the client.
+const enough = () => Array.from({ length: 12 }, (_, i) => cap({
+  id: `e${i}`, promptId: i % 2 ? 'p2' : 'p1', runId: 'run1', mentioned: true,
+}));
+
+test('no answers in the window is no score, even with a sentiment reading on file', () => {
+  // A reading from an old run is all there is: it must not BE the score.
+  const runSentiment = new Map([['old', { score: 72, at: ago(60) }]]);
+  const out = report.build({ captures: [cap({ capturedAt: ago(60), runId: 'old' })], prompts: PROMPTS, brand: BRAND, runSentiment });
+  assert.strictEqual(out.headline.score.value, null);
+  assert.strictEqual(out.headline.score.display, '—');
+});
+
+test('fewer than 10 measured answers is no score, and the note says why', () => {
+  const runSentiment = new Map([['run1', { score: 80, at: ago(1) }]]);
+  const captures = enough().slice(0, 4);
+  const out = report.build({ captures, prompts: PROMPTS, brand: BRAND, runSentiment });
+  assert.strictEqual(out.headline.score.value, null);
+  assert.match(out.headline.score.note, /Only 4 answers were measured.*at least 10/);
+});
+
+test('10 or more measured answers are scored', () => {
+  const out = report.build({ captures: enough(), prompts: PROMPTS, brand: BRAND });
+  assert.notStrictEqual(out.headline.score.value, null);
+});
+
+test('a sentiment reading older than the window is ignored', () => {
+  const runSentiment = new Map([['old', { score: 10, at: ago(60) }]]);
+  const out = report.build({ captures: enough(), prompts: PROMPTS, brand: BRAND, runSentiment });
+  const perception = out.headline.scoreBreakdown.find((p) => p.key === 'perception');
+  assert.strictEqual(perception.included, false, 'the 60-day-old reading does not count');
+});
+
+test('a run with fewer than 10 measured answers has no score of its own', () => {
+  const out = report.build({ captures: enough().slice(0, 3), prompts: PROMPTS, brand: BRAND });
+  assert.ok(out.trend.every((r) => r.score.value === null));
+});
+
 section('avgScore — the mean of each run\'s own score');
 
 test('avgScore averages each RUN\'s own composite score, not every capture pooled together', () => {
@@ -538,7 +578,7 @@ test('avgScore averages each RUN\'s own composite score, not every capture poole
     cap({ id: 'b2', runId: 'runB', mentioned: false, capturedAt: ago(5) }),
     cap({ id: 'b3', runId: 'runB', mentioned: true, promptId: 'p2', capturedAt: ago(5) }),
   ];
-  const out = report.build({ captures, prompts: PROMPTS, brand: BRAND });
+  const out = report.build({ options: { minMeasured: 1 }, captures, prompts: PROMPTS, brand: BRAND });
   // Run A: named=100, cited=100 -> (100*40+100*15)/55 = 100.
   // Run B: named=33.3, cited=0  -> (33.3*40+0*15)/55  = 24.24.
   // Mean of the two runs' OWN scores: (100 + 24.24) / 2 = 62.12 -> 62.
@@ -648,6 +688,8 @@ test('an answer found not to be about you leaves every count, and is reported', 
   assert.strictEqual(out.sentiment.named, 1);
   assert.strictEqual(out.sentiment.analysed, 1);
   assert.strictEqual(out.sentiment.score.value, 100);
+  // …and it is not a mention: the named rate counts 1 of 2, not 2 of 2.
+  assert.strictEqual(out.headline.namedRate.value, 0.5);
 });
 
 test('the headline composite uses the answer-based score once 3+ answers are analysed', () => {
@@ -657,7 +699,7 @@ test('the headline composite uses the answer-based score once 3+ answers are ana
     cap({ runId: 'r1', engine: 'google', answerText: LISTED_FIRST }),
   ];
   const runSentiment = new Map([['r1', { score: 20, at: ago(1) }]]);
-  const out = report.build({
+  const out = report.build({ options: { minMeasured: 1 },
     captures,
     prompts: PROMPTS,
     brand: BRAND,
@@ -668,7 +710,7 @@ test('the headline composite uses the answer-based score once 3+ answers are ana
   assert.strictEqual(factor.value, 100, 'three positive #1 answers, not the older one-call reading of 20');
   assert.match(out.headline.score.note, /Sentiment over 3 analysed answers/);
 
-  const fewer = report.build({
+  const fewer = report.build({ options: { minMeasured: 1 },
     captures, prompts: PROMPTS, brand: BRAND, runSentiment, answerTones: [tone('r1', 'openai', 'positive')],
   });
   assert.strictEqual(fewer.headline.scoreBreakdown.find((f) => f.key === 'perception').value, 20,

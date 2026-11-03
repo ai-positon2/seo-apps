@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { scoreTone } from '../lib/scoreVerdict';
 
+// The platform's one set of bands (80 / 60, lib/scoreVerdict.js).
 function getBandColor(score) {
-  if (score >= 70) return 'var(--success)';
-  if (score >= 45) return 'var(--warning)';
-  return 'var(--danger)';
+  return `var(--${scoreTone(score) || 'danger'})`;
 }
 
 /**

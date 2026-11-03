@@ -4,6 +4,7 @@
 // Project/Page/Cluster/Flag shape the export (Stage 9) reads from. This is
 // the "real" analysis — Stage 3's draft-clustering stays separate (instant,
 // slug-only, no crawl) and is not replaced by this.
+const { collapseCopies, reindexLinkGraph } = require('./collapseCopies');
 const crypto = require('crypto');
 const { crawlSite } = require('./crawler');
 const { buildLinkGraphAndDepths } = require('./linkGraph');
@@ -112,9 +113,13 @@ async function runFullAnalysis(urls, project, { onProgress } = {}) {
  *                                   its depth BFS — a caller that already has
  *                                   crawl depths should not repeat it.
  */
-async function analyzeCrawledPages(crawlResult, project, { onProgress, linkGraph, orphanDetection = true } = {}) {
+async function analyzeCrawledPages(crawlResult, project, { onProgress, linkGraph: givenGraph, orphanDetection = true } = {}) {
   const notify = (stage, detail) => onProgress && onProgress(stage, detail);
-  const pages = crawlResult.pages;
+  // Translated and regional copies of one article are one page here, or they
+  // cluster with each other as a "topic" (collapseCopies.js).
+  const { keep, collapsed } = collapseCopies(crawlResult.pages || []);
+  const pages = keep.map((i) => crawlResult.pages[i]);
+  const linkGraph = collapsed.length ? reindexLinkGraph(givenGraph, crawlResult.pages, keep, collapsed) : givenGraph;
 
   notify('linkgraph', { message: 'Building internal link graph…' });
   const { graph, inboundCounts, depths } = linkGraph
@@ -267,6 +272,8 @@ async function analyzeCrawledPages(crawlResult, project, { onProgress, linkGraph
     // Stated rather than left as zero orphan flags, which would read as "none".
     ...(orphanDetection ? {} : { orphanDetectionWithheld: true }),
     cannibalization: diag.cannibalization,
+    // Copies analysed as the page they copy, so the count is visible rather than lost.
+    ...(collapsed.length ? { copiesCollapsed: collapsed } : {}),
     crawlMeta: {
       sampled: crawlResult.sampled,
       sampleSize: crawlResult.sampleSize,

@@ -74,10 +74,16 @@ async function getDomainRank(domain, database) {
   const rows = parseRows(raw);
   if (!rows.length) return null;
   const p = rows[0];
+  // An unparseable figure is unknown, not zero: a 0 here used to make a rival
+  // with no Semrush data read as a site with no traffic.
+  const count = (value) => {
+    const n = parseInt(value, 10);
+    return Number.isFinite(n) ? n : null;
+  };
   return {
     domain,
-    organicKeywords: parseInt(p[0]) || 0,
-    organicTraffic: parseInt(p[1]) || 0,
+    organicKeywords: count(p[0]) ?? 0,
+    organicTraffic: count(p[1]),
   };
 }
 

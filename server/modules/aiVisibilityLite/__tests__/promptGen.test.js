@@ -148,5 +148,17 @@ test('keeps real names', () => {
   }
 });
 
+test('the question set is half recommendation, half informational', () => {
+  // Only 24% of live questions asked for a recommendation, and mention rates
+  // differ 23% vs 13% by type, so projects were not measured alike.
+  const { balancedMix } = require('../promptGen');
+  const make = (intent, n) => Array.from({ length: n }, (_, i) => ({ text: `${intent} ${i}`, intent }));
+  const picked = balancedMix([...make('informational', 9), ...make('commercial', 3), ...make('comparison', 2)], 10);
+  assert.strictEqual(picked.length, 10);
+  assert.strictEqual(picked.filter((p) => p.intent !== 'informational').length, 5);
+  // Short of one kind, it fills from the other rather than asking fewer.
+  assert.strictEqual(balancedMix(make('informational', 12), 10).length, 10);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exitCode = 1;

@@ -190,6 +190,40 @@ function auditOrder(rows, inbound = null) {
   });
 }
 
+// ── A spread of pages, not the shallowest few ──────────────────────────────
+//
+// Fix 4.1 (5) / 5.4: a budget cut the ranked list from the top, so a site's
+// score was its homepage and the pages one click away — 11 of 19 site scores
+// were one page, and Nike's audit was ten country homepages. Pages are taken
+// in turn from each section of the site (the first path segment after any
+// locale), each section in its own audit order, so a small budget covers
+// different templates. Locale homepages share the root's section and queue
+// behind it rather than filling the budget.
+const LOCALE_SEGMENT = /^[a-z]{2}(?:[-_][a-z]{2,4})?$/i;
+function sectionOf(url) {
+  try {
+    const segs = new URL(url).pathname.split('/').filter(Boolean);
+    const rest = segs.length && LOCALE_SEGMENT.test(segs[0]) ? segs.slice(1) : segs;
+    return rest.length > 1 ? rest[0].toLowerCase() : rest.length ? `/${rest[0].toLowerCase()}` : '';
+  } catch {
+    return '';
+  }
+}
+function spreadOrder(ordered) {
+  const groups = new Map();
+  for (const row of ordered) {
+    const key = sectionOf(row.data?.url || row.url || '');
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  const queues = [...groups.values()];
+  const out = [];
+  for (let i = 0; out.length < ordered.length; i += 1) {
+    for (const q of queues) if (i < q.length) out.push(q[i]);
+  }
+  return out;
+}
+
 /**
  * @param {string} projectId
  * @param {object} [opts]
@@ -261,7 +295,7 @@ async function listCrawledPages(projectId, { limit = null, workspaceId = null } 
     ? rows.length >= maxUrls
     : null;
 
-  const ordered = auditOrder(usable, inbound);
+  const ordered = spreadOrder(auditOrder(usable, inbound));
   const pages = ordered.slice(0, budget).map((r, i) => {
     const url = r.data?.url || r.url;
     const depth = Number(r.data?.depth);
@@ -360,6 +394,8 @@ module.exports = {
   listPageContent,
   latestCompletedCrawl,
   auditOrder,
+  spreadOrder,
+  sectionOf,
   inboundCounts,
   canonicalKey,
   PAGE_SIZE,

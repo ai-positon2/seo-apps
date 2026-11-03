@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MiniStat, UnderlineTabs, bandColor } from './reportKit';
+import { MiniStat, UnderlineTabs, bandColor, capReason } from './reportKit';
 import IssuesPanel from './IssuesPanel';
 import GeoPanel from './GeoPanel';
 import ScoreDashboard from '../ScoreDashboard';
@@ -67,7 +67,7 @@ export default function DetailsView({ findings, ai, onPage, auditedUrl }) {
             fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5,
           }}
         >
-          Capped at {cap.value} by a blocking issue: {cap.reason}.
+          Capped at {cap.value}: {capReason(cap)}
           {composite !== null && ` Uncapped composite is ${composite}.`}
         </div>
       )}

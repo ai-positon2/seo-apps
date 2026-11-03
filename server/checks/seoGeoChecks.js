@@ -240,8 +240,8 @@ function checksA($) {
   } else {
     pass(A1, titleText, 'Title tag present.');
     titleText.length > 0 ? pass(A2, titleText, 'Title tag has content.') : fail(A2,'error','','Title tag is empty.');
-    len >= 30 ? pass(A3, `${len} chars`, `Title is ${len} characters.`) : warn(A3, `${len} chars`, `Title is only ${len} characters (min 30).`);
-    len <= 60 ? pass(A4, `${len} chars`, `Title is ${len} characters.`) : warn(A4, `${len} chars`, `Title is ${len} characters (max 60).`);
+    len >= LIMITS.titleMinLength ? pass(A3, `${len} chars`, `Title is ${len} characters.`) : warn(A3, `${len} chars`, `Title is only ${len} characters (min ${LIMITS.titleMinLength}).`);
+    len <= LIMITS.titleMaxLength ? pass(A4, `${len} chars`, `Title is ${len} characters.`) : warn(A4, `${len} chars`, `Title is ${len} characters (max ${LIMITS.titleMaxLength}).`);
 
     const h1Text = $('h1').first().text().trim().toLowerCase();
     titleText.toLowerCase() === h1Text && h1Text.length > 0
@@ -272,6 +272,11 @@ function checksA($) {
 
 // ── B. Meta Description ───────────────────────────────────────────────────────
 
+// Fix 4.1 (6): one threshold table with Tech Audit (crawlScope/thresholds.js).
+// Meta description "too short" was under 120 characters here and under 70
+// there, so the same page passed one module and failed the other.
+const { DEFAULT_THRESHOLDS: LIMITS } = require('../modules/crawlScope/thresholds');
+
 function checksB($) {
   const metas = $('meta[name="description"], meta[name="Description"]');
   const content = metas.first().attr('content') || '';
@@ -286,8 +291,8 @@ function checksB($) {
 
   metas.length > 0 ? pass(B1, content.substring(0,80), 'Meta description present.') : warn(B1,null,'Meta description missing.');
   len > 0 ? pass(B2, `${len} chars`, 'Meta description has content.') : warn(B2,'','Meta description is empty.');
-  len >= 120 ? pass(B3, `${len} chars`, `Length is ${len} characters.`) : notice(B3, `${len} chars`, `Length is ${len} characters (min 120 recommended).`);
-  len <= 160 ? pass(B4, `${len} chars`, `Length is ${len} characters.`) : warn(B4, `${len} chars`, `Length is ${len} characters (max 160).`);
+  len >= LIMITS.metaMinLength ? pass(B3, `${len} chars`, `Length is ${len} characters.`) : notice(B3, `${len} chars`, `Length is ${len} characters (min ${LIMITS.metaMinLength} recommended).`);
+  len <= LIMITS.metaMaxLength ? pass(B4, `${len} chars`, `Length is ${len} characters.`) : warn(B4, `${len} chars`, `Length is ${len} characters (max ${LIMITS.metaMaxLength}).`);
 
   const promoFound = PROMO_WORDS.filter(w => content.toLowerCase().includes(w));
   promoFound.length ? notice(B5, promoFound.join(', '), `Promotional words detected: ${promoFound.join(', ')}.`) : pass(B5, null, 'No promotional tone detected.');
@@ -301,7 +306,11 @@ function checksB($) {
 
 function checksC($, httpHeaders) {
   const robotsMeta = $('meta[name="robots"], meta[name="Robots"]').attr('content') || '';
-  const rc = robotsMeta.toLowerCase();
+  // A noindex sent as an X-Robots-Tag header stops indexing exactly like the
+  // meta tag, so both are read for the directives below (and the noindex cap).
+  const headerRobots = String(httpHeaders?.['x-robots-tag'] || '');
+  const rc = `${robotsMeta} ${headerRobots}`.toLowerCase();
+  const directiveSource = [robotsMeta, headerRobots && `X-Robots-Tag: ${headerRobots}`].filter(Boolean).join(' · ');
 
   const checks = ['C1','C2','C3','C4','C5','C6','C7','C8','C9','C10','C11'].map((id, i) =>
     makeResult(id, 'Meta Robots', ['Page is not noindex','Page is not nofollow','Not both noindex+nofollow',
@@ -311,9 +320,9 @@ function checksC($, httpHeaders) {
 
   const [C1,C2,C3,C4,C5,C6,C7,C8,C9,C10,C11] = checks;
 
-  rc.includes('noindex') ? fail(C1,'error',robotsMeta,'Page has noindex directive — will not be indexed.') : pass(C1, robotsMeta||'(not set)', 'No noindex directive.');
-  rc.includes('nofollow') ? warn(C2, robotsMeta, 'Page has nofollow directive.') : pass(C2, robotsMeta||'(not set)', 'No nofollow directive.');
-  rc.includes('noindex') && rc.includes('nofollow') ? fail(C3,'error',robotsMeta,'Both noindex and nofollow present.') : pass(C3, null, 'Not both noindex+nofollow.');
+  rc.includes('noindex') ? fail(C1,'error',directiveSource,'Page has noindex directive — will not be indexed.') : pass(C1, directiveSource||'(not set)', 'No noindex directive.');
+  rc.includes('nofollow') ? warn(C2, directiveSource, 'Page has nofollow directive.') : pass(C2, directiveSource||'(not set)', 'No nofollow directive.');
+  rc.includes('noindex') && rc.includes('nofollow') ? fail(C3,'error',directiveSource,'Both noindex and nofollow present.') : pass(C3, null, 'Not both noindex+nofollow.');
   rc.includes('noarchive') ? notice(C4, robotsMeta, 'noarchive directive present.') : pass(C4, null, 'No noarchive directive.');
   rc.includes('nosnippet') ? notice(C5, robotsMeta, 'nosnippet directive present.') : pass(C5, null, 'No nosnippet directive.');
   rc.includes('noimageindex') ? notice(C6, robotsMeta, 'noimageindex directive present.') : pass(C6, null, 'No noimageindex directive.');
@@ -342,6 +351,24 @@ function checksC($, httpHeaders) {
 
 // ── D. Canonical Tags ─────────────────────────────────────────────────────────
 
+// The same address written two ways: resolved against the page, host lower-cased,
+// default port, fragment and a trailing slash dropped. Compared as raw strings,
+// "https://www.nice.com/" and "https://www.nice.com" read as different pages,
+// and seven homepages were told their canonical "points to a different URL".
+function sameUrl(a, b, base) {
+  const norm = (value) => {
+    try {
+      const u = new URL(value, base || undefined);
+      u.hash = '';
+      const path = u.pathname.replace(/\/+$/, '') || '/';
+      return `${u.protocol}//${u.host.toLowerCase()}${path}${u.search}`;
+    } catch {
+      return String(value || '');
+    }
+  };
+  return norm(a) === norm(b);
+}
+
 function checksD($, pageUrl, httpHeaders) {
   const canonicals = $('head link[rel="canonical"]');
   const canonHref = canonicals.first().attr('href') || '';
@@ -353,29 +380,33 @@ function checksD($, pageUrl, httpHeaders) {
   const D5 = makeResult('D5','Canonical','Canonical points to different URL');
   const D6 = makeResult('D6','Canonical','Canonical URL uses HTTPS');
   const D7 = makeResult('D7','Canonical','Canonical has consistent trailing slash');
-  const D8 = makeResult('D8','Canonical','Canonical target is live',true);
-  const D9 = makeResult('D9','Canonical','Canonical target is not noindex',true);
 
   canonicals.length > 0 ? pass(D1, canonHref, 'Canonical tag present.') : warn(D1,null,'No canonical tag found.');
   canonicals.length <= 1 ? pass(D2, `${canonicals.length}`, 'Only one canonical tag.') : fail(D2,'error',`${canonicals.length}`,`${canonicals.length} canonical tags found.`);
   canonHref.length > 0 ? pass(D3, canonHref, 'Canonical href has a value.') : fail(D3,'error','','Canonical href is empty.');
 
   if (pageUrl && canonHref) {
-    canonHref === pageUrl ? info(D4, canonHref, 'Canonical is self-referencing.') : pass(D4, canonHref, 'Canonical does not self-reference.');
-    canonHref !== pageUrl ? notice(D5, canonHref, `Canonical points to: ${canonHref}`) : pass(D5, null, 'Canonical matches page URL.');
+    // D4 was the wrong way round: it passed when the canonical pointed elsewhere
+    // and went unscored when it correctly pointed at the page itself.
+    const selfReferencing = sameUrl(canonHref, pageUrl, pageUrl);
+    selfReferencing ? pass(D4, canonHref, 'Canonical is self-referencing.') : info(D4, canonHref, 'Canonical points to another URL (see D5).');
+    !selfReferencing ? notice(D5, canonHref, `Canonical points to: ${canonHref}`) : pass(D5, null, 'Canonical matches page URL.');
     canonHref.startsWith('http://') ? warn(D6,canonHref,'Canonical uses HTTP on an HTTPS page.') : pass(D6, canonHref, 'Canonical uses HTTPS.');
+    // A site root has no path to end in a slash: "https://x.com" and
+    // "https://x.com/" are the same address, never a mismatch.
+    const pathOf = (value) => { try { return new URL(value, pageUrl).pathname; } catch { return ''; } };
+    const isRoot = pathOf(canonHref) === '/' && pathOf(pageUrl) === '/';
     const pageTrail = pageUrl.endsWith('/');
     const canonTrail = canonHref.endsWith('/');
-    pageTrail !== canonTrail ? notice(D7, null, `Trailing slash mismatch: page="${pageUrl}", canonical="${canonHref}".`) : pass(D7, null, 'Trailing slash consistent.');
+    !isRoot && pageTrail !== canonTrail ? notice(D7, null, `Trailing slash mismatch: page="${pageUrl}", canonical="${canonHref}".`) : pass(D7, null, 'Trailing slash consistent.');
   } else {
     skipped(D4,'URL not provided'); skipped(D5,'URL not provided');
     skipped(D6,'URL not provided'); skipped(D7,'URL not provided');
   }
 
-  skipped(D8, 'Run HTTP checks separately');
-  skipped(D9, 'Run HTTP checks separately');
-
-  return [D1,D2,D3,D4,D5,D6,D7,D8,D9];
+  // D8/D9 ("canonical target is live / not noindex") were declared but never
+  // run — always "skipped". Removed rather than shown as checks that never ran.
+  return [D1,D2,D3,D4,D5,D6,D7];
 }
 
 // ── E. Heading Structure ──────────────────────────────────────────────────────
@@ -1870,14 +1901,30 @@ const BLOCKER_GROUPS = [
 
 const SCORE_BANDS = [
   { min:90, label:'Excellent',  blurb:'No blocking issues. What remains is refinement.' },
-  { min:75, label:'Good',       blurb:'Technically sound, with a few real gaps worth fixing.' },
+  // 'Good' starts at 80, the platform's band (lib/scoreVerdict.js): at 75 a 76
+  // read "Good" here and "Needs attention" on the dashboard.
+  { min:80, label:'Good',       blurb:'Technically sound, with a few real gaps worth fixing.' },
   { min:60, label:'Needs work', blurb:'Several real defects are limiting search and AI visibility.' },
   { min:40, label:'Poor',       blurb:'Significant defects across multiple areas.' },
   { min:0,  label:'Critical',   blurb:'Blocking problems — fix these before anything else.' },
 ];
 
+// Fix 4.1 (7): the same test under two ids, in two categories, was charged
+// twice — one empty anchor cost H5 and Q4. The second of each pair is scored
+// as not applicable whenever the first is in the report.
+const DUPLICATE_CHECKS = { S1: 'M21', S4: 'F25', O1: 'M16', O5: 'G10', M22: 'C9', U4: 'S6', Q4: 'H5', O4: 'G6' };
+function withoutDuplicates(checks) {
+  const ids = new Set(checks.map((c) => c && c.id));
+  return checks.map((c) => {
+    const original = c && DUPLICATE_CHECKS[c.id];
+    if (!original || !ids.has(original) || c.status === 'na') return c;
+    return { ...c, status: 'na', severity: 'info', duplicateOf: original,
+      detail: `Not applicable — the same test as ${original}, counted there.` };
+  });
+}
+
 function calculateScores(checks, intent = 'informational') {
-  const all = Array.isArray(checks) ? checks : [];
+  const all = withoutDuplicates(Array.isArray(checks) ? checks : []);
   const evaluated = all.filter(isScored);
 
   // Disjoint counts. `warnings` used to include every `fail`, so an error was charged twice and the
@@ -1948,11 +1995,14 @@ function calculateScores(checks, intent = 'informational') {
   const overall = composite === null ? null : (cap === null ? composite : Math.min(composite, cap));
   const band = SCORE_BANDS.find(b => (overall ?? 0) >= b.min) || SCORE_BANDS[SCORE_BANDS.length - 1];
 
+  const geo = axisScore(breakdown, [...triggered, ...geoGates(all)], 'geo');
   return {
     overall,
     composite,
     seo: axisScore(breakdown, triggered, 'seo'),
-    geo: axisScore(breakdown, [...triggered, ...geoGates(all)], 'geo'),
+    geo,
+    answerability: answerabilitySummary(all),
+    geoHold: geoHoldOf(geo),
     // Legacy flat keys retained so existing consumers keep working.
     title_meta: flat.title_meta,
     content_structure: flat.content_structure,
@@ -1993,11 +2043,28 @@ const BUCKET_AXIS = SCORE_BUCKETS.reduce((m, b) => { m[b.key] = b.axis; return m
 // headline. Thresholds are T3's own: 7+ "GEO ready", 4-6 "needs work", <4 "not ready".
 // Deterministic and read from the stored check, so a saved report gates the same way.
 const AXIS_VERSION = 2;
-function geoGates(checks) {
+function answerabilityOf(checks) {
   const t3 = (checks || []).find((c) => c && c.id === 'T3');
   const m = t3 && String(t3.value ?? t3.detail ?? '').match(/(\d+(?:\.\d+)?)\s*\/\s*10/);
-  if (!m) return [];
-  const ans = Number(m[1]);
+  return m ? Number(m[1]) : null;
+}
+
+// Fix 4.1 (2, 4): answerability is its own figure, not only a hidden cap on
+// GEO — 11 of 19 projects sat at exactly 55 with nothing saying why. The
+// headline is left uncapped and the hold is reported beside it (`geoHold`).
+function answerabilitySummary(checks) {
+  const ans = answerabilityOf(checks);
+  if (ans === null) return null;
+  return {
+    score: ans,
+    outOf: 10,
+    label: ans >= 7 ? 'AI can answer from this page' : ans >= 4 ? 'Partly answerable' : 'Hard for AI to answer from',
+  };
+}
+
+function geoGates(checks) {
+  const ans = answerabilityOf(checks);
+  if (ans === null) return [];
   if (ans >= 7) return [];
   return [{
     id: 'answerability',
@@ -2040,8 +2107,22 @@ function axisScore(breakdown, triggered, axis) {
  * re-audited and the stored headline is untouched. Returns the report unchanged when
  * it already has the split or has no breakdown to derive one from.
  */
+/** The GEO side's answerability hold, for showing beside the headline. */
+function geoHoldOf(geo) {
+  if (!geo?.cap?.applied) return null;
+  const reason = (geo.cap.reasons || []).find((r) => /^Answerability/.test(r));
+  return reason ? { value: geo.cap.value, geoScore: geo.score, reason } : null;
+}
+
 function withAxisScores(report) {
   const scores = report?.findings?.scores;
+  if (scores && !('answerability' in scores) && Array.isArray(report?.findings?.checks)) {
+    // Stored before answerability was its own figure: read from its T3 check.
+    report = { ...report, findings: { ...report.findings, scores: { ...scores,
+      answerability: answerabilitySummary(report.findings.checks),
+      ...(scores.geo?.v === AXIS_VERSION ? { geoHold: geoHoldOf(scores.geo) } : {}) } } };
+    return withAxisScores(report);
+  }
   if (!scores || scores.geo?.v === AXIS_VERSION || !Array.isArray(scores.breakdown) || !scores.breakdown.length) return report;
   const firedIds = new Set((scores.cap?.groups || []).map(g => g.id));
   const triggered = BLOCKER_GROUPS.filter(g => firedIds.has(g.id));
@@ -2054,6 +2135,7 @@ function withAxisScores(report) {
         ...scores,
         seo: axisScore(scores.breakdown, triggered, 'seo'),
         geo: axisScore(scores.breakdown, [...triggered, ...gates], 'geo'),
+        geoHold: geoHoldOf(axisScore(scores.breakdown, [...triggered, ...gates], 'geo')),
       },
     },
   };
@@ -2776,7 +2858,8 @@ async function runAllChecks(rawHtml, pageUrl, httpHeaders, keywords = [], option
     kwChecks = checksKW($, rawHtml, keywords, pageUrl, pageContext);
   }
 
-  const allChecks = [...a,...b,...c,...d,...e,...f,...g,...h,...i,...j,...k,...l,...m,...n,...o,...p,...q,...r,...s,...t,...u,...kwChecks];
+  // Duplicates are marked in the report too, so it shows why they don't count.
+  const allChecks = withoutDuplicates([...a,...b,...c,...d,...e,...f,...g,...h,...i,...j,...k,...l,...m,...n,...o,...p,...q,...r,...s,...t,...u,...kwChecks]);
   const scores = calculateScores(allChecks, intent);
 
   return {

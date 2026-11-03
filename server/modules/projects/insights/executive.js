@@ -103,8 +103,14 @@ function buildMarket(modules) {
 }
 
 /** " Agent Readiness is the weakest area, at 22/100." — or nothing. */
+// Agent Readiness measures how future-ready a site is for AI agents: low scores
+// are expected while the protocols are new, so it is never "the weakest area"
+// to raise — it was a top-three priority on 15 of 19 projects.
+const NOT_A_WEAKEST_AREA = new Set(['agent_readiness']);
+const weakestArea = (areas) => areas.find((a) => !NOT_A_WEAKEST_AREA.has(a.key)) || null;
+
 function weakestClause(areas) {
-  const weakest = areas[0];
+  const weakest = weakestArea(areas);
   if (!weakest || weakest.score >= WATCH_AT) return '';
   return ` ${weakest.label} is the weakest area, at ${weakest.score}/100.`;
 }
@@ -134,23 +140,35 @@ function buildVerdict({ composite, totals, everRun, areas = [] }) {
     };
   }
 
-  const errors = totals?.bySeverity?.error || 0;
+  // "Critical" = an error that lowers a score. Counting every error-severity
+  // finding made 17 of 19 projects "at risk" over findings that cost nothing —
+  // an error page's own 4xx, a site-wide setting, our own crawler being
+  // rate-limited — and thoughtworks read "costing search visibility across
+  // 7,850 pages", mostly pages that refused the crawler.
+  const errors = Number.isFinite(totals?.criticalCosting) ? totals.criticalCosting : (totals?.bySeverity?.error || 0);
+  const listedOnly = totals?.errorsNotCosting || 0;
   const warnings = totals?.bySeverity?.warning || 0;
   const score = Number.isFinite(composite) ? composite : null;
+  const listedNote = listedOnly
+    ? ` ${plural(listedOnly, 'other error-level finding is', 'other error-level findings are')} listed but `
+      + `${listedOnly === 1 ? 'does' : 'do'} not affect any score.`
+    : '';
 
   if (errors) {
-    const pages = totals?.pagesWithErrors || 0;
+    const pages = Number.isFinite(totals?.pagesWithCostingErrors) ? totals.pagesWithCostingErrors : (totals?.pagesWithErrors || 0);
     return {
       state: 'at_risk',
       headline: 'Action needed',
       // The composite is not quoted: it is a mean, the dashboard no longer
       // shows it, and the weakest module says more than an average does.
-      sentence: `${plural(errors, 'critical issue is', 'critical issues are')} costing this site `
-        + `search visibility right now`
-        + (pages ? `, across ${plural(pages, 'page', 'pages')}` : '')
+      sentence: `${plural(errors, 'critical issue is', 'critical issues are')} lowering this site's scores `
+        + 'right now'
+        + (pages ? `, across ${plural(pages, 'audited page', 'audited pages')}` : '')
         + '.'
-        + weakestClause(areas),
-      basis: 'Findings the auditing modules classify as errors, counted from stored runs.',
+        + weakestClause(areas)
+        + listedNote,
+      basis: 'Error-level findings that lower a module\u2019s score (for Tech Audit, those counted in site health), '
+        + 'from stored runs. Pages that refused the crawler are not counted.',
     };
   }
 
@@ -158,7 +176,8 @@ function buildVerdict({ composite, totals, everRun, areas = [] }) {
     return {
       state: 'healthy',
       headline: 'In good shape',
-      sentence: 'Nothing found is serious enough to be losing search visibility.'
+      sentence: 'Nothing found is serious enough to be lowering the site\u2019s scores.'
+        + listedNote
         + (warnings
           ? ` ${plural(warnings, 'improvement is', 'improvements are')} worth making when there is capacity.`
           : ''),
@@ -170,11 +189,16 @@ function buildVerdict({ composite, totals, everRun, areas = [] }) {
     return {
       state: 'needs_attention',
       headline: 'Below where it should be',
-      sentence: 'Nothing is broken outright, but the site is below par — competitors with cleaner '
-        + 'sites will out-rank it on equal content.'
+      // The overall figure is the site-quality modules only (overview
+      // buildComposite), so "below par" is about the site itself. It used to
+      // include Competitor and AI Visibility, and Centered Health (Tech 84,
+      // SEO & GEO 89) was told cleaner competitors would out-rank it.
+      sentence: 'Nothing is broken outright, but the site\u2019s own quality scores average below 60, '
+        + 'so pages with cleaner foundations can out-rank it on equal content.'
         + weakestClause(areas)
+        + listedNote
         + (warnings ? ` ${plural(warnings, 'issue', 'issues')} to work through.` : ''),
-      basis: 'Composite below 60, with no error-severity finding.',
+      basis: 'Average of the site-quality modules below 60, with no error that lowers a score.',
     };
   }
 
@@ -277,7 +301,7 @@ function buildPriorities(actions = [], areas = []) {
   // finding of another one: Agent Readiness at 22/100 outranks one broken image.
   // It takes the last place when its module has no item in the list already.
   // The backlog's own order is otherwise kept.
-  const weakest = areas[0];
+  const weakest = weakestArea(areas);
   if (weakest && weakest.score < WATCH_AT && !picked.some((p) => p.moduleKey === weakest.key)) {
     const area = {
       kind: 'area',
@@ -350,8 +374,17 @@ function buildConfidence({ modules: all, totals, lastAt }) {
   const failed = modules.filter((m) => m.status === 'failed');
   const covered = modules.length - neverRun.length;
   const crawledPages = totals?.crawledPages || null;
-  const age = msSince(lastAt);
-  const stale = age !== null && age > STALE_AFTER_MS;
+  // Judged per scored module, not on the newest evidence: one fresh run (even a
+  // failed one) hid that everything else was old — SoundHound's scores were all
+  // from 30 September and read as current.
+  const staleModules = modules.filter((m) => m.scored
+    && Number.isFinite(new Date(m.updatedAt).getTime())
+    && msSince(m.updatedAt) > STALE_AFTER_MS);
+  const stale = staleModules.length > 0;
+  const day = (iso) => {
+    const d = new Date(iso);
+    return `${d.getUTCDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getUTCMonth()]}`;
+  };
 
   const caveats = [];
   if (neverRun.length) {
@@ -364,7 +397,11 @@ function buildConfidence({ modules: all, totals, lastAt }) {
     caveats.push(`${failed.map((m) => m.label).join(', ')} failed on the last attempt.`);
   }
   if (stale) {
-    caveats.push('The most recent evidence is over a month old, so this describes the site as it was then.');
+    caveats.push(
+      `${staleModules.map((m) => `${m.label} (${day(m.updatedAt)})`).join(', ')} `
+      + `${staleModules.length === 1 ? 'is' : 'are'} over a month old, so ${staleModules.length === 1 ? 'that score describes' : 'those scores describe'} `
+      + 'the site as it was then.',
+    );
   }
   if (totals?.unattributed) {
     caveats.push(

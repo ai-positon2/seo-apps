@@ -121,34 +121,48 @@ function runVisibility(scoped, mentions, clientBrandId) {
  * returned so the number stays auditable — a reader can see how much naming
  * happened outside the configured set without it moving the percentages.
  */
+// Fix 5.5: below this many measured answers a share, and a rank built on it,
+// is reported as too few to say (the API version uses the same floor).
+const MIN_ANSWERS_FOR_SHARE = 10;
+
 function shareOfVoice(scoped, mentions, measuredBrandIds) {
   const inSet = new Set(measuredBrandIds);
   const extracted = anyExtracted(scoped);
   const scopedMentions = scopeMentions(mentions, scoped.map((c) => c.id));
 
-  const byBrand = new Map();
-  let denominator = 0;
+  // Fix 5.5: the share counts ANSWERS that name a brand, as the API version
+  // does. Counting repeated mentions let one answer that said a name six times
+  // outweigh five answers that each named a rival once.
+  const answersByBrand = new Map();
+  const mentionsByBrand = new Map();
   let other = 0;
 
   for (const m of scopedMentions) {
     const n = m.mentionCount || 1;
     if (!inSet.has(m.brandId)) { other += n; continue; }
-    byBrand.set(m.brandId, (byBrand.get(m.brandId) || 0) + n);
-    denominator += n;
+    mentionsByBrand.set(m.brandId, (mentionsByBrand.get(m.brandId) || 0) + n);
+    if (!answersByBrand.has(m.brandId)) answersByBrand.set(m.brandId, new Set());
+    answersByBrand.get(m.brandId).add(m.captureId);
   }
+  const answersFor = (brandId) => answersByBrand.get(brandId)?.size || 0;
+  const denominator = [...inSet].reduce((sum, brandId) => sum + answersFor(brandId), 0);
 
-  const rows = [...inSet].map((brandId) => {
-    const mentionsFor = byBrand.get(brandId) || 0;
-    return {
-      brandId,
-      mentions: mentionsFor,
-      // Null over an unextracted scope: a share of nothing counted is not 0%.
-      value: extracted ? ratio(mentionsFor, denominator) : null,
-    };
-  }).sort((a, b) => b.mentions - a.mentions);
+  const rows = [...inSet].map((brandId) => ({
+    brandId,
+    answers: answersFor(brandId),
+    mentions: mentionsByBrand.get(brandId) || 0,
+    // Null over an unextracted scope: a share of nothing counted is not 0%.
+    value: extracted ? ratio(answersFor(brandId), denominator) : null,
+  })).sort((a, b) => b.answers - a.answers || b.mentions - a.mentions);
 
   return {
-    rows, totalMentions: denominator, otherMentions: other, extracted,
+    rows,
+    totalAnswers: denominator,
+    totalMentions: [...mentionsByBrand.values()].reduce((a, b) => a + b, 0),
+    otherMentions: other,
+    extracted,
+    belowMinimum: scoped.length < MIN_ANSWERS_FOR_SHARE,
+    minAnswers: MIN_ANSWERS_FOR_SHARE,
   };
 }
 

@@ -17,6 +17,7 @@
 // them, which is honest and actionable rather than decorative.
 
 const db = require('../../services/db');
+const { SEVERITY_TABLE_JSON, currentSeverity } = require('../crawlScope/currentSeverity');
 const moduleEvidence = require('./moduleEvidence');
 const store = require('./store');
 
@@ -245,6 +246,8 @@ async function internalHtmlPageCount(runId) {
           and coalesce(data->>'crawlRefused', 'false') <> 'true'
           and coalesce(data->>'probe', 'false') <> 'true'
           and coalesce(data->>'unrenderedShell', 'false') <> 'true'
+          -- A page that redirects with JavaScript is a redirect, not a page.
+          and coalesce(data->>'javascriptRedirectUrl', '') = ''
           and (status is null or status between 200 and 299)`,
       [runId]
     );
@@ -426,7 +429,7 @@ async function findingInstancesForRun(runId, { cache = true } = {}) {
 /** Per-rule findings for one run — the rollup crawl_run_findings already holds. */
 async function findingsForRun(runId) {
   try {
-    return await db.rows(
+    const rows = await db.rows(
       `select rule_id, severity, category, count, detail
          from crawl_run_findings
         where run_id = $1
@@ -434,6 +437,8 @@ async function findingsForRun(runId) {
         limit 200`,
       [runId]
     );
+    // Graded by today's catalog, like the score (currentSeverity.js).
+    return rows.map((row) => ({ ...row, severity: currentSeverity(row.rule_id, row.severity) }));
   } catch (error) {
     throw new Error(`[projects.overview.findingsForRun] ${error.message}`);
   }
@@ -483,7 +488,9 @@ async function healthAffectedPages(runId) {
     const [row] = await db.rows(
       `with counted as (
          select f.data->>'url' as url,
-                f.data->>'severity' as severity,
+                -- Today's catalog grade (currentSeverity.js), not the one
+                -- stored when the crawl was analysed.
+                coalesce(($7::jsonb)->>(f.data->>'ruleId'), f.data->>'severity') as severity,
                 coalesce(f.data->>'ruleId', '?') as rule
            from crawl_run_finding_instances f
            join crawl_run_results r
@@ -497,6 +504,7 @@ async function healthAffectedPages(runId) {
             and coalesce(r.data->>'crawlRefused', 'false') <> 'true'
             and coalesce(r.data->>'probe', 'false') <> 'true'
             and coalesce(r.data->>'unrenderedShell', 'false') <> 'true'
+            and coalesce(r.data->>'javascriptRedirectUrl', '') = ''
             and (r.status is null or r.status between 200 and 299)
             and coalesce(v.review_status, '') <> all($3)
        ), per_page as (
@@ -514,12 +522,14 @@ async function healthAffectedPages(runId) {
               coalesce(sum(case when e + w + n > 0 then w * least(100, e + w + n) / (e + w + n) else 0 end), 0)::float8 as warning_loss,
               coalesce(sum(case when e + w + n > 0 then n * least(100, e + w + n) / (e + w + n) else 0 end), 0)::float8 as notice_loss
          from per_page`,
-      [runId, [...PAGE_LEVEL_SCOPES], DISMISSED_REVIEW_STATUSES, HEALTH_WEIGHTS.error, HEALTH_WEIGHTS.warning, HEALTH_WEIGHTS.notice],
+      [runId, [...PAGE_LEVEL_SCOPES], DISMISSED_REVIEW_STATUSES, HEALTH_WEIGHTS.error, HEALTH_WEIGHTS.warning, HEALTH_WEIGHTS.notice, SEVERITY_TABLE_JSON],
     );
+    const siteRules = await siteLevelRules(runId);
     return {
       error: Number(row?.error_pages) || 0,
       warning: Number(row?.warning_pages) || 0,
       notice: Number(row?.notice_pages) || 0,
+      siteRules,
       // Summed over pages; siteHealth divides by the page count.
       lossTotals: {
         error: Number(row?.error_loss) || 0,
@@ -529,6 +539,92 @@ async function healthAffectedPages(runId) {
     };
   } catch (error) {
     console.error('[projects.overview.healthAffectedPages]', error.message);
+    return null;
+  }
+}
+
+/**
+ * v7: the rules no scored page carries — site-wide ones, and page rules found
+ * only on redirects, error pages and files — classified for siteLevelLoss.
+ * Same filters as healthAffectedPages. Error and warning rules only.
+ */
+async function siteLevelRules(runId) {
+  const siteRows = await db.rows(
+    `select coalesce(f.data->>'ruleId', '?') as rule,
+            coalesce(($4::jsonb)->>(f.data->>'ruleId'), f.data->>'severity') as severity,
+            bool_or(coalesce(f.data->>'scope', 'page') <> all($2)) as site_scoped,
+            bool_or(coalesce(f.data->>'scope', 'page') = any($2)
+              and r.url is not null
+              and r.content_type ilike '%text/html%'
+              and r.data->>'scope' = 'Internal'
+              and coalesce(r.data->>'crawlRefused', 'false') <> 'true'
+              and coalesce(r.data->>'probe', 'false') <> 'true'
+              and coalesce(r.data->>'unrenderedShell', 'false') <> 'true'
+              and coalesce(r.data->>'javascriptRedirectUrl', '') = ''
+              and (r.status is null or r.status between 200 and 299)) as on_scored
+       from crawl_run_finding_instances f
+       left join crawl_run_results r
+         on r.run_id = f.run_id and r.url = f.data->>'url'
+       left join crawl_finding_reviews v
+         on v.run_id = f.run_id and v.finding_id = f.finding_id
+      where f.run_id = $1
+        and coalesce(v.review_status, '') <> all($3)
+      group by 1, 2`,
+    [runId, [...PAGE_LEVEL_SCOPES], DISMISSED_REVIEW_STATUSES, SEVERITY_TABLE_JSON],
+  );
+  return siteRows
+    .filter((x) => x.severity === 'error' || x.severity === 'warning')
+    .map((x) => ({ ruleId: x.rule, severity: x.severity, kind: x.site_scoped ? 'site' : (x.on_scored ? null : 'offPage') }))
+    .filter((x) => x.kind);
+}
+
+/**
+ * The rules that cost a crawl points, and the scored pages each costs them on —
+ * the same filter as healthAffectedPages (page/template scope, scored pages,
+ * not dismissed, today's severity). The executive verdict calls only these
+ * "critical": counting every error-severity finding made 17 of 19 projects "at
+ * risk" over findings that cost nothing, including our own crawler being
+ * rate-limited. Null when it cannot be read, so callers fall back rather than
+ * call everything harmless.
+ *
+ * @returns {Promise<Map<string, {severity: string, pages: Set<string>}>|null>}
+ */
+async function costingRulePages(runId) {
+  try {
+    const rows = await db.rows(
+      `select coalesce(f.data->>'ruleId', '?') as rule,
+              coalesce(($4::jsonb)->>(f.data->>'ruleId'), f.data->>'severity') as severity,
+              array_agg(distinct f.data->>'url') as urls
+         from crawl_run_finding_instances f
+         join crawl_run_results r
+           on r.run_id = f.run_id and r.url = f.data->>'url'
+         left join crawl_finding_reviews v
+           on v.run_id = f.run_id and v.finding_id = f.finding_id
+        where f.run_id = $1
+          and coalesce(f.data->>'scope', 'page') = any($2)
+          and r.content_type ilike '%text/html%'
+          and r.data->>'scope' = 'Internal'
+          and coalesce(r.data->>'crawlRefused', 'false') <> 'true'
+          and coalesce(r.data->>'probe', 'false') <> 'true'
+          and coalesce(r.data->>'unrenderedShell', 'false') <> 'true'
+          and coalesce(r.data->>'javascriptRedirectUrl', '') = ''
+          and (r.status is null or r.status between 200 and 299)
+          and coalesce(v.review_status, '') <> all($3)
+        group by 1, 2`,
+      [runId, [...PAGE_LEVEL_SCOPES], DISMISSED_REVIEW_STATUSES, SEVERITY_TABLE_JSON],
+    );
+    const byRule = new Map();
+    for (const row of rows) {
+      if (!(row.severity in HEALTH_WEIGHTS)) continue;
+      byRule.set(row.rule, { severity: row.severity, pages: new Set(row.urls || []) });
+    }
+    // v7: site-wide and off-page rules cost points once for the site.
+    for (const rule of await siteLevelRules(runId)) {
+      if (!byRule.has(rule.ruleId)) byRule.set(rule.ruleId, { severity: rule.severity, pages: new Set(), siteLevel: rule.kind });
+    }
+    return byRule;
+  } catch (error) {
+    console.error('[projects.overview.costingRulePages]', error.message);
     return null;
   }
 }
@@ -871,17 +967,56 @@ function siteHealth(run, internalHtmlCount = null, instances = [], affectedPageC
     return null;
   }
 
+  // v7: what no scored page carries, charged once (siteLevelLoss). The SQL
+  // count classifies every rule; from an instance list alone only the
+  // site- and resource-scoped ones can be told apart.
+  const siteRules = useCounts && Array.isArray(affectedPageCounts.siteRules)
+    ? affectedPageCounts.siteRules
+    : effectiveInstances
+      .filter((f) => !PAGE_LEVEL_SCOPES.has(f.scope || 'page') && !DISMISSED_REVIEW_STATUSES.includes(f.reviewStatus))
+      .map((f) => ({ ruleId: f.ruleId || '?', severity: f.severity, kind: 'site' }));
+  const siteLevel = siteLevelLoss(siteRules);
+  loss = { ...loss, site: siteLevel.total };
+
+  // Never a perfect 100 while an error remains: a 300-page site with one
+  // broken page rounded to "100 — a clean 100".
+  const rounded = Math.max(0, Math.round(100 - loss.error - loss.warning - loss.notice - loss.site));
+  const siteErrors = siteLevel.rules.some((r) => r.severity === 'error');
   return {
-    score: Math.max(0, Math.round(100 - loss.error - loss.warning - loss.notice)),
+    score: rounded === 100 && (error > 0 || siteErrors) ? 99 : rounded,
+    siteRules: siteLevel.rules,
     affected: { error, warning, notice },
     loss,
     denominator,
   };
 }
 
-// Site Health v5, identical to client crawlHelpers.js (HEALTH_WEIGHTS,
+// Site Health v6, identical to client crawlHelpers.js (HEALTH_WEIGHTS,
 // healthLoss); crawlScope/__tests__/health-score.test.js checks they agree.
-const HEALTH_WEIGHTS = { error: 40, warning: 10, notice: 2 };
+// v6: notices cost nothing (errors + warnings set the score; see the client).
+const HEALTH_WEIGHTS = { error: 40, warning: 10, notice: 0 };
+
+// v7, identical to client crawlHelpers.js (SITE_LEVEL_WEIGHTS, siteLevelLoss):
+// a rule no scored page carries — site-wide, or only on redirects, error pages
+// and files — costs a small fixed amount once, capped in total.
+const SITE_LEVEL_WEIGHTS = { site: { error: 5, warning: 2 }, offPage: { error: 2, warning: 1 } };
+const SITE_LEVEL_CAP = 20;
+function siteLevelLoss(rules) {
+  const seen = new Map();
+  for (const r of rules || []) {
+    const points = SITE_LEVEL_WEIGHTS[r.kind]?.[r.severity] || 0;
+    if (!points) continue;
+    const prev = seen.get(r.ruleId);
+    if (!prev || points > prev.points) seen.set(r.ruleId, { ...r, points });
+  }
+  const list = [...seen.values()];
+  const raw = list.reduce((sum, r) => sum + r.points, 0);
+  const scale = raw > SITE_LEVEL_CAP ? SITE_LEVEL_CAP / raw : 1;
+  return {
+    total: raw * scale,
+    rules: list.map((r) => ({ ...r, points: r.points * scale })).sort((a, b) => b.points - a.points),
+  };
+}
 function healthLoss(rulesPerPage, pageCount) {
   const loss = { error: 0, warning: 0, notice: 0 };
   if (!pageCount) return loss;
@@ -908,11 +1043,13 @@ function healthLoss(rulesPerPage, pageCount) {
 // per distinct failing rule rather than per severity present, so the score no
 // longer sits at 70 for every site whose pages all carry a warning and a notice;
 // and the denominator: only 2xx pages that were audited.
-const SITE_HEALTH_BASIS = 'the site crawl\'s own health score (v5, audited internal pages only): '
-  + 'each page loses 40 points for every kind of error it has, 10 for every kind of warning and 2 '
-  + 'for every kind of notice, up to 100 per page, and the score is 100 less the average loss. '
+const SITE_HEALTH_BASIS = 'the site crawl’s own health score (v7, audited internal pages only): '
+  + 'each page loses 40 points for every kind of error it has and 10 for every kind of warning, '
+  + 'up to 100 per page, and the score is 100 less the average loss. Notices are listed but cost nothing. '
   + 'A problem found on most pages counts on every one of them; findings a reviewer marked false '
-  + 'positive or resolved do not count, and site-wide configuration findings are reported separately. '
+  + 'positive or resolved do not count. Problems no audited page carries (site-wide ones such as a blocked '
+  + 'crawler or robots.txt: 5 per error, 2 per warning; ones only on redirects or files: 2 and 1) are '
+  + 'charged once for the site, at most 20 points in all. '
   + 'External pages, redirects, error pages and pages that refused the crawler (bot protection, rate '
   + 'limiting) are not scored, so the score describes the pages of your site that were audited';
 
@@ -1017,11 +1154,24 @@ function technicalCard(runs, findings, internalPages = null, internalHtmlPages =
     scored: siteScore !== null,
     score: siteScore === null ? null : siteScore.score,
     scoreBasis: siteScore === null ? null : SITE_HEALTH_BASIS,
-    headline: errors
-      ? `${errors} error-level ${errors === 1 ? 'finding' : 'findings'}`
-      : warnings
-        ? `${warnings} warning-level ${warnings === 1 ? 'finding' : 'findings'}`
-        : 'No error or warning findings',
+    // What the score covers: thoughtworks' 83 described 2,663 of 10,000+ pages.
+    coverage: siteScore && pages
+      ? `${siteScore.denominator.toLocaleString('en-US')} of ${pages.toLocaleString('en-US')} crawled pages scored`
+      : null,
+    // What costs points, counted the way the score counts it. The raw finding
+    // counts ("7,863 error-level findings" on thoughtworks, where 9 pages carry
+    // an error that costs points) stay in the detail line, labelled as listed.
+    headline: siteScore
+      ? (siteScore.affected.error
+        ? `${siteScore.affected.error.toLocaleString('en-US')} ${siteScore.affected.error === 1 ? 'page loses' : 'pages lose'} points to errors`
+        : siteScore.affected.warning
+          ? `${siteScore.affected.warning.toLocaleString('en-US')} ${siteScore.affected.warning === 1 ? 'page loses' : 'pages lose'} points to warnings`
+          : 'No error or warning on an audited page')
+      : errors
+        ? `${errors} error-level ${errors === 1 ? 'finding' : 'findings'} listed`
+        : warnings
+          ? `${warnings} warning-level ${warnings === 1 ? 'finding' : 'findings'} listed`
+          : 'No error or warning findings',
     // Anchored to a named crawl.
     //
     // A project accumulates crawls — the live one has six completed, with warning
@@ -1034,9 +1184,7 @@ function technicalCard(runs, findings, internalPages = null, internalHtmlPages =
         ? `${results.toLocaleString('en-US')} URL${results === 1 ? '' : 's'} checked`
         : `${pages.toLocaleString('en-US')} page${pages === 1 ? '' : 's'} crawled`
           + (external ? ` · ${external.toLocaleString('en-US')} external link${external === 1 ? '' : 's'} checked` : ''),
-      `${errors} error`,
-      `${warnings} warning`,
-      `${notices} notice`,
+      `${errors} error · ${warnings} warning · ${notices} notice findings listed`,
       crawlLabel(terminal),
     ].filter(Boolean).join(' · '),
     updatedAt: terminal.finished_at || terminal.created_at,
@@ -1046,6 +1194,10 @@ function technicalCard(runs, findings, internalPages = null, internalHtmlPages =
       // Kept distinct: pagesCrawled is what maxUrlsPerCrawl caps, resultCount is
       // every stored row including outbound link checks.
       pagesCrawled: pages,
+      // The pages the score is the average of — audited internal 2xx HTML pages.
+      // The (i) quoted pages CRAWLED here: thoughtworks read "the average across
+      // all 10,000 pages" when 2,663 were scored.
+      pagesScored: siteScore ? siteScore.denominator : null,
       externalChecked: external,
       resultCount: results,
       robotsStatus: terminal.summary?.robotsStatus || null,
@@ -1195,7 +1347,8 @@ async function freshHubSpokeTerminal(projectId, terminal) {
     score: row.mean_health,
     score_max: 100,
     score_basis: 'the mean of every cluster\u2019s health in the Content Architect analysis',
-    band: `${row.clusters} cluster${row.clusters === 1 ? '' : 's'}`,
+    band: `${row.clusters} cluster${row.clusters === 1 ? '' : 's'}`
+      + (row.unassigned ? ` · ${row.unassigned} page${row.unassigned === 1 ? '' : 's'} not in any topic` : ''),
     counts: {},
     findings: [],
     error: null,
@@ -1236,13 +1389,44 @@ async function liveAiVisibilityTerminal(projectRow, terminal) {
       score: Number.isFinite(v) ? Math.round(v) : null,
       named: Number.isFinite(named) ? named : null,
       built: Boolean(live?.built),
+      // The report was read (with or without numbers): its answer is final.
+      consulted: Boolean(live),
+      answers: Number(live?.built?.meta?.answersMeasured) || 0,
+      enginesMeasured: Number(live?.built?.meta?.enginesMeasured) || 0,
+      enginesAsked: Number(live?.built?.meta?.enginesAsked) || 0,
+      enginesUnavailable: live?.built?.meta?.enginesUnavailable || [],
+      stale: live?.profileStale || null,
     };
     liveAivCache.set(key, { at: Date.now(), value });
   }
   const out = { ...terminal };
-  if (value.score !== null && value.score !== terminal.score) {
+  // The profile is about the project's previous domain: nothing on file
+  // measures this business, so there is no score and no share.
+  if (value.stale) {
+    out.score = null;
+    out.score_basis = null;
+    out.metric = {
+      value: null,
+      display: '—',
+      unit: `profile built for ${value.stale.builtFor || 'the previous domain'} — rebuild it`,
+      tag: 'Profile out of date',
+    };
+    return out;
+  }
+  // When the report could be read, its score is the card's score \u2014 including
+  // no score at all. Keeping the stored run score when the report had nothing
+  // let a September 0 keep feeding Riccobene's dashboard while its card read "\u2014".
+  if (value.consulted) {
     out.score = value.score;
-    out.score_basis = 'the AI Visibility report\u2019s score: named in answers 40%, position 25%, sentiment 20%, cited 15%';
+    out.score_basis = value.score === null
+      ? null
+      : 'the AI Visibility report\u2019s score: named in answers 40%, position 25%, sentiment 20%, cited 15%';
+  }
+  // What the figure rests on: how many answers, from how many engines.
+  if (value.consulted && value.enginesAsked) {
+    out.coverage = `${value.answers} answer${value.answers === 1 ? '' : 's'} from `
+      + `${value.enginesMeasured} of ${value.enginesAsked} AI engines`
+      + (value.enginesUnavailable.length ? ` · ${value.enginesUnavailable.join(', ')} failed` : '');
   }
   // The dashboard shows this module as a percentage: the share of AI answers
   // that name the brand \u2014 the report's "Mentioned in AI answers" figure.
@@ -1268,7 +1452,21 @@ function pctDisplay(pct) {
  * @param {Array<{domain:string,isClient:boolean,traffic:number}>} domains
  */
 function competitorMetric(domains) {
-  const rows = (domains || []).filter((d) => Number.isFinite(d.traffic));
+  // A missing or zero figure is "no data" (moduleRunners.knownTraffic), never a
+  // 0 — a rival nobody could measure made Cabinet "Leading — 563 vs 0".
+  const { knownTraffic, competitorUnmeasured } = require('./moduleRunners');
+  const unmeasured = competitorUnmeasured(domains);
+  if (unmeasured) {
+    return {
+      value: null,
+      display: '—',
+      unit: `no traffic data for ${unmeasured.join(', ')}`,
+      tag: 'Not measured',
+    };
+  }
+  const rows = (domains || [])
+    .map((d) => ({ ...d, traffic: knownTraffic(d.traffic) }))
+    .filter((d) => d.traffic !== null);
   const client = rows.find((d) => d.isClient);
   const rivals = rows.filter((d) => !d.isClient);
   if (!client || !rivals.length) return null;
@@ -1293,7 +1491,7 @@ async function competitorRunMetric(runId) {
     [runId],
   );
   return competitorMetric((row?.domains || []).map((d) => ({
-    domain: d.domain, isClient: Boolean(d.isClient), traffic: Number(d.organicTraffic),
+    domain: d.domain, isClient: Boolean(d.isClient), traffic: d.organicTraffic ?? null,
   })));
 }
 
@@ -1476,6 +1674,8 @@ function evidenceCard(module, entry) {
     scored,
     score: scored ? score : null,
     scoreBasis: terminal.score_basis || null,
+    // What the score rests on (AI Visibility: answers and engines).
+    coverage: terminal.coverage || null,
     band,
     // A failed run gets its own headline. Without this it fell through to the
     // zero-counts branch and announced "No error or warning findings" — which
@@ -1559,19 +1759,30 @@ function pendingCard(module) {
  * that reads as a catastrophic site (PRD §5.2: no single master score, and
  * §16.11: never coerce missing into zero).
  */
+// The site-quality modules the overall number averages, equally weighted.
+// Competitor Research and AI Visibility are context — market share and brand
+// reach — not quality: in a plain mean of all six they drove 89% of the
+// overall number's variation and SEO & GEO 0%, ranking brands by size.
+const QUALITY_MODULES = ['technical', 'seo_geo', 'agent_readiness', 'hub_spoke'];
+
 function buildComposite(modules) {
-  const scored = modules.filter((m) => m.scored && Number.isFinite(m.score));
+  const quality = modules.filter((m) => QUALITY_MODULES.includes(m.key));
+  const scored = quality.filter((m) => m.scored && Number.isFinite(m.score));
   if (!scored.length) {
-    return { value: null, scoredModules: 0, totalModules: modules.length, status: 'insufficient_data' };
+    return { value: null, scoredModules: 0, totalModules: quality.length, status: 'insufficient_data', basis: COMPOSITE_BASIS };
   }
   const mean = scored.reduce((sum, m) => sum + m.score, 0) / scored.length;
   return {
     value: Math.round(mean),
     scoredModules: scored.length,
-    totalModules: modules.length,
-    status: scored.length === modules.length ? 'complete' : 'partial',
+    totalModules: quality.length,
+    status: scored.length === quality.length ? 'complete' : 'partial',
+    basis: COMPOSITE_BASIS,
   };
 }
+
+const COMPOSITE_BASIS = 'The average of the site-quality scores — Tech Audit, SEO & GEO, Agent Readiness and '
+  + 'Hub & Spoke — weighted equally. Competitor Research and AI Visibility are market context and are not in it.';
 
 /**
  * @param {object} params
@@ -1618,7 +1829,7 @@ async function competitorCardFromTool(project) {
   const rivals = snapshot.domains.filter((d) => !d.isClient).length;
   return {
     metric: competitorMetric(snapshot.domains.map((d) => ({
-      domain: d.domain, isClient: Boolean(d.isClient), traffic: Number(d.domainRank?.organicTraffic),
+      domain: d.domain, isClient: Boolean(d.isClient), traffic: d.domainRank?.organicTraffic ?? null,
     }))),
     scored: true,
     score: traffic.score,
@@ -1645,6 +1856,81 @@ async function competitorCardFromTool(project) {
       reportRef: match.id,
     },
   };
+}
+
+// ── Did each score go up or down since last time (D7) ──────────────────────
+//
+// Each quality card says how its score moved since the previous measurement.
+// Like for like only:
+//   technical   the previous crawl, re-scored now with today's formula, so a
+//               formula change never reads as the site getting better or worse;
+//               a different page budget is flagged rather than compared.
+//   page/hub    the previous completed run's stored score; when its scoring
+//               basis differs from this run's, the method changed in between,
+//               and the card says that instead of showing an arrow.
+// Under one point either way is "no change".
+const CHANGE_MODULES = ['seo_geo', 'agent_readiness', 'hub_spoke'];
+
+function changeOf(current, previous, since, extra = {}) {
+  if (!Number.isFinite(current) || !Number.isFinite(previous)) return null;
+  const delta = Math.round(current) - Math.round(previous);
+  return {
+    previous: Math.round(previous),
+    delta,
+    direction: delta >= 1 ? 'up' : delta <= -1 ? 'down' : 'same',
+    since: since ? new Date(since).toISOString() : null,
+    ...extra,
+  };
+}
+
+async function technicalChange(crawlRuns, currentScore) {
+  const terminals = crawlRuns.filter((r) => ['completed', 'stopped'].includes(r.status));
+  const [latest, prev] = terminals;
+  if (!latest || !prev || !Number.isFinite(currentScore)) return null;
+  const [pages, counts] = await Promise.all([internalHtmlPageCount(prev.id), healthAffectedPages(prev.id)]);
+  const health = siteHealth(prev, pages, [], counts);
+  if (!health || !Number.isFinite(health.score)) return null;
+  const budgetOf = (r) => Number(r?.budget?.granted ?? r?.options?.maxUrls) || null;
+  const budgetChanged = Boolean(budgetOf(latest) && budgetOf(prev) && budgetOf(latest) !== budgetOf(prev));
+  const change = changeOf(currentScore, health.score, prev.finished_at || prev.created_at);
+  if (change && budgetChanged) {
+    change.direction = null;
+    change.note = `Page budget changed (${budgetOf(prev).toLocaleString('en-US')} → `
+      + `${budgetOf(latest).toLocaleString('en-US')}), so the two crawls are not compared`;
+  }
+  return change;
+}
+
+async function moduleChanges(projectId, modules, evidenceByModule) {
+  const rows = await db.rows(
+    `select id, module_key, score, score_basis, created_at, finished_at
+       from project_module_runs
+      where project_id = $1 and status = 'completed' and score is not null
+        and module_key = any($2)
+      order by created_at desc
+      limit 60`,
+    [projectId, CHANGE_MODULES],
+  );
+  const out = new Map();
+  for (const key of CHANGE_MODULES) {
+    const card = modules.find((m) => m.key === key);
+    const terminal = evidenceByModule.get(key)?.terminal;
+    if (!card || !Number.isFinite(card.score) || !terminal) continue;
+    const at = Date.parse(terminal.created_at || terminal.finished_at || '');
+    const prev = rows.find((r) => r.module_key === key && r.id !== terminal.id
+      && (!Number.isFinite(at) || Date.parse(r.created_at) < at));
+    if (!prev) continue;
+    const change = changeOf(card.score, Number(prev.score), prev.finished_at || prev.created_at);
+    if (!change) continue;
+    const basisNow = terminal.score_basis || card.scoreBasis || null;
+    if (basisNow && prev.score_basis && basisNow !== prev.score_basis) {
+      change.direction = null;
+      change.methodChanged = true;
+      change.note = 'Scoring method updated since the previous run, so the two are not compared';
+    }
+    out.set(key, change);
+  }
+  return out;
 }
 
 async function buildOverview({ access }) {
@@ -1770,7 +2056,18 @@ async function buildOverview({ access }) {
       console.error('[projects.overview.competitorMetric]', e.message);
       return null;
     });
-    if (metric) {
+    if (metric?.tag === 'Not measured') {
+      // No traffic figure for the client or every rival: the stored run score
+      // (a 100 "Leading" over a rival read as 0) is not a measurement.
+      modules[compIndex] = {
+        ...modules[compIndex],
+        metric,
+        scored: false,
+        score: null,
+        headline: 'Not measured',
+        detail: `No Semrush traffic data for ${metric.unit.replace(/^no traffic data for /, '')}`,
+      };
+    } else if (metric) {
       const m = modules[compIndex];
       modules[compIndex] = {
         ...m,
@@ -1820,6 +2117,22 @@ async function buildOverview({ access }) {
     };
   }
 
+  // D7: how each quality score moved since the previous measurement.
+  const [techChange, otherChanges] = await Promise.all([
+    technicalChange(crawlRuns, modules.find((m) => m.key === 'technical')?.score).catch((e) => {
+      console.error('[projects.overview.techChange]', e.message);
+      return null;
+    }),
+    moduleChanges(projectRow.id, modules, evidenceByModule).catch((e) => {
+      console.error('[projects.overview.moduleChanges]', e.message);
+      return new Map();
+    }),
+  ]);
+  for (let i = 0; i < modules.length; i += 1) {
+    const change = modules[i].key === 'technical' ? techChange : otherChanges.get(modules[i].key);
+    if (change && modules[i].status !== 'needs_setup') modules[i] = { ...modules[i], change };
+  }
+
   // Counted from the same evidence the cards were built from, so the bar and the
   // cards cannot disagree about how many audits are chasing this crawl.
   const followers = [...evidenceByModule.values()]
@@ -1863,7 +2176,9 @@ module.exports = {
   internalHtmlPageCount,
   technicalCard,
   siteHealth,
+  siteLevelLoss,
   healthAffectedPages,
+  costingRulePages,
   SITE_HEALTH_BASIS,
   cardLine,
   crawlLabel,
@@ -1874,5 +2189,7 @@ module.exports = {
   evidenceCard,
   pendingCard,
   buildComposite,
+  QUALITY_MODULES,
+  changeOf,
   buildOverview,
 };

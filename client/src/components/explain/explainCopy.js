@@ -35,17 +35,16 @@ const hasScore = (m) => Boolean(m.scored) && isNum(m.score);
 /** The traffic division behind the competitor score, or null. */
 function trafficFormula(ts) {
   if (!ts || !isNum(ts.ratio) || !isNum(ts.clientTraffic) || !isNum(ts.strongestTraffic)) return null;
-  const raw = Math.round(ts.ratio * 100);
-  const result = raw > 100 ? `${raw}, capped at 100` : String(raw);
-  return `${compact(ts.clientTraffic)} ÷ ${compact(ts.strongestTraffic)} = ${result}`;
+  return `${compact(ts.clientTraffic)} ÷ ${compact(ts.strongestTraffic)} = ${Math.round(ts.ratio * 100).toLocaleString()}%`;
 }
 
 function competitorCalc(ctx) {
-  const base = 'Your estimated monthly visits from Google ÷ the strongest tracked competitor’s × 100, capped at 100.';
+  const base = 'Your estimated monthly visits from Google ÷ the strongest tracked competitor’s, as a percentage. '
+    + 'Not capped: over 100% means you lead, and by how much.';
   if (!('trafficScore' in ctx)) return base;
   const ts = ctx.trafficScore;
   if (!ts) return `${base} Not measured yet: it needs traffic figures for this site and at least one competitor.`;
-  if (ts.ratio === null && ts.aheadOfAll) return `${base} Every tracked competitor shows no organic traffic, so the score is 100.`;
+  if (ts.ratio === null && ts.aheadOfAll) return `${base} Every tracked competitor shows no organic traffic, so you lead.`;
   const formula = trafficFormula(ts);
   return formula ? `${base} Today that is ${formula}.` : base;
 }
@@ -135,9 +134,15 @@ export const EXPLAINERS = {
     why: 'Technical faults quietly stop pages from ranking, however good the content is.',
     good: '80+, with no errors on pages that bring in customers.',
     calc: (ctx) => {
-      const pages = num(ctx.module?.evidence?.pagesCrawled);
-      return 'Every page starts at 100 and loses 40 points for each kind of error, 10 for each kind of warning '
-        + `and 2 for each kind of notice. The score is the average across ${pages ? `all ${pages}` : 'the crawled'} pages.`;
+      // Pages SCORED, not pages crawled: "all 10,000 pages" was quoted for a
+      // score averaged over 2,663.
+      const scored = num(ctx.module?.evidence?.pagesScored);
+      const crawled = num(ctx.module?.evidence?.pagesCrawled);
+      const over = scored
+        ? `the ${scored} audited pages${crawled && crawled !== scored ? ` (of ${crawled} crawled)` : ''}`
+        : 'the audited pages';
+      return 'Every page starts at 100 and loses 40 points for each kind of error and 10 for each kind of warning. '
+        + `The score is the average across ${over}. Redirects, error pages and pages that refused the crawler are not scored.`;
     },
     src: (ctx) => {
       const pages = num(ctx.module?.evidence?.pagesCrawled);
@@ -177,7 +182,7 @@ export const EXPLAINERS = {
     s: 'How often AI assistants such as ChatGPT name the brand when people ask about its services.',
     why: 'More buyers ask an AI assistant before they search. If the brand isn’t named, it isn’t considered.',
     good: 'Named in most answers, and ahead of competitors.',
-    calc: 'The share of measured answers that name the brand when ChatGPT, Claude and Gemini are asked this project’s prompts through their APIs, with web search on. Prompts that failed to capture are left out, not counted as misses. The report’s headline ring is a different, weighted score; its own (i) explains it.',
+    calc: 'The share of measured answers that name the brand when ChatGPT, Claude and Gemini are asked this project’s prompts through their APIs, with web search on. Prompts that failed to capture are left out, not counted as misses. The report’s headline ring shows the same figure, with its likely range.',
     src: 'Latest AI Visibility run',
     next: (ctx) => (ctx.module?.key === 'ai_visibility'
       ? { label: 'Open AI Visibility to see which questions you’re missing.', screen: 'aivis' }
@@ -187,8 +192,8 @@ export const EXPLAINERS = {
     t: 'Agent Readiness',
     s: 'Whether AI agents, assistants that browse and book on a customer’s behalf, can find and use the site.',
     why: 'Agents are a new route to customers. A site they can’t read is left off their shortlist.',
-    good: '80+. Below 60 means agents are largely shut out.',
-    calc: '13 HTTP checks, plus 10 on-page checks when page and form URLs are given, each worth a set number of points by importance. The score is the points earned out of 100.',
+    good: '80+ means the site is ready for the agent protocols now emerging. Most sites score lower today, because few have adopted them yet.',
+    calc: '13 site checks (worth 100 points) and 10 checks on the audited page (worth 63 more), each worth points by importance. The score is the points earned out of the points possible.',
     src: 'Live scan of the site',
     next: { label: 'Open Agent Readiness to see which checks failed.', screen: 'agent' },
   },
@@ -201,9 +206,10 @@ export const EXPLAINERS = {
     good: '80 or above, with no errors on pages that bring in customers.',
     calc: (ctx) => {
       const pages = num(ctx.htmlCount);
-      return 'Each page starts at 100 and loses 40 points for each kind of error, 10 for each kind of warning '
-        + `and 2 for each kind of notice. The score is the average across the ${pages ? `${pages} ` : ''}HTML pages `
-        + 'crawled. Redirects, broken pages and other sites aren’t scored.';
+      return 'Each page starts at 100 and loses 40 points for each kind of error and 10 for each kind of warning. '
+        + 'Notices are listed but cost nothing. '
+        + `The score is the average across the ${pages ? `${pages} ` : ''}audited pages. `
+        + 'Redirects, error pages, other sites and pages that refused the crawler aren’t scored.';
     },
     src: 'Site crawl',
     next: { label: 'Start with “What to do first”.' },
@@ -272,7 +278,7 @@ export const EXPLAINERS = {
     t: 'Page score',
     s: 'How well this page is built to rank on Google and to be quoted by AI assistants, out of 100.',
     why: 'Service pages like this one are where visitors become customers.',
-    good: '75 or above is Good, 90 or above Excellent. The five bands: Critical 0–39, Poor 40–59, Needs work 60–74, Good 75–89, Excellent 90–100.',
+    good: '80 or above is Good, 90 or above Excellent. The five bands: Critical 0–39, Poor 40–59, Needs work 60–79, Good 80–89, Excellent 90–100.',
     calc: 'The page’s checks are grouped into 9 weighted areas: 6 for search engines (SEO) and 3 for AI answer engines (GEO). The overall score blends the two sides. A serious blocking problem (noindex, no title, no H1, thin content) caps the score until it’s fixed.',
     src: 'Page audit',
     next: { label: 'Follow the priority verdict below. It names the change worth the most points.' },
@@ -338,14 +344,14 @@ export const EXPLAINERS = {
     t: 'Agent readiness score',
     s: 'How ready the site is for AI agents: assistants that browse, compare and book on a customer’s behalf.',
     why: 'Agents are an emerging route to customers. If they can’t read or reach the site, it isn’t on their shortlist.',
-    good: '80+. Below 60 means agents are largely shut out.',
+    good: '80+ means the site is ready for the agent protocols now emerging. Most sites score lower today, because few have adopted them yet.',
     calc: (ctx) => {
-      const tail = 'The score is the points earned out of 100. The level, from Not Indexed up to Agent Native, sums up how far along the site is.';
+      const tail = 'The score is the points earned out of the points possible (100 from the site checks, up to 63 more from the page checks). The level, from Not started up to Agent native, says how future-ready the site is for AI agents.';
       const cats = (ctx.cats || []).filter(Boolean);
       if (isNum(ctx.checkCount) && ctx.checkCount > 0 && cats.length) {
         return `${ctx.checkCount} automatic checks across ${cats.length} categories (${list(cats)}), each worth points by business impact. ${tail}`;
       }
-      return `13 HTTP checks on every scan, plus 10 on-page checks when page and form URLs are given, each worth points by business impact. ${tail}`;
+      return `13 site checks on every scan, plus 10 checks on the audited page, each worth points by business impact. ${tail}`;
     },
     src: 'Live scan of the site',
     next: { label: 'Start with the failing checks that carry the most points.' },
@@ -385,13 +391,13 @@ export const EXPLAINERS = {
 
   // ── AI Visibility (the Lite report the dashboard card opens) ──
   l_score: {
-    t: 'AI visibility score',
-    s: 'One number, out of 100, for how well AI assistants know and recommend the brand.',
+    t: 'Named in AI answers',
+    s: 'The share of AI answers that name the brand when real customer questions are asked.',
     why: 'It’s the headline answer to “are we winning in AI search?”',
-    good: 'Above 60 (“Well known”), AI regularly includes you. Above 80 (“Leading the conversation”), you’re one of the top answers.',
-    calc: 'A weighted blend of four readings: how often you’re named (40%), where you’re named (25%), how warmly you’re described (20%) and how often your site is cited (15%). A reading that couldn’t be measured is left out and the rest are reweighted. This is not the dashboard card’s number, which counts only how often you’re named.',
+    good: 'Named in half the answers or more (“Usually named”). Under 1 in 10 is “Rarely named”.',
+    calc: 'Answers that name the brand ÷ answers measured, from ChatGPT, Claude and Gemini over the last 30 days. With about 30 answers the figure is uncertain by roughly ±15 points, so the range is shown and smaller changes get no arrow. Position, how warmly you’re described and how often your site is cited are shown beside it, not blended in. It is the same figure as the dashboard card.',
     src: (ctx) => answersSrc(ctx.answersMeasured, 'Measured answers'),
-    next: { label: 'Look at the lowest of the readings below. It’s what’s holding the score down.' },
+    next: { label: 'Open the weakest questions to see where you’re not named.' },
   },
   l_named: {
     t: 'Shows up in AI answers',
@@ -524,10 +530,10 @@ export const EXPLAINERS = {
   },
   v_sov: {
     t: 'Share of voice',
-    s: 'Your mentions as a share of all brand mentions across the answers.',
+    s: 'The answers that name you, as a share of the answers naming any tracked brand.',
     why: 'It shows your slice of the conversation against competitors, not just in isolation.',
-    good: 'The biggest bar.',
-    calc: 'Your mentions ÷ mentions of every tracked brand.',
+    good: 'The biggest bar. With fewer than 10 measured answers there is no ranking yet.',
+    calc: 'Answers naming you ÷ answers naming each tracked brand, added up. An answer that repeats a name still counts once.',
     src: 'Measured answers',
     next: { label: 'See where the leader is cited instead of you.' },
   },
@@ -561,10 +567,10 @@ export const EXPLAINERS = {
 
   // ── Competitor Research ──
   c_score: {
-    t: 'Competitive score',
-    s: 'Your search traffic compared with the strongest competitor, out of 100.',
-    why: 'It’s a simple read on your market share in Google.',
-    good: '80+, or 100 if you are the leader.',
+    t: 'Market position',
+    s: 'Your search traffic as a share of the strongest competitor’s. Context, not a grade.',
+    why: 'It shows where you stand in Google against the sites you compete with. It mostly reflects company size, so it isn’t scored or added to any total.',
+    good: 'There is no pass mark: a local business next to a national chain will read low. Watch whether the share grows.',
     calc: competitorCalc,
     src: (ctx) => (isNum(ctx.competitorCount) && ctx.competitorCount > 0
       ? `Semrush estimates · ${ctx.competitorCount} ${plural(ctx.competitorCount, 'competitor')}`
@@ -695,7 +701,7 @@ export function resolveExplainer(key, ctx = {}) {
 
 /** Shown at the top of the legend panel on every screen. */
 export const LEGEND_SHARED = [
-  { key: 'bands', term: 'Score bands', line: '80+ Good · 60–79 Needs attention · below 60 At risk. SEO & GEO uses its own five bands, with Good from 75.' },
+  { key: 'bands', term: 'Score bands', line: '80+ Good · 60–79 Needs attention · below 60 At risk — the same on every score. SEO & GEO and Agent Readiness name their bands differently, on the same 80 / 60 lines.' },
   { key: 'dash', term: 'Not measured', line: 'Nothing has been checked yet. A missing number is never shown as 0.' },
   { key: 'trend', term: 'Direction', line: 'Improving, slipping or holding, compared with the previous audit of the same pages.' },
   { key: 'severity', term: 'Severity', line: 'Error: likely stopping a page from performing. Warning: holding it back. Notice: worth tidying.' },
@@ -730,7 +736,7 @@ export const LEGEND_BY_SCREEN = {
       line: 'The page’s checks across 9 weighted areas, blending an SEO side and a GEO side. A blocking problem caps it until fixed.',
       ex: (ctx) => (isNum(ctx.overall) ? `${ctx.overall} · ${ctx.cap?.applied ? `capped at ${ctx.cap.value}` : 'no cap applied'}` : null),
     },
-    { term: 'Bands', line: 'Critical, Poor, Needs work, Good (75+), Excellent (90+).', ex: null },
+    { term: 'Bands', line: 'Critical, Poor, Needs work (60+), Good (80+), Excellent (90+).', ex: null },
     { term: 'AI engine readiness', line: 'Ready: can quote the page. Partial: might. Not ready: missing something it needs.', ex: null },
     {
       term: 'Check results',
@@ -742,12 +748,12 @@ export const LEGEND_BY_SCREEN = {
   agent: [
     {
       term: 'Readiness score',
-      line: 'Every check is worth points by importance. The score is the points earned out of 100.',
-      ex: (ctx) => (isNum(ctx.score) ? `${ctx.score} of 100 points` : null),
+      line: 'Every check is worth points by importance. The score is the points earned out of the points possible.',
+      ex: (ctx) => (isNum(ctx.score) ? `${ctx.score} out of 100` : null),
     },
     {
       term: 'Level',
-      line: 'A one-line summary of how far along the site is, from Not Indexed up to Agent Native.',
+      line: 'How future-ready the site is for AI agents, from Not started up to Agent native, on the same 80 / 60 bands as every score.',
       ex: (ctx) => ctx.level || null,
     },
     {
@@ -758,7 +764,7 @@ export const LEGEND_BY_SCREEN = {
     },
   ],
   aivisLite: [
-    { term: 'AI visibility score', line: 'A weighted blend of how often, where and how warmly you’re named, and how often you’re cited.', ex: 'named 40% · position 25% · sentiment 20% · cited 15%' },
+    { term: 'Named in AI answers', line: 'The share of AI answers that name the brand, with its likely range. Position, sentiment and citations are shown beside it.', ex: null },
     {
       term: 'Shows up in AI answers',
       line: 'The share of measured answers that name you. This is the number on the dashboard card.',
@@ -770,12 +776,12 @@ export const LEGEND_BY_SCREEN = {
   ],
   aivis: [
     { term: 'Visibility', line: 'The share of AI answers that mention you.', ex: (ctx) => ctx.kpis?.visibility?.display || null },
-    { term: 'Share of voice', line: 'Your mentions as a share of all brand mentions.', ex: (ctx) => ctx.kpis?.shareOfVoice?.display || null },
+    { term: 'Share of voice', line: 'The answers that name you, as a share of the answers naming any tracked brand.', ex: (ctx) => ctx.kpis?.shareOfVoice?.display || null },
     { term: 'Position', line: 'The order you’re named in when you appear. 1 means first.', ex: (ctx) => ctx.kpis?.position?.display || null },
     { term: '0% vs. —', line: '0% is a measured result. A dash means it couldn’t be measured.', ex: null },
   ],
   comp: [
-    { term: 'Competitive score', line: 'Your search traffic as a share of the strongest competitor’s, capped at 100.', ex: (ctx) => trafficFormula(ctx.trafficScore) },
+    { term: 'Market position', line: 'Your search traffic as a share of the strongest competitor’s, uncapped. Context, not a grade.', ex: (ctx) => trafficFormula(ctx.trafficScore) },
     { term: 'Authority score', line: 'A 0–100 rating of how trusted a site looks, based on links from other sites.', ex: null },
     { term: 'Estimates', line: 'Traffic figures are Semrush estimates. They’re reliable for comparison, not exact counts.', ex: null },
     { term: 'Branded vs. non-branded', line: 'Non-branded searches come from people who don’t know you yet.', ex: null },

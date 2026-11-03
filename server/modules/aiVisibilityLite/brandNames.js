@@ -22,9 +22,9 @@
 //
 // The business's own name and the project's name are never sent — they are
 // kept unconditionally. The result is cached per exact input, so it is one
-// small call per project per process, not per page load. If the call fails the
-// names are kept as they were: a transient outage must not make a business
-// suddenly read as never mentioned.
+// small call per project per process, not per page load. If the call fails only
+// the business's own names are matched: unchecked candidates include generic
+// words, and keeping them inflated "named" whenever the check was down.
 
 const { createLlmClient } = require('../../services/llmProviders');
 const { chatParams } = require('../../locationPageBuilder/llmParams');
@@ -112,9 +112,13 @@ async function vetAliases({ name, domain, candidates, offers }) {
         const text = String(res.choices?.[0]?.message?.content || '').replace(/^```(?:json)?|```$/g, '').trim();
         return interpretVetting(JSON.parse(text), candidates);
       } catch (e) {
-        console.warn(`[aiVisibilityLite] name check skipped for ${name} (${e.message}); keeping every name`);
+        // Unchecked names are not kept. Keeping them all let generic words
+        // ("FIRST", "Voice Library") count as mentions whenever the check
+        // failed, so the same answers scored differently from read to read.
+        // The business's own name and the project's name are still matched.
+        console.warn(`[aiVisibilityLite] name check failed for ${name} (${e.message}); using the business name only`);
         cache.delete(key);
-        return { kept: candidates, dropped: [] };
+        return { kept: [], dropped: candidates.map((n) => ({ name: n, kind: 'unchecked' })) };
       }
     })();
     cache.set(key, job);

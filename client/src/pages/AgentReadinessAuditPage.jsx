@@ -4,7 +4,7 @@ import { InfoTip } from '../components/seoGeo/report/reportKit';
 import ProjectReportBar from '../components/project/ProjectReportBar';
 import ReportResolving from '../components/project/ReportResolving';
 import { useActiveProjectId } from '../lib/activeProject';
-import { scoreBandColor } from '../lib/scoreVerdict';
+import { scoreBandColor, scoreTone } from '../lib/scoreVerdict';
 import { InfoDot, Legend } from '../components/explain';
 import { agentWorking } from '../components/chat/screenWorking';
 
@@ -80,12 +80,15 @@ Header always set Link "</sitemap.xml>; rel=sitemap"`,
 };
 
 // Level thresholds for tooltip
+// How future-ready the site is for AI agents (server levelFromScore). The steps
+// sit on the platform's bands (80 / 60), and say where a site is on that path —
+// "Not Indexed" was printed on sites Google indexes fine.
 const LEVELS = [
-  { score: '90–100', label: 'Agent Native', level: 4 },
-  { score: '75–89', label: 'Agent Ready', level: 3 },
-  { score: '50–74', label: 'AI Aware', level: 2 },
-  { score: '25–49', label: 'Basic Web Presence', level: 1 },
-  { score: '0–24', label: 'Not Indexed', level: 0 },
+  { score: '90–100', label: 'Agent native', level: 4 },
+  { score: '80–89', label: 'Future-ready', level: 3 },
+  { score: '60–79', label: 'Getting ready', level: 2 },
+  { score: '40–59', label: 'Early steps', level: 1 },
+  { score: '0–39', label: 'Not started', level: 0 },
 ];
 
 // Scoring weight table for explanation panel
@@ -113,8 +116,8 @@ const ROADMAP = [
     tier: 'This quarter',
     sub: '1 day – 2 weeks each',
     color: 'var(--info)', bg: 'var(--info-soft)',
-    checkIds: ['sitemap', 'markdown', 'apicatalog', 'oauth', 'schema_search', 'schema_action', 'js_rendering', 'interactive_divs'],
-    efforts: { sitemap: '~half a day', markdown: '1–3 days', apicatalog: '3–5 days', oauth: '1–2 wks', schema_search: '~1 day', schema_action: '~1 day', js_rendering: '1–2 wks', interactive_divs: '~1 day' },
+    checkIds: ['sitemap', 'markdown', 'apicatalog', 'oauth', 'schema_action', 'js_rendering', 'interactive_divs'],
+    efforts: { sitemap: '~half a day', markdown: '1–3 days', apicatalog: '3–5 days', oauth: '1–2 wks', schema_action: '~1 day', js_rendering: '1–2 wks', interactive_divs: '~1 day' },
   },
   {
     tier: 'Strategic horizon',
@@ -129,7 +132,7 @@ const ROADMAP = [
 const WEIGHT_MAP = {
   robots: 7, sitemap: 7, linkheaders: 6, markdown: 10, aibots: 11, contentsignals: 9,
   webbotauth: 0, apicatalog: 8, oauth: 8, oauthresource: 8, mcp: 10, agentskills: 10, webmcp: 6,
-  form_labels: 10, input_type: 6, autocomplete: 6, schema_search: 5, schema_action: 5,
+  form_labels: 10, input_type: 6, autocomplete: 6, schema_action: 5,
   captcha: 8, cookie_banner: 6, js_rendering: 8, vague_buttons: 4, interactive_divs: 5,
 };
 
@@ -212,10 +215,10 @@ function ScoreRing({ score, checkCount, size = 128 }) {
 // The level steps, low to high, with the score each starts at (levelFromScore
 // in server/routes/agentReadinessAudit.js).
 const LADDER = [
-  { min: 0, short: 'Not indexed' },
-  { min: 25, short: 'Basic' },
-  { min: 50, short: 'AI aware' },
-  { min: 75, short: 'Agent ready' },
+  { min: 0, short: 'Not started' },
+  { min: 40, short: 'Early steps' },
+  { min: 60, short: 'Getting ready' },
+  { min: 80, short: 'Future-ready' },
   { min: 90, short: 'Agent native' },
 ];
 
@@ -223,7 +226,7 @@ const LADDER = [
 function LevelLadder({ score }) {
   const at = LADDER.reduce((idx, l, i) => (score >= l.min ? i : idx), 0);
   const next = LADDER[at + 1];
-  const color = score >= 75 ? 'var(--success)' : score >= 50 ? 'var(--warning)' : 'var(--danger)';
+  const color = `var(--${scoreTone(score) || 'danger'})`;
   return (
     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 3 }}>
@@ -283,7 +286,7 @@ function ReadinessExplainer({ score, cats = [], hasOnPage }) {
       {cats.length > 0 && (
         <span style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           {cats.map((c) => bar(c.id, c.score, 100, c.score,
-            c.score >= 70 ? 'var(--success)' : c.score >= 45 ? 'var(--warning)' : 'var(--danger)'))}
+            `var(--${scoreTone(c.score) || 'danger'})`))}
         </span>
       )}
       <span style={{ padding: '8px 10px', borderRadius: 8, background: 'var(--surface-2, var(--surface))', border: '1px solid var(--border)', fontSize: 12.5, color: 'var(--text)', fontWeight: 600 }}>
@@ -315,8 +318,8 @@ function BriefView({ brief, cats = [] }) {
   const [more, setMore] = useState(false);
   const lead = firstSentence(brief.summary);
   const rest = String(brief.summary || '').slice(lead.length).trim();
-  const working = cats.filter((c) => c.score >= 70);
-  const middle = cats.filter((c) => c.score >= 45 && c.score < 70);
+  const working = cats.filter((c) => scoreTone(c.score) === 'success');
+  const middle = cats.filter((c) => scoreTone(c.score) === 'warning');
   const blocking = cats.filter((c) => c.score < 45);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -438,7 +441,8 @@ const HALF = {
     icon: <><path d="M5 3h10l4 4v14H5z" /><path d="M9 13h6M9 17h4M8.5 9h3" /></>,
   },
 };
-const toneOf = (score) => (score >= 70 ? 'success' : score >= 45 ? 'warning' : 'danger');
+// The platform's one set of bands (80 / 60, lib/scoreVerdict.js).
+const toneOf = (score) => scoreTone(score) || 'danger';
 const RATING = { success: 'Good', warning: 'Needs work', danger: 'Weak' };
 
 function MiniRing({ score, size = 68 }) {

@@ -85,6 +85,31 @@ const { BRANDS_VERSION } = require('./answerBrands');
 // named once would otherwise sit at the top of the table on 100%.
 const MIN_ANSWERS_TO_RANK = 3;
 
+// Below this many measured answers there is no score at all — "not measured",
+// on the card, the report and the dashboard alike. compositeScore reweights
+// across whichever factors exist, so with no answers a lone sentiment reading
+// used to BE the whole score: Acalvio read 72, "Well known — AI regularly
+// includes you", from zero answers in the window.
+const MIN_MEASURED_FOR_SCORE = 10;
+
+/**
+ * The 95% range of a share measured over n answers (Wilson interval), in
+ * percentage points. 30 answers leave a mention rate uncertain by about ±15
+ * points, so "3.3%" printed alone, and arrows for changes inside that range,
+ * claimed a precision the sample does not have.
+ */
+function shareInterval(hit, n) {
+  if (!n) return null;
+  const z = 1.96;
+  const p = hit / n;
+  const denom = 1 + (z * z) / n;
+  const centre = (p + (z * z) / (2 * n)) / denom;
+  const half = (z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / denom;
+  const low = Math.max(0, centre - half) * 100;
+  const high = Math.min(1, centre + half) * 100;
+  return { low, high, margin: Math.round((high - low) / 2) };
+}
+
 // ── The composite score ──────────────────────────────────────────────────────
 //
 // `score` is not just "were you named". Appearing at all, appearing FIRST,
@@ -358,8 +383,10 @@ function sentimentSentence(s, listedFirst) {
 function sentimentTable(measured, toneMap, client, prompts = []) {
   const promptText = new Map(prompts.map((p) => [p.id, p.text]));
 
+  // Answers the name matched — including those the tone pass then found were not
+  // about the client (notAboutYou), which are reported below, not counted.
   const all = measured
-    .filter((r) => r.mentioned === true)
+    .filter((r) => r.mentioned === true || r.notAboutYou === true)
     .map((r) => {
       const t = toneMap.get(toneKey(r.runId, r.promptId, r.engine)) || null;
       const place = client?.name ? listPosition(r.answerText, client) : null;
@@ -1010,7 +1037,7 @@ function urlTable(measured, client, competitors) {
  *   three factors exactly as the headline is (see compositeScore).
  */
 function trendByRun(inScope, {
-  brand, competitors = [], runSentiment, toneMap = new Map(),
+  brand, competitors = [], runSentiment, toneMap = new Map(), minMeasured = MIN_MEASURED_FOR_SCORE,
 } = {}) {
   const runs = new Map();
   for (const row of inScope) {
@@ -1034,7 +1061,7 @@ function trendByRun(inScope, {
       // mean of scores runs actually earned rather than of namedRate alone.
       let score = null;
       let runSentimentScore = null;
-      if (brand) {
+      if (brand && measured.length >= minMeasured) {
         const runClientRow = brandTable(measured, brand, competitors).find((b) => b.isClient) || null;
         const citable = measured.filter((x) => x.cited !== null);
         runSentimentScore = sentimentFor(sentimentTable(measured, toneMap, brand), runSentiment?.get(r.runId));
@@ -1091,6 +1118,9 @@ function build({
   answerTones = [],
   answerBrands = [],
 }) {
+  // The minimum is an option only so arithmetic tests can score a two-answer
+  // fixture; the product always uses MIN_MEASURED_FOR_SCORE.
+  const minMeasured = Number.isFinite(options?.minMeasured) ? options.minMeasured : MIN_MEASURED_FOR_SCORE;
   const brandMap = new Map((answerBrands || [])
     .filter((b) => b.v === BRANDS_VERSION)
     .map((b) => [toneKey(b.runId, b.promptId, b.engine), b]));
@@ -1106,7 +1136,15 @@ function build({
   // exactly this reason.
   const live = new Set(prompts.map((p) => p.id));
   const excluded = captures.filter((c) => !c.promptId || !live.has(c.promptId));
-  const inScope = captures.filter((c) => c.promptId && live.has(c.promptId));
+  // An answer the tone pass read as not about this business ("absent": the
+  // name matched, but the answer means something else) is not a mention —
+  // anywhere: named rate, rank, share of mentions and gaps. It used to drop out
+  // of sentiment only, and still counted as named (42 answers on 3 projects).
+  const inScope = captures
+    .filter((c) => c.promptId && live.has(c.promptId))
+    .map((c) => (c.mentioned && toneMap.get(toneKey(c.runId, c.promptId, c.engine))?.tone === 'absent'
+      ? { ...c, mentioned: false, notAboutYou: true }
+      : c));
 
   // period.split gives the current window and the intersection windows: the
   // prompts BOTH periods measured. Comparing anything else would report the
@@ -1156,11 +1194,15 @@ function build({
 
   const trackedBrandCount = 1 + competitors.length;
 
-  // Perception, if any run has ever produced one — the MOST RECENT reading
-  // regardless of the selected period, same convention the `described` panel
-  // already uses (see routes.js and the runSentiment doc above).
+  // The newest run's one-call perception reading, but only one taken INSIDE the
+  // current window. A reading from any date let a September sentiment score
+  // stand in for a period with no answers at all (Nike, Acalvio, FishAudio,
+  // NICE, Gentle Dental).
+  const windowFrom = Date.parse(split.period?.current?.from || '');
   const latestRunReading = runSentiment && runSentiment.size
-    ? [...runSentiment.values()].sort((a, b) => new Date(b.at) - new Date(a.at))[0]
+    ? [...runSentiment.values()]
+      .filter((r) => !Number.isFinite(windowFrom) || Date.parse(r.at) >= windowFrom)
+      .sort((a, b) => new Date(b.at) - new Date(a.at))[0] || null
     : null;
   // The period's own per-answer sentiment when enough answers are analysed;
   // otherwise the most recent run's one-call reading, as before.
@@ -1169,7 +1211,7 @@ function build({
 
   const currentRankScore = rankToScore(clientRow ? clientRow.mentionRank.value : null, trackedBrandCount);
   const currentCitedScore = shareScore(cited, citable.length);
-  const currentComposite = compositeScore({
+  const currentComposite = measured.length < minMeasured ? null : compositeScore({
     named: summary.score,
     rank: currentRankScore,
     perception: latestPerception ? latestPerception.score : null,
@@ -1183,7 +1225,7 @@ function build({
   // per-run artifact, not a per-period one), and giving it a delta would
   // invent a change nobody measured.
   const prevCitable = prevMeasured.filter((r) => r.cited !== null);
-  const previousComposite = comparable
+  const previousComposite = comparable && prevMeasured.length >= minMeasured
     ? compositeScore({
       named: previous.score,
       rank: rankToScore(prevClientRow ? prevClientRow.mentionRank.value : null, trackedBrandCount),
@@ -1200,7 +1242,12 @@ function build({
   if (currentRankScore !== null) scoreParts.push(`rank ${clientRow.mentionRank.display}`);
   if (latestPerception) scoreParts.push(`sentiment ${Math.round(latestPerception.score)}`);
   if (currentCitedScore !== null) scoreParts.push(`cited ${Math.round(currentCitedScore)}%`);
-  const scoreNote = !scoreParts.length
+  const scoreNote = !measured.length
+    ? 'Nothing was measured in this period.'
+    : measured.length < minMeasured
+      ? `Only ${measured.length} answer${measured.length === 1 ? ' was' : 's were'} measured in this period; `
+        + `a score needs at least ${minMeasured}.`
+    : !scoreParts.length
     ? 'Nothing was measured in this period.'
     : `Weighted from: ${scoreParts.join(', ')}.`
       + (latestPerception?.source === 'answers'
@@ -1236,7 +1283,7 @@ function build({
 
   // Computed here, ahead of `headline`, so avgScore can be built from it — and
   // reused below for the `trendAllRuns` field rather than walked twice.
-  const allRunsTrend = trendByRun(inScope, { brand, competitors, runSentiment, toneMap });
+  const allRunsTrend = trendByRun(inScope, { brand, competitors, runSentiment, toneMap, minMeasured });
   const scoredRuns = allRunsTrend.filter((r) => r.score.value !== null);
 
   const headline = {
@@ -1322,12 +1369,56 @@ function build({
     };
   });
 
+  // An engine that was asked but measured nothing — every answer failed. Since
+  // 23 Oct every Claude answer and since 28 Oct every Gemini answer failed on an
+  // API key, and the score quietly became ChatGPT-only. Said, not hidden.
+  const enginesUnavailable = engines.filter((e) => e.answers > 0 && e.measured === 0).map((e) => e.surfaceLabel);
+
   const warnings = [...(split.warnings || [])];
+  if (enginesUnavailable.length) warnings.push('engine_unavailable');
   if (coverage.belowThreshold) warnings.push('coverage_below_threshold');
   if (excluded.length) warnings.push('removed_prompts_excluded');
   if (!brand?.name) warnings.push('no_client_brand');
   if (current.length && groundedCount < current.length) warnings.push('ungrounded_answers_included');
   if (!competitors.length) warnings.push('no_competitors_configured');
+
+  // ── How sure the mention rate is, and whether it really moved ──────────────
+  //
+  // The headline (D4): the share of answers that name the brand, with its 95%
+  // range. Its change compares like with like — the questions BOTH periods
+  // asked (currentForDelta), not this period's full set against the previous
+  // shared one — and a change smaller than the range is not an arrow.
+  const interval = shareInterval(named, measured.length);
+  if (interval) headline.namedRate.interval = interval;
+
+  // The rate per kind of question: recommendation questions name businesses
+  // far more often than how-to ones, so each is reported on its own.
+  const intentOf = new Map(prompts.map((p) => [p.id, p.intent || null]));
+  const byType = (test) => {
+    const rows = measured.filter((r) => test(intentOf.get(r.promptId)));
+    return {
+      answers: rows.length,
+      named: rows.filter((r) => r.mentioned).length,
+      rate: fmt.metric(fmt.ratio(rows.filter((r) => r.mentioned).length, rows.length), 'percent'),
+    };
+  };
+  headline.namedByType = {
+    recommendation: byType((i) => i === 'commercial' || i === 'comparison'),
+    informational: byType((i) => !(i === 'commercial' || i === 'comparison')),
+  };
+  if (comparable && currentForDelta && previous) {
+    const delta = (currentForDelta.score - previous.score) / 100;
+    const inNoise = interval && Math.abs(delta * 100) < interval.margin;
+    headline.namedRate.delta = inNoise ? null : delta;
+    headline.namedRate.deltaDisplay = inNoise ? null : fmt.formatDelta('percent', currentForDelta.score / 100, previous.score / 100).deltaDisplay;
+    if (inNoise) headline.namedRate.withinNoise = true;
+  }
+  if (headline.score?.delta !== null && headline.score?.delta !== undefined && interval
+      && Math.abs(headline.score.delta) < interval.margin) {
+    headline.score.delta = null;
+    headline.score.deltaDisplay = null;
+    headline.score.withinNoise = true;
+  }
 
   return {
     meta: {
@@ -1348,6 +1439,10 @@ function build({
       // Kept under its own name, because it IS the useful figure for coverage:
       // how many individual model answers were usable.
       answersMeasured: measured.length,
+      // Which engines this period's figures rest on.
+      enginesMeasured: engines.filter((e) => e.measured > 0).length,
+      enginesAsked: engines.length,
+      enginesUnavailable,
       // The sentence that has to travel with the headline number.
       basis: summary.scoreBasis,
       generatedAt: new Date().toISOString(),
@@ -1400,7 +1495,7 @@ function build({
     // KPI row above it described different periods, and a reader comparing the
     // headline against the last point of its own trend line would find they
     // disagreed with no way to tell which was wrong.
-    trend: trendByRun(split.current, { brand, competitors, runSentiment, toneMap }),
+    trend: trendByRun(split.current, { brand, competitors, runSentiment, toneMap, minMeasured }),
     sentiment,
     // The full history, kept separate and labelled as such. A project with two
     // runs outside the default 30-day window would otherwise show an empty
@@ -1416,7 +1511,7 @@ function build({
 module.exports = {
   build, brandTable, sourceTable, gapTable, urlTable, questionTable,
   mentionOrder, trendByRun, MIN_ANSWERS_TO_RANK,
-  compositeScore, rankToScore, shareScore, SCORE_WEIGHTS,
+  compositeScore, rankToScore, shareScore, SCORE_WEIGHTS, MIN_MEASURED_FOR_SCORE, shareInterval,
   sentimentTable, listPosition, toneKey, SENTIMENT_SCORES,
   othersNamedTable, enrichCompetitors, brandKey,
 };

@@ -23,3 +23,20 @@ export function scoreBandColor(score) {
   if (!verdict) return null;
   return { accent: 'var(--primary)', warn: 'var(--viz-warn)', neg: 'var(--viz-neg)' }[verdict.tone];
 }
+
+/**
+ * The same bands as a tone name ('success' | 'warning' | 'danger'), for screens
+ * that colour with the semantic tokens. Every 0–100 score on the platform uses
+ * these thresholds (80 / 60): SEO & GEO used 75 / 60, Hub & Spoke 70 / 40 and
+ * Agent Readiness 75 / 50, so one number changed colour and verdict from one
+ * screen to the next. A module may word its bands differently; it may not move
+ * them. Null when there is no score.
+ */
+export function scoreTone(score) {
+  const verdict = scoreVerdict(score);
+  if (!verdict) return null;
+  return { accent: 'success', warn: 'warning', neg: 'danger' }[verdict.tone];
+}
+
+export const SCORE_GOOD_AT = 80;
+export const SCORE_WATCH_AT = 60;

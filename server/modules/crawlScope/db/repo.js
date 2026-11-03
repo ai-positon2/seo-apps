@@ -16,6 +16,7 @@
 // with the app's own `tool_runs` / `user_profiles`. See
 // supabase/migrations/0010_crawlscope.sql.
 
+const { regrade, currentSeverity } = require('../currentSeverity');
 const { json } = require("../../../services/db");
 
 // jsonb columns per table. Needed because node-postgres encodes a JS array as a
@@ -853,7 +854,9 @@ async function previousCompletedRun(client, projectId, beforeIso) {
 // URL-list crawl is never compared (its url is a label, not a site).
 async function previousComparableRun(client, run) {
   return client.maybeOne(
-    `select id, created_at, finished_at from crawl_runs
+    `select id, created_at, finished_at,
+            coalesce((budget->>'granted')::int, (options->>'maxUrls')::int) as page_budget
+       from crawl_runs
       where id <> $1
         and status = 'completed'
         and created_at < $2
@@ -1076,7 +1079,7 @@ async function replaceRuleFindings(client, runId, owner, ruleIds, findings, roll
 // aggregation; it is the same table, finally offered to the endpoint that needs
 // it most.
 async function listRunFindingRollup(client, runId) {
-  return client.rows(
+  const rows = await client.rows(
     `select rule_id, severity, category, count, detail
        from crawl_run_findings
       where run_id = $1
@@ -1084,6 +1087,7 @@ async function listRunFindingRollup(client, runId) {
       limit 200`,
     [runId],
   );
+  return rows.map((row) => ({ ...row, severity: currentSeverity(row.rule_id, row.severity) }));
 }
 
 // One page of instances. The unpaged reader below holds every row in memory,
@@ -1111,7 +1115,7 @@ async function listRunFindingInstancesPage(client, runId, { offset = 0, limit = 
       limit $2 offset $3`,
     [runId, size, from],
   );
-  return { rows: rows.map((r) => r.data), offset: from, limit: size, returned: rows.length };
+  return { rows: rows.map((r) => regrade(r.data)), offset: from, limit: size, returned: rows.length };
 }
 
 // Fetches every stored finding instance for a run, reconstructed to the exact
@@ -1239,7 +1243,7 @@ async function listAllRunFindingInstances(client, runId, { cap = FINDINGS_READ_C
       if (recommendation !== undefined) finding.recommendation = recommendation;
       const description = descriptionFor.get(row.dk);
       if (description !== undefined) finding.description = description;
-      all.push(finding);
+      all.push(regrade(finding));
     }
   }
   return all;

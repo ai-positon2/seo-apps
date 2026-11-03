@@ -1,3 +1,4 @@
+import { scoreTone } from '../../lib/scoreVerdict';
 // Shared presentational primitives for the SEO & GEO tools (full Audit page and
 // the Snapshot page). Moved verbatim out of SeoGeoAuditPage.jsx so both pages
 // render the same scoring UI from one implementation.
@@ -74,8 +75,9 @@ export const EEAT_BADGE = {
   weak:     { bg: 'var(--danger-soft)',  text: 'var(--danger)' },
 };
 
+// The platform's one set of bands (80 / 60, lib/scoreVerdict.js).
 export function scoreColor(score) {
-  return score >= 70 ? 'var(--success)' : score >= 45 ? 'var(--warning)' : 'var(--danger)';
+  return `var(--${scoreTone(score) || 'danger'})`;
 }
 
 // The model's JSON is untrusted in SHAPE as well as in content, and nothing server-side

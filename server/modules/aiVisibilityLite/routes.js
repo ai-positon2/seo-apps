@@ -32,6 +32,7 @@ const projectAccess = require('../../services/projectAccess');
 const projectsStore = require('../projects/store');
 const moduleEvidence = require('../projects/moduleEvidence');
 const store = require('./store');
+const { profileMatchesDomain, profileDomain } = require('./profileDomain');
 const setup = require('./setup');
 const runner = require('./run');
 const report = require('./report');
@@ -374,6 +375,16 @@ async function buildLiveReport(projectRow, { from = null, to = null, budget: wan
   ]);
   if (!captures.length) return { built: null, budget, prompts, captures };
 
+  // A profile built for a different domain: the project moved, and every answer
+  // on file is about the old business. No score until it is rebuilt.
+  const primaryHost = project.primaryDomain?.host || null;
+  if (profile && !profileMatchesDomain(profile, primaryHost)) {
+    return {
+      built: null, budget, prompts, captures,
+      profileStale: { builtFor: profileDomain(profile), businessName: profile.businessName, domain: primaryHost },
+    };
+  }
+
   // Competitors as well as the brand: the comparison table, share of
   // mentions and the 'competitor' source category all need them, and
   // identityFor already merges the project's configured domains with the
@@ -415,6 +426,16 @@ router.get('/:projectId/report', async (req, res) => {
     const access = await projectAccess.requireProject(req, req.params.projectId, 'view');
     const projectId = access.project.id;
     const live = await buildLiveReport(access.project, { from: req.query.from || null, to: req.query.to || null });
+
+    if (live.profileStale) {
+      return res.json({
+        state: 'profile_stale',
+        budget: live.budget,
+        promptsLive: live.prompts.length,
+        profileStale: live.profileStale,
+        report: null,
+      });
+    }
 
     if (!live.built) {
       // Not an error and not an empty report — a state. A project that has

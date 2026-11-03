@@ -557,20 +557,22 @@ function ExpandableMetricStrip({ tiles, report, min = 190 }) {
 
 // ── 1. Executive overview ──────────────────────────────────────────────────
 
-// Plain-English bands for the 0-100 score, so a reader who has never seen a
-// GEO/AI-visibility number before still knows whether 47 is good or bad
-// without learning the scale first. Ranges match the width used elsewhere in
-// this app's own maturity ladders (five 20-point bands).
-const SCORE_STAGES = [
-  { max: 20, label: 'Barely visible', color: 'var(--viz-neg)', blurb: 'AI almost never brings you up.' },
-  { max: 40, label: 'Starting to show up', color: 'var(--viz-neg)', blurb: 'AI mentions you sometimes, but not often.' },
-  { max: 60, label: 'Getting noticed', color: 'var(--viz-warn)', blurb: 'AI mentions you about as often as it doesn’t.' },
-  { max: 80, label: 'Well known', color: 'var(--primary)', blurb: 'AI regularly includes you in its answers.' },
-  { max: Infinity, label: 'Leading the conversation', color: 'var(--primary)', blurb: 'AI treats you as one of the top answers.' },
+// ── The headline is the mention rate (D4) ───────────────────────────────────
+//
+// The share of AI answers that name the brand — the one figure a reader can
+// check against the answers. The blended score (named 40, position 25,
+// sentiment 20, cited 15) jumped from about 5 to 44 between 2 and 3 named
+// answers of 30, and its stage text ("AI mentions you about as often as it
+// doesn't") was shown for brands named in 14–20% of answers. The stages now
+// follow the rate, so the words match the number.
+const RATE_STAGES = [
+  { max: 0.1, label: 'Rarely named', color: 'var(--viz-neg)' },
+  { max: 0.25, label: 'Sometimes named', color: 'var(--viz-neg)' },
+  { max: 0.5, label: 'Often named', color: 'var(--viz-warn)' },
+  { max: 0.75, label: 'Usually named', color: 'var(--primary)' },
+  { max: Infinity, label: 'Almost always named', color: 'var(--primary)' },
 ];
-const stageFor = (score) => (
-  typeof score === 'number' ? SCORE_STAGES.find((s) => score <= s.max) : null
-);
+const rateStageFor = (rate) => (typeof rate === 'number' ? RATE_STAGES.find((s) => rate < s.max) : null);
 
 /** "1 in 10 AI answers mention you" — the named rate as a reader says it. */
 function mentionPhrase(rate) {
@@ -582,7 +584,7 @@ function mentionPhrase(rate) {
 }
 
 /** The score as a large ring, filled to the score in the stage's colour. */
-function ScoreRing({ score, display, color, label }) {
+function ScoreRing({ score, display, color, label, caption = 'VISIBILITY / 100' }) {
   const size = 210; const stroke = 16; const r = (size - stroke) / 2; const c = 2 * Math.PI * r;
   const frac = typeof score === 'number' ? Math.max(0, Math.min(1, score / 100)) : 0;
   return (
@@ -610,7 +612,7 @@ function ScoreRing({ score, display, color, label }) {
           {display}
         </span>
         <span style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)', letterSpacing: '.14em', color: 'var(--text-3)', marginTop: 6 }}>
-          VISIBILITY / 100
+          {caption}
         </span>
         {label && <span style={{ fontSize: 12, fontWeight: 600, color, marginTop: 4 }}>{label}</span>}
       </div>
@@ -618,109 +620,51 @@ function ScoreRing({ score, display, color, label }) {
   );
 }
 
-// ── The score's "i" ─────────────────────────────────────────────────────────
-// The headline is report.js compositeScore: four factors, weighted 40/25/20/15,
-// reweighted across just the factors that could be measured. Each factor's
-// points = its 0-100 value × its share of the weight — the same arithmetic the
-// server ran, spelled out in the "i" so the reader can add it up.
-const FACTOR_COLOR = {
-  named: 'var(--viz-1)', rank: 'var(--viz-2)', perception: 'var(--viz-3)', cited: 'var(--viz-4)',
-};
-const FACTOR_SHORT = {
-  named: 'Named in answers', rank: 'Position when named', perception: 'Sentiment', cited: 'Cited as a source',
-};
-const FACTOR_HOW = {
-  named: 'how often AI brings you up for real customer questions',
-  rank: 'how early in the answer you’re named (#1 scores 100)',
-  perception: 'how warmly AI describes you',
-  cited: 'how often AI links to your site as a source',
-};
-
-function scoreParts(headline) {
-  const rows = headline.scoreBreakdown || [];
-  const total = rows.filter((r) => r.included).reduce((sum, r) => sum + r.weight, 0) || 1;
-  return rows.map((r) => {
-    const share = r.included ? (r.weight * 100) / total : 0;
-    const value = r.included ? Math.max(0, Math.min(100, r.value)) : 0;
-    return { ...r, share, value, points: (value * share) / 100 };
-  });
-}
-
-/** Five 20-point stages as a strip, with the score marked on it. */
-function StageLadder({ score }) {
-  if (typeof score !== 'number') return null;
-  const current = stageFor(score);
+/** The mention-rate stages as a strip, with the rate marked on it. */
+function RateLadder({ rate }) {
+  if (typeof rate !== 'number') return null;
+  const current = rateStageFor(rate);
+  const edges = [0, 0.1, 0.25, 0.5, 0.75, 1];
   return (
     <div style={{ width: 210 }}>
-      <div style={{ position: 'relative', display: 'flex', gap: 3 }}>
-        {SCORE_STAGES.map((s) => (
+      <div style={{ display: 'flex', gap: 3 }}>
+        {RATE_STAGES.map((s, i) => (
           <span
             key={s.label}
+            title={`${Math.round(edges[i] * 100)}–${Math.round(edges[i + 1] * 100)}%: ${s.label}`}
             style={{
-              flex: 1, height: 6, borderRadius: 999,
+              flex: edges[i + 1] - edges[i], height: 6, borderRadius: 999,
               background: s === current ? s.color : `color-mix(in srgb, ${s.color} 22%, transparent)`,
             }}
           />
         ))}
-        <span
-          aria-hidden="true"
-          style={{
-            position: 'absolute', top: -4, left: `calc(${Math.max(0, Math.min(100, score))}% - 7px)`,
-            width: 14, height: 14, borderRadius: '50%', background: 'var(--card)', border: `3px solid ${current.color}`,
-          }}
-        />
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
-        <span>0</span><span>20</span><span>40</span><span>60</span><span>80</span><span>100</span>
+        <span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span>
       </div>
     </div>
   );
 }
 
-/** The "i": the formula, this report's arithmetic, and what each stage means. */
-function ScoreExplainer({ headline }) {
-  const parts = scoreParts(headline);
-  const used = parts.filter((r) => r.included);
-  const skipped = parts.filter((r) => !r.included);
-  const stage = stageFor(headline.score.value);
+/** The "i" for the mention rate: the count, the range and why it is a range. */
+function RateExplainer({ headline, meta }) {
+  const iv = headline.namedRate.interval;
+  const n = meta?.answersMeasured || 0;
+  const named = Math.round((headline.namedRate.value || 0) * n);
   return (
     <>
-      <strong style={{ color: 'var(--text)', fontSize: 13.5 }}>How the visibility score works</strong>
-      <span>A 0–100 blend of four things AI answers show about you, each scored 0–100 and weighted:</span>
-      <span style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-        {parts.map((r) => (
-          <span key={r.key} style={{ display: 'grid', gridTemplateColumns: '10px 1fr auto', alignItems: 'center', gap: 8, opacity: r.included ? 1 : 0.55 }}>
-            <span style={{ width: 9, height: 9, borderRadius: 3, background: FACTOR_COLOR[r.key] }} />
-            <span style={{ fontSize: 12 }}><strong>{FACTOR_SHORT[r.key]}</strong> — {FACTOR_HOW[r.key]}</span>
-            <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)' }}>{r.weight}%</span>
-          </span>
-        ))}
-      </span>
-      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-3)' }}>
-        This report
-      </span>
-      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-        {used.map((r) => Math.round(r.points)).join(' + ')}
-        {used.reduce((sum, r) => sum + Math.round(r.points), 0) === Number(headline.score.display) ? ' = ' : ' ≈ '}
-        <strong>{headline.score.display}</strong>
-      </span>
-      {skipped.length > 0 && (
-        <span style={{ fontSize: 11.5 }}>
-          {skipped.map((r) => FACTOR_SHORT[r.key]).join(' and ')} couldn’t be measured yet, so {skipped.length === 1 ? 'its' : 'their'} weight
-          is spread across the others — a missing reading never counts as zero.
+      <strong style={{ color: 'var(--text)', fontSize: 13.5 }}>How this figure works</strong>
+      <span>The share of measured AI answers that name the brand: {named} of {n} answers = {headline.namedRate.display}.</span>
+      {iv && (
+        <span>
+          From {n} answers that share is uncertain by about ±{iv.margin} points (95% range {Math.round(iv.low)}–{Math.round(iv.high)}%),
+          so a change smaller than that is not shown as a rise or fall.
         </span>
       )}
-      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-3)' }}>
-        Stages
+      <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
+        Position, how warmly the brand is described and how often its site is cited are shown beside the figure, not blended into it.
+        Answers that failed to come back are left out, not counted as misses.
       </span>
-      <span style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        {SCORE_STAGES.map((s, i) => (
-          <span key={s.label} style={{ fontSize: 12, fontWeight: s === stage ? 700 : 400, color: s === stage ? 'var(--text)' : undefined }}>
-            {i * 20}{s.max === Infinity ? '–100' : `–${s.max}`} · {s.label}{s === stage ? '  ← you' : ''}
-          </span>
-        ))}
-      </span>
-      <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>The project dashboard card shows this same number.</span>
     </>
   );
 }
@@ -805,8 +749,16 @@ export function OverviewReport({ report }) {
     .sort((a, b) => (a.namedRate.value ?? 1) - (b.namedRate.value ?? 1))
     .slice(0, 5);
 
-  const stage = stageFor(report.headline.score.value);
+  const stage = rateStageFor(report.headline.namedRate.value);
   const brandName = clientRow?.name || 'You';
+  const interval = report.headline.namedRate.interval || null;
+  // Position, sentiment and citations qualify the rate; they are not blended in.
+  const factor = (key) => (report.headline.scoreBreakdown || []).find((f) => f.key === key) || null;
+  const qualifiers = [
+    factor('rank')?.included ? { label: 'Usual position when named', value: factor('rank').display } : null,
+    factor('perception')?.included ? { label: 'How warmly described', value: `${factor('perception').display}/100` } : null,
+    factor('cited')?.included ? { label: 'Cited as a source', value: `${factor('cited').display} of answers` } : null,
+  ].filter(Boolean);
 
   const namedValue = report.headline.namedRate.value;
   const accent = stage ? stage.color : 'var(--text)';
@@ -858,24 +810,55 @@ export function OverviewReport({ report }) {
                   + `The next one, ${runnerUp.name}, comes up in ${runnerUp.namedRate.display} of answers.`
                 : 'This project isn’t tracking any competitors yet, so there’s nothing to compare against — '
                   + 'add one or two to see how you stack up.'}
-              {report.headline.avgScore.value !== null
-                ? ` Usually around ${report.headline.avgScore.display}/100 across every check this project has run.`
-                : ''}
             </div>
+            {report.headline.namedByType && report.headline.namedByType.recommendation.answers > 0
+              && report.headline.namedByType.informational.answers > 0 && (
+              <div style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 10 }}>
+                Named in {report.headline.namedByType.recommendation.rate.display} of answers to questions asking for a
+                recommendation, and {report.headline.namedByType.informational.rate.display} of answers to informational questions.
+              </div>
+            )}
+            {qualifiers.length > 0 && (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
+                {qualifiers.map((q) => (
+                  <span
+                    key={q.label}
+                    style={{
+                      display: 'inline-flex', flexDirection: 'column', gap: 2, padding: '8px 12px',
+                      borderRadius: 10, background: 'var(--surface-2, var(--surface))', border: '1px solid var(--border)',
+                    }}
+                  >
+                    <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{q.label}</span>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--font-mono)' }}>{q.value}</span>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, margin: '0 auto' }}>
             <div style={{ position: 'relative' }}>
-              <ScoreRing score={report.headline.score.value} display={report.headline.score.display} color={accent} label={stage?.label} />
-              {report.headline.score.value !== null && (
+              <ScoreRing
+                score={namedValue === null ? null : namedValue * 100}
+                display={report.headline.namedRate.display}
+                color={accent}
+                label={stage?.label}
+                caption="OF AI ANSWERS NAME YOU"
+              />
+              {namedValue !== null && (
                 <span style={{ position: 'absolute', top: 4, right: -6 }}>
-                  <InfoTip label="How the visibility score is calculated" align="right">
-                    <ScoreExplainer headline={report.headline} />
+                  <InfoTip label="How this figure is calculated" align="right">
+                    <RateExplainer headline={report.headline} meta={report.meta} />
                   </InfoTip>
                 </span>
               )}
             </div>
-            <StageLadder score={report.headline.score.value} />
+            {interval && (
+              <span style={{ fontSize: 12.5, color: 'var(--text-2)', textAlign: 'center' }}>
+                ±{interval.margin} pts · likely between {Math.round(interval.low)}% and {Math.round(interval.high)}%
+              </span>
+            )}
+            <RateLadder rate={namedValue} />
           </div>
         </div>
 

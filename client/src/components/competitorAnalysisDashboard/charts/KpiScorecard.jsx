@@ -12,7 +12,9 @@ export function KpiScorecard({ label, stat, formatValue = fmtCompact, info, info
 
   let deltaText = 'No data yet';
   let deltaVariant = 'neutral';
-  if (total <= 1) {
+  if (stat.unknown) {
+    deltaText = 'No Semrush data for this site';
+  } else if (total <= 1) {
     deltaText = 'No competitors yet';
   } else if (leaderValue > 0) {
     if (isLeader) {
@@ -46,11 +48,13 @@ export function KpiScorecard({ label, stat, formatValue = fmtCompact, info, info
 
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
         <span style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: 'var(--text)', letterSpacing: '-0.02em' }}>
-          {formatValue(clientValue)}
+          {clientValue === null ? '—' : formatValue(clientValue)}
         </span>
-        <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-3)' }}>
-          #{rank} of {total}
-        </span>
+        {rank !== null && (
+          <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-3)' }}>
+            #{rank} of {total}
+          </span>
+        )}
       </div>
 
       <span style={{

@@ -9,6 +9,7 @@ import { moduleReportRoute } from '../../lib/moduleReportRoute';
 // a tag shown on both surfaces, per that file's own header comment.
 import { TAGS } from '../../toolsMeta';
 import { InfoDot } from '../explain';
+import { scoreBandColor } from '../../lib/scoreVerdict';
 
 // Which explainer each module's card carries. The two AI Visibility modules
 // answer the same question, so they share one.
@@ -55,9 +56,8 @@ const BAND = [
 const bandColor = (score) => (BAND.find((b) => score >= b.min) || BAND[2]).color;
 
 // One side of the SEO & GEO split on the card: label, mini bar, number. Coloured
-// on the SEO & GEO report's own thresholds (75 / 60, the edges of its Good and
-// Needs work labels), so a side reads the same colour here as in the report.
-const sideColor = (score) => (score >= 75 ? 'var(--primary)' : score >= 60 ? 'var(--viz-warn)' : 'var(--viz-neg)');
+// on the same bands as the card's own score and the report (80 / 60).
+const sideColor = (score) => scoreBandColor(score) || 'var(--viz-neg)';
 function SideScoreRow({ label, title, score }) {
   const has = Number.isFinite(score);
   const color = has ? sideColor(score) : 'var(--text-3)';
@@ -69,6 +69,38 @@ function SideScoreRow({ label, title, score }) {
       </span>
       <span className="num" style={{ fontSize: 13, fontWeight: 600, textAlign: 'right', color }}>{has ? score : '—'}</span>
     </div>
+  );
+}
+
+/**
+ * D7: how the score moved since the previous measurement (overview.js
+ * technicalChange / moduleChanges). An arrow only when the two are like for
+ * like; a changed method or page budget says so instead.
+ */
+export function changeLabel(change) {
+  if (!change) return null;
+  const since = change.since ? new Date(change.since) : null;
+  const when = since && Number.isFinite(since.getTime())
+    ? ` since ${since.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : '';
+  if (!change.direction) return { text: 'Not comparable', tone: 'muted', title: change.note || null };
+  if (change.direction === 'same') return { text: `No change${when}`, tone: 'muted', title: `Was ${change.previous}` };
+  const up = change.direction === 'up';
+  return {
+    text: `${up ? '▲' : '▼'} ${up ? '+' : '−'}${Math.abs(change.delta)}${when}`,
+    tone: up ? 'up' : 'down',
+    title: `${up ? 'Improved' : 'Down'} from ${change.previous}`,
+  };
+}
+
+function ChangeChip({ change }) {
+  const label = changeLabel(change);
+  if (!label) return null;
+  const color = label.tone === 'up' ? 'var(--viz-pos, var(--success))'
+    : label.tone === 'down' ? 'var(--viz-neg)' : 'var(--text-3)';
+  return (
+    <span title={label.title || undefined} style={{ fontSize: 11.5, fontWeight: 600, color, whiteSpace: 'nowrap' }}>
+      {label.text}
+    </span>
   );
 }
 
@@ -138,7 +170,10 @@ function blurbLines(module) {
           : `Runs standalone today. Client-scoped evidence arrives with ${module.pendingPhase || 'a later phase'}.`,
     };
   }
-  return { lead: module.headline, support: module.detail };
+  // What the number covers comes first ("2,663 of 10,000 crawled pages scored",
+  // "10 answers from 1 of 3 AI engines"), so a partial measurement never reads
+  // as the whole site.
+  return { lead: module.headline, support: [module.coverage, module.detail].filter(Boolean).join(' · ') || null };
 }
 
 export default function ModuleCard({ module, onRun, crawlLive = false }) {
@@ -336,6 +371,7 @@ export default function ModuleCard({ module, onRun, crawlLive = false }) {
                 : step === 'waiting' ? 'waiting for the crawl'
                   : 'analyzing…'}
           </span>
+          {!workingEmpty && <ChangeChip change={module.change} />}
         </div>
         {number.rank && !workingEmpty && (
           <span style={{ fontSize: 11.5, color: 'var(--text-2)', textAlign: 'right', maxWidth: 70, lineHeight: 1.3, flexShrink: 0 }}>

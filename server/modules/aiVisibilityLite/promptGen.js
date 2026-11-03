@@ -52,11 +52,15 @@ a phrase that only that business uses. The whole point is to find out whether
 the model brings them up unprompted. A question that names them proves nothing.
 
 Write questions a buyer asks BEFORE they know who to go to. Spread them across
-what the business actually sells, and vary the shape: some asking for a
-recommendation, some comparing options, some asking how to choose, some asking
-what something costs or involves. Where the business serves specific places,
-some questions should mention the place — a national question measures nothing
-for a single-location business.`;
+what the business actually sells. Exactly half must ask for a recommendation —
+which business, provider or product to choose, or how options compare (intent
+"commercial" or "comparison"). The other half are informational — how to choose,
+what something costs or involves (intent "informational"). Where the business
+serves specific places, some questions should mention the place — a national
+question measures nothing for a single-location business.
+
+When a market is given, every question is asked by a buyer in that country: use
+only places in it, and leave out any location from the list that is elsewhere.`;
 
 const RESPONSE_FORMAT = `Return ONLY raw JSON, no markdown fences, in exactly this shape:
 
@@ -150,8 +154,10 @@ function guardNamesFrom(profile) {
  *   regeneration does not propose ones that are already there
  * @returns {Promise<{prompts: Array<{text, intent}>, rejected: Array<{text, reason}>}>}
  */
-async function generate({ profile, count = AUTO_PROMPT_COUNT, existing = [] }) {
+async function generate({ profile, count = AUTO_PROMPT_COUNT, existing = [], market = null }) {
   const payload = {
+    // Fix 5.4: the project's country. Every module measures this market.
+    ...(market ? { market } : {}),
     business_summary: profile.summary,
     products: profile.products,
     services: profile.services,
@@ -213,7 +219,7 @@ async function generate({ profile, count = AUTO_PROMPT_COUNT, existing = [] }) {
   });
 
   return {
-    prompts: verdict.accepted.slice(0, count),
+    prompts: balancedMix(verdict.accepted, count),
     rejected: verdict.rejected,
     // 'weak' means the brand name is entirely generic words, so the guard could
     // only match the full phrase and a prompt naming the client may have got
@@ -223,6 +229,29 @@ async function generate({ profile, count = AUTO_PROMPT_COUNT, existing = [] }) {
   };
 }
 
+// ── A fixed mix of question types ───────────────────────────────────────────
+//
+// Answers to a recommendation question name businesses far more often than
+// answers to a how-to question (23% vs 13% across projects), so a project's
+// rate moved with whatever mix the model happened to write — only 24% of live
+// questions asked for a recommendation, and one project had none. Half and
+// half, so projects are measured on the same footing.
+const RECOMMENDATION_INTENTS = new Set(['commercial', 'comparison']);
+const isRecommendation = (p) => RECOMMENDATION_INTENTS.has(p?.intent);
+
+function balancedMix(accepted, count) {
+  const want = Math.ceil(count / 2);
+  const recommend = accepted.filter(isRecommendation);
+  const inform = accepted.filter((p) => !isRecommendation(p));
+  const picked = [...recommend.slice(0, want), ...inform.slice(0, count - Math.min(want, recommend.length))];
+  // Short of one kind: fill from the other rather than ask fewer questions.
+  for (const p of accepted) {
+    if (picked.length >= count) break;
+    if (!picked.includes(p)) picked.push(p);
+  }
+  return picked.slice(0, count);
+}
+
 module.exports = {
-  MODEL, OVERSHOOT, INTENTS, generate, parseReply, guardNamesFrom,
+  MODEL, OVERSHOOT, INTENTS, generate, parseReply, guardNamesFrom, balancedMix, isRecommendation,
 };

@@ -244,6 +244,11 @@ export function EmptyMetric({ reason }) {
 // Warnings the server can attach to any report envelope. Copy lives here, in
 // one place, so the same condition reads identically on all nine screens.
 const WARNING_COPY = {
+  engine_unavailable: {
+    tone: 'warning',
+    text: 'Some AI engines answered nothing this period (every request failed), so the figures here '
+      + 'rest on the engines that did answer.',
+  },
   coverage_below_threshold: {
     tone: 'warning',
     text: 'Coverage is below 90%. Some captures failed, so every number here rests on '
@@ -309,7 +314,9 @@ export function ReportWarnings({ warnings = [], meta }) {
           : '';
         const note = w === 'prompt_set_changed' && meta?.comparison?.note
           ? ` ${meta.comparison.note}`
-          : '';
+          : w === 'engine_unavailable' && meta?.enginesUnavailable?.length
+            ? ` Not answering: ${meta.enginesUnavailable.join(', ')}.`
+            : '';
         return (
           <div
             key={w}

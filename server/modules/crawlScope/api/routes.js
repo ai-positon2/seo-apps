@@ -431,13 +431,40 @@ router.get(
     const findings = await loadRunFindings(req.db, run, meta);
     const reviews = await repo.listFindingReviews(req.db, run.id);
     const total = Math.max(Number(meta.total) || 0, findings.length);
+    const capped = total > findings.length;
+    // A capped list cannot be scored from what was returned: the report scored
+    // the first 50,000 findings and read 86 for Eventgroove beside the
+    // dashboard's 58. The score is computed here over every finding, by the
+    // dashboard's own function, and the report shows that one.
+    let serverHealth = null;
+    if (capped) {
+      try {
+        const overview = require("../../projects/overview");
+        const [htmlPages, affected] = await Promise.all([
+          overview.internalHtmlPageCount(run.id),
+          overview.healthAffectedPages(run.id),
+        ]);
+        const health = overview.siteHealth(run, htmlPages, [], affected);
+        if (health) {
+          serverHealth = {
+            score: health.score,
+            pages: health.denominator,
+            affected: health.affected,
+            loss: health.loss,
+          };
+        }
+      } catch (error) {
+        console.error("[crawlScope.findings.serverHealth]", error.message);
+      }
+    }
     res.json({
       grain: "instance",
       findings: mergeReviews(findings, reviews),
       // A run can hold more findings than one read returns; the report says
       // "the first N of M" instead of calling N the whole audit.
       total,
-      capped: total > findings.length,
+      capped,
+      serverHealth,
     });
   }),
 );

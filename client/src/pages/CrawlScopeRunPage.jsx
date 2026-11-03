@@ -48,8 +48,10 @@ import {
   healthMetrics, issueGroups, siteScopedGroups, mergeRuleGroups, pageIssueCards, crawlCoverageNotice,
   crawlComparison, reviewBatches, orderIssueGroups,
   runStatusVariant, formatDuration, TERMINAL_STATUSES, withEffectiveIssues,
-  buildCountHierarchy, isHtmlPage, describeBudgetSource,
+  buildCountHierarchy, isHtmlPage, describeBudgetSource, healthScoreBreakdown,
 } from '../components/crawlScope/crawlHelpers';
+import { useRegisterChatScreen } from '../components/chat/ChatContext';
+import { techWorking } from '../components/chat/screenWorking';
 import { cs, saveBlob } from '../lib/crawlScopeApi';
 
 // How long a crawl may go without a heartbeat before this page stops calling it
@@ -94,10 +96,14 @@ export default function CrawlScopeRunPage() {
   // { shown, total } when the run holds more findings than one read returns
   // (the server's 50,000 cap), else null.
   const [findingsCap, setFindingsCap] = useState(null);
+  // The health score computed on the server over EVERY finding, sent when the
+  // list was capped (the dashboard's own calculation). Null otherwise.
+  const [serverHealth, setServerHealth] = useState(null);
   const takeFindings = (response) => {
     const list = response?.findings || [];
     setFindings(list);
     setFindingsCap(response?.capped ? { shown: list.length, total: Number(response.total) || list.length } : null);
+    setServerHealth(response?.capped ? response.serverHealth || null : null);
   };
   // Whether the AUDIT — the full rule catalog's finding set — has actually been loaded.
   //
@@ -297,7 +303,23 @@ export default function CrawlScopeRunPage() {
   const htmlPages = useMemo(() => effectivePages.filter(isHtmlPage), [effectivePages]);
   const nonHtmlInternal = effectivePages.length - htmlPages.length;
 
-  const metrics = useMemo(() => healthMetrics(effectivePages, findings), [effectivePages, findings]);
+  // On a crawl whose findings were capped, the score and its parts come from the
+  // server over every finding: scoring only the first 50,000 read Eventgroove 86
+  // here beside the dashboard's 58.
+  const metrics = useMemo(() => {
+    const local = healthMetrics(effectivePages, findings);
+    if (!serverHealth || !Number.isFinite(serverHealth.score)) return local;
+    const pages = Number(serverHealth.pages) || local.htmlCount;
+    return {
+      ...local,
+      health: serverHealth.score,
+      htmlCount: pages,
+      affectedErrorPages: serverHealth.affected?.error ?? local.affectedErrorPages,
+      affectedWarningPages: serverHealth.affected?.warning ?? local.affectedWarningPages,
+      affectedNoticePages: serverHealth.affected?.notice ?? local.affectedNoticePages,
+      bandLoss: serverHealth.loss || local.bandLoss,
+    };
+  }, [effectivePages, findings, serverHealth]);
 
   const pageGroups = useMemo(() => issueGroups(effectivePages, findings), [effectivePages, findings]);
   const siteGroups = useMemo(() => siteScopedGroups(findings), [findings]);
@@ -491,6 +513,21 @@ export default function CrawlScopeRunPage() {
     () => crawlCoverageNotice(run, catalogById),
     [run?.summary, run?.status, run?.options?.maxUrls, run?.options?.maxDepth, run?.budget, catalogById],
   );
+
+  // The report assistant knows this is the Tech Audit, with its working, on
+  // EVERY tab — not only while the Overview tab's legend is mounted. Opening
+  // an issue switches tab, and the assistant then answered from project data
+  // alone ("I can't read the exact score breakdown on the page you're viewing").
+  const chatReady = TERMINAL_STATUSES.includes(status) && findingsState === 'ready' && Boolean(metrics);
+  const chatBreakdown = chatReady ? healthScoreBreakdown(metrics) : [];
+  useRegisterChatScreen(chatReady ? 'tech' : null, chatReady ? {
+    health: metrics.health,
+    htmlCount: metrics.htmlCount,
+    breakdown: chatBreakdown,
+    urlsFetched: counts?.urlsFetched,
+    pageLimit: coverage?.limit ?? null,
+    indexable: metrics.indexable,
+  } : null, () => techWorking({ metrics, breakdown: chatBreakdown, groups }));
 
   // ── Does this page show everything the analyser found? ───────────────────
   //

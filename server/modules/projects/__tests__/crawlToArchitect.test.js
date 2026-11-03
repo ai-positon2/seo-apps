@@ -264,3 +264,14 @@ test('the selection fields come from the stored row, not the pipeline page', () 
     inlinks: 7,
   });
 });
+
+test('5.3: a sitemap page the crawl called depth 1 gets its real link depth', () => {
+  const home = row('/', { depth: 0 });
+  const listing = row('/blog', { depth: 1 });
+  // Seeded from the sitemap, so the crawl recorded depth 1; links put it 2 clicks in.
+  const post = row('/blog/deep-post', { depth: 1 });
+  const rows = [post, home, listing];
+  const edges = [edge('/', '/blog'), edge('/blog', '/blog/deep-post')];
+  const input = c2a.assembleInput({ runId: 'r', rows, edges, selection: selectionOf([0]) });
+  assert.equal(input.linkGraph.depths[0], 3);
+});

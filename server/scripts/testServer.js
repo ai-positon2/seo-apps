@@ -37,11 +37,15 @@ const SUITES = [
   'services/__tests__/kbStorePaths.test.js',
   // The Agent Readiness PDF escapes caller fields and loads nothing.
   'routes/__tests__/agentReadinessPdf.test.js',
+  'routes/__tests__/agentReadinessChecks.test.js',
+  // A bot-protection wall is not scored as the site's page.
+  'checks/__tests__/challengePage.test.js',
   // A project audit only follows that project's own crawl.
   'modules/projects/__tests__/crawlOwnership.test.js',
   // A Content Architect project created from the tool page belongs to a workspace.
   'modules/contentArchitect/__tests__/newProjectWorkspace.test.js',
   'modules/contentArchitect/__tests__/hubPromotion.test.js',
+  'modules/contentArchitect/__tests__/collapseCopies.test.js',
   // The report assistant: its screen maps match the client's, it answers only
   // from the project's own data, and only to someone who can view the project.
   'modules/reportChat/__tests__/screens.test.js',
@@ -82,6 +86,12 @@ const SUITES = [
   'services/__tests__/appendOnlySchema.test.js',
   'modules/projects/__tests__/moduleEvidence.test.js',
   'modules/projects/__tests__/hubSpoke.test.js',
+  'modules/projects/__tests__/hubSpokeAutostart.test.js',
+  'modules/projects/__tests__/latestByModule.test.js',
+  'modules/projects/__tests__/auditSpread.test.js',
+  'modules/projects/__tests__/scoreChange.test.js',
+  'modules/contentArchitect/__tests__/clusterHealth.test.js',
+  'modules/projects/__tests__/verdictCosting.test.js',
   // Hub and spoke clusters informational pages only: which pages, how the model
   // is asked, and the crawl facts that still come from every page.
   'modules/contentArchitect/__tests__/informationalSelection.test.js',
@@ -135,6 +145,7 @@ const SUITES = [
   'modules/aiVisibilityLite/__tests__/describe.test.js',
   'modules/aiVisibilityLite/__tests__/brandNames.test.js',
   'modules/aiVisibilityLite/__tests__/answerBrands.test.js',
+  'modules/aiVisibilityLite/__tests__/profileDomain.test.js',
   'modules/aiVisibility/__tests__/captureScheduler.test.js',
   'modules/aiVisibility/__tests__/proxyPool.test.js',
   'modules/aiVisibility/__tests__/surfaceAvailability.test.js',

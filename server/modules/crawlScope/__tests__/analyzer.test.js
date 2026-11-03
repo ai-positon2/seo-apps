@@ -2256,6 +2256,44 @@ test("broken-internal-links still fires for a genuinely broken target (404, not 
   assert.ok(findings.some((f) => f.ruleId === "broken-internal-links" && f.url === source.url && f.statusCode === 404));
 });
 
+test("a title set only by JavaScript is one site-level warning, not a missing title on each page", () => {
+  // SoundHound: raw <title> empty on 1,485 newsroom pages, real in a browser.
+  const pages = ["/news/a", "/news/b"].map((path) => baseResult({
+    url: `https://example.com${path}`, title: "Real title from script", titleOnlyAfterJavaScript: true,
+  }));
+  const { findings } = buildFindings({ results: pages, startUrl: pages[0].url });
+  assert.ok(!findings.some((f) => f.ruleId === "title-missing"));
+  const js = findings.filter((f) => f.ruleId === "javascript-dependent-content");
+  assert.equal(js.length, 1);
+  assert.match(js[0].detail, /2 pages get their <title> only from JavaScript/);
+});
+
+test("a page that redirects with JavaScript is not charged a missing title", () => {
+  const page = baseResult({ url: "https://example.com/news/press", title: "", javascriptRedirectUrl: "https://press.example.org/story" });
+  const { findings } = buildFindings({ results: [page], startUrl: page.url });
+  assert.ok(!findings.some((f) => f.ruleId === "title-missing"));
+});
+
+test("a Cloudflare email-protection link is a mailto: link in disguise, never a broken link", () => {
+  // Cloudflare rewrites mailto: links to /cdn-cgi/l/email-protection#…, which
+  // only a browser decodes; fetched directly it is a 404. Piece of Cake lost 39
+  // points to this, on 511 of its 519 pages.
+  const source = baseResult({ url: "https://example.com/contact" });
+  const target = baseResult({
+    url: "https://example.com/cdn-cgi/l/email-protection",
+    status: 404,
+    statusText: "Not Found",
+    indexability: "Non-indexable",
+  });
+  const { findings } = buildFindings({
+    results: [source, target],
+    linkEdges: [{ sourceUrl: source.url, targetUrl: target.url, internal: true, anchorText: "[email protected]" }],
+    startUrl: source.url,
+  });
+  assert.ok(!findings.some((f) => f.ruleId === "broken-internal-links"), "no broken-link finding");
+  assert.ok(!findings.some((f) => f.url === target.url), "the address itself is not reported as a page");
+});
+
 test("collapseTemplateFindings: a broken link present on nearly every page collapses to ONE scope='template' signature, not N page findings", () => {
   const target = baseResult({ url: "https://example.com/search", status: 0, statusText: "Server error" });
   const pages = Array.from({ length: 10 }, (_, i) => baseResult({ url: `https://example.com/page-${i}` }));

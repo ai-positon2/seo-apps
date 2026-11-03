@@ -64,15 +64,17 @@ test('the case that shipped broken: a loss that does not round evenly still adds
   assert.strictEqual(totalLost(metrics), 13);
 });
 
-test('v5: the score moves with how many problems a page has, not only whether it has one', () => {
+test('v6: the score moves with how many problems a page has, not only whether it has one', () => {
   // v4 scored both of these 70: every page with a warning and a notice.
   const light = healthMetrics(pages(4, { warnings: 4, notices: 4 }), []);
   const heavy = pages(4);
   for (const page of heavy) {
     page.issues = ['a', 'b', 'c', 'd', 'e'].flatMap((id) => [{ id: `w-${id}`, severity: 'warning' }, { id: `n-${id}`, severity: 'notice' }]);
   }
-  assert.strictEqual(light.health, 88);
-  assert.strictEqual(healthMetrics(heavy, []).health, 40);
+  // v6: notices cost nothing, so a warning and a notice is 90, and five of
+  // each is 50.
+  assert.strictEqual(light.health, 90);
+  assert.strictEqual(healthMetrics(heavy, []).health, 50);
 });
 
 test('v5: redirects, error pages and status-only probes are not scored as pages', () => {
@@ -164,6 +166,27 @@ test('only page-scoped findings count towards the per-page bands', () => {
   assert.strictEqual(healthMetrics(results, findings).affectedErrorPages, 1);
 });
 
+test('v7: a problem no scored page carries costs once for the site, and the panel shows it', () => {
+  // thoughtworks scored 83 while 8,000 of its pages refused the crawl: site-wide
+  // and off-page problems were listed but cost nothing.
+  const results = pages(10);
+  const findings = [
+    { url: 'https://example.com/', ruleId: 'crawl-blocked', severity: 'error', scope: 'site' },
+    { url: 'https://example.com/x', ruleId: 'crawl-blocked', severity: 'error', scope: 'site' },
+    { url: 'https://example.com/old', ruleId: 'redirect-chain', severity: 'warning', scope: 'page' },
+  ];
+  const metrics = healthMetrics(results, findings);
+  // 5 for the site-wide error rule (once, not per URL) + 1 for the off-page warning.
+  assert.strictEqual(metrics.health, 94);
+  const site = healthScoreBreakdown(metrics).find((b) => b.key === 'site');
+  assert.strictEqual(site.points, 6);
+  assert.strictEqual(totalLost(metrics), 6);
+  assert.match(healthScoreExplanation(metrics), /−6 for site-wide problems/);
+  // A rule that is also on a scored page is charged there, not again here.
+  const both = [...findings, { url: 'https://example.com/0', ruleId: 'redirect-chain', severity: 'warning', scope: 'page' }];
+  assert.strictEqual(healthMetrics(results, both).bandLoss.site, 5);
+});
+
 test('pages with any problem are counted once, never more than the pages crawled', () => {
   // The issues tab read "7,895 findings on 2140 of 1136 pages": it added the
   // three per-severity page counts, which overlap whenever a page carries more
@@ -205,8 +228,9 @@ test('pages that refused the crawler are neither clean nor broken: they are not 
 });
 
 test('each rule’s cost adds up to its severity’s loss, cap included', () => {
-  // Page 0 fails eleven rules (3 errors, 5 warnings, 3 notices = 176 raw
-  // points), so the 100-point cap scales every one of its rules down.
+  // Page 0 fails eleven rules (3 errors, 5 warnings, 3 notices = 170 raw
+  // points; notices cost nothing in v6), so the 100-point cap scales every one
+  // of its rules down.
   const heavy = { url: 'https://example.com/0', scope: 'Internal', contentType: 'text/html', issues: [
     ...['e1', 'e2', 'e3'].map((id) => ({ id, severity: 'error' })),
     ...['w1', 'w2', 'w3', 'w4', 'w5'].map((id) => ({ id, severity: 'warning' })),
@@ -224,7 +248,27 @@ test('each rule’s cost adds up to its severity’s loss, cap included', () => 
   const w1 = metrics.ruleLoss.find((r) => r.ruleId === 'w1');
   assert.strictEqual(w1.pages, 4, 'counted once per page, however often it repeats');
   assert.strictEqual(w1.cappedPages, 1);
-  // Three uncapped pages at 10 points, one capped page at 10 × 100/176, over 4 pages.
-  assert.ok(Math.abs(w1.points - (30 + 1000 / 176) / 4) < 1e-9);
+  // Three uncapped pages at 10 points, one capped page at 10 × 100/170, over 4 pages.
+  assert.ok(Math.abs(w1.points - (30 + 1000 / 170) / 4) < 1e-9);
   assert.deepStrictEqual(metrics.ruleLoss.map((r) => r.points), [...metrics.ruleLoss.map((r) => r.points)].sort((a, b) => b - a));
+});
+
+test('3.6: what fixing a rule wins back is exact on pages at the 100-point cap', async () => {
+  const { fewestFixesPlan } = await import('../../chat/screenWorking.js');
+  // Page 0 fails three error rules (120 raw, capped at 100); page 1 is clean.
+  const results = pages(2);
+  results[0].issues = [{ id: 'a', severity: 'error' }, { id: 'b', severity: 'error' }, { id: 'c', severity: 'error' }];
+  const metrics = healthMetrics(results, []);
+  assert.strictEqual(metrics.health, 50);
+  const a = metrics.ruleLoss.find((r) => r.ruleId === 'a');
+  // Its share of the capped loss is 100/3 ÷ 2 pages ≈ 16.7, but fixing it
+  // leaves 80 on that page: a gain of 20 ÷ 2 = 10.
+  assert.ok(Math.abs(a.points - 50 / 3) < 1e-9);
+  assert.strictEqual(a.gainIfFixed, 10);
+  assert.strictEqual(Math.round(100 - metrics.exactLossWithout(new Set(['error|a']))), 60);
+  // Adding shares says one fix reaches 67 (50 + 16.7); page by page it is 60,
+  // and 70 takes a second fix (40 left on the page: 100 − 20 = 80).
+  const plan = fewestFixesPlan(metrics);
+  assert.match(plan[60], /^1 fix .* the score becomes 60/);
+  assert.match(plan[70], /^2 fixes .* the score becomes 80/);
 });

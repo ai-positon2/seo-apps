@@ -87,6 +87,13 @@ function item(fields) {
   const pages = [...new Set((fields.pages || []).filter(Boolean))];
   const attributed = fields.attribution !== 'aggregate';
   return {
+    // Whether this finding lowers a score (true), is listed without costing
+    // anything (false), or that is unknown (null). The verdict calls only
+    // costing errors "critical"; see overview.costingRulePages.
+    costsPoints: typeof fields.costsPoints === 'boolean' ? fields.costsPoints : null,
+    // For a crawl rule: the scored pages it costs points on (not every URL it
+    // was found on — those include error pages and pages that refused us).
+    costingPages: Array.isArray(fields.costingPages) ? fields.costingPages : null,
     key: `${fields.moduleKey}:${fields.ruleId}`,
     moduleKey: fields.moduleKey,
     moduleLabel: MODULE_LABEL.get(fields.moduleKey) || fields.moduleKey,
@@ -148,7 +155,10 @@ function item(fields) {
 async function crawlAdapter(crawl, crawledCount) {
   if (!crawl) return [];
 
-  const instances = await overview.findingInstancesForRun(crawl.id);
+  const [instances, costing] = await Promise.all([
+    overview.findingInstancesForRun(crawl.id),
+    overview.costingRulePages(crawl.id),
+  ]);
   const byRule = new Map();
 
   for (const inst of instances) {
@@ -163,6 +173,8 @@ async function crawlAdapter(crawl, crawledCount) {
   return [...byRule.entries()].map(([ruleId, bucket]) => item({
     moduleKey: 'technical',
     ruleId,
+    costsPoints: costing ? costing.has(ruleId) : undefined,
+    costingPages: costing?.has(ruleId) ? [...costing.get(ruleId).pages] : null,
     title: bucket.first.title,
     severity: bucket.first.severity,
     priority: bucket.first.priority,
@@ -481,9 +493,13 @@ async function buildFindingIndex({ access }) {
       let moduleKeywords = null;
       let moduleKeywordRecovery = null;
       if (moduleEvidence.PAGE_MODULE_KEYS.includes(module.key)) {
-        produced = await perPageAdapter(module.key, run, crawledCount);
+        // A failed page check lowers that page's own score.
+        produced = (await perPageAdapter(module.key, run, crawledCount))
+          .map((it) => (it.costsPoints === null ? { ...it, costsPoints: true } : it));
       } else if (module.key === 'hub_spoke') {
-        produced = hubSpokeAdapter(run, crawledCount);
+        // Page flags (orphan, thin, buried) are listed; cluster health does not read them.
+        produced = hubSpokeAdapter(run, crawledCount)
+          .map((it) => (it.costsPoints === null ? { ...it, costsPoints: false } : it));
         // latestByModule deliberately projects only `payload->>note` and
         // `payload->>reportRef` — the dashboard must not pull five 400KB payloads to
         // draw six cards. The structural facts the correlation rules need (clusters,

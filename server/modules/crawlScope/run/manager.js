@@ -129,15 +129,14 @@ function latestOnlyWriter(write) {
     if (!inFlight) drain();
   };
 }
-// Hub and Spoke does not need a finished crawl, only stored results for this
-// run_id (crawlToArchitect.buildFromCrawl reads crawl_run_results by run_id
-// alone, no status check) — so rather than making the reader wait for
-// completion, this re-queues the analysis every HUB_SPOKE_PROGRESSIVE_CHECKPOINT
-// pages while the crawl is still running. hubSpokeAutostart.decide() already
-// refuses to queue a second run behind one still queued/running for the same
-// project, so a checkpoint crossed while the previous progressive pass is
-// still working just no-ops rather than piling up.
-const HUB_SPOKE_PROGRESSIVE_CHECKPOINT = Number(process.env.HUB_SPOKE_PROGRESSIVE_CHECKPOINT) || 50;
+// Hub and Spoke is queued once, when the crawl completes (below, beside the
+// page-inventory sync). It used to be re-queued every 50 pages while the crawl
+// ran as well, on the belief that it read this run's rows; it does not — the
+// runner analyses the latest COMPLETED crawl (moduleRunners.runHubSpoke ->
+// latestCompletedCrawl). So every progressive pass re-analysed the previous
+// crawl, or found none: Gentle Dental's one crawl started 45 identical runs in
+// 58 minutes, and Eventgroove's 210 pushed its other modules' results out of
+// the dashboard's run window.
 const HEARTBEAT_MS = Number(process.env.RUN_HEARTBEAT_MS) || 30_000;
 // How quickly a stop asked for in another process is noticed here. Short on
 // purpose and separate from the heartbeat: the heartbeat proves liveness and
@@ -634,32 +633,6 @@ class RunManager {
     // running when execute() writes the terminal status.
     let flushChain = Promise.resolve();
     let lostRows = 0;
-    // Seeded from the checkpoint on a resumed run, so a reclaimed crawl that
-    // already had hundreds of pages stored does not wait another 50 fresh
-    // ones before the first progressive pass.
-    let resultsSeen = Number(run.checkpoint?.completedCount) || 0;
-    let lastHubSpokeCheckpoint = Math.floor(resultsSeen / HUB_SPOKE_PROGRESSIVE_CHECKPOINT);
-
-    // Fire-and-forget: a progressive analysis pass that could not be queued is
-    // not this crawl's problem, and the completion-time call already handles
-    // its own final pass. hubSpokeAutostart.scheduleHubSpoke never throws, so
-    // this catch is only for the require and anything unforeseen.
-    const triggerProgressiveHubSpoke = () => {
-      Promise.resolve().then(async () => {
-        try {
-          const hubSpokeAutostart = require("../../projects/hubSpokeAutostart");
-          const queued = await hubSpokeAutostart.scheduleHubSpoke({ run });
-          if (queued.scheduled) {
-            console.log(
-              `[crawl ${run.id}] Hub and Spoke queued progressively at ~${resultsSeen} pages `
-              + `(${queued.reason}).`,
-            );
-          }
-        } catch (e) {
-          console.error(`[crawl ${run.id}] could not queue progressive Hub and Spoke:`, e.message);
-        }
-      });
-    };
 
     const writeRows = async (rows) => {
       let lastError;
@@ -700,13 +673,6 @@ class RunManager {
       buffer.push(row);
       unstored.add(row);
       if (buffer.length >= RESULT_BATCH) flush();
-
-      resultsSeen += 1;
-      const checkpoint = Math.floor(resultsSeen / HUB_SPOKE_PROGRESSIVE_CHECKPOINT);
-      if (checkpoint > lastHubSpokeCheckpoint) {
-        lastHubSpokeCheckpoint = checkpoint;
-        triggerProgressiveHubSpoke();
-      }
     });
 
     // A value still pending when the crawl finalizes is dropped: written after
@@ -845,6 +811,11 @@ class RunManager {
             comparison = {
               previousRunId: previous.id,
               previousFinishedAt: previous.finished_at || null,
+              // Fix 3.4: a score over 50 pages and one over 1,850 are not the
+              // same measurement (SoundHound 87 → 26), so the report warns when
+              // the page budgets differ.
+              pageBudget: Number(run.budget?.granted ?? run.options?.maxUrls) || null,
+              previousPageBudget: Number(previous.page_budget) || null,
               // Core Web Vitals findings are left out: they are added after
               // this, from PageSpeed Insights (run/pagespeed-findings.js), so
               // every one the last crawl had would read as fixed. And which

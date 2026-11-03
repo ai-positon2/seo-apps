@@ -76,17 +76,32 @@ test("dashboard score counts template-wide findings too", () => {
   assert.ok(score < 100, `every page missing meta must not score 100 (got ${score})`);
 });
 
-test("dashboard score ignores site- and resource-scoped findings, like the report", () => {
+// v7 (fix 3.3): these used to cost nothing — thoughtworks scored 83 while
+// 8,000 of its pages refused the crawl. Each rule costs a fixed amount once.
+test("v7: site- and resource-scoped problems cost once for the site, capped", () => {
   const run = {
     summary: {
       counts: { error: 2 },
       findings: [
-        { severity: "error", url: `${H}/`, scope: "site" },
-        { severity: "error", url: `${H}/app.js`, scope: "resource" },
+        { severity: "error", ruleId: "crawl-blocked", url: `${H}/`, scope: "site" },
+        { severity: "error", ruleId: "crawl-blocked", url: `${H}/b`, scope: "site" },
+        { severity: "warning", ruleId: "asset-uncached", url: `${H}/app.js`, scope: "resource" },
       ],
     },
   };
-  assert.equal(overview.siteHealth(run, 10).score, 100);
+  // Once per rule, not per URL: 5 for the error rule, 2 for the warning rule.
+  assert.equal(overview.siteHealth(run, 10).score, 93);
+  const many = Array.from({ length: 9 }, (_, i) => ({ severity: "error", ruleId: `r${i}`, url: `${H}/`, scope: "site" }));
+  assert.equal(overview.siteHealth({ summary: { findings: many } }, 10).score, 80, "capped at 20 points");
+  const { total } = overview.siteLevelLoss([{ ruleId: "x", severity: "notice", kind: "site" }]);
+  assert.equal(total, 0, "notices still cost nothing");
+});
+
+test("v7: the SQL path's off-page rules cost less than site-wide ones", () => {
+  const run = { summary: { findings: [] } };
+  const counts = { error: 0, warning: 0, notice: 0, lossTotals: { error: 0, warning: 0, notice: 0 },
+    siteRules: [{ ruleId: "page-4xx", severity: "error", kind: "offPage" }, { ruleId: "robots-issue", severity: "error", kind: "site" }] };
+  assert.equal(overview.siteHealth(run, 10, [], counts).score, 93);
 });
 
 test("dashboard score uses precomputed page counts when given them", () => {
@@ -99,7 +114,7 @@ test("dashboard score uses precomputed page counts when given them", () => {
   assert.equal(exact.score, Math.round(100 - 276 / 10));
 });
 
-test("v5: the dashboard and the crawl report compute the same score", async () => {
+test("v6: the dashboard and the crawl report compute the same score", async () => {
   const { healthMetrics } = await import(HELPERS);
   const results = Array.from({ length: 6 }, (_, i) => page(i));
   const findings = [
@@ -114,5 +129,6 @@ test("v5: the dashboard and the crawl report compute the same score", async () =
   const client = healthMetrics(results, findings).health;
   const server = overview.siteHealth({ summary: { findings } }, results.length, findings).score;
   assert.equal(client, server);
-  assert.equal(client, Math.round(100 - (100 + 10 + 2) / 6), "page 0 is capped at 100");
+  // v6: the notice on page 2 costs nothing.
+  assert.equal(client, Math.round(100 - (100 + 10 + 0) / 6), "page 0 is capped at 100");
 });

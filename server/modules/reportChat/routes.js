@@ -40,7 +40,9 @@ const THREAD_MESSAGES = 50;
 const MAX_OUTPUT_TOKENS = 4000;
 const LLM_TIMEOUT_MS = 90_000;
 
-const chatModel = () => process.env.REPORT_CHAT_MODEL || 'gpt-5.4-mini';
+// gpt-5.5 for answer quality (about 6–7× gpt-5.4-mini per question at the
+// ~11k input tokens a question carries). REPORT_CHAT_MODEL overrides it.
+const chatModel = () => process.env.REPORT_CHAT_MODEL || 'gpt-5.5';
 
 function dailyLimit() {
   const n = Number.parseInt(process.env.REPORT_CHAT_DAILY_LIMIT, 10);

@@ -9,46 +9,65 @@ import { CompositionBar } from './charts/CompositionBar';
 import { CollapsibleTable } from './charts/CollapsibleTable';
 import { InfoDot, Legend, competitiveScoreSentence } from '../explain';
 import { compWorking } from '../chat/screenWorking';
-import { scoreBandColor } from '../../lib/scoreVerdict';
 
-// ── The module's own score, first ───────────────────────────────────────────
+// ── Market position: context, not a grade ──────────────────────────────────
 //
-// The same 0-100 the dashboard card shows for this module, computed by the
-// server with the card's own function (competitorAnalysis/trafficScore.js) —
-// so a reader arriving from the card sees the number they clicked on. A
-// snapshot with nothing to compare against shows a dash, never 0.
-function CompetitiveScoreCard({ trafficScore, ctx }) {
-  const score = trafficScore?.score;
-  const has = Number.isFinite(score);
-  const color = has ? scoreBandColor(score) : 'var(--text-3)';
+// This was a 0–100 "Competitive score" — your traffic ÷ the strongest rival's,
+// capped at 100. It measured company size: a local practice against a national
+// chain, or a firm against IBM, scored near 0 (13 of 18 clients scored 0–14),
+// and leads were hidden (Nike's 906% showed as 100). It is shown as what it is:
+// a share of the leader's traffic, uncapped, beside the median rival's, dated.
+const pctOf = (ratio) => {
+  const pct = ratio * 100;
+  return `${pct < 10 ? Math.round(pct * 10) / 10 : Math.round(pct).toLocaleString()}%`;
+};
+
+function MarketPositionCard({ trafficScore, ctx, domains = [], capturedAt = null }) {
+  const has = Number.isFinite(trafficScore?.ratio);
+  const rivals = domains
+    .filter((d) => !d.isClient && Number(d.domainRank?.organicTraffic) > 0)
+    .map((d) => Number(d.domainRank.organicTraffic))
+    .sort((a, b) => a - b);
+  const median = rivals.length
+    ? (rivals.length % 2 ? rivals[(rivals.length - 1) / 2] : (rivals[rivals.length / 2 - 1] + rivals[rivals.length / 2]) / 2)
+    : null;
+  const vsMedian = has && median ? trafficScore.clientTraffic / median : null;
+  const date = capturedAt ? new Date(capturedAt) : null;
   return (
     <div
       data-explain-box
       style={{
-        display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap',
+        display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap',
         padding: '20px 24px', borderRadius: 'var(--r-lg)', background: 'var(--card)',
-        border: '1px solid var(--border)',
-        // The band colour as a rule across the top, as on the dashboard card.
-        // Declared after the shorthand or the shorthand would overwrite it.
-        borderTop: `3px solid ${color}`,
-        boxShadow: 'var(--shadow-md)',
+        border: '1px solid var(--border)', boxShadow: 'var(--shadow-md)',
       }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <span className="explain-label-row">
-          <span className="eyebrow">Competitive score</span>
+          <span className="eyebrow">Market position</span>
           <InfoDot explainKey="c_score" ctx={ctx} />
         </span>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-          <span className="num" style={{ fontSize: 44, fontWeight: 600, lineHeight: 1, color }}>
-            {has ? score : '—'}
-          </span>
-          {has && <span style={{ fontSize: 13, color: 'var(--text-3)' }}>/ 100</span>}
-        </div>
+        <span className="num" style={{ fontSize: 44, fontWeight: 600, lineHeight: 1, color: 'var(--text)' }}>
+          {has ? pctOf(trafficScore.ratio) : '—'}
+        </span>
+        <span style={{ fontSize: 12.5, color: 'var(--text-3)' }}>
+          {has ? `of ${trafficScore.strongestDomain}’s search traffic` : 'not measured'}
+        </span>
       </div>
-      <span style={{ flex: '1 1 300px', fontSize: 14, lineHeight: 1.55, color: 'var(--text-2)' }}>
-        {competitiveScoreSentence(trafficScore)}
-      </span>
+      <div style={{ flex: '1 1 300px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <span style={{ fontSize: 14, lineHeight: 1.55, color: 'var(--text-2)' }}>
+          {competitiveScoreSentence(trafficScore)}
+        </span>
+        {vsMedian !== null && rivals.length > 1 && (
+          <span style={{ fontSize: 13, color: 'var(--text-2)' }}>
+            Against the median of the {rivals.length} rivals tracked: {pctOf(vsMedian)} of their traffic.
+          </span>
+        )}
+        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
+          Semrush monthly estimates{date && Number.isFinite(date.getTime()) ? `, taken ${date.toLocaleDateString()}` : ''}.
+          Context for where the site stands, not a grade.
+        </span>
+      </div>
     </div>
   );
 }
@@ -111,7 +130,7 @@ export default function OverviewTab({ snapshot }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <CompetitiveScoreCard trafficScore={explainCtx.trafficScore} ctx={explainCtx} />
+      <MarketPositionCard trafficScore={explainCtx.trafficScore} ctx={explainCtx} domains={domains} capturedAt={snapshot?.capturedAt || null} />
 
       {/* KPI scorecard strip — where do we stand, at a glance */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>

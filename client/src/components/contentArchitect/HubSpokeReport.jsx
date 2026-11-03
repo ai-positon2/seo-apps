@@ -26,12 +26,15 @@ import WorkTally from './work/WorkTally';
 import { EnhancementBadge, EnhancementPanel } from './work/PageEnhancement';
 import { InfoDot, Legend } from '../explain';
 import { hubWorking } from '../chat/screenWorking';
+import { scoreTone } from '../../lib/scoreVerdict';
 
-/** Health bands, shared with the page's donut so the two cannot disagree. */
+/**
+ * Health bands, shared with the page's donut so the two cannot disagree — and
+ * now with the dashboard (80 / 60, lib/scoreVerdict.js). They were 70 / 40, so
+ * a 51 was amber here and red "At risk" on the dashboard card.
+ */
 export function healthVariant(score) {
-  if (score >= 70) return 'success';
-  if (score >= 40) return 'warning';
-  return 'danger';
+  return scoreTone(score) || 'danger';
 }
 
 // A cluster is in one of three hub states, and the whole report is colour-coded

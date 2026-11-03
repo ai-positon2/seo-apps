@@ -19,8 +19,14 @@ const MODEL_OPTIONS = [
   { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', provider: 'anthropic' },
   { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', provider: 'google' },
 ];
+// Models a server-side feature may ask for by id but that are not offered in
+// the user-facing pickers (MODEL_OPTIONS). An id on neither list silently
+// resolves to the default, so a model set by configuration must be here.
+const INTERNAL_MODELS = [
+  { id: 'gpt-5.5', label: 'GPT-5.5 (OpenAI)', provider: 'openai' },
+];
 const DEFAULT_MODEL_ID = 'gpt-5.4-mini';
-const VALID_MODEL_IDS = new Set(MODEL_OPTIONS.map(m => m.id));
+const VALID_MODEL_IDS = new Set([...MODEL_OPTIONS, ...INTERNAL_MODELS].map(m => m.id));
 
 function resolveModelId(id) {
   return VALID_MODEL_IDS.has(id) ? id : DEFAULT_MODEL_ID;
@@ -40,7 +46,7 @@ function resolveModelIds(ids) {
 }
 
 function providerForModel(modelId) {
-  return MODEL_OPTIONS.find(m => m.id === modelId)?.provider || 'openai';
+  return [...MODEL_OPTIONS, ...INTERNAL_MODELS].find(m => m.id === modelId)?.provider || 'openai';
 }
 
 function stripJsonFence(text) {

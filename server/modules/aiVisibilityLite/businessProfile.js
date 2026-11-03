@@ -57,14 +57,18 @@ const WEAK_PAGE_PATTERN = /about|contact|team|career|blog|news|privacy|terms/i;
  * content and discards the markup, and this step needs the anchors to decide
  * which pages to read next. The extraction itself IS reused, below.
  */
-async function fetchHtml(url, { timeoutMs = FETCH_TIMEOUT_MS } = {}) {
+async function fetchHtml(url, { timeoutMs = FETCH_TIMEOUT_MS, acceptLanguage = null } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
       redirect: 'follow',
       signal: controller.signal,
-      headers: { 'User-Agent': UA, Accept: 'text/html,application/xhtml+xml' },
+      headers: {
+        'User-Agent': UA,
+        Accept: 'text/html,application/xhtml+xml',
+        ...(acceptLanguage ? { 'Accept-Language': acceptLanguage } : {}),
+      },
     });
     if (!res.ok) return { ok: false, reason: `HTTP ${res.status}` };
 
@@ -219,10 +223,24 @@ function cleanList(value, cap = 12) {
  * @throws when the homepage itself cannot be read — a profile guessed from a
  *   domain is worse than no module, because everything downstream trusts it.
  */
-async function build({ domain }) {
-  const root = /^https?:\/\//i.test(domain) ? domain : `https://${domain}`;
+// ── The project's market, not the server's ─────────────────────────────────
+//
+// Fix 5.4: nike.com, read from a server abroad, redirected to nike.in, so the
+// profile — and every question — was about India while Competitor measured the
+// US. The site is asked for the project's market (Accept-Language), and a
+// homepage that still lands on another host is recorded, so the questions are
+// written for the project's country rather than the redirect's.
+function acceptLanguageFor(countryCode) {
+  const code = String(countryCode || '').trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(code) ? `en-${code},en;q=0.8` : null;
+}
+const bareHost = (u) => { try { return new URL(u).hostname.replace(/^www\./i, '').toLowerCase(); } catch { return ''; } };
 
-  const home = await fetchHtml(root);
+async function build({ domain, countryCode = null }) {
+  const root = /^https?:\/\//i.test(domain) ? domain : `https://${domain}`;
+  const acceptLanguage = acceptLanguageFor(countryCode);
+
+  const home = await fetchHtml(root, { acceptLanguage });
   if (!home.ok) {
     throw Object.assign(
       new Error(`Could not read ${root} (${home.reason}). The business cannot be identified without it.`),
@@ -238,7 +256,7 @@ async function build({ domain }) {
   // ourselves. The whole step is under ten seconds either way.
   /* eslint-disable no-await-in-loop */
   for (const url of links) {
-    const page = await fetchHtml(url);
+    const page = await fetchHtml(url, { acceptLanguage });
     if (!page.ok) continue;
     pages.push({ url, content: readableFromHtml(page.html) });
   }
@@ -305,6 +323,9 @@ async function build({ domain }) {
     competitors: cleanList(parsed?.competitors),
     locations: cleanList(parsed?.locations, 8),
     sourceUrls: pages.map((p) => p.url),
+    // Another host answered for the homepage (a country site): said, so the
+    // profile is not read as the project's own market.
+    redirectedTo: bareHost(home.finalUrl) !== bareHost(root) ? bareHost(home.finalUrl) : null,
     modelVersion: MODEL,
   };
 }

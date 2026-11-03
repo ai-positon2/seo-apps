@@ -414,6 +414,29 @@ async function deletePrompt({ access, promptId }) {
   return promptView(row);
 }
 
+/**
+ * Retire every live generated question at once. Used when the project's
+ * domain changed and its profile is rebuilt: the old questions were written
+ * about the previous business, and their answers must leave the report with
+ * them. Questions somebody typed (source 'custom') are kept.
+ */
+async function retireAutoPrompts({ access }) {
+  requireDb();
+  try {
+    const rows = await db.rows(
+      `update aiv_lite_prompts
+          set active = false, retired_at = now()
+        where project_id = $1 and active and source = 'auto'
+        returning id`,
+      [access.project.id],
+    );
+    return rows.length;
+  } catch (error) {
+    if (isMissingTable(error)) throw migrationNeeded();
+    return fail('retireAutoPrompts', error);
+  }
+}
+
 // ── Captures ───────────────────────────────────────────────────────────────
 
 const CAPTURE_COLUMNS = [
@@ -621,6 +644,7 @@ const appendRunTones = (projectId, runId, tones) => appendRunList('answerTones',
 const appendRunBrands = (projectId, runId, brands) => appendRunList('answerBrands', projectId, runId, brands);
 
 module.exports = {
+  retireAutoPrompts,
   ACTIONS,
   isMissingTable,
   appendRunTones,

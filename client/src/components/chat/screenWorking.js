@@ -12,7 +12,37 @@
 // computed.
 
 const MAX_RULES = 200;
-const BAND_KEY = { Errors: 'error', Warnings: 'warning', Notices: 'notice' };
+const BAND_KEY = { Errors: 'error', Warnings: 'warning', Notices: 'notice', 'Site-wide': 'site' };
+const TARGETS = [50, 60, 70, 75, 80, 85, 90, 95];
+
+/**
+ * "The fewest fixes that reach N", exact: rules taken by what fixing each wins
+ * back, and the score recomputed page by page after each (metrics
+ * exactLossWithout). Adding rule points over-promised on pages at the
+ * 100-point cap, where fixing one rule leaves the others to fill the gap.
+ */
+export function fewestFixesPlan(metrics, nameOf = (r) => r.ruleId) {
+  if (typeof metrics?.exactLossWithout !== 'function') return null;
+  const scoreOf = (fixed) => Math.max(0, 100 - metrics.exactLossWithout(fixed));
+  const order = [...(metrics.ruleLoss || [])].filter((r) => r.gainIfFixed > 0)
+    .sort((a, b) => b.gainIfFixed - a.gainIfFixed);
+  const out = {};
+  for (const target of TARGETS) {
+    if (Math.round(scoreOf(new Set())) >= target) continue;
+    const fixed = new Set();
+    const picked = [];
+    for (const r of order) {
+      if (Math.round(scoreOf(fixed)) >= target) break;
+      fixed.add(`${r.severity}|${r.ruleId}`);
+      picked.push(nameOf(r));
+    }
+    const reached = scoreOf(fixed);
+    out[target] = Math.round(reached) < target
+      ? 'not reachable by fixing listed items alone'
+      : `${picked.length} fix${picked.length === 1 ? '' : 'es'} (the fewest that reach ${target}): ${picked.join(', ')} → the score becomes ${Math.round(reached)} (exact ${Math.round(reached * 100) / 100})`;
+  }
+  return out;
+}
 const n = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 /**
@@ -33,8 +63,9 @@ export function techWorking({ metrics, breakdown = [], groups = [] }) {
     // Listed on screen, never on a scored page.
     ...groups
       .filter((g) => g.severity in { error: 1, warning: 1, notice: 1 } && !lossById.has(`${g.severity}|${g.id}`))
-      .map((g) => ({ ruleId: g.id, severity: g.severity, pages: 0, cappedPages: 0, points: 0, listed: listedPages(g) })),
+      .map((g) => ({ ruleId: g.id, severity: g.severity, pages: 0, cappedPages: 0, points: 0, gainIfFixed: 0, listed: listedPages(g) })),
   ];
+  const nameOf = (r) => groupById.get(r.ruleId)?.label || r.ruleId;
   return {
     score: metrics.health,
     pagesScored: metrics.htmlCount,
@@ -44,8 +75,11 @@ export function techWorking({ metrics, breakdown = [], groups = [] }) {
       const severity = BAND_KEY[b.label] || null;
       return { severity, exactPoints: severity ? n(metrics.bandLoss?.[severity]) : null, barShows: b.points, pages: b.pages };
     }),
+    exactLoss: n(metrics.exactLoss),
+    pagesAtFloor: n(metrics.pagesAtFloor),
+    fewestFixesToReach: fewestFixesPlan(metrics, nameOf),
     rules: rules.slice(0, MAX_RULES).map((r) => ({
-      rule: groupById.get(r.ruleId)?.label || r.ruleId,
+      rule: nameOf(r),
       ruleId: r.ruleId,
       severity: r.severity,
       pagesAffected: r.pages,
@@ -53,6 +87,10 @@ export function techWorking({ metrics, breakdown = [], groups = [] }) {
       pagesCapped: r.cappedPages,
       occurrences: groupById.get(r.ruleId)?.count ?? null,
       points: r.points,
+      // What fixing this rule alone wins back; below `points` on capped pages.
+      gainIfFixed: n(r.gainIfFixed),
+      // 'site' | 'offPage': charged once for the site, not per page (v7).
+      siteLevel: r.siteLevel || null,
     })),
     rulesNotListed: Math.max(0, rules.length - MAX_RULES),
   };

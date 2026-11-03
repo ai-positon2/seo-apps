@@ -77,7 +77,6 @@ const CHECK_SLOTS = {
   form_labels:      ['url_form'],
   input_type:       ['url_form'],
   autocomplete:     ['url_form'],
-  schema_search:    ['url_homepage'],
   schema_action:    ['url_action'],
   captcha:          ['url_form', 'url_action'],
   cookie_banner:    ['url_homepage'],
@@ -289,11 +288,17 @@ async function checkCookieBanner(page) {
   }
 }
 
+// An ordinary desktop browser. These checks look at the page a visitor gets;
+// identifying as an SEO crawler ("Screaming Frog") got many sites' firewalls to
+// refuse it, and the refusal was then scored as failed checks.
+const BROWSER_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+  + '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
 async function checkJsRendering(url, page) {
   try {
     const rawResp = await safeGet(url, {
       timeout: 8000,
-      headers: { 'User-Agent': 'Screaming Frog SEO Spider/23.1' },
+      headers: { 'User-Agent': BROWSER_USER_AGENT },
       validateStatus: () => true,
     });
     const rawHtml = typeof rawResp.data === 'string' ? rawResp.data : '';
@@ -374,7 +379,8 @@ const CHECK_FNS = {
   form_labels:      (url, page) => checkFormLabels(page),
   input_type:       (url, page) => checkInputType(page),
   autocomplete:     (url, page) => checkAutocomplete(page),
-  schema_search:    (url, page) => checkSchemaSearch(page),
+  // schema_search (SearchAction) is no longer run: Google retired the sitelinks
+  // search box it powered in November 2024, so it earned points for nothing.
   schema_action:    (url, page) => checkSchemaAction(page),
   captcha:          (url, page) => checkCaptcha(page),
   cookie_banner:    (url, page) => checkCookieBanner(page),
@@ -393,7 +399,7 @@ async function openSlotPage(browser, url) {
   const page = await browser.newPage();
   try {
     await guardPage(page);
-    await page.setUserAgent('Screaming Frog SEO Spider/23.1');
+    await page.setUserAgent(BROWSER_USER_AGENT);
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 25000 });
     return page;
   } catch (e) {

@@ -89,7 +89,13 @@ module.exports = {
   CANNIBALIZATION_SIMILARITY_THRESHOLD: 0.75,
   THIN_WORD_COUNT: 500,
   STALE_MONTHS: 18,
-  CLUSTER_HEALTH_WEIGHTS: { hubPresent: 30, hubTermCoverage: 20, spokeCountInRange: 15, linkDensity: 20, clickDepth: 15 },
+  // v2 (fix 5.3): "3-12 pages" (15) went — every cluster is in range by
+  // construction, so it never varied — and link density became hub <-> spoke
+  // linking: a full mesh scored ideal hub-and-spoke linking poorly.
+  CLUSTER_HEALTH_WEIGHTS: { hubPresent: 30, hubTermCoverage: 20, hubSpokeLinking: 30, clickDepth: 20 },
+  // Hub credit until a person confirms it: a suggested hub (promoted under the
+  // score threshold) or a glossary index standing in as one.
+  UNVERIFIED_HUB_CREDIT: 0.5,
 
   // ── Informational page selection (project-linked runs) ────────────────────
   // Hub and spoke is a map of the site's informational content. Location,

@@ -132,8 +132,9 @@ test('sentiment says what it rests on, because it ships uncalibrated', () => {
 
 test('share of voice discloses the excluded `other` bucket', () => {
   const { data } = reports.buildReport('insights', INPUT);
-  // client 3 mentions, competitor 4 → 3/7
-  assert.strictEqual(data.kpis.shareOfVoice.display, '42.9%');
+  // Fix 5.5: answers, not mentions — client named in 2 answers (now0, now1),
+  // competitor in 2 (now0, now2) → 2/4. By mentions it was 3/7.
+  assert.strictEqual(data.kpis.shareOfVoice.display, '50.0%');
   assert.strictEqual(data.kpis.shareOfVoice.note, undefined,
     'with nothing outside the measured set, the key is omitted rather than carried as null');
 });

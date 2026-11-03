@@ -109,7 +109,23 @@ test('an unconfigured brand goes to `other` and is excluded from the denominator
   const sov = core.shareOfVoice(scoped, mentions, [CLIENT, COMP]);
   assert.strictEqual(sov.totalMentions, 4, 'the stranger must not move the percentages');
   assert.strictEqual(sov.otherMentions, 6, 'but its size is surfaced so the number is auditable');
-  assert.strictEqual(sov.rows.find((r) => r.brandId === CLIENT).value, 0.75);
+  // Fix 5.5: one answer each, so an even split — three mentions in one answer
+  // are still one answer.
+  assert.strictEqual(sov.rows.find((r) => r.brandId === CLIENT).value, 0.5);
+  assert.strictEqual(sov.totalAnswers, 2);
+  assert.strictEqual(sov.belowMinimum, true, 'one answer is too few to rank on');
+});
+
+test('5.5: share counts answers, not repeated mentions', () => {
+  const scoped = core.scopeCaptures(['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'].map((id) => cap(id)));
+  const mentions = [
+    men('1', CLIENT, { mentionCount: 6 }),
+    ...['2', '3', '4', '5', '6'].map((id) => men(id, COMP)),
+  ];
+  const sov = core.shareOfVoice(scoped, mentions, [CLIENT, COMP]);
+  assert.strictEqual(sov.rows[0].brandId, COMP, 'five answers beat one answer that repeats a name');
+  assert.ok(Math.abs(sov.rows.find((r) => r.brandId === CLIENT).value - 1 / 6) < 1e-9);
+  assert.strictEqual(sov.belowMinimum, false);
 });
 
 test('a configured brand never named still gets a row at zero', () => {

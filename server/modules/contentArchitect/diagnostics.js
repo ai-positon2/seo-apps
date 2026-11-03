@@ -5,7 +5,7 @@
 // from content similarity, never measured from impressions.
 const {
   BURIED_CLICK_DEPTH, CANNIBALIZATION_SIMILARITY_THRESHOLD, THIN_WORD_COUNT, STALE_MONTHS, CLUSTER_HEALTH_WEIGHTS,
-  MIN_CLUSTER_SIZE, MAX_CLUSTER_SIZE,
+  UNVERIFIED_HUB_CREDIT,
 } = require('./config');
 const { breadthScore } = require('./hubSelection');
 
@@ -72,22 +72,35 @@ function clusterLinkDensity(memberIndices, graph) {
   return possible === 0 ? 0 : actual / possible;
 }
 
+// Hub <-> spoke linking, 0-1: the share of spokes that link up to the hub and
+// the share the hub links down to, averaged. What hub and spoke asks for —
+// clusterLinkDensity scored every page linking to every other page as ideal.
+function hubSpokeLinking(hubIndex, memberIndices, graph) {
+  const spokes = memberIndices.filter((i) => i !== hubIndex);
+  if (!spokes.length) return 0;
+  // graph entries are Sets in the pipeline (arrays in some callers).
+  const linksOf = (i) => new Set(graph[i] || []);
+  const hubLinks = linksOf(hubIndex);
+  const up = spokes.filter((i) => linksOf(i).has(hubIndex)).length;
+  const down = spokes.filter((i) => hubLinks.has(i)).length;
+  return (up + down) / (2 * spokes.length);
+}
+
 // 0-100 composite — an obvious place for a user with many clusters to start,
 // per spec ("show as a colored ring on each cluster card").
 function clusterHealth(cluster, hubResult, memberIndices, depths, graph, profiles) {
   const w = CLUSTER_HEALTH_WEIGHTS;
   let score = 0;
 
-  if (!hubResult.isGap) score += w.hubPresent;
+  // Full credit for a hub the selection is sure of; part for one it only
+  // suggests, or a glossary index standing in, until someone confirms it.
+  const unverified = hubResult.hubConfidence === 'suggested' || hubResult.hubConfidence === 'reference';
+  if (!hubResult.isGap) score += w.hubPresent * (unverified ? UNVERIFIED_HUB_CREDIT : 1);
 
   if (!hubResult.isGap && hubResult.hubPageIndex !== null) {
     score += w.hubTermCoverage * breadthScore(hubResult.hubPageIndex, memberIndices, profiles);
+    score += w.hubSpokeLinking * hubSpokeLinking(hubResult.hubPageIndex, memberIndices, graph);
   }
-
-  const size = memberIndices.length;
-  if (size >= MIN_CLUSTER_SIZE && size <= MAX_CLUSTER_SIZE) score += w.spokeCountInRange;
-
-  score += w.linkDensity * clusterLinkDensity(memberIndices, graph);
 
   const finiteDepths = memberIndices.map((i) => depths[i]).filter((d) => d !== Infinity);
   if (finiteDepths.length) {
@@ -118,4 +131,4 @@ function runDiagnostics(clusters, hubResults, pages, matrix, profiles, graph, in
   return { flagsByPage, cannibalization, clusterHealthById };
 }
 
-module.exports = { runDiagnostics, pageFlags, cannibalizationPairs, clusterLinkDensity, clusterHealth };
+module.exports = { runDiagnostics, pageFlags, cannibalizationPairs, clusterLinkDensity, hubSpokeLinking, clusterHealth };

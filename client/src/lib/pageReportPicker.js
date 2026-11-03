@@ -33,6 +33,14 @@ export const BAND_TONE = {
   'ai aware': 'warn',
   'basic web presence': 'neg',
   'not indexed': 'neg',
+  // The future-readiness levels (from 2026-11), on the 80 / 60 bands.
+  'future-ready': 'pos',
+  'getting ready': 'warn',
+  'early steps': 'neg',
+  'not started': 'neg',
+  // SEO & GEO bands on the shared 80 / 60 scale.
+  'needs attention': 'warn',
+  'at risk': 'neg',
 };
 
 /**

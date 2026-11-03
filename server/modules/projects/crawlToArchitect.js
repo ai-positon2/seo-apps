@@ -359,10 +359,13 @@ function assembleInput({
       frontier = next;
     }
   }
+  // Fix 5.3: the shortest link path wins where it is known. The crawl's own
+  // depth counts a page seeded from the sitemap as one step from the start, so
+  // nearly every page read as one click from home and click depth never varied.
   const depths = includedIdx.map((rowIdx) => {
+    if (linkDistance.has(rowIdx)) return linkDistance.get(rowIdx) + 1;
     const depth = Number(rows[rowIdx].data?.depth);
-    if (Number.isFinite(depth)) return depth + 1;
-    return linkDistance.has(rowIdx) ? linkDistance.get(rowIdx) + 1 : Infinity;
+    return Number.isFinite(depth) ? depth + 1 : Infinity;
   });
 
   const cap = Number(maxUrls) || null;

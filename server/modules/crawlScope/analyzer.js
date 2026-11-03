@@ -1,4 +1,5 @@
 const crypto = require("node:crypto");
+const { isCdnManagedLink } = require("./cdnPaths");
 const catalog = require("./issue-catalog.json");
 const integrationCatalog = require("./integration-catalog.json");
 const {
@@ -1773,6 +1774,11 @@ function buildFindings({
   // Google even on a crawl that ignored robots.txt itself.
   googlebotRobotsChecked = false,
 }) {
+  // Cloudflare's email-protection addresses are mailto: links in disguise, not
+  // pages or link targets (cdnPaths.js). Dropped here as well as in the crawler
+  // so crawls stored before the crawler skipped them re-analyse correctly.
+  results = results.filter((r) => !isCdnManagedLink(r?.url));
+  linkEdges = linkEdges.filter((e) => !isCdnManagedLink(e?.targetUrl));
   const findings = [];
   // Dedupe ids in a Set rather than scanning `findings` on every add(). The scan
   // was O(n²): measured 3.6s at 50k findings versus 11ms here, all of it on the
@@ -2417,7 +2423,10 @@ function buildFindings({
         // never gets re-run once findings replace it after the crawl completes
         // — a page missing its <title> silently lost this finding entirely at
         // that point, rather than just losing its category/description.
-        if (!result.title) {
+        // A page that sends visitors on with JavaScript is a redirect, not a
+        // page whose title is missing (SoundHound's newsroom links to press
+        // articles on other sites this way).
+        if (!result.title && !result.javascriptRedirectUrl) {
           // Same URL-slug fallback suggestH1 uses — there's no existing title
           // to trim, so this is a starting point to hand-refine, not a
           // finished recommendation.
@@ -3546,6 +3555,20 @@ function buildFindings({
         `JavaScript changes what ${changedByScript.length} of ${render.sampled} rendered page${render.sampled === 1 ? "" : "s"} ` +
         `show, compared with the HTML the server sends. ${examples.join("; ")}.`,
       detectedValue: [...new Set(changedByScript.flatMap((entry) => entry.differences.map((d) => d.kind)))].join(", "),
+    });
+  }
+
+  // Titles that exist only after JavaScript runs: one site-level warning naming
+  // the pages, instead of "Missing page title" — an error — on each of them.
+  const jsTitled = internalResults.filter((r) => r.titleOnlyAfterJavaScript);
+  if (jsTitled.length) {
+    const pathOf = (url) => { try { const u = new URL(url); return `${u.pathname}${u.search}`; } catch { return url; } };
+    add("javascript-dependent-content", { url: jsTitled[0].url }, {
+      detail:
+        `${jsTitled.length} page${jsTitled.length === 1 ? " gets its" : "s get their"} <title> only from JavaScript ` +
+        `(e.g. ${jsTitled.slice(0, 3).map((r) => pathOf(r.url)).join(", ")}). Google renders it; crawlers that read ` +
+        "the served HTML, including many AI crawlers, see no title.",
+      detectedValue: "title set by JavaScript",
     });
   }
 

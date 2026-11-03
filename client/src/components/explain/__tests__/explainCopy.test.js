@@ -88,10 +88,12 @@ test('no sample client, rival or date from the prototype survives', () => {
   }
 });
 
-test('the legend says SEO & GEO bands differ, instead of claiming one scale everywhere', () => {
+test('the legend states one set of bands (80 / 60) for every score', () => {
+  // Five scales were in use and one number changed colour from screen to
+  // screen; every score now switches at 80 and 60 (lib/scoreVerdict.js).
   const bands = LEGEND_SHARED.find((r) => r.key === 'bands');
-  assert.match(bands.line, /SEO & GEO/);
-  assert.doesNotMatch(bands.line, /Same on every score/);
+  assert.match(bands.line, /80\+ Good · 60–79 Needs attention · below 60 At risk/);
+  assert.match(bands.line, /same on every score/);
 });
 
 // ── Live figures ────────────────────────────────────────────────────────────
@@ -120,7 +122,7 @@ test('the tech health breakdown adds up to the published score', () => {
 });
 
 test('the tech health score names the pages it averaged over', () => {
-  assert.match(resolveExplainer('t_health', { htmlCount: 1284 }).calc, /1,284 HTML pages/);
+  assert.match(resolveExplainer('t_health', { htmlCount: 1284 }).calc, /1,284 audited pages/);
 });
 
 test('agent readiness counts the checks that actually ran', () => {
@@ -130,15 +132,17 @@ test('agent readiness counts the checks that actually ran', () => {
   assert.match(full.calc, /23 automatic checks across 6 categories/);
 });
 
-test('the competitive score shows its division, and says when it is capped', () => {
+test('market position shows its division, uncapped (D6: context, not a grade)', () => {
   const ratio = resolveExplainer('c_score', {
     trafficScore: { score: 77, ratio: 0.77, clientTraffic: 18400, strongestTraffic: 23900, strongestDomain: 'rival.com' },
   });
-  assert.match(ratio.calc, /18\.4K ÷ 23\.9K = 77/);
+  assert.match(ratio.calc, /18\.4K ÷ 23\.9K = 77%/);
   const capped = resolveExplainer('c_score', {
     trafficScore: { score: 100, ratio: 1.5, clientTraffic: 30000, strongestTraffic: 20000, strongestDomain: 'rival.com', aheadOfAll: true },
   });
-  assert.match(capped.calc, /30K ÷ 20K = 150, capped at 100/);
+  assert.match(capped.calc, /30K ÷ 20K = 150%/);
+  assert.doesNotMatch(capped.calc, /capped at 100(?!%)|= 100/);
+  assert.strictEqual(resolveExplainer('c_score', {}).t, 'Market position');
   assert.match(resolveExplainer('c_score', { trafficScore: null }).calc, /Not measured yet/);
 });
 

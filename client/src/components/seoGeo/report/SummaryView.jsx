@@ -1,6 +1,6 @@
 import {
   Panel, PanelTitle, Eyebrow, CountTile, Donut,
-  bandColor, splitVerdict,
+  bandColor, splitVerdict, capReason,
 } from './reportKit';
 import { InfoDot, Legend } from '../../explain';
 import { seoGeoWorking } from '../../chat/screenWorking';
@@ -95,13 +95,19 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
   // The string branch is not defensive padding: a run stored before the band
   // became an object still has one, and so does anything that read it back out
   // of that text column.
-  const bandLabel = typeof scores.band === 'string' ? scores.band : scores.band?.label || null;
+  // Read from the score, not the stored band: a page saved before the bands
+  // moved to 80 / 60 still carries "Good" for a 76.
+  const bandLabel = Number.isFinite(scores.overall)
+    ? ratingFor(scores.overall).label
+    : (typeof scores.band === 'string' ? scores.band : scores.band?.label || null);
   // Written to be read — the one line explaining what the number means — and
   // discarded until now, because the object it lives on was never unpacked.
-  const bandBlurb = typeof scores.band === 'object' ? scores.band?.blurb || null : null;
+  const bandBlurb = Number.isFinite(scores.overall)
+    ? ratingFor(scores.overall).blurb
+    : (typeof scores.band === 'object' ? scores.band?.blurb || null : null);
 
   const capNote = cap?.applied
-    ? `Capped at ${cap.value} by a blocking issue: ${cap.reason}.`
+    ? `Capped at ${cap.value}: ${capReason(cap)}`
       + (composite !== null ? ` Uncapped composite is ${composite}.` : '')
     : 'No blocking cap applied.';
 
@@ -182,6 +188,17 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
                   + (unscoredCount ? ` ${unscoredCount} page${unscoredCount === 1 ? '' : 's'} returned an error and ${unscoredCount === 1 ? 'is' : 'are'} not scored.` : '')
                 : capNote}
             </span>
+            {/* Fix 4.1: answerability as its own figure, and the GEO hold said
+                beside the headline rather than only inside the GEO side. */}
+            {!siteView && scores.answerability && (
+              <span style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5, maxWidth: 460 }}>
+                <strong style={{ color: 'var(--text)' }}>Answerability {scores.answerability.score}/10</strong>
+                {' · '}{scores.answerability.label}
+                {scores.geoHold
+                  ? `. It holds the GEO score at ${scores.geoHold.value}; the overall score is not held.`
+                  : '.'}
+              </span>
+            )}
           </div>
           {(hero.seo || hero.geo) && (
             <div
@@ -282,7 +299,7 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
                   blocker to fill the slot is the opposite of what this card is
                   for. */}
               {cap?.applied && !siteView && (
-                <OnAccent label="Blocking the score" value={cap.reason} />
+                <OnAccent label="Blocking the score" value={capReason(cap)} />
               )}
               {/* Page-level figures: left out of the site view, which shows site numbers only. */}
               {weakest && !siteView && (
@@ -369,7 +386,7 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
                   {scores.geo.score}
                 </span>
                 <span style={{ fontSize: 12, fontWeight: 600, color: bandColor(scores.geo.score) }}>
-                  {scores.geo.band?.label}
+                  {Number.isFinite(scores.geo.score) ? ratingFor(scores.geo.score).label : scores.geo.band?.label}
                 </span>
               </span>
               <span style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5, flex: '1 1 280px' }}>
@@ -464,7 +481,7 @@ function SideScore({ name, sub, axis, info, infoKey }) {
         </span>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{sub}</span>
         <span style={{ fontSize: 12.5, fontWeight: 600, color: bandColor(axis?.score) }}>
-          {axis?.band?.label || 'Not scored'}
+          {Number.isFinite(axis?.score) ? ratingFor(axis.score).label : (axis?.band?.label || 'Not scored')}
         </span>
       </div>
     </div>
@@ -477,7 +494,8 @@ const pct = (w) => `${Math.round(w * 100)}%`;
 // for a figure the server did not label itself (an average across pages).
 const RATINGS = [
   { min: 90, label: 'Excellent', blurb: 'No blocking issues. What remains is refinement.' },
-  { min: 75, label: 'Good', blurb: 'Technically sound, with a few real gaps worth fixing.' },
+  // 80, the platform's band (lib/scoreVerdict.js), as SCORE_BANDS on the server.
+  { min: 80, label: 'Good', blurb: 'Technically sound, with a few real gaps worth fixing.' },
   { min: 60, label: 'Needs work', blurb: 'Several real defects are limiting search and AI visibility.' },
   { min: 40, label: 'Poor', blurb: 'Significant defects across multiple areas.' },
   { min: 0, label: 'Critical', blurb: 'Blocking problems — fix these before anything else.' },
@@ -694,7 +712,7 @@ function AxisExplainer({ title, axis, what, engineTally }) {
   const rows = [...axis.buckets].sort((a, b) => b.weight - a.weight);
   return (
     <>
-      <TipHeader title={title} score={axis.score} band={axis.band?.label} />
+      <TipHeader title={title} score={axis.score} band={Number.isFinite(axis.score) ? ratingFor(axis.score).label : axis.band?.label} />
       <span style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5 }}>{what}</span>
       <TipSection label="What it is made of">
         <TipColumns />

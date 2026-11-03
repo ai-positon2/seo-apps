@@ -18,7 +18,15 @@ const moduleEvidence = require('../projects/moduleEvidence');
 const businessProfile = require('./businessProfile');
 const promptGen = require('./promptGen');
 const store = require('./store');
+const { profileMatchesDomain } = require('./profileDomain');
 const { AUTO_PROMPT_COUNT, MAX_PROMPTS } = require('./models');
+
+// The country's name for the question writer ("United States"), from its code.
+function marketName(countryCode) {
+  const code = String(countryCode || '').trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(code)) return null;
+  try { return new Intl.DisplayNames(['en'], { type: 'region' }).of(code) || null; } catch { return null; }
+}
 
 const MODULE_KEY = 'ai_visibility_lite_setup';
 
@@ -57,8 +65,19 @@ async function complete({ access, project, run, regenerate = false }) {
       );
     }
 
+    // A profile built for a different domain means the project moved: its
+    // generated questions were about the old business, so they are retired
+    // before new ones are written (typed questions are kept).
+    const previous = await store.getProfile(projectId);
+    if (previous && !profileMatchesDomain(previous, domain)) {
+      await store.retireAutoPrompts({ access });
+    }
+
     // ── Step one: what is this business ──────────────────────────────────
-    const profile = await businessProfile.build({ domain });
+    // Fix 5.4: one market per project — the project's country, for the site
+    // read and for the questions, as Competitor already uses.
+    const countryCode = project.countryCode || access.project.country_code || null;
+    const profile = await businessProfile.build({ domain, countryCode });
     const saved = await store.saveProfile({ access, profile });
 
     // ── Step two: the questions ──────────────────────────────────────────
@@ -81,7 +100,7 @@ async function complete({ access, project, run, regenerate = false }) {
     let generated = { prompts: [], rejected: [], brandGuard: null };
 
     if (want > 0 && (regenerate || liveCount === 0)) {
-      generated = await promptGen.generate({ profile, count: want, existing });
+      generated = await promptGen.generate({ profile, count: want, existing, market: marketName(countryCode) });
       written = await store.addPrompts({
         access,
         prompts: generated.prompts,

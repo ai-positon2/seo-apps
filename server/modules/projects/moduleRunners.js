@@ -16,6 +16,7 @@
 // with nothing to measure is recorded as 'insufficient_data'. Both render as an
 // honest card; neither renders as a zero (PRD §16.11).
 
+const { challengeReason, pageFacts } = require('../../checks/challengePage');
 const moduleEvidence = require('./moduleEvidence');
 const adminLimits = require('../../services/adminLimits');
 const db = require('../../services/db');
@@ -109,8 +110,11 @@ async function auditPageSeoGeo({ url, keywords }) {
   // pulled the site average from 86 to 70. Kept as a report, left unscored.
   const httpStatus = Number(result.findings?.meta?.http_status);
   const errorPage = Number.isFinite(httpStatus) && httpStatus >= 400;
+  // A bot wall ("Just a moment…", "Security Checkpoint") is not the site's page,
+  // whatever status it came with — scored, it stood in for 8x8's whole site.
+  const challenge = challengeReason(pageFacts(result.findings));
   const overall = Number(scores.overall);
-  const hasScore = Number.isFinite(overall) && !errorPage;
+  const hasScore = Number.isFinite(overall) && !errorPage && !challenge;
 
   const findings = (result.findings?.checks || [])
     .filter((c) => ['error', 'warning', 'notice'].includes(String(c.severity || '').toLowerCase()))
@@ -130,12 +134,15 @@ async function auditPageSeoGeo({ url, keywords }) {
     scoreBasis: hasScore ? SCORE_BASIS.seo_geo : null,
     // scores.band is an object here ({ label, blurb }); the column is text, so
     // storing it whole once put raw JSON on a card.
-    band: errorPage
+    band: challenge
+      ? 'Blocked — not measured'
+      : errorPage
       ? `HTTP ${httpStatus} — not scored`
       : (typeof scores.band === 'string' ? scores.band : (scores.band?.label || null)),
     findings,
     payload: {
       native: { findings: result.findings, ai: result.ai || null },
+      blocked: challenge || null,
       aiAnalysisPresent: Boolean(result.ai && Object.keys(result.ai).length),
       scores,
       bandBlurb: typeof scores.band === 'object' ? scores.band?.blurb || null : null,
@@ -153,6 +160,19 @@ async function auditPageAgentReadiness({ url }) {
   const { runAgentReadiness: run } = require('../../routes/agentReadinessAudit');
 
   const result = await run({ url_homepage: url, skipBrief: false });
+
+  // The site refused or rate-limited the audit: nothing was measured, so the
+  // page is kept as a report but has no score — never a 0 labelled "Not Indexed".
+  if (result.blocked) {
+    return {
+      score: null,
+      scoreMax: 100,
+      scoreBasis: null,
+      band: 'Blocked — not measured',
+      findings: [],
+      payload: { native: result, site: result.site || null, cats: [], blocked: result.blocked },
+    };
+  }
 
   const findings = [...(result.checks || []), ...(result.onPageChecks || [])]
     .filter((c) => c.status && c.status !== 'pass')
@@ -1083,11 +1103,15 @@ async function runHubSpoke({ project, domains }) {
     score: meanHealth,
     scoreMax: 100,
     scoreBasis: meanHealth === null ? null
-      : 'Content Architect: mean cluster health — hub present 30, hub term coverage 20, '
-        + 'spoke count in range 15, link density 20, click depth 15 (config.js)',
-    band: clusters.length
+      : 'Content Architect: mean cluster health (v2) — hub present 30 (15 if only suggested or a glossary '
+        + 'index), hub term coverage 20, hub ↔ spoke linking 30, click depth along links 20 (config.js)',
+    // Health is the mean over clusters, so pages in no topic never lower it.
+    // Said beside it rather than hidden (row 29).
+    band: (clusters.length
       ? `${clusters.length} cluster${clusters.length === 1 ? '' : 's'}`
-      : 'No clusters',
+      : 'No clusters') + (unassigned.length
+      ? ` · ${unassigned.length} page${unassigned.length === 1 ? '' : 's'} not in any topic`
+      : ''),
     findings,
     payload: {
       source: 'crawlscope_run',
@@ -1413,36 +1437,55 @@ async function runAcrossCrawledPages({ access, moduleKey, run, project, keywords
  * traffic figures SEMrush did not return. A zero would read as a site with no
  * traffic at all, which is a completely different statement (§16.11).
  */
+/**
+ * A domain's monthly organic traffic, or null when Semrush has no figure.
+ *
+ * Zero counts as no figure. Semrush answers "nothing found" for a domain too
+ * small for its database, and that was stored as 0 — so a rival nobody could
+ * measure made Cabinet "Leading — 563 vs 0 visits", and Centered Health scored
+ * 0 because its own domain read 0. `Number(null)` is 0 as well, so a stored
+ * null has to be caught before it is coerced.
+ */
+function knownTraffic(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Which domains have no traffic figure, when that leaves nothing to compare:
+ * the client itself, or every rival. Null when the comparison can be made.
+ */
+function competitorUnmeasured(domains) {
+  const rows = (domains || []).map((d) => ({
+    domain: d.domain,
+    isClient: Boolean(d.isClient),
+    traffic: knownTraffic(d.domainRank?.organicTraffic ?? d.organicTraffic ?? d.traffic),
+  }));
+  const client = rows.find((d) => d.isClient);
+  const rivals = rows.filter((d) => !d.isClient);
+  if (!client || !rivals.length) return null;
+  if (client.traffic === null) return [client.domain];
+  if (!rivals.some((d) => d.traffic !== null)) return rivals.map((d) => d.domain);
+  return null;
+}
+
 function competitorTrafficScore(domains) {
   const withTraffic = (domains || [])
     .map((d) => ({
       domain: d.domain,
       isClient: Boolean(d.isClient),
-      traffic: Number(d.domainRank?.organicTraffic),
+      traffic: knownTraffic(d.domainRank?.organicTraffic),
     }))
-    .filter((d) => Number.isFinite(d.traffic));
+    .filter((d) => d.traffic !== null);
 
+  // No figure for the client, or for every rival: not measured, never a 0 and
+  // never "Leading" (competitorUnmeasured names the domains for the card).
   const client = withTraffic.find((d) => d.isClient);
   const rivals = withTraffic.filter((d) => !d.isClient);
   if (!client || !rivals.length) return null;
 
   const strongest = rivals.reduce((best, d) => (d.traffic > best.traffic ? d : best), rivals[0]);
-  // Every tracked competitor measured at zero. Zero cannot be a denominator, but
-  // the comparison is not unknown: a site with any traffic is ahead of all of
-  // them, which is the ceiling (100). It used to return null, so the card showed
-  // "0 findings" and no score for a site that was plainly leading.
-  if (!strongest.traffic) {
-    if (!(client.traffic > 0)) return null;
-    return {
-      score: 100,
-      ratio: null,
-      clientTraffic: client.traffic,
-      clientDomain: client.domain,
-      strongestDomain: strongest.domain,
-      strongestTraffic: 0,
-      aheadOfAll: true,
-    };
-  }
 
   const ratio = client.traffic / strongest.traffic;
   return {
@@ -1463,8 +1506,13 @@ const SCORE_BASIS = {
   // because the two numbers are not interchangeable and a reader comparing them
   // needs to know which one they are looking at.
   ai_visibility_lite: 'the share of measured prompts in which ChatGPT, Claude or Gemini names the brand when asked through their APIs with web search enabled, over the prompts that were actually captured',
-  seo_geo: 'the SEO & GEO audit (rule-based bucket scores, weighted composite, capped by blocking issues)',
-  agent_readiness: 'the agent readiness audit (weighted HTTP plus on-page checks)',
+  // Versioned: the dashboard compares a run with the previous one only when
+  // their basis matches (overview.js moduleChanges), so a method change is
+  // labelled rather than read as the site improving or slipping.
+  seo_geo: 'the SEO & GEO audit v2 (rule-based bucket scores, weighted composite, capped by blocking issues; '
+    + 'duplicate checks counted once, Tech Audit length limits)',
+  agent_readiness: 'the agent readiness audit v2 (weighted HTTP plus on-page checks; agent-relevant Link headers, '
+    + 'allow-all robots counts for AI bots, WebMCP detected in the page, no SearchAction)',
   competitor: 'this site\'s estimated monthly organic traffic as a share of the tracked '
     + 'competitor with the most, from SEMrush',
 };
@@ -1686,6 +1734,8 @@ async function runFollowingCrawl({ access, project, crawlRunId, moduleKeys, keyw
 }
 
 module.exports = {
+  knownTraffic,
+  competitorUnmeasured,
   RUNNABLE,
   METERED,
   competitorTrafficScore,

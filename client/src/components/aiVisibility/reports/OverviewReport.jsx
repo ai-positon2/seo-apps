@@ -78,7 +78,10 @@ export function OverviewReport({ envelope, onOpenReport }) {
   const sovMax = Math.max(...sovRows.map((r) => r.value ?? 0), 0);
   const leader = sovRows[0];
   const you = sovRows.find((r) => r.isClient);
-  const rank = you ? sovRows.indexOf(you) + 1 : null;
+  // Fix 5.5: a brand in no answer has no rank (it was "#3 of 3" at zero), and
+  // too few answers give no ranking at all.
+  const tooFew = Boolean(data.shareOfVoice?.belowMinimum);
+  const rank = you && you.answers !== 0 && !tooFew ? sovRows.indexOf(you) + 1 : null;
   // What the info icons and the legend quote: the figures already on this page.
   const explainCtx = { kpis, meta };
 
@@ -105,7 +108,9 @@ export function OverviewReport({ envelope, onOpenReport }) {
         </div>
         <div style={{ fontSize: 22, color: 'var(--text)', lineHeight: 1.35, fontWeight: 600 }}>
           {rank === null ? (
-            'Not named in any measured answer this period.'
+            tooFew && you?.answers
+              ? `Too few answers to rank yet (${meta.captures} measured, ${data.shareOfVoice.minAnswers} needed).`
+              : 'Not named in any measured answer this period.'
           ) : (
             <>
               <span style={{ color: 'var(--primary-text)', fontFamily: 'var(--font-mono)' }}>

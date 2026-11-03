@@ -34,12 +34,37 @@ function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+const UPPER = /\p{Lu}/gu;
+const countUpper = (value) => (String(value).match(UPPER) || []).length;
+
+/**
+ * Does this occurrence, as written in the answer, really name the brand?
+ *
+ * A one-word name written with capitals is a name only when the answer writes
+ * it that way. Matching ignored case, so IDFC's product "FIRST" matched every
+ * "digital-first" and "safety-first", Cabinet's "Core" matched "core factors",
+ * and NiCE matched "nice-to-have": IDFC read 45.6 instead of 36.1.
+ *
+ *   names of several words, or all lower case ("hdfc")   any case
+ *   one word with two or more capitals (FIRST, NiCE, IBM) two or more capitals
+ *                                                         in the answer too
+ *   one capitalised word (Core, Nike)                    starts with a capital
+ */
+function writtenAsName(found, name) {
+  if (/\s/.test(name)) return true;
+  const capitals = countUpper(name);
+  if (!capitals) return true;
+  if (capitals >= 2) return countUpper(found) >= 2;
+  return countUpper(found.charAt(0)) === 1;
+}
+
 /**
  * Does this text name the brand?
  *
  * Word-boundary matched, so "Gentle Dental" does not match inside a longer word
- * and a two-letter brand does not match every occurrence of those letters. Case
- * and surrounding punctuation are ignored.
+ * and a two-letter brand does not match every occurrence of those letters.
+ * Surrounding punctuation is ignored; case counts for one-word names written
+ * with capitals (writtenAsName).
  *
  * @param {string} text
  * @param {string[]} names  brand name plus any aliases
@@ -49,8 +74,10 @@ function namesBrand(text, names) {
   for (const name of names) {
     const trimmed = String(name || '').trim();
     if (!trimmed) continue;
-    const pattern = new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(trimmed)}([^\\p{L}\\p{N}]|$)`, 'iu');
-    if (pattern.test(text)) return true;
+    const pattern = new RegExp(`(^|[^\\p{L}\\p{N}])(${escapeRegExp(trimmed)})(?=[^\\p{L}\\p{N}]|$)`, 'giu');
+    for (const match of text.matchAll(pattern)) {
+      if (writtenAsName(match[2], trimmed)) return true;
+    }
   }
   return false;
 }

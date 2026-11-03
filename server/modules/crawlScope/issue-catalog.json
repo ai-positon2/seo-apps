@@ -368,8 +368,8 @@
     "description": "Internal links point to URLs that redirect before reaching the destination.",
     "recommendation": "Update internal links to point directly to the final 200-response URL.",
     "category": "Indexability",
-    "priority": "Medium Priority",
-    "severity": "warning",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
@@ -698,8 +698,8 @@
     "description": "Many title tags may be truncated in search results or contain unnecessary wording.",
     "recommendation": "Rewrite titles to approximately 50 to 60 characters while keeping the primary topic and brand clear.",
     "category": "Metadata",
-    "priority": "Medium Priority",
-    "severity": "warning",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
@@ -974,8 +974,8 @@
     "description": "The crawler could not retrieve these destinations or received an HTTP error other than 403. A 404 or 410 indicates no current resource; timeouts, rate limits, authentication responses, and 5xx errors can be temporary or audience-specific.",
     "recommendation": "For 404 or 410, replace the link with a current authoritative source or remove it. For other failures, retest and open the destination manually before changing content. Responses that refuse the crawler (401, 403, 429, 999) are reported separately because a refusal does not prove a broken destination.",
     "category": "Links",
-    "priority": "Medium Priority",
-    "severity": "warning",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {
@@ -1098,8 +1098,8 @@
     "description": "The server took over a second to start answering these URLs (time to first byte, measured per request during the crawl, excluding the crawler's own pacing). Slow server responses hurt users and limit how many pages search engines crawl in a session.",
     "recommendation": "Reduce the server's response time for these URLs: serve HTML from a full-page cache or CDN, look for slow database queries, plugins or API calls on the affected templates, and check hosting capacity at peak load. Images, fonts and scripts do not affect this measurement.",
     "category": "Performance",
-    "priority": "Medium Priority",
-    "severity": "warning",
+    "priority": "Low Priority",
+    "severity": "notice",
     "detection": "Automatic"
   },
   {

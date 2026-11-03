@@ -493,7 +493,7 @@ export default function ContentArchitectProjectPage() {
                         Hub &amp; spoke health
                       </span>
                       <InfoTip label="How hub and spoke health is scored">
-                        <HealthExplainer meanHealth={meanHealth} clusterCount={analysis.clusters.length} />
+                        <HealthExplainer meanHealth={meanHealth} clusterCount={analysis.clusters.length} unassigned={analysis.unassignedPages.length} />
                       </InfoTip>
                     </span>
                     <span
@@ -505,7 +505,10 @@ export default function ContentArchitectProjectPage() {
                     >
                       {HEALTH_LABEL[healthVariant(meanHealth)]}
                     </span>
-                    <span style={{ fontSize: 12, color: 'var(--text-2)' }}>Average of {analysis.clusters.length} clusters</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-2)' }}>
+                      Average of {analysis.clusters.length} clusters
+                      {analysis.unassignedPages.length > 0 && ` · ${analysis.unassignedPages.length} pages not in any topic, not counted`}
+                    </span>
                   </div>
                 </div>
 
@@ -618,14 +621,13 @@ const HEALTH_LABEL = { success: 'Healthy', warning: 'Needs work', danger: 'Weak'
 
 // The "i" for hub & spoke health: what one cluster is scored on, and how the
 // site figure is made from them. Weights are contentArchitect/config.js's
-// CLUSTER_HEALTH_WEIGHTS; bands are healthVariant's (70 / 40).
-function HealthExplainer({ meanHealth, clusterCount }) {
+// CLUSTER_HEALTH_WEIGHTS (v2); bands are healthVariant's.
+function HealthExplainer({ meanHealth, clusterCount, unassigned = 0 }) {
   const rows = [
     ['Has a hub page', 30],
     ['Hub covers the cluster’s topic', 20],
-    ['3–12 pages in the cluster', 15],
-    ['Its pages link to each other', 20],
-    ['Pages close to the homepage', 15],
+    ['Hub and its pages link to each other', 30],
+    ['Pages close to the homepage', 20],
   ];
   return (
     <>
@@ -646,7 +648,10 @@ function HealthExplainer({ meanHealth, clusterCount }) {
         ))}
       </span>
       <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
-        Closeness is full marks at the homepage and falls to zero at 8 clicks deep.
+        Linking counts the pages that link up to the hub and the pages the hub links down to; links between
+        the other pages don’t matter. A hub the analysis only suggests, or a glossary index, earns half the hub
+        points until confirmed. Closeness is full marks at the homepage and falls to zero at 8 clicks deep,
+        measured along links rather than the sitemap.
       </span>
       <span style={{
         padding: '8px 10px', borderRadius: 8, background: 'var(--surface-2, var(--surface))',
@@ -654,10 +659,16 @@ function HealthExplainer({ meanHealth, clusterCount }) {
       }}>
         This analysis: the average of {clusterCount} clusters = {meanHealth}
       </span>
+      {unassigned > 0 && (
+        <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
+          {unassigned} page{unassigned === 1 ? '' : 's'} joined no cluster. They don’t lower the figure, which only
+          averages clusters; they’re listed under Unassigned.
+        </span>
+      )}
       <span style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 11.5 }}>
-        <span><span style={{ color: 'var(--success)', fontWeight: 700 }}>70+</span> Healthy</span>
-        <span><span style={{ color: 'var(--warning)', fontWeight: 700 }}>40–69</span> Needs work</span>
-        <span><span style={{ color: 'var(--danger)', fontWeight: 700 }}>&lt;40</span> Weak</span>
+        <span><span style={{ color: 'var(--success)', fontWeight: 700 }}>80+</span> Healthy</span>
+        <span><span style={{ color: 'var(--warning)', fontWeight: 700 }}>60–79</span> Needs work</span>
+        <span><span style={{ color: 'var(--danger)', fontWeight: 700 }}>&lt;60</span> Weak</span>
       </span>
     </>
   );
@@ -682,9 +693,9 @@ function MiniStat({ label, value, sub = null, tone = null, title }) {
 function ClusterHealthBar({ clusters = [] }) {
   if (!clusters.length) return null;
   const bands = [
-    { key: 'success', label: 'Healthy', range: '70+', n: clusters.filter((c) => healthVariant(c.health || 0) === 'success').length },
-    { key: 'warning', label: 'Needs work', range: '40–69', n: clusters.filter((c) => healthVariant(c.health || 0) === 'warning').length },
-    { key: 'danger', label: 'Weak', range: 'under 40', n: clusters.filter((c) => healthVariant(c.health || 0) === 'danger').length },
+    { key: 'success', label: 'Healthy', range: '80+', n: clusters.filter((c) => healthVariant(c.health || 0) === 'success').length },
+    { key: 'warning', label: 'Needs work', range: '60–79', n: clusters.filter((c) => healthVariant(c.health || 0) === 'warning').length },
+    { key: 'danger', label: 'Weak', range: 'under 60', n: clusters.filter((c) => healthVariant(c.health || 0) === 'danger').length },
   ];
   const noHub = clusters.filter((c) => c.isGap).length;
   return (

@@ -268,7 +268,13 @@ export function filterResults(results, { tab = 'all', issueFilter = '', filter =
 // carrying the link. They are simply not pages of this site, so they are not
 // scored as pages of this site.
 // Points a page loses per distinct failing rule of each severity.
-export const HEALTH_WEIGHTS = { error: 40, warning: 10, notice: 2 };
+//
+// v6 (2026-11): notices cost nothing. They were 23% of all points lost and, with
+// warnings, 74%: sites with no error at all scored 56–84 ("Needs attention",
+// "At risk"), and no page in any crawl was issue-free. Errors and warnings set
+// the score, as in Semrush's Site Health; notices are still listed in the
+// detail. Kept in the weights (at 0) so every caller's shape is unchanged.
+export const HEALTH_WEIGHTS = { error: 40, warning: 10, notice: 0 };
 
 export const isScoredPage = (result) =>
   isHtmlPage(result) &&
@@ -277,6 +283,8 @@ export const isScoredPage = (result) =>
   // A page of a rendered crawl that could not be rendered: only its empty
   // shell was read, so it is neither clean nor broken.
   !result.unrenderedShell &&
+  // A page that sends visitors on with JavaScript is a redirect, not a page.
+  !result.javascriptRedirectUrl &&
   (result.status === undefined || result.status === null || (result.status >= 200 && result.status < 300));
 
 /**
@@ -300,6 +308,57 @@ export function healthLoss(rulesPerPage, pageCount) {
     for (const key of Object.keys(loss)) loss[key] += (raw[key] * scale) / pageCount;
   }
   return loss;
+}
+
+// ── v7: problems no page carries, charged once at site level ────────────────
+//
+// Two kinds of problem were listed but cost nothing: site-wide ones (crawler
+// blocked, soft-404s, robots.txt, sitemaps) and page rules that only fired on
+// URLs outside the scored pages (redirects, error pages, files). thoughtworks
+// scored 83 while over 8,000 of its pages refused the crawl. Each such rule now
+// costs a small, fixed amount once — not per URL — and the site-level total is
+// capped, so it can mark a site down without swamping the page average.
+// overview.js holds the same table; health-score.test.js checks they agree.
+export const SITE_LEVEL_WEIGHTS = {
+  site: { error: 5, warning: 2 },
+  offPage: { error: 2, warning: 1 },
+};
+export const SITE_LEVEL_CAP = 20;
+
+/**
+ * The site-level loss from `[{ ruleId, severity, kind: 'site'|'offPage' }]`,
+ * one entry per distinct rule. Returns the total and each rule's share.
+ */
+export function siteLevelLoss(rules) {
+  const seen = new Map();
+  for (const r of rules || []) {
+    const points = SITE_LEVEL_WEIGHTS[r.kind]?.[r.severity] || 0;
+    if (!points) continue;
+    const prev = seen.get(r.ruleId);
+    if (!prev || points > prev.points) seen.set(r.ruleId, { ...r, points });
+  }
+  const list = [...seen.values()];
+  const raw = list.reduce((sum, r) => sum + r.points, 0);
+  const scale = raw > SITE_LEVEL_CAP ? SITE_LEVEL_CAP / raw : 1;
+  return {
+    total: raw * scale,
+    rules: list.map((r) => ({ ...r, points: r.points * scale })).sort((a, b) => b.points - a.points),
+  };
+}
+
+/** The rules of `findings` that no scored page carries, classified for siteLevelLoss. */
+export function siteLevelRules(findings, scoredUrls) {
+  const live = (findings || []).filter((f) => !DISMISSED.includes(f.reviewStatus) && (f.severity === 'error' || f.severity === 'warning'));
+  const onScoredPage = new Set(
+    live.filter((f) => PAGE_LEVEL_SCOPES.has(f.scope || 'page') && scoredUrls.has(f.url)).map((f) => f.ruleId || '?'),
+  );
+  const out = [];
+  for (const f of live) {
+    const rule = f.ruleId || '?';
+    if (!PAGE_LEVEL_SCOPES.has(f.scope || 'page')) out.push({ ruleId: rule, severity: f.severity, kind: 'site' });
+    else if (!onScoredPage.has(rule)) out.push({ ruleId: rule, severity: f.severity, kind: 'offPage' });
+  }
+  return out;
 }
 
 export function healthMetrics(results, findings = []) {
@@ -377,9 +436,16 @@ export function healthMetrics(results, findings = []) {
     [...rulesByPage.values()].map((p) => ({ error: p.error.size, warning: p.warning.size, notice: p.notice.size })),
     htmlResults.length,
   );
-  const health = htmlResults.length
-    ? Math.max(0, Math.round(100 - bandLoss.error - bandLoss.warning - bandLoss.notice))
+  // v7: what no scored page carries, charged once (siteLevelLoss).
+  const siteRules = useFindings && htmlResults.length ? siteLevelRules(findings, htmlUrls) : [];
+  const siteLevel = siteLevelLoss(siteRules);
+  bandLoss.site = siteLevel.total;
+  const rounded = htmlResults.length
+    ? Math.max(0, Math.round(100 - bandLoss.error - bandLoss.warning - bandLoss.notice - bandLoss.site))
     : null;
+  // Never a perfect 100 while an error remains (overview.siteHealth does the same).
+  const siteErrors = siteLevel.rules.some((r) => r.severity === 'error');
+  const health = rounded === 100 && (affectedErrorPages > 0 || siteErrors) ? 99 : rounded;
 
   // The same loss, attributed to each rule: on every scored page a failing rule
   // costs its severity's weight, scaled by that page's share of the 100-point
@@ -407,15 +473,62 @@ export function healthMetrics(results, findings = []) {
     }
   }
 
+  // The exact loss with some rules fixed (keys `${severity}|${ruleId}`),
+  // recomputed page by page. A rule's own points are NOT what fixing it gains
+  // on a page at the 100-point cap: the page's other rules take up the slack
+  // (fix 3.6 — the assistant subtracted shares and over-promised).
+  const pageList = [...rulesByPage.values()];
+  const exactLossWithout = (fixed) => {
+    if (!htmlResults.length) return 0;
+    let pages = 0;
+    for (const page of pageList) {
+      let raw = 0;
+      for (const severity of Object.keys(HEALTH_WEIGHTS)) {
+        for (const rule of page[severity]) if (!fixed.has(`${severity}|${rule}`)) raw += HEALTH_WEIGHTS[severity];
+      }
+      pages += Math.min(100, raw);
+    }
+    const site = siteLevelLoss(siteRules.filter((r) => !fixed.has(`${r.severity}|${r.ruleId}`))).total;
+    return pages / htmlResults.length + site;
+  };
+  const exactLoss = exactLossWithout(new Set());
+  // One rule at a time, only the pages carrying it change.
+  const rawOf = (page) => Object.keys(HEALTH_WEIGHTS).reduce((sum, sev) => sum + page[sev].size * HEALTH_WEIGHTS[sev], 0);
+  const gainIfFixed = (severity, rule) => {
+    let pages = 0;
+    if (htmlResults.length && HEALTH_WEIGHTS[severity]) {
+      for (const page of pageList) {
+        if (!page[severity]?.has(rule)) continue;
+        const raw = rawOf(page);
+        pages += Math.min(100, raw) - Math.min(100, raw - HEALTH_WEIGHTS[severity]);
+      }
+      pages /= htmlResults.length;
+    }
+    const site = siteLevel.total
+      - siteLevelLoss(siteRules.filter((r) => !(r.severity === severity && r.ruleId === rule))).total;
+    return pages + site;
+  };
+
   return {
     errors,
     warnings,
     notices,
     health,
+    exactLoss,
+    exactLossWithout,
+    // Fix 3.5: pages whose problems add up to 100 points or more. They score 0
+    // and further problems on them no longer move the site score.
+    pagesAtFloor: pageList.filter((page) => rawOf(page) >= 100).length,
     // Exact points each severity cost (healthScoreBreakdown apportions them).
     bandLoss,
-    // Exact points each rule cost, largest first; per severity they sum to bandLoss.
-    ruleLoss: [...ruleLoss.values()].sort((a, b) => b.points - a.points),
+    // Exact points each rule cost, largest first. Page rules sum per severity to
+    // bandLoss[severity]; the `siteLevel` ones sum to bandLoss.site.
+    // `gainIfFixed` is what fixing that rule alone would win back, exactly.
+    ruleLoss: [
+      ...ruleLoss.values(),
+      ...siteLevel.rules.map((r) => ({ ruleId: r.ruleId, severity: r.severity, pages: 0, cappedPages: 0, points: r.points, siteLevel: r.kind })),
+    ].map((r) => ({ ...r, gainIfFixed: gainIfFixed(r.severity, r.ruleId) }))
+      .sort((a, b) => b.points - a.points),
     indexable: htmlResults.filter((item) => item.indexability === 'Indexable').length,
     htmlCount: htmlResults.length,
     refusedCount: internalResults.filter((item) => item.crawlRefused).length,
@@ -460,6 +573,11 @@ export function healthScoreBreakdown(metrics) {
     { label: 'Errors', key: 'error', pages: metrics.affectedErrorPages, weight: HEALTH_WEIGHTS.error },
     { label: 'Warnings', key: 'warning', pages: metrics.affectedWarningPages, weight: HEALTH_WEIGHTS.warning },
     { label: 'Notices', key: 'notice', pages: metrics.affectedNoticePages, weight: HEALTH_WEIGHTS.notice },
+    // v7: charged once for the site, not per page (siteLevelLoss). Only shown
+    // when it cost something, so older stored metrics read as before.
+    ...(Number(metrics.bandLoss?.site) > 0
+      ? [{ label: 'Site-wide', key: 'site', pages: 0, weight: SITE_LEVEL_WEIGHTS.site.error }]
+      : []),
   ].map((b) => {
     // v5 metrics carry each band's exact loss; a caller with only page counts
     // (older stored metrics) gets the page-share approximation.
@@ -495,7 +613,7 @@ export function healthScoreBreakdown(metrics) {
     remaining -= 1;
   }
 
-  return bands.map(({ label, pages, weight, points }) => ({ label, pages, weight, points }));
+  return bands.map(({ label, key, pages, weight, points }) => ({ label, key, pages, weight, points }));
 }
 
 // Plain-language breakdown so a health score is never an unexplained number.
@@ -509,8 +627,10 @@ const BAND_NOUN = { Errors: 'errors', Warnings: 'warnings', Notices: 'notices' }
 export function healthScoreExplanation(metrics) {
   if (!metrics || metrics.health === null) return 'Run a crawl to calculate site health.';
   const parts = healthScoreBreakdown(metrics)
-    .filter((b) => b.pages)
-    .map((b) => `−${b.points} from ${b.pages} page(s) with ${BAND_NOUN[b.label]}`);
+    .filter((b) => b.pages || (b.key === 'site' && b.points))
+    .map((b) => (b.key === 'site'
+      ? `−${b.points} for site-wide problems`
+      : `−${b.points} from ${b.pages} page(s) with ${BAND_NOUN[b.label]}`));
   if (!parts.length) return 'No issues found — a clean 100.';
   return `Starting from 100: ${parts.join(', ')}. That is ${metrics.health} out of 100.`;
 }
@@ -875,7 +995,16 @@ export function crawlComparison(run) {
     + `${plural(totals.new, 'new issue')}, ${totals.fixed.toLocaleString('en-US')} fixed, `
     + `${totals.persisting.toLocaleString('en-US')} still open.`
     + (carried ? ` ${plural(carried, 'false positive')} ${carried === 1 ? 'was' : 'were'} carried over from it.` : '');
-  return { since, totals, byRule: comparison.byRule || {}, carried, sentence };
+  // Fix 3.4: the same site scored 87 on 50 pages and 26 on 1,850, so a change
+  // between crawls with different page budgets is not a like-for-like change.
+  const budget = Number(comparison.pageBudget) || null;
+  const previousBudget = Number(comparison.previousPageBudget) || null;
+  const budgetChanged = Boolean(budget && previousBudget && budget !== previousBudget);
+  const budgetWarning = budgetChanged
+    ? `The page budget changed from ${previousBudget.toLocaleString('en-US')} to ${budget.toLocaleString('en-US')} pages, `
+      + 'so the score and these counts cover a different set of pages and are not a like-for-like change.'
+    : null;
+  return { since, totals, byRule: comparison.byRule || {}, carried, sentence, budgetChanged, budgetWarning };
 }
 
 // One rule's movement since the last crawl, or null when it did not move.

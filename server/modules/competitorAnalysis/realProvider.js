@@ -59,7 +59,8 @@ async function fetchDomainData(domain, ctx, { database = 'us', brandName } = {})
     domain,
     domainRank: {
       organicKeywords,
-      organicTraffic: domainRank?.organicTraffic || 0,
+      // null when Semrush returned nothing for this domain — unknown, not 0.
+      organicTraffic: Number.isFinite(domainRank?.organicTraffic) ? domainRank.organicTraffic : null,
     },
     authorityScore: backlinksOverview?.authorityScore || 0,
     backlinks: {

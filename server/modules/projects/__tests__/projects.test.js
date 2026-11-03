@@ -292,14 +292,17 @@ test('the composite is null with nothing scored — never zero (§16.11)', () =>
   assert.notStrictEqual(composite.value, 0);
   assert.strictEqual(composite.status, 'insufficient_data');
   assert.strictEqual(composite.scoredModules, 0);
-  assert.strictEqual(composite.totalModules, 6);
+  // D1: the site-quality modules only (Tech, SEO & GEO, Agent Readiness, Hub).
+  assert.strictEqual(composite.totalModules, overview.QUALITY_MODULES.length);
 });
 
 test('the composite averages only the modules that really scored', () => {
   const composite = overview.buildComposite([
-    { scored: true,  score: 80 },
-    { scored: true,  score: 60 },
-    { scored: false, score: null },
+    { key: 'technical', scored: true,  score: 80 },
+    { key: 'seo_geo', scored: true,  score: 60 },
+    { key: 'hub_spoke', scored: false, score: null },
+    // D1: context modules never enter the average.
+    { key: 'competitor', scored: true, score: 5 },
   ]);
   assert.strictEqual(composite.value, 70);
   assert.strictEqual(composite.scoredModules, 2);

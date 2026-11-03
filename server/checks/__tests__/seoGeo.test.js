@@ -539,6 +539,68 @@ group('integration — the real Arlington page (the page in the reported audit)'
     assert.strictEqual(derived.seo.score, fresh.seo.score);
   });
 
+  // ── Canonical and noindex (plan 1.13) ─────────────────────────────────────
+  group('indexability — canonical compared as an address, header noindex counted');
+
+  const page = (canonical) => `<html><head><title>Home</title>${canonical ? `<link rel="canonical" href="${canonical}">` : ''}</head><body><h1>Home</h1><p>Hello.</p></body></html>`;
+  const byId = (res) => Object.fromEntries(res.checks.map((c) => [c.id, c]));
+
+  const slash = byId(await runAllChecks(page('https://www.nice.com'), 'https://www.nice.com/', {}, []));
+  test('a homepage whose canonical differs only by a trailing slash is self-referencing', () => {
+    assert.strictEqual(slash.D4.status, 'pass');
+    assert.strictEqual(slash.D5.status, 'pass', `D5 was ${slash.D5.status}: ${slash.D5.detail}`);
+    assert.strictEqual(slash.D7.status, 'pass');
+  });
+
+  const elsewhere = byId(await runAllChecks(page('https://www.example.com/other'), 'https://www.example.com/page', {}, []));
+  test('a canonical pointing elsewhere is not "self-referencing"', () => {
+    assert.notStrictEqual(elsewhere.D4.status, 'pass');
+    assert.strictEqual(elsewhere.D5.status, 'notice');
+  });
+
+  const await_dupes = await runAllChecks('<html><head><title>Home page title for the test</title></head><body><h1>Home</h1><p>Hi.</p><a href="/x"></a><img src="a.png"></body></html>', 'https://www.example.com/', {}, []);
+  const meta90 = await runAllChecks(`<html><head><title>Home page title for the test</title><meta name="description" content="${'x'.repeat(90)}"></head><body><h1>Home</h1></body></html>`, 'https://www.example.com/', {}, []);
+  const headerNoindex = await runAllChecks(page('https://www.example.com/'), 'https://www.example.com/', { 'x-robots-tag': 'noindex' }, []);
+  test('a noindex sent as an X-Robots-Tag header fails like the meta tag, and caps the page', () => {
+    assert.strictEqual(byId(headerNoindex).C1.status, 'fail');
+    assert.ok(headerNoindex.scores.overall <= 25, `overall ${headerNoindex.scores.overall}`);
+  });
+
+  test('the never-run D8/D9 checks are gone', () => {
+    assert.ok(!slash.D8 && !slash.D9);
+  });
+
+  console.log('\nfix 4.1 — duplicates, shared thresholds, answerability');
+
+  test('the same test under two ids is charged once', () => {
+    const anchors = byId(await_dupes);
+    assert.strictEqual(anchors.Q4.status, 'na');
+    assert.strictEqual(anchors.Q4.duplicateOf, 'H5');
+    assert.strictEqual(anchors.O4.duplicateOf, 'G6');
+    // Scoring a stored report that still carries both drops the second too.
+    const scored = calculateScores([
+      { id: 'H5', category: 'Internal Links', status: 'warning', severity: 'warning' },
+      { id: 'Q4', category: 'Accessibility', status: 'warning', severity: 'warning' },
+    ]);
+    assert.strictEqual(scored.counts.warnings, 1);
+  });
+
+  test('meta description "too short" uses the Tech Audit threshold (70)', () => {
+    const ok = byId(meta90);
+    assert.strictEqual(ok.B3.status, 'pass', ok.B3.detail);
+  });
+
+  test('answerability is its own figure, and the GEO hold is reported beside the headline', () => {
+    const scores = calculateScores([
+      { id: 'A1', category: 'Title Tag', status: 'pass' },
+      { id: 'T3', category: 'GEO Signals', status: 'warning', severity: 'warning', value: '3/10' },
+      ...['J1', 'J2', 'J4', 'J5', 'J6'].map((id) => ({ id, category: 'Schema', status: 'pass' })),
+    ]);
+    assert.deepStrictEqual(scores.answerability, { score: 3, outOf: 10, label: 'Hard for AI to answer from' });
+    assert.ok(scores.geoHold && scores.geoHold.value === 55, JSON.stringify(scores.geoHold));
+    assert.ok(scores.overall > 55, 'the headline itself is not capped');
+  });
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

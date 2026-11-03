@@ -455,8 +455,10 @@ async function followCrawl({
 // would close a cycle (moduleRunners -> streamingAudit -> moduleRunners). The
 // strings are asserted identical in the tests.
 const SCORE_BASIS = {
-  seo_geo: 'the SEO & GEO audit (rule-based bucket scores, weighted composite, capped by blocking issues)',
-  agent_readiness: 'the agent readiness audit (weighted HTTP plus on-page checks)',
+  seo_geo: 'the SEO & GEO audit v2 (rule-based bucket scores, weighted composite, capped by blocking issues; '
+    + 'duplicate checks counted once, Tech Audit length limits)',
+  agent_readiness: 'the agent readiness audit v2 (weighted HTTP plus on-page checks; agent-relevant Link headers, '
+    + 'allow-all robots counts for AI bots, WebMCP detected in the page, no SearchAction)',
 };
 
 module.exports = {

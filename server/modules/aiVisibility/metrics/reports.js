@@ -274,11 +274,16 @@ function insights(ctx) {
     kpis: kpis(ctx),
     shareOfVoice: {
       totalMentions: sov.totalMentions,
+      totalAnswers: sov.totalAnswers,
       otherMentions: sov.otherMentions,
+      // Fix 5.5: too few answers to rank on, and the floor that says so.
+      belowMinimum: sov.belowMinimum,
+      minAnswers: sov.minAnswers,
       rows: sov.rows.map((r) => ({
         brandId: r.brandId,
         name: byId.get(r.brandId)?.name || r.brandId,
         isClient: Boolean(byId.get(r.brandId)?.isClient),
+        answers: r.answers,
         mentions: metric(r.mentions, 'count'),
         ...metric(r.value, 'percent'),
       })),
@@ -557,8 +562,8 @@ function runReport(ctx, { runCaptures = null } = {}) {
       // Null, not "0 of 0" — with nothing measured there is no fraction to
       // state, and a zero-over-zero reads as a result rather than an absence
       // of one.
-      label: sov.totalMentions
-        ? `${clientRow?.mentions ?? 0} of ${sov.totalMentions} mentions`
+      label: sov.totalAnswers
+        ? `named in ${clientRow?.answers ?? 0} of the ${sov.totalAnswers} answers naming a tracked brand`
         : null,
       rows: sov.rows.map((x) => ({
         brandId: x.brandId,

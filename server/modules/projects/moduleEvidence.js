@@ -394,7 +394,7 @@ async function failRun({ access, runId, error: runError }) {
  * still in flight are returned, because "running" is a state the card must be
  * able to show rather than looking like "never run".
  */
-async function latestByModule(projectId, { limit = 120 } = {}) {
+async function latestByModule(projectId) {
   if (!db.isDatabaseConfigured()) return new Map();
 
   // `note` and `reportRef` are projected out of the payload rather than
@@ -434,11 +434,23 @@ async function latestByModule(projectId, { limit = 120 } = {}) {
                 )
                 else payload->>'reportRef'
               end as "reportRef"
-         from project_module_runs runs
-        where project_id = $1
-        order by created_at desc
-        limit $2`,
-      [projectId, limit]
+         from (
+           -- The newest finished run and the newest in-flight run OF EACH
+           -- MODULE. This read the newest 120 runs across every module, so a
+           -- burst from one module pushed the others out: 210 Hub and Spoke
+           -- runs left Eventgroove's SEO & GEO (89), Agent Readiness (28) and
+           -- AI Visibility (20) cards reading "Not run for this project yet".
+           select r.*,
+                  row_number() over (
+                    partition by r.module_key, (r.status = any($2))
+                    order by r.created_at desc
+                  ) as rn
+             from project_module_runs r
+            where r.project_id = $1
+         ) runs
+        where runs.rn = 1
+        order by runs.created_at desc`,
+      [projectId, TERMINAL]
     );
   } catch (error) {
     fail('latestByModule', error);

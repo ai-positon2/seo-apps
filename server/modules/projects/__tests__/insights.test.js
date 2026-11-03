@@ -915,7 +915,7 @@ test('site health is the figure the crawl report itself shows', () => {
   // the 85 HTML ones, both of which included the 35 external pages the crawler
   // followed. Those can never carry a finding, so counting them was worth 13
   // points of free credit: this same crawl read 82 before.
-  assert.strictEqual(overviewModule.siteHealth(run, 50).score, 87, "v5: (40 + 50x10 + 50x2) / 50 pages = 12.8 points lost");
+  assert.strictEqual(overviewModule.siteHealth(run, 50).score, 89, "v6: (40 + 50x10) / 50 pages = 10.8 points lost; notices cost nothing");
 });
 
 test('external pages cannot inflate the health score', () => {
@@ -932,7 +932,7 @@ test('external pages cannot inflate the health score', () => {
       ],
     },
   };
-  assert.strictEqual(overviewModule.siteHealth(run, 50).score, 87);
+  assert.strictEqual(overviewModule.siteHealth(run, 50).score, 89);
   assert.strictEqual(overviewModule.siteHealth(run, 50).denominator, 50);
 });
 
@@ -1033,25 +1033,41 @@ test('missing traffic figures withhold the score', () => {
   ]), null, 'nobody measured any traffic: there is no comparison to score');
 });
 
-test('a client with traffic, against rivals all measured at zero, leads them all', () => {
-  // Zero cannot be a denominator, but the standing is not unknown: any traffic
-  // beats none. It used to withhold the score, and the card fell back to
-  // "0 findings" for a site that was plainly ahead.
-  const scored = moduleRunners.competitorTrafficScore([
+test('rivals with no traffic figure leave the comparison unmeasured, never "Leading"', () => {
+  // Semrush stores "nothing found" as 0. Cabinet's only rival read 0 and the
+  // card said "Leading — 563 vs 0 visits": a lead over a rival nobody measured.
+  const domains = [
     { domain: 'client.test', isClient: true, domainRank: { organicTraffic: 100 } },
     { domain: 'rival.test', isClient: false, domainRank: { organicTraffic: 0 } },
-  ]);
-  assert.strictEqual(scored.score, 100);
-  assert.strictEqual(scored.aheadOfAll, true);
-  assert.strictEqual(scored.strongestTraffic, 0);
+  ];
+  assert.strictEqual(moduleRunners.competitorTrafficScore(domains), null);
+  assert.deepStrictEqual(moduleRunners.competitorUnmeasured(domains), ['rival.test']);
 });
 
-test('a client with genuinely no traffic scores 0', () => {
-  const scored = moduleRunners.competitorTrafficScore([
+test('a client with no traffic figure is not measured, not 0', () => {
+  // Centered Health scored 0 because its own domain read 0 in Semrush.
+  const domains = [
     { domain: 'client.test', isClient: true, domainRank: { organicTraffic: 0 } },
     { domain: 'rival.test', isClient: false, domainRank: { organicTraffic: 1000 } },
+  ];
+  assert.strictEqual(moduleRunners.competitorTrafficScore(domains), null);
+  assert.deepStrictEqual(moduleRunners.competitorUnmeasured(domains), ['client.test']);
+});
+
+test('a stored null is unknown, not a zero', () => {
+  assert.strictEqual(moduleRunners.knownTraffic(null), null);
+  assert.strictEqual(moduleRunners.knownTraffic(undefined), null);
+  assert.strictEqual(moduleRunners.knownTraffic('563'), 563);
+});
+
+test('one rival without a figure does not stop the comparison with the others', () => {
+  const scored = moduleRunners.competitorTrafficScore([
+    { domain: 'client.test', isClient: true, domainRank: { organicTraffic: 500 } },
+    { domain: 'unknown.test', isClient: false, domainRank: { organicTraffic: null } },
+    { domain: 'rival.test', isClient: false, domainRank: { organicTraffic: 1000 } },
   ]);
-  assert.strictEqual(scored.score, 0, '0 is a measurement here, unlike a missing figure');
+  assert.strictEqual(scored.score, 50);
+  assert.strictEqual(scored.strongestDomain, 'rival.test');
 });
 
 // ── Hub and Spoke clusters informational pages only ─────────────────────────

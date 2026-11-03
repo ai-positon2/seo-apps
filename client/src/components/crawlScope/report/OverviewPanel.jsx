@@ -1,5 +1,5 @@
 import { Panel, Eyebrow, AnalyzingNotice } from './reportPrimitives';
-import { healthScoreBreakdown, HEALTH_WEIGHTS } from '../crawlHelpers';
+import { healthScoreBreakdown, HEALTH_WEIGHTS, SITE_LEVEL_WEIGHTS, SITE_LEVEL_CAP } from '../crawlHelpers';
 import { InfoTip } from '../../seoGeo/report/reportKit';
 import { scoreVerdict } from '../../../lib/scoreVerdict';
 import { InfoDot, Legend } from '../../explain';
@@ -34,6 +34,14 @@ import { techWorking } from '../../chat/screenWorking';
  * @param {object?} props.coverage  { limit, partial, reasons } — the crawl's
  *   page budget and why it stopped short, if it did
  */
+// The points chip on a loss bar. Never "−0 pts": a band that costs nothing by
+// design says so, and one whose share rounds below a point says "<1".
+export function lossChip(band) {
+  if (!band.weight) return 'no points';
+  if (band.points > 0) return `−${band.points} pts`;
+  return band.pages ? '<1 pt' : '0 pts';
+}
+
 export default function OverviewPanel({
   metrics, counts, groups, catalogById, provisional = false, crawled = null,
   reconciliation = null, coverage = null, comparison = null, onOpenIssue = null,
@@ -67,8 +75,24 @@ export default function OverviewPanel({
   };
 
   const bySeverity = (s) => groups.filter((g) => g.severity === s);
+
+  // "What to fix first": the fixes worth the most points first. In the run's own
+  // order (severity, site-wide first) the top three were often worth nothing —
+  // Nike's were all 0 points while its +29-point fix sat 5th. Ties keep that order.
+  const gainByRule = new Map((metrics.ruleLoss || []).map((r) => [r.ruleId, r.points]));
+  const fixFirst = groups
+    .map((g, order) => ({ ...g, gain: gainByRule.get(g.id) || 0, order }))
+    .sort((a, b) => (b.gain - a.gain) || (a.order - b.order));
   // Findings, not pages: one page can trip the same check twice.
   const occurrences = (s) => bySeverity(s).reduce((sum, g) => sum + (g.count || 0), 0);
+  // The tile counts scored pages; the groups also hold problems on redirects,
+  // files and site-wide checks. "0 pages with an error" over "3 types · 12
+  // instances" read as a contradiction, so say where those instances are.
+  const severitySub = (s, pages) => {
+    const types = bySeverity(s).length;
+    const label = `${types} type${types === 1 ? '' : 's'} of problem · ${occurrences(s).toLocaleString()} instances`;
+    return types && !pages ? `${label}, none on a scored page (redirects, files or site-wide)` : label;
+  };
 
   return (
     <div className="crawl-overview">
@@ -129,7 +153,9 @@ export default function OverviewPanel({
                       <span style={{ width: 9, height: 9, borderRadius: 3, background: BAND_COLOR[b.label], flexShrink: 0 }} />
                       <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{b.label}</span>
                       <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
-                        {b.pages.toLocaleString()} of {metrics.htmlCount.toLocaleString()} pages
+                        {b.key === 'site'
+                          ? 'charged once for the site'
+                          : `${b.pages.toLocaleString()} of ${metrics.htmlCount.toLocaleString()} pages`}
                       </span>
                     </span>
                     <span
@@ -139,16 +165,24 @@ export default function OverviewPanel({
                         color: BAND_COLOR[b.label], background: `color-mix(in srgb, ${BAND_COLOR[b.label]} 12%, var(--card))`,
                       }}
                     >
-                      −{b.points} pts
+                      {lossChip(b)}
                     </span>
                   </div>
-                  {/* The share of pages this band touches. */}
-                  <div style={{ height: 6, borderRadius: 999, background: 'var(--surface)', overflow: 'hidden' }}>
-                    <div style={{ height: '100%', borderRadius: 999, background: BAND_COLOR[b.label], width: `${Math.max(share * 100, b.pages ? 1.5 : 0)}%` }} />
-                  </div>
+                  {/* The share of pages this band touches; none for the site band. */}
+                  {b.key !== 'site' && (
+                    <div style={{ height: 6, borderRadius: 999, background: 'var(--surface)', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', borderRadius: 999, background: BAND_COLOR[b.label], width: `${Math.max(share * 100, b.pages ? 1.5 : 0)}%` }} />
+                    </div>
+                  )}
                 </div>
               );
             })}
+            {metrics.pagesAtFloor > 0 && (
+              <span style={{ fontSize: 12, color: 'var(--text-2)' }}>
+                {metrics.pagesAtFloor.toLocaleString()} page{metrics.pagesAtFloor === 1 ? '' : 's'} at the floor: they lost all 100 points,
+                so fixing one of their problems may not raise the score until the rest are fixed too.
+              </span>
+            )}
             <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
               Bars show the share of pages affected · tap <strong style={{ fontWeight: 600 }}>i</strong> for the formula
             </span>
@@ -178,7 +212,7 @@ export default function OverviewPanel({
             value={provisional ? '—' : metrics.affectedErrorPages.toLocaleString()}
             sub={provisional
               ? 'Not measured until the crawl finishes'
-              : `${bySeverity('error').length} type${bySeverity('error').length === 1 ? '' : 's'} of problem · ${occurrences('error')} instances`}
+              : severitySub('error', metrics.affectedErrorPages)}
             color={provisional ? 'var(--text-3)' : 'var(--viz-neg)'}
             share={!provisional && metrics.htmlCount ? metrics.affectedErrorPages / metrics.htmlCount : null}
           />
@@ -190,7 +224,7 @@ export default function OverviewPanel({
             value={provisional ? '—' : metrics.affectedWarningPages.toLocaleString()}
             sub={provisional
               ? 'Not measured until the crawl finishes'
-              : `${bySeverity('warning').length} type${bySeverity('warning').length === 1 ? '' : 's'} of problem · ${occurrences('warning')} instances`}
+              : severitySub('warning', metrics.affectedWarningPages)}
             color={provisional ? 'var(--text-3)' : 'var(--viz-warn)'}
             share={!provisional && metrics.htmlCount ? metrics.affectedWarningPages / metrics.htmlCount : null}
           />
@@ -238,6 +272,11 @@ export default function OverviewPanel({
             <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--text)', lineHeight: 1.5 }}>
               <NoticeIcon kind="compare" />{comparison.sentence}
             </span>
+            {comparison.budgetWarning && (
+              <span style={{ display: 'block', marginTop: 6, fontSize: 12, color: 'var(--viz-warn)', lineHeight: 1.5 }}>
+                {comparison.budgetWarning}
+              </span>
+            )}
           </div>
         )}
 
@@ -376,7 +415,7 @@ export default function OverviewPanel({
               remediation under each. Nothing is composed here: this is the first
               three rows of the list on the next tab, so the two cannot disagree
               about what matters most. */}
-          {!provisional && groups.slice(0, 3).map((g, i) => {
+          {!provisional && fixFirst.slice(0, 3).map((g, i) => {
             const entry = catalogById.get(g.id);
             const sev = SEVERITY[g.severity] || SEVERITY.notice;
             // The whole card opens this problem's own page — the pages it is
@@ -413,6 +452,9 @@ export default function OverviewPanel({
                   <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     <Chip color={sev.color}>{sev.label}</Chip>
                     <Chip color="var(--text-2)">{g.pages.toLocaleString()} page{g.pages === 1 ? '' : 's'}</Chip>
+                    <Chip color={g.gain > 0 ? 'var(--primary-text)' : 'var(--text-3)'}>
+                      {g.gain >= 1 ? `+${Math.round(g.gain)} points` : g.gain > 0 ? 'under 1 point' : 'no effect on the score'}
+                    </Chip>
                   </span>
                   <span style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5 }}>
                     {entry?.recommendation || 'No remediation is recorded for this check.'}
@@ -442,6 +484,7 @@ const BAND_COLOR = {
   Errors: 'var(--viz-neg)',
   Warnings: 'var(--viz-warn)',
   Notices: 'var(--text-3)',
+  'Site-wide': 'var(--viz-neg)',
 };
 
 const SEVERITY = {
@@ -509,8 +552,9 @@ function HealthExplainer({ health, breakdown, htmlCount }) {
       <strong style={{ color: 'var(--text)', fontSize: 13.5 }}>How site health is scored</strong>
       <span>A measure of how many technical problems the crawl found, across every page it audited.</span>
       {step(1, 'Every audited page starts at 100.')}
-      {step(2, `It loses ${HEALTH_WEIGHTS.error} points for each kind of error it has, ${HEALTH_WEIGHTS.warning} for each kind of warning and ${HEALTH_WEIGHTS.notice} for each kind of notice — never below 0.`)}
+      {step(2, `It loses ${HEALTH_WEIGHTS.error} points for each kind of error it has and ${HEALTH_WEIGHTS.warning} for each kind of warning — never below 0. Notices are listed but cost nothing.`)}
       {step(3, `The site score is the average across the ${htmlCount.toLocaleString()} HTML pages audited.`)}
+      {step(4, `Problems no audited page carries are charged once for the site: site-wide ones such as a blocked crawler or robots.txt (${SITE_LEVEL_WEIGHTS.site.error} per error, ${SITE_LEVEL_WEIGHTS.site.warning} per warning), and ones only on redirects or files (${SITE_LEVEL_WEIGHTS.offPage.error} and ${SITE_LEVEL_WEIGHTS.offPage.warning}). At most ${SITE_LEVEL_CAP} points in all.`)}
       <span
         className="num"
         style={{

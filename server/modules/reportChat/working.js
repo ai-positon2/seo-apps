@@ -42,7 +42,10 @@ const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 // ── Tech Audit ──────────────────────────────────────────────────────────────
 
-const WEIGHT = { error: 40, warning: 10, notice: 2 };
+// Site Health v7 (crawlHelpers.HEALTH_WEIGHTS): notices cost nothing; rules no
+// scored page carries are charged once for the site (SITE_LEVEL_WEIGHTS).
+const WEIGHT = { error: 40, warning: 10, notice: 0 };
+const SITE_WEIGHT = { site: { error: 5, warning: 2 }, offPage: { error: 2, warning: 1 } };
 const fmt = (v) => (Number.isFinite(v) ? v.toLocaleString('en-US') : '?');
 
 // "What is the least we must fix to reach N?" Taking the costliest items first
@@ -74,11 +77,16 @@ function tech(w) {
     const capped = num(r.pagesCapped) || 0;
     const points = r2(num(r.points));
     const weight = WEIGHT[r.severity];
+    const siteLevel = r.siteLevel === 'site' || r.siteLevel === 'offPage' ? r.siteLevel : null;
     // The arithmetic in words, so an answer can quote it rather than redo it.
     let calculation = null;
-    if (weight && pages === 0) {
-      calculation = `0 points: none of the ${listed === null ? '' : `${fmt(listed)} `}URLs it is listed on is a scored page `
-        + '(they are redirects, error pages, files or site-wide settings, which the health score leaves out)';
+    if (siteLevel) {
+      const base = SITE_WEIGHT[siteLevel][r.severity];
+      calculation = `${points} points, charged once for the site rather than per page: `
+        + (siteLevel === 'site' ? 'a site-wide problem' : 'found only on redirects, error pages or files, never on a scored page')
+        + ` (${base} per ${r.severity} rule; all such rules together are capped at 20${points < base ? ', which scaled this one down' : ''})`;
+    } else if (weight && pages === 0) {
+      calculation = `0 points: none of the ${listed === null ? '' : `${fmt(listed)} `}URLs it is listed on is a scored page`;
     } else if (weight && pages !== null && scored) {
       calculation = capped
         ? `${weight} × ${fmt(pages)} pages ÷ ${fmt(scored)} = ${r2((weight * pages) / scored)} before the per-page cap; ${fmt(capped)} of those pages hit the 100-point cap and count for less, so ${points}`
@@ -95,13 +103,16 @@ function tech(w) {
       pagesCapped: capped,
       occurrences: num(r.occurrences),
       points,
+      siteLevel,
       calculation,
     };
   });
+  const gains = arr(w.rules).map((r) => num(r.gainIfFixed));
   const bySeverity = {};
   arr(w.rules).forEach((raw, i) => {
     const r = rules[i];
-    const s = (bySeverity[r.severity] ||= { rulesListed: 0, rulesCostingPoints: 0, rulesCostingNothing: 0, points: 0 });
+    // Site-level rules make up the Site-wide bar, not their severity's.
+    const s = (bySeverity[r.siteLevel ? 'site' : r.severity] ||= { rulesListed: 0, rulesCostingPoints: 0, rulesCostingNothing: 0, points: 0 });
     s.rulesListed += 1;
     if (r.points > 0) s.rulesCostingPoints += 1; else s.rulesCostingNothing += 1;
     // Summed unrounded, so the total matches the bar's exact figure.
@@ -111,7 +122,7 @@ function tech(w) {
     s.points = r2(s.points);
     // A severity's total is the sum of its rules, never weight × pages: a page
     // with two errors pays twice, and zero-cost rules still count as listed.
-    const parts = rules.filter((r) => r.severity === severity).map((r) => r.points ?? 0);
+    const parts = rules.filter((r) => (r.siteLevel ? 'site' : r.severity) === severity).map((r) => r.points ?? 0);
     const shown = r2(parts.reduce((a, b) => a + b, 0));
     s.calculation = `sum of its ${s.rulesListed} rules: ${parts.join(' + ')} = ${s.points}`
       + (shown !== s.points ? ` (the parts are rounded, so they add to ${shown}; the exact total is ${s.points})` : '')
@@ -120,20 +131,27 @@ function tech(w) {
   const bands = arr(w.bands);
   const exactLoss = bands.reduce((s, b) => s + (num(b.exactPoints) || 0), 0);
   // The most-asked what-if, answered here so the model never has to do it: the
-  // score with only this rule fixed, from the exact figures, rounded once.
+  // score with only this rule fixed, rounded once. From the report's exact
+  // gain where it sent one: on a page at the 100-point cap, fixing one rule
+  // wins back less than its points, because the page's other rules fill the gap.
   if (bands.length) {
-    for (const r of rules) {
-      if (r.points !== null) r.scoreIfOnlyThisWereFixed = Math.min(100, Math.round(100 - exactLoss + r.points));
-    }
+    rules.forEach((r, i) => {
+      const gain = gains[i] ?? r.points;
+      if (gain !== null) r.scoreIfOnlyThisWereFixed = Math.min(100, Math.round(100 - exactLoss + gain));
+      if (gains[i] !== null && r.points !== null && gains[i] < r.points - 0.005) r.gainIfFixed = r2(gains[i]);
+    });
   }
+  // The report works the fix plan out page by page; the sum of points is the
+  // fallback for an older client.
+  const plan = w.fewestFixesToReach && typeof w.fewestFixesToReach === 'object' ? clean(w.fewestFixesToReach) : null;
   const sortedRules = [...rules].sort((a, b) => (b.points ?? -1) - (a.points ?? -1));
   return {
     score: num(w.score),
     // "What costs us most", ready to quote in order.
-    fewestFixesToReach: bands.length ? fewestFixesToReach(
+    fewestFixesToReach: plan || (bands.length ? fewestFixesToReach(
       sortedRules.filter((r) => r.points > 0).map((r) => ({ name: r.rule, points: r.points })),
       100 - exactLoss, (it) => it.points, (x) => Math.min(100, x),
-    ) : null,
+    ) : null),
     topByPointsLost: sortedRules.filter((r) => r.points > 0).slice(0, 5)
       .map((r) => `${r.rule} (${r.severity}): ${r.points} points, ${fmt(r.pagesAffected)} pages`),
     // What-ifs start here, not from the rounded score: fixing a rule removes its
@@ -145,7 +163,8 @@ function tech(w) {
       : null,
     exactScoreBeforeRounding: bands.length ? r2(100 - exactLoss) : null,
     pagesScored: num(w.pagesScored),
-    weights: { error: 40, warning: 10, notice: 2 },
+    pagesAtFloor: num(w.pagesAtFloor),
+    weights: { error: 40, warning: 10, notice: 0, siteLevel: SITE_WEIGHT, siteLevelCap: 20 },
     bands: arr(w.bands).map((b) => ({
       severity: b.severity, exactPoints: r2(num(b.exactPoints)), barShows: num(b.barShows), pagesWithThisSeverity: num(b.pages),
       howExactPointsAreMade: 'the sum of this severity\'s rule points (rulesTotalBySeverity); pagesWithThisSeverity is a count only, never multiply it by the weight',
@@ -155,7 +174,7 @@ function tech(w) {
     rulesOrder: 'most points lost first',
     rules: sortedRules,
     rulesNotListed: num(w.rulesNotListed) || 0,
-    note: 'This lists EVERY rule the report shows. Each rule\'s points = weight × scored pages it is on (scaled on pages whose loss hit the 100 cap) ÷ pages scored. Rules with 0 points are listed in the report but found only on URLs the score leaves out. A severity\'s rules sum to its exact points; the bars round those so they add up to 100 − score.',
+    note: 'This lists EVERY rule the report shows. Each rule\'s points = weight × scored pages it is on (scaled on pages whose loss hit the 100 cap) ÷ pages scored. Rules with a siteLevel are charged once for the site instead (site-wide problems, or ones found only on redirects, error pages or files) and make up the Site-wide bar. Notices cost 0. A severity\'s rules sum to its exact points; the bars round those so they add up to 100 − score. For what-ifs use scoreIfOnlyThisWereFixed and fewestFixesToReach and never subtract points yourself: on a page at the 100-point cap a fix wins back less than its points (gainIfFixed).',
   };
 }
 

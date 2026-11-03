@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { scoreBandColor } from '../../../lib/scoreVerdict';
 
 // ── The SEO & GEO report's own small pieces ─────────────────────────────────
 //
@@ -40,16 +41,11 @@ export const PLATFORM_TONE = {
 };
 
 /**
- * A 0–100 score → its colour, on the same thresholds as the label printed beside
- * it (SCORE_BANDS in server/checks/seoGeoChecks.js): Good/Excellent (75+) green,
- * Needs work (60–74) amber, Poor/Critical (<60) red. It used to switch at 70/45,
- * so a 74 labelled "Needs work" was drawn in the same green as a 93 "Excellent".
+ * A 0–100 score → its colour, on the platform's one set of bands (80 / 60,
+ * lib/scoreVerdict.js). This used 75 / 60, so Cabinet's 76 was green "Good"
+ * here and amber "Needs attention" on the dashboard card.
  */
-export const bandColor = (score) => (
-  !Number.isFinite(score) ? 'var(--text-3)'
-    : score >= 75 ? 'var(--primary)'
-      : score >= 60 ? 'var(--viz-warn)' : 'var(--viz-neg)'
-);
+export const bandColor = (score) => (Number.isFinite(score) ? scoreBandColor(score) : 'var(--text-3)');
 
 export const Eyebrow = ({ children, tone = 'muted', style }) => (
   <span
@@ -335,3 +331,6 @@ export function InfoTip({ label, children, align = 'left' }) {
     </span>
   );
 }
+
+// Why a page's score is capped, in words (capReason.js).
+export { capReason } from './capReason.js';

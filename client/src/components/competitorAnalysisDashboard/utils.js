@@ -53,6 +53,11 @@ export function hasUsablePageSpeed(domains) {
 export function computeClientStat(domains, valueFn) {
   const client = domains.find((d) => d.isClient);
   if (!client) return null;
+  // No figure for the client (Semrush found nothing): unknown, not a 0 ranked last.
+  const own = valueFn(client);
+  if (own === null || own === undefined) {
+    return { clientValue: null, rank: null, total: domains.length, leaderValue: 0, medianValue: 0, isLeader: false, unknown: true };
+  }
   const values = domains.map((d) => ({ id: d.domain, value: valueFn(d) || 0 }));
   const sorted = [...values].sort((a, b) => b.value - a.value);
   const rank = sorted.findIndex((v) => v.id === client.domain) + 1;

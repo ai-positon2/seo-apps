@@ -51,7 +51,7 @@ test('a report screen gets its module detail and its explainers', async () => {
   assert.equal(ctx.screenName, 'Tech Audit');
   assert.deepEqual(calls.moduleDetail, ['technical']);
   assert.deepEqual(sectionNames(ctx), ['PROJECT', 'MODULES', 'EXECUTIVE_SUMMARY', 'FIXES_RANKED', 'SCORING_METHOD', 'REPORT_ON_SCREEN_DATA', 'REPORT_ON_SCREEN_EXPLAINERS']);
-  assert.match(ctx.sections.find(([n]) => n === 'SCORING_METHOD')[1], /error 40, warning 10, notice 2/);
+  assert.match(ctx.sections.find(([n]) => n === 'SCORING_METHOD')[1], /error 40, warning 10, notice 0/);
   const copy = ctx.sections.find(([n]) => n === 'REPORT_ON_SCREEN_EXPLAINERS')[1];
   assert.match(copy, /Every page starts at 100/);
 });

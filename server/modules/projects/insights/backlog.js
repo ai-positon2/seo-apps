@@ -11,6 +11,8 @@
 //
 // The precedence, and why each key is where it is:
 //
+//   0. costs points     A finding that lowers a score comes before one that is
+//                       only listed (overview.costingRulePages).
 //   1. severity         The module's own judgement of how bad it is per page.
 //                       Universal — every module reports it — and it goes first
 //                       because an error is a broken thing. An earlier version
@@ -135,6 +137,14 @@ function basisLine(item, crawledCount) {
 }
 
 function compare(a, b) {
+  // What lowers a score comes before what is only listed. A zero-cost error —
+  // an error page's own 4xx, "crawler rate-limited" — led the priorities of
+  // most projects, above the warnings that were actually costing points.
+  // Unknown (null) counts as costing, so a failed lookup hides nothing.
+  const costA = a.costsPoints === false ? 1 : 0;
+  const costB = b.costsPoints === false ? 1 : 0;
+  if (costA !== costB) return costA - costB;
+
   const sevA = severityRank(a.severity);
   const sevB = severityRank(b.severity);
   if (sevA !== sevB) return sevA - sevB;
@@ -278,6 +288,19 @@ function buildBacklog(index, { traffic = null, excludedKeys = null } = {}) {
         actions.filter((i) => String(i.severity).toLowerCase() === 'error')
           .flatMap((i) => i.pages).map((u) => canonicalKey(u)).filter(Boolean),
       ).size,
+      // The errors that lower a score — what the verdict may call "critical".
+      // A finding that costs nothing (an error page's own 4xx, our crawler being
+      // rate-limited, a page flag) is listed, never counted here. Unknown
+      // (costsPoints null) counts, so a failed lookup does not hide a problem.
+      criticalCosting: actions.filter((i) => String(i.severity).toLowerCase() === 'error' && i.costsPoints !== false).length,
+      // Their pages: only scored pages, so pages that refused our crawler are not
+      // reported as pages losing visibility (thoughtworks read "7,850 pages").
+      pagesWithCostingErrors: new Set(
+        actions.filter((i) => String(i.severity).toLowerCase() === 'error' && i.costsPoints !== false)
+          .flatMap((i) => i.costingPages || i.pages).map((u) => canonicalKey(u)).filter(Boolean),
+      ).size,
+      // Error findings listed that cost no points — named, so nothing is hidden.
+      errorsNotCosting: actions.filter((i) => String(i.severity).toLowerCase() === 'error' && i.costsPoints === false).length,
       unattributed: actions.filter((i) => i.pageCount === null).length,
       pagesAffected: pagesAffected.size,
       crawledPages: crawledCount,

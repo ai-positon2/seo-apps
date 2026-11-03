@@ -654,8 +654,39 @@ export default function AiVisibilityLitePage() {
     </div>
   );
 
+  // The project's domain changed after its profile was built: every answer on
+  // file is about the previous business, so nothing is scored until the
+  // profile and its questions are rebuilt for the new domain.
+  const stale = reportState.data?.state === 'profile_stale' ? reportState.data.profileStale : null;
+
   const body = () => {
     if (active === 'run') return setupBody;
+    if (stale) {
+      return (
+        <Card style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
+          <Kicker tone="muted">Profile out of date</Kicker>
+          <span style={{ fontSize: 13.5, lineHeight: 1.5, color: 'var(--text)' }}>
+            AI Visibility was set up for {stale.builtFor || 'a previous domain'}
+            {stale.businessName ? ` (${stale.businessName})` : ''}, but this project is now {stale.domain}.
+            Its questions and answers describe the old business, so no score is shown.
+          </span>
+          <Muted size={12}>
+            Rebuilding reads {stale.domain}, writes new questions for it, and retires the old generated ones.
+            Questions you typed yourself are kept.
+          </Muted>
+          <Btn
+            variant="primary"
+            disabled={busy || setupRunning}
+            onClick={() => act(
+              () => aivLiteApi.runSetup(projectId, { regenerate: true }),
+              'Rebuilding the profile for the new domain…',
+            )}
+          >
+            Rebuild AI Visibility profile
+          </Btn>
+        </Card>
+      );
+    }
     if (active === 'perception') {
       return (
         <SentimentReport

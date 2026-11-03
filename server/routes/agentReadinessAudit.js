@@ -81,22 +81,26 @@ const CATEGORIES = {
 };
 
 const ONPAGE_CATEGORIES = {
-  'On-Page Signals': ['schema_search', 'schema_action', 'captcha', 'cookie_banner', 'js_rendering'],
+  'On-Page Signals': ['schema_action', 'captcha', 'cookie_banner', 'js_rendering'],
   'Forms':           ['form_labels', 'input_type', 'autocomplete', 'vague_buttons', 'interactive_divs'],
 };
 
 const ONPAGE_WEIGHTS = {
   form_labels: 10, input_type: 6, autocomplete: 6,
-  schema_search: 5, schema_action: 5, captcha: 8, cookie_banner: 6, js_rendering: 8,
+  schema_action: 5, captcha: 8, cookie_banner: 6, js_rendering: 8,
   vague_buttons: 4, interactive_divs: 5,
 };
 
+// How future-ready the site is for AI agents. The protocols this measures are
+// new, so few sites score high yet; the names say where a site stands on that
+// path, not whether search engines can see it ("Not Indexed" was printed on
+// sites Google indexes fine). The steps sit on the platform's bands (80 / 60).
 function levelFromScore(score) {
-  if (score >= 90) return 'Level 4 — Agent Native';
-  if (score >= 75) return 'Level 3 — Agent Ready';
-  if (score >= 50) return 'Level 2 — AI Aware';
-  if (score >= 25) return 'Level 1 — Basic Web Presence';
-  return 'Level 0 — Not Indexed';
+  if (score >= 90) return 'Level 4 — Agent native';
+  if (score >= 80) return 'Level 3 — Future-ready';
+  if (score >= 60) return 'Level 2 — Getting ready';
+  if (score >= 40) return 'Level 1 — Early steps';
+  return 'Level 0 — Not started';
 }
 
 async function safeFetch(url, opts = {}) {
@@ -114,14 +118,132 @@ async function safeFetch(url, opts = {}) {
   }
 }
 
+// ── Is this a real file, or the site's web page? ─────────────────────────────
+//
+// The protocol checks used to pass on any 200. Cabinet's site answers every
+// address — /.well-known/<nonsense> included — with its normal HTML page, so it
+// "had" an API catalog, OAuth, an MCP card and agent skills, and scored 58
+// instead of about 20. A protocol file is JSON: the reply must say so (or at
+// least parse as a JSON object) and must not be an HTML page.
+
+/** True when a fetched reply is a JSON document, not a web page. */
+function isJsonDocument(r) {
+  if (!r || r.status !== 200) return false;
+  const type = String(r.headers?.['content-type'] || '').toLowerCase();
+  if (type.includes('text/html')) return false;
+  if (r.data && typeof r.data === 'object' && !Buffer.isBuffer(r.data)) return true;
+  const text = typeof r.data === 'string' ? r.data.trim() : '';
+  if (!text || text.startsWith('<')) return false;
+  try {
+    const parsed = JSON.parse(text);
+    return Boolean(parsed) && typeof parsed === 'object';
+  } catch {
+    return false;
+  }
+}
+
+/** Why a protocol address did not count: missing, or a page rather than the file. */
+function notAFile(path, r) {
+  if (r?.status === 200) return `${path} returned a web page, not a JSON document`;
+  if (r?.status >= 300 && r?.status < 400) return `${path} redirected elsewhere (${r.status}), so the file is not there`;
+  return `${path} returned ${r?.status || 'no response'}`;
+}
+
+/** True when a fetched reply is an XML sitemap (or sitemap index). */
+function isSitemapDocument(r) {
+  if (!r || r.status !== 200) return false;
+  const type = String(r.headers?.['content-type'] || '').toLowerCase();
+  const text = typeof r.data === 'string' ? r.data.slice(0, 2000).toLowerCase() : '';
+  const looksLikeSitemap = /<(urlset|sitemapindex)\b/.test(text);
+  if (type.includes('text/html') && !looksLikeSitemap) return false;
+  return looksLikeSitemap || type.includes('xml');
+}
+
+/** A protocol file: no redirects (a redirect to the homepage is not the file). */
+const fetchWellKnown = (url) => safeFetch(url, { maxRedirects: 0 });
+
+// ── A site that refused us is not a site that failed ────────────────────────
+//
+// If robots.txt and the page itself both come back refused (401/403/429),
+// erroring (5xx) or not at all, nothing was measured: every check would
+// "fail" and the site would read "Level 0 — Not Indexed". Eventgroove scored 0
+// and 8x8 12 this way, on 429 Too Many Requests.
+function refused(status) {
+  return status === null || status === undefined
+    || status === 401 || status === 403 || status === 429 || status >= 500;
+}
+
+function auditBlocked(robotsResp, homeResp) {
+  if (!refused(robotsResp?.status) || !refused(homeResp?.status)) return null;
+  const what = (r) => (r?.status ? `HTTP ${r.status}` : 'no response');
+  return `The site refused the audit's requests (robots.txt: ${what(robotsResp)}; page: ${what(homeResp)}), `
+    + 'so nothing could be measured. This usually means bot protection or rate limiting.';
+}
+
+// rel values that point an agent at something it can use.
+const AGENT_LINK_RELS = new Set([
+  'api-catalog', 'service-desc', 'service-doc', 'service-meta', 'describedby',
+  'alternate', 'sitemap', 'llms', 'llms-txt', 'mcp', 'agent-skills',
+]);
+function linkRels(header) {
+  return [...String(header || '').matchAll(/rel\s*=\s*"?([^";,]+)"?/gi)]
+    .flatMap((m) => m[1].trim().toLowerCase().split(/\s+/));
+}
+function agentLinkRels(header) {
+  return [...new Set(linkRels(header).filter((r) => AGENT_LINK_RELS.has(r)))];
+}
+
+/** True unless the `User-agent: *` group disallows the whole site. */
+function allowsEveryCrawler(robotsText) {
+  let inStar = false;
+  let lastWasAgent = false;
+  for (const line of String(robotsText || '').split(/\r?\n/)) {
+    const clean = line.replace(/#.*/, '').trim();
+    if (!clean) continue;
+    const [field, ...rest] = clean.split(':');
+    const key = field.trim().toLowerCase();
+    const value = rest.join(':').trim();
+    if (key === 'user-agent') {
+      if (!lastWasAgent) inStar = false;
+      if (value === '*') inStar = true;
+      lastWasAgent = true;
+      continue;
+    }
+    lastWasAgent = false;
+    if (inStar && key === 'disallow' && value === '/') return false;
+  }
+  // No `*` group, or one that does not disallow the root: everyone is let in.
+  return true;
+}
+
+// ── Site-level files, fetched once per site ────────────────────────────────
+//
+// Fix 4.2 (5): robots.txt, the sitemap and the /.well-known files belong to the
+// site, not the page, but a project run audits up to dozens of pages and
+// fetched them all again for each one — slow, and a burst that rate-limits.
+// The reply is shared for ten minutes, so every page of one run reads the same
+// site files; the page itself (Link header, Markdown, WebMCP) is still per page.
+const SITE_FETCH_TTL_MS = 10 * 60 * 1000;
+const siteFetches = new Map();
+function siteOnce(fetcher, url) {
+  const now = Date.now();
+  for (const [key, entry] of siteFetches) if (entry.at + SITE_FETCH_TTL_MS < now) siteFetches.delete(key);
+  const key = `${fetcher.name}|${url}`;
+  if (!siteFetches.has(key)) siteFetches.set(key, { at: now, reply: fetcher(url) });
+  return siteFetches.get(key).reply;
+}
+
 async function runHttpChecks(inputUrl) {
   const origin = new URL(inputUrl).origin;
 
   const [robotsResp, homeResp, mdResp] = await Promise.all([
-    safeFetch(`${origin}/robots.txt`),
+    siteOnce(safeFetch, `${origin}/robots.txt`),
     safeFetch(inputUrl),
     safeFetch(inputUrl, { headers: { Accept: 'text/markdown, text/plain;q=0.9, */*;q=0.1' } }),
   ]);
+
+  const blocked = auditBlocked(robotsResp, homeResp);
+  if (blocked) return { checks: {}, httpScore: null, blocked };
 
   const robotsText = typeof robotsResp.data === 'string' ? robotsResp.data : '';
   const checks = {};
@@ -139,27 +261,35 @@ async function runHttpChecks(inputUrl) {
   let sitemapFound = false, sitemapTech = '';
   const sitemapDeclared = robotsText.match(/^Sitemap:\s*(.+)$/im);
   if (sitemapDeclared) {
-    const r = await safeFetch(sitemapDeclared[1].trim());
-    sitemapFound = r.status === 200;
+    const r = await siteOnce(safeFetch, sitemapDeclared[1].trim());
+    sitemapFound = isSitemapDocument(r);
     sitemapTech = sitemapFound
       ? `Sitemap found at ${new URL(sitemapDeclared[1].trim()).pathname}`
-      : `Sitemap declared in robots.txt but returned ${r.status}`;
+      : r.status === 200
+        ? 'Sitemap declared in robots.txt but the address returned a web page, not an XML sitemap'
+        : `Sitemap declared in robots.txt but returned ${r.status}`;
   } else {
     for (const p of ['/sitemap.xml', '/sitemap_index.xml', '/sitemap/']) {
-      const r = await safeFetch(`${origin}${p}`);
-      if (r.status === 200) { sitemapFound = true; sitemapTech = `Sitemap found at ${p}`; break; }
+      const r = await siteOnce(safeFetch, `${origin}${p}`);
+      if (isSitemapDocument(r)) { sitemapFound = true; sitemapTech = `Sitemap found at ${p}`; break; }
     }
     if (!sitemapFound) sitemapTech = 'No sitemap found in robots.txt or common paths';
   }
   checks.sitemap = { status: sitemapFound ? 'pass' : 'fail', tech: sitemapTech };
 
   // 3. Link headers
-  const linkHeader = homeResp.headers['link'] || '';
+  //
+  // Only a Link that points an agent somewhere counts. Any header passed,
+  // so a CDN's `rel=preload` for a stylesheet "had" agent discovery.
+  const linkHeader = String(homeResp.headers['link'] || '');
+  const agentRels = agentLinkRels(linkHeader);
   checks.linkheaders = {
-    status: linkHeader ? 'pass' : 'fail',
-    tech: linkHeader
-      ? `Link header found: ${linkHeader.substring(0, 120)}`
-      : 'No Link header present in HTTP response',
+    status: agentRels.length ? 'pass' : 'fail',
+    tech: agentRels.length
+      ? `Link header points agents to: ${agentRels.join(', ')}`
+      : linkHeader
+        ? `Link header present, but only for ${[...new Set(linkRels(linkHeader))].join(', ') || 'other uses'} — none that points an agent to an API, docs or an alternate version`
+        : 'No Link header present in HTTP response',
   };
 
   // 4. Markdown negotiation
@@ -172,13 +302,20 @@ async function runHttpChecks(inputUrl) {
   };
 
   // 5. AI bot rules
+  //
+  // A robots.txt that lets every crawler in has made a decision about AI
+  // crawlers too: it failed here for not naming them, beside sites that name
+  // them only to block them.
   const aiBots = ['GPTBot', 'ClaudeBot', 'anthropic-ai', 'PerplexityBot', 'cohere-ai', 'Google-Extended'];
   const foundBots = aiBots.filter(b => robotsText.toLowerCase().includes(b.toLowerCase()));
+  const allowsAll = robotsOk && allowsEveryCrawler(robotsText);
   checks.aibots = {
-    status: foundBots.length > 0 ? 'pass' : 'fail',
+    status: foundBots.length > 0 || allowsAll ? 'pass' : 'fail',
     tech: foundBots.length > 0
       ? `AI-specific bot rules detected: ${foundBots.join(', ')}`
-      : 'No AI-specific bot rules found in robots.txt',
+      : allowsAll
+        ? 'No AI-specific rules, but robots.txt lets every crawler in, AI crawlers included'
+        : 'No AI-specific bot rules found in robots.txt, and the general rules do not let every crawler in',
   };
 
   // 6. Content signals
@@ -191,77 +328,85 @@ async function runHttpChecks(inputUrl) {
   };
 
   const [wbAuth, apiCat, oidc, oauthAs, opr] = await Promise.all([
-    safeFetch(`${origin}/.well-known/http-message-signatures-directory`),
-    safeFetch(`${origin}/.well-known/api-catalog`),
-    safeFetch(`${origin}/.well-known/openid-configuration`),
-    safeFetch(`${origin}/.well-known/oauth-authorization-server`),
-    safeFetch(`${origin}/.well-known/oauth-protected-resource`),
+    siteOnce(fetchWellKnown, `${origin}/.well-known/http-message-signatures-directory`),
+    siteOnce(fetchWellKnown, `${origin}/.well-known/api-catalog`),
+    siteOnce(fetchWellKnown, `${origin}/.well-known/openid-configuration`),
+    siteOnce(fetchWellKnown, `${origin}/.well-known/oauth-authorization-server`),
+    siteOnce(fetchWellKnown, `${origin}/.well-known/oauth-protected-resource`),
   ]);
 
   const [mcp1, mcp2, mcp3] = await Promise.all([
-    safeFetch(`${origin}/.well-known/mcp/server-card.json`),
-    safeFetch(`${origin}/.well-known/mcp/server-cards.json`),
-    safeFetch(`${origin}/.well-known/mcp.json`),
+    siteOnce(fetchWellKnown, `${origin}/.well-known/mcp/server-card.json`),
+    siteOnce(fetchWellKnown, `${origin}/.well-known/mcp/server-cards.json`),
+    siteOnce(fetchWellKnown, `${origin}/.well-known/mcp.json`),
   ]);
 
   const [skills1, skills2] = await Promise.all([
-    safeFetch(`${origin}/.well-known/agent-skills/index.json`),
-    safeFetch(`${origin}/.well-known/agent-skills.json`),
+    siteOnce(fetchWellKnown, `${origin}/.well-known/agent-skills/index.json`),
+    siteOnce(fetchWellKnown, `${origin}/.well-known/agent-skills.json`),
   ]);
 
   // 7. Web bot auth (informational)
   checks.webbotauth = {
-    status: wbAuth.status === 200 ? 'pass' : 'info',
-    tech: wbAuth.status === 200
+    status: isJsonDocument(wbAuth) ? 'pass' : 'info',
+    tech: isJsonDocument(wbAuth)
       ? 'HTTP message signatures directory found'
-      : `/.well-known/http-message-signatures-directory returned ${wbAuth.status || 'no response'} (informational only)`,
+      : `${notAFile('/.well-known/http-message-signatures-directory', wbAuth)} (informational only)`,
   };
 
   // 8. API catalog
   checks.apicatalog = {
-    status: apiCat.status === 200 ? 'pass' : 'fail',
-    tech: apiCat.status === 200
+    status: isJsonDocument(apiCat) ? 'pass' : 'fail',
+    tech: isJsonDocument(apiCat)
       ? '/.well-known/api-catalog found'
-      : `/.well-known/api-catalog returned ${apiCat.status || 'no response'}`,
+      : notAFile('/.well-known/api-catalog', apiCat),
   };
 
   // 9. OAuth / OIDC
-  const oauthFound = oidc.status === 200 || oauthAs.status === 200;
+  const oauthFound = isJsonDocument(oidc) || isJsonDocument(oauthAs);
   checks.oauth = {
     status: oauthFound ? 'pass' : 'fail',
     tech: oauthFound
       ? 'OAuth/OIDC discovery endpoint found'
-      : `Both /.well-known/openid-configuration and oauth-authorization-server returned ${oidc.status || 'no response'}`,
+      : `Neither /.well-known/openid-configuration nor oauth-authorization-server returned a JSON document (${oidc.status || 'no response'})`,
   };
 
   // 10. OAuth protected resource
   checks.oauthresource = {
-    status: opr.status === 200 ? 'pass' : 'fail',
-    tech: opr.status === 200
+    status: isJsonDocument(opr) ? 'pass' : 'fail',
+    tech: isJsonDocument(opr)
       ? '/.well-known/oauth-protected-resource found'
-      : `/.well-known/oauth-protected-resource returned ${opr.status || 'no response'}`,
+      : notAFile('/.well-known/oauth-protected-resource', opr),
   };
 
   // 11. MCP server card
-  const mcpPass = [mcp1, mcp2, mcp3].find(r => r.status === 200);
+  const mcpPass = [mcp1, mcp2, mcp3].find(isJsonDocument);
   checks.mcp = {
     status: mcpPass ? 'pass' : 'fail',
     tech: mcpPass
       ? 'MCP server card found'
-      : 'All MCP card paths returned 404 (server-card.json, server-cards.json, mcp.json)',
+      : 'No MCP card JSON found (server-card.json, server-cards.json, mcp.json)',
   };
 
   // 12. Agent skills index
-  const skillsPass = skills1.status === 200 || skills2.status === 200;
+  const skillsPass = isJsonDocument(skills1) || isJsonDocument(skills2);
   checks.agentskills = {
     status: skillsPass ? 'pass' : 'fail',
-    tech: skillsPass ? 'Agent skills index found' : 'Both agent-skills index paths returned 404',
+    tech: skillsPass ? 'Agent skills index found' : 'No agent-skills index JSON found at either path',
   };
 
   // 13. WebMCP
+  //
+  // Could never pass: it always failed with "not detectable via HTTP". The
+  // registration is a script call, so it is looked for in the page's own HTML.
+  // Scripts loaded from separate files are not read, which the result says.
+  const homeHtml = typeof homeResp.data === 'string' ? homeResp.data : '';
+  const webmcp = /navigator\.modelContext\b|\bprovideContext\s*\(|modelContext\.registerTool\s*\(/.test(homeHtml);
   checks.webmcp = {
-    status: 'fail',
-    tech: 'WebMCP requires browser-side evaluation of navigator.modelContext (not detectable via HTTP)',
+    status: webmcp ? 'pass' : 'fail',
+    tech: webmcp
+      ? 'The page registers tools with navigator.modelContext (WebMCP)'
+      : 'No navigator.modelContext registration in the page’s HTML (scripts loaded from separate files are not read)',
   };
 
   let score = 0;
@@ -349,7 +494,7 @@ Generate an executive summary. Be specific to this site's industry based on its 
 // Roadmap tier definitions (hard-coded to match client ROADMAP constant)
 const ROADMAP_TIERS = {
   'This week':         ['robots', 'aibots', 'contentsignals', 'linkheaders', 'form_labels', 'input_type', 'autocomplete', 'cookie_banner', 'vague_buttons'],
-  'This quarter':      ['sitemap', 'markdown', 'apicatalog', 'oauth', 'schema_search', 'schema_action', 'js_rendering', 'interactive_divs'],
+  'This quarter':      ['sitemap', 'markdown', 'apicatalog', 'oauth', 'schema_action', 'js_rendering', 'interactive_divs'],
   'Strategic horizon': ['mcp', 'agentskills', 'webmcp', 'captcha'],
 };
 
@@ -694,6 +839,31 @@ async function runAgentReadiness({ url, url_homepage, url_action, url_form, skip
 
     const { checks: rawHttpChecks, httpScore } = httpResult;
 
+    // Refused or rate-limited: nothing was measured, so there is no score —
+    // never a 0 with the label "Not Indexed".
+    if (httpResult.blocked) {
+      return {
+        site: {
+          url: parsedUrl.hostname,
+          full: parsedUrl.href,
+          score: null,
+          level: 'Blocked — not measured',
+          blocked: httpResult.blocked,
+          date: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+          httpScore: null,
+          onPageScore: null,
+          onPageMax: 0,
+          quickWinScore: null,
+          quickWinCount: 0,
+        },
+        cats: [],
+        checks: [],
+        onPageChecks: [],
+        cmoBrief: null,
+        blocked: httpResult.blocked,
+      };
+    }
+
     // Build full HTTP check list with metadata
     const httpChecks = Object.entries(rawHttpChecks).map(([id, result]) => ({
       id,
@@ -838,6 +1008,11 @@ router.post('/stream', async (req, res) => {
     // Run HTTP checks
     const httpResult = await runHttpChecks(parsedUrl.href);
     const { checks: rawHttpChecks, httpScore } = httpResult;
+    if (httpResult.blocked) {
+      emit('error', { message: httpResult.blocked, code: 'blocked' });
+      res.end();
+      return;
+    }
 
     // Emit each HTTP check result
     for (const [id, result] of Object.entries(rawHttpChecks)) {
@@ -1005,4 +1180,4 @@ module.exports.levelFromScore = levelFromScore;
 // The report assistant (modules/reportChat/working.js) prices each failed check with these.
 module.exports.WEIGHTS = WEIGHTS;
 // Exposed for routes/__tests__/egressWiring.test.js.
-module.exports._private = { safeFetch, buildPdfHtml };
+module.exports._private = { safeFetch, buildPdfHtml, isJsonDocument, isSitemapDocument, auditBlocked, allowsEveryCrawler, agentLinkRels, siteOnce };
