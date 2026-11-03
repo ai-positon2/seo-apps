@@ -2045,9 +2045,13 @@ async function buildOverview({ access }) {
   const aivIndex = modules.findIndex((m) => m.key === 'ai_visibility_lite');
   const aivMetric = evidenceByModule.get('ai_visibility_lite')?.terminal?.metric;
   if (aivIndex >= 0 && aivMetric && !evidenceByModule.get('ai_visibility_lite').inFlight) {
-    // The "51/100" headline is the score this card no longer leads with.
+    // The "51/100" headline is the score this card no longer leads with. Only the
+    // run's own note is promoted: without one, `detail` is the generic
+    // "1 error · 0 warning · 1 notice" tally, which says nothing about visibility.
     const m = modules[aivIndex];
-    modules[aivIndex] = { ...m, metric: aivMetric, headline: m.detail || m.headline, detail: null };
+    const aivTerminal = evidenceByModule.get('ai_visibility_lite').terminal;
+    const ownNote = aivTerminal.cardNote || aivTerminal.note;
+    modules[aivIndex] = { ...m, metric: aivMetric, headline: ownNote ? m.detail : null, detail: null };
   }
   const compIndex = modules.findIndex((m) => m.key === 'competitor');
   const compEntry = evidenceByModule.get('competitor');
