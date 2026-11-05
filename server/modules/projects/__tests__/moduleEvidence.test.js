@@ -218,7 +218,9 @@ test('the composite averages only the modules that actually scored', () => {
   ]);
   assert.strictEqual(composite.value, 82, '(74 + 90) / 2 — unscored modules are absent, not zero');
   assert.strictEqual(composite.scoredModules, 2);
-  assert.strictEqual(composite.totalModules, 6);
+  // Only the four site-quality modules count; Competitor Research and AI
+  // Visibility are market context and on_page is gone.
+  assert.strictEqual(composite.totalModules, 4);
   assert.strictEqual(composite.status, 'partial', 'partial coverage must not read as complete');
 });
 

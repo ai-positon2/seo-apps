@@ -136,7 +136,7 @@ test('each engine is scored over its own measured captures', () => {
   const byEngine = Object.fromEntries(out.byEngine.map((e) => [e.engine, e.namedRate.display]));
   assert.strictEqual(byEngine.openai, '100.0%');
   assert.strictEqual(byEngine.anthropic, '0.0%');
-  assert.strictEqual(byEngine.google, undefined, 'a failed-only engine has nothing to score');
+  assert.strictEqual(byEngine.google, '—', 'a failed-only engine is listed, with nothing to score');
 });
 
 test('an ungrounded answer is counted and warned about', () => {
@@ -205,7 +205,8 @@ test('a failed capture carries no answer text, but still names its engine and st
   const google = q.byEngine.find((e) => e.engine === 'google');
   assert.strictEqual(google.answerText, null);
   assert.strictEqual(google.status, 'failed');
-  assert.strictEqual(google.failureReason, 'timeout');
+  assert.match(google.failureReason, /took too long/, 'a plain sentence, not the provider error');
+  assert.strictEqual(google.failureDetail, 'timeout');
 });
 
 test('byQuestion.visibilityByEngine collapses repeated surfaces into one rate per engine', () => {
@@ -763,6 +764,83 @@ test('gemini 2.5-flash-lite really is dearer than 3.5 despite cheaper tokens', (
     costOf('gemini-2.5-flash-lite', args) > costOf('gemini-3.5-flash-lite', args),
     'this is the whole reason the default is 3.5',
   );
+});
+
+section('The default window ends on the latest measurement (UX-008)');
+
+test('a run older than 30 days still fills the report when no period is chosen', () => {
+  const out = report.build({
+    captures: [cap({ capturedAt: ago(35) }), cap({ promptId: 'p2', mentioned: false, capturedAt: ago(35) })],
+    prompts: PROMPTS,
+    brand: BRAND,
+  });
+  assert.strictEqual(out.meta.answers, 2);
+  assert.strictEqual(out.headline.namedRate.display, '50.0%');
+  assert.ok(out.meta.periodAnchored);
+  assert.strictEqual(out.meta.period.to, ago(35).slice(0, 10));
+  assert.strictEqual(out.meta.lastMeasuredAt.slice(0, 10), ago(35).slice(0, 10));
+  assert.ok(!out.warnings.includes('prompt_set_changed'), 'nothing was edited');
+});
+
+test('an explicit period is honoured, and an empty one names no question-set change', () => {
+  const out = report.build({
+    captures: [cap({ capturedAt: ago(35) })],
+    prompts: PROMPTS,
+    brand: BRAND,
+    options: { to: ago(0).slice(0, 10) },
+  });
+  assert.strictEqual(out.meta.answers, 0);
+  assert.ok(!out.meta.periodAnchored);
+  assert.ok(out.meta.lastMeasuredAt, 'the page can still say when it was last measured');
+  assert.ok(!out.warnings.includes('prompt_set_changed'));
+  assert.ok(!out.warnings.includes('no_comparable_period'));
+});
+
+section('A model that answered nothing is named (UX-102, UX-147)');
+
+test('a fully failed engine is asked, unavailable, warned about and explained in words', () => {
+  const failedClaude = (promptId) => cap({
+    engine: 'anthropic', surfaceLabel: 'Claude (API · web search)', status: 'failed', mentioned: null,
+    cited: null, answerText: null, promptId, runId: 'r1',
+    failureReason: '401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_x"}',
+  });
+  const out = report.build({
+    captures: [cap({ runId: 'r1' }), cap({ runId: 'r1', promptId: 'p2' }), failedClaude('p1'), failedClaude('p2')],
+    prompts: PROMPTS,
+    brand: BRAND,
+  });
+  assert.strictEqual(out.meta.enginesAsked, 2);
+  assert.deepStrictEqual(out.meta.enginesUnavailable, ['Claude (API · web search)']);
+  assert.ok(out.warnings.includes('engine_unavailable'));
+  assert.ok(out.warnings.includes('latest_run_partial'));
+  const claude = out.byEngine.find((e) => e.engine === 'anthropic');
+  assert.strictEqual(claude.measured, 0);
+  assert.strictEqual(claude.failed, 2);
+  assert.strictEqual(claude.namedRate.value, null);
+  assert.match(out.meta.latestRun.summary, /Claude: 2 of 2 failed \(our API key for this model was rejected\)/);
+  const card = out.byQuestion[0].byEngine.find((e) => e.engine === 'anthropic');
+  assert.ok(!/request_id|\{/.test(card.failureReason), 'no raw provider JSON in the answer card');
+});
+
+section('A competitor stored by domain matches its real name (UX-174)');
+
+test('roadwaymoving.com is matched as "Roadway Moving" and is tracked in the others list', () => {
+  const { BRANDS_VERSION } = require('../answerBrands');
+  const captures = [cap({
+    runId: 'r1', engine: 'openai', answerText: 'Try Roadway Moving or Acme Dental.',
+  })];
+  const answerBrands = [{
+    v: BRANDS_VERSION, runId: 'r1', promptId: 'p1', engine: 'openai', names: ['Roadway Moving'],
+  }];
+  const [rw] = report.enrichCompetitors(
+    [{ name: 'roadwaymoving', domain: 'roadwaymoving.com', aliases: ['roadwaymoving'] }],
+    captures,
+    answerBrands,
+  );
+  assert.strictEqual(rw.name, 'Roadway Moving');
+  const others = report.othersNamedTable(captures, new Map([[report.toneKey('r1', 'p1', 'openai'), answerBrands[0]]]), BRAND,
+    [{ name: 'RW Group', domain: 'roadwaymoving.com', aliases: [] }]);
+  assert.strictEqual(others.list[0].tracked, true, 'a stem match counts as tracked even with no site cited');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

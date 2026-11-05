@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { projectsApi, relativeTime } from '../../lib/projectsApi';
 import { useActiveProjectId } from '../../lib/activeProject';
+import { useUrlState } from '../../lib/useUrlState';
 import {
-  bandTone, defaultPage, isScored, orderWorstFirst, pathOf,
+  bandTone, isScored, orderWorstFirst, pathOf, pickSelection, plainFailure, runDidNotFinish,
 } from '../../lib/pageReportPicker';
 
 // ── The bar above a module's own report ──────────────────────────────────────
@@ -34,12 +35,21 @@ import {
 // later, once the stored run had loaded. Anyone opening a client with a report
 // saw the form flash first — the app appearing to forget what it already knew.
 //
-// So the page no longer guesses. `onResolved` reports one of three states, and
-// the page draws a skeleton until it is not 'loading':
+// So the page no longer guesses. `onResolved(state, info)` reports one of five
+// states, and the page draws a skeleton until it is not 'loading':
 //
-//   'loading'  still finding out whether a stored report exists
-//   'report'   one exists and has been handed over
-//   'none'     there is nothing stored; show the input form
+//   'loading'      still finding out whether a stored report exists, or a
+//                  different page was picked and its report is on its way —
+//                  the page dims or hides the previous page's report
+//   'report'       one exists and has been handed over
+//   'none'         there is nothing stored; show the input form
+//   'page_failed'  the selected page has no report: its audit failed
+//   'error'        a stored report exists but could not be read
+//
+// The last two carry `info` — { url, reason (plain words), detail (the raw
+// error), finishedAt, retry } — and replace whatever report was on screen. They
+// used to be 'none', which left the previous page's report up under the new
+// page's name (Agent Readiness) or showed a blank new-audit form (SEO & GEO).
 //
 // 'report' is emitted when the report is actually handed to the page, not when
 // we merely learn one exists — otherwise the form would be replaced by nothing
@@ -51,6 +61,9 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
   const [projects, setProjects] = useState(null);
   const [detail, setDetail] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
+  // The selected page, in the address too (UX-151): a reload or a shared link
+  // opens the same page, and Back steps to the page picked before it.
+  const [urlPage, setUrlPage] = useUrlState('page', null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -58,7 +71,14 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
   const [crawled, setCrawled] = useState(null);
   const [loadingPage, setLoadingPage] = useState(false);
   const [busy, setBusy] = useState(false);
+  // An action of this bar failed (re-run, remove a page). Shown in the bar; the
+  // report under it is unaffected.
   const [error, setError] = useState(null);
+  // The module detail itself could not be read: there may well be a stored
+  // report, so this is 'error', never 'none'.
+  const [loadError, setLoadError] = useState(null);
+  // Bumped by "Try again" to refetch the selected page's report.
+  const [retryTick, setRetryTick] = useState(0);
 
   // Hand a report over once per (run, page): without this it re-fires on every
   // render and fights whatever the reader does inside the report.
@@ -70,14 +90,21 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
   const resolvedCb = useRef(onResolved);
   useEffect(() => { resolvedCb.current = onResolved; }, [onResolved]);
   const resolvedState = useRef(null);
-  const emitResolved = useCallback((state) => {
+  const emitResolved = useCallback((state, info = null, { force = false } = {}) => {
     // 'none' must never overwrite 'report'. A background reload of the detail
     // briefly has no pages, and letting that emit 'none' would drop the reader
     // back onto the input form with their report still on screen underneath.
-    if (resolvedState.current === state) return;
-    if (state === 'none' && resolvedState.current === 'report') return;
+    // A different page being picked is not a background reload: `force` lets
+    // that replace the report on screen.
+    if (resolvedState.current === state && !info && !force) return;
+    if (!force && state === 'none' && resolvedState.current === 'report') return;
     resolvedState.current = state;
-    if (resolvedCb.current) resolvedCb.current(state);
+    if (resolvedCb.current) resolvedCb.current(state, info);
+  }, []);
+
+  const retryPage = useCallback(() => {
+    openedKey.current = null;
+    setRetryTick((n) => n + 1);
   }, []);
 
   const project = useMemo(() => {
@@ -131,16 +158,24 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
     return () => { cancelled = true; };
   }, []);
 
+  // Read inside load() without making it depend on the address.
+  const urlPageRef = useRef(urlPage);
+  useEffect(() => { urlPageRef.current = urlPage; }, [urlPage]);
+
   const load = useCallback(async () => {
     if (!readProjectId) return;
     try {
       const next = await projectsApi.moduleDetail(readProjectId, moduleKey);
       if (wantedProjectId.current !== readProjectId) return;   // see wantedProjectId
       setDetail(next);
-      setError(null);
-      const first = defaultPage(next.pages);
-      if (first) setSelectedId((current) => (next.pages || []).some((p) => p.pageRunId === current)
-        ? current : first.pageRunId);
+      setLoadError(null);
+      if ((next.pages || []).length) {
+        setSelectedId((current) => pickSelection(next.pages, {
+          // The address only on the first pick; after that it follows the bar.
+          wanted: current ? null : urlPageRef.current,
+          current,
+        }));
+      }
     } catch (e) {
       // A speculative read the list has not confirmed yet is allowed to fail
       // quietly: `project` is about to resolve and this effect will run again
@@ -149,11 +184,29 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
       if (!listSettled.current) return;
       if (wantedProjectId.current !== readProjectId) return;
       setDetail(null);
-      setError(e);
+      setLoadError(e);
     }
   }, [readProjectId, moduleKey]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Back and Forward change ?page= under the bar: follow it. A page id this run
+  // does not have (another client's, a deleted page) is ignored, and no
+  // parameter means the first page audited.
+  useEffect(() => {
+    const list = detail?.pages || [];
+    if (!list.length) return;
+    const next = pickSelection(list, { wanted: urlPage });
+    if (urlPage && next !== urlPage) return;
+    setSelectedId((current) => (current === next ? current : next));
+  }, [urlPage, detail?.pages]);
+
+  // A pick by the reader: one history entry per page chosen.
+  const choosePage = useCallback((id) => {
+    if (!id) return;
+    setSelectedId(id);
+    setUrlPage(id);
+  }, [setUrlPage]);
 
   // Switching client resets what this bar has decided.
   //
@@ -183,10 +236,12 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
     if (previous === null) return;
     setSelectedId(null);
     setDetail(null);
+    // The previous client's page id means nothing for this one.
+    setUrlPage(null, { replace: true });
     openedKey.current = null;
     resolvedState.current = null;
     emitResolved('loading');
-  }, [project, emitResolved]);
+  }, [project, emitResolved, setUrlPage]);
 
   // An audit in flight adds a page every minute or two. Without this the picker
   // shows whatever existed when the page was opened and looks stuck, which is the
@@ -217,13 +272,21 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
   useEffect(() => {
     if (projects === null) return;                 // still loading the client list
     if (!project) { emitResolved('none'); return; }
-    if (error) { emitResolved('none'); return; }
+    if (loadError && !detail) {
+      emitResolved('error', {
+        url: null,
+        reason: plainFailure(loadError.message, { kind: 'fetch', status: loadError.status }),
+        detail: loadError.message,
+        retry: load,
+      }, { force: true });
+      return;
+    }
     if (!detail) return;                           // still loading this module
     const hasStored = detail.isPerPage
       ? (detail.pages || []).length > 0
       : Boolean(detail.payload?.native);
     if (!hasStored) emitResolved(detail.inFlightRun ? 'loading' : 'none');
-  }, [projects, project, detail, error, emitResolved]);
+  }, [projects, project, detail, loadError, load, emitResolved]);
 
   const ordered = useMemo(() => orderWorstFirst(pages), [pages]);
 
@@ -261,7 +324,19 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
     if (selected && ['queued', 'running'].includes(selected.status)) return;
     const key = `${runId}:${selectedId}`;
     if (openedKey.current === key) return;
+    // A different page than the one on screen: until its report lands, the old
+    // one must not sit under the new page's name. 'loading' tells the page to
+    // dim it; a failure below replaces it outright.
+    const switching = Boolean(openedKey.current) && openedKey.current !== key;
     openedKey.current = key;
+    if (switching) emitResolved('loading', null, { force: true });
+    const failInfo = (reason, raw) => ({
+      url: selected?.url || null,
+      reason,
+      detail: raw || null,
+      finishedAt: selected?.finishedAt || null,
+      retry: retryPage,
+    });
 
     let cancelled = false;
     // Whether this fetch got far enough to be worth keeping the claim above.
@@ -287,20 +362,28 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
         if (cancelled) return;
         if (page.native) {
           openReport.current(page.native, detail, page);
-          emitResolved('report');
+          emitResolved('report', null, { force: true });
         } else {
-          setError(new Error(page.error || 'That page has no stored report.'));
-          emitResolved('none');
+          // The page's audit failed (or stored nothing): say so in its place.
+          emitResolved('page_failed', {
+            ...failInfo(plainFailure(page.error), page.error),
+            finishedAt: page.finishedAt || selected?.finishedAt || null,
+          }, { force: true });
         }
       })
-      .catch((e) => { settled = true; if (!cancelled) setError(e); })
+      .catch((e) => {
+        settled = true;
+        if (cancelled) return;
+        emitResolved('error', failInfo(plainFailure(e.message, { kind: 'fetch', status: e.status }), e.message), { force: true });
+      })
       .finally(() => { if (!cancelled) setLoadingPage(false); });
 
     return () => {
       cancelled = true;
       if (!settled && openedKey.current === key) openedKey.current = null;
     };
-  }, [project, detail, isPerPage, pages.length, selectedId, selected?.status, emitResolved]);
+  // `retryTick` re-runs this after "Try again" has released the key.
+  }, [project, detail, isPerPage, pages.length, selectedId, selected?.status, emitResolved, retryTick, retryPage]);
 
   // ── Analyze another page ──────────────────────────────────────────────────
   //
@@ -338,11 +421,41 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
       // Jump to what was just added, which is what the click was asking for.
       const added = (next.pages || []).find((p) => p.pageRunId === result.page?.id)
         || (next.pages || []).find((p) => p.url === url);
-      if (added) setSelectedId(added.pageRunId);
+      if (added) choosePage(added.pageRunId);
     } catch (e) {
       setAddError(e);
     } finally {
       setAdding(false);
+    }
+  }
+
+  // Take a page somebody added back out (UX-217). The server refuses pages the
+  // audit chose itself, and recomputes the average from what is left.
+  async function removePage(page) {
+    if (!project || !page) return;
+    const ok = window.confirm(
+      `Remove ${pathOf(page.url)} from this report? Its score leaves the site average. `
+      + 'You can add it again later, which audits it again.',
+    );
+    if (!ok) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await projectsApi.removeModulePage(project.id, moduleKey, page.pageRunId);
+      const next = await projectsApi.moduleDetail(project.id, moduleKey);
+      setPickerOpen(false);
+      if (page.pageRunId === selectedId) {
+        openedKey.current = null;
+        setSelectedId(null);
+        setUrlPage(null, { replace: true });
+        emitResolved('loading', null, { force: true });
+      }
+      setDetail(next);
+      if (page.pageRunId === selectedId) setSelectedId(pickSelection(next.pages));
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -354,6 +467,8 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
       await projectsApi.runModule(project.id, moduleKey);
       openedKey.current = null;
       setSelectedId(null);
+      // The new run's pages have new ids; the old one in the address is stale.
+      setUrlPage(null, { replace: true });
       await load();
     } catch (e) {
       setError(e);
@@ -379,6 +494,10 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
   // Nothing stored yet: one line, and the way to get a report.
   if ((!run && !pages.length) || (!pages.length && !payload?.native)) {
     const pending = detail.inFlightRun;
+    // A run that failed is not a client that never ran (UX-182): it has a date
+    // and a reason, and the next step is to try again, not to "run it now".
+    const unfinished = !pending && runDidNotFinish(run);
+    const when = run?.finishedAt || run?.startedAt;
     return (
       <Bar>
         <Group>
@@ -386,12 +505,24 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
           <Text>
             {pending ? <><strong>{label}</strong> · {pending.status === 'queued' ? 'queued' : 'auditing now'}
               {pending.trigger === 'project_setup' ? ' · homepage audit starts automatically' : ''}</>
-              : <>No stored <strong>{label}</strong> report yet
-                {payload?.reason === 'no_completed_crawl' ? ' — these audits run across the pages a crawl finds' : ''}</>}
+              : unfinished
+                ? <>Last <strong>{label}</strong> run{when ? ` ${relativeTime(when)}` : ''} didn’t finish
+                  {run.status === 'cancelled' ? ' — it was stopped' : ''}</>
+                : <>No stored <strong>{label}</strong> report yet
+                  {payload?.reason === 'no_completed_crawl' ? ' — these audits run across the pages a crawl finds' : ''}</>}
           </Text>
+          {unfinished && run.status === 'failed' && (
+            <span title={run.error || undefined} style={{ fontSize: 11.5, color: 'var(--text-3)', whiteSpace: 'normal' }}>
+              {plainFailure(run.error || run.note)}
+            </span>
+          )}
         </Group>
         <Spacer />
-        {!pending && detail.module?.runnable && <Action onClick={rerun} busy={busy}>{busy ? 'Running…' : 'Run it now'}</Action>}
+        {!pending && detail.module?.runnable && (
+          <Action onClick={rerun} busy={busy}>
+            {busy ? 'Running…' : unfinished ? 'Try again' : 'Run it now'}
+          </Action>
+        )}
         {error && <ErrorText>{error.message}</ErrorText>}
       </Bar>
     );
@@ -426,7 +557,11 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
         <Group>
           <Eyebrow>{homepageOnly ? 'Homepage score' : 'Site average'}</Eyebrow>
           <Text>
-            {scored ? <strong>{card.score}/100</strong> : <em>not scored</em>}
+            {/* A homepage-only run whose one page failed has no score of its own
+                to show here, whatever the run row says (UX-181). */}
+            {homepageOnly && selected?.status === 'failed'
+              ? <em>Not scored — couldn’t be checked</em>
+              : scored ? <strong>{card.score}/100</strong> : <em>not scored</em>}
             {/* SEO & GEO: the same two averages the dashboard card shows, from the
                 same server function, so the card and this bar always agree. */}
             {detail.sideScores && (
@@ -477,7 +612,7 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
           <Step
             label="Previous page"
             disabled={position <= 0 || loadingPage}
-            onClick={() => setSelectedId(ordered[position - 1]?.pageRunId)}
+            onClick={() => choosePage(ordered[position - 1]?.pageRunId)}
           >
             ‹
           </Step>
@@ -506,7 +641,7 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
           <Step
             label="Next page"
             disabled={position < 0 || position >= ordered.length - 1 || loadingPage}
-            onClick={() => setSelectedId(ordered[position + 1]?.pageRunId)}
+            onClick={() => choosePage(ordered[position + 1]?.pageRunId)}
           >
             ›
           </Step>
@@ -515,7 +650,8 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
             <PagePicker
               pages={ordered}
               selectedId={selectedId}
-              onPick={(id) => { setSelectedId(id); setPickerOpen(false); }}
+              onPick={(id) => { choosePage(id); setPickerOpen(false); }}
+              onRemove={busy || detail.inFlightRun ? null : removePage}
             />
           )}
         </div>
@@ -534,6 +670,7 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
               already={new Set(pages.map((p) => p.url))}
               busy={adding}
               error={addError}
+              pageCount={pages.length}
               onSubmit={addPage}
               onClose={() => setAddOpen(false)}
             />
@@ -560,9 +697,16 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
  * absence would read as "the crawl missed it", and the honest answer is "it is
  * already here".
  */
-function AddPagePanel({ crawled, already, busy, error, onSubmit, onClose }) {
+//
+// Picking is not auditing (UX-217). One click on a row used to start the audit
+// at once — an AI audit that permanently moves the client's site average — with
+// no confirm and no undo. A click now only selects; the audit starts from the
+// "Audit this page" button, which says what it costs and what it changes, and a
+// page added this way can be removed again from the page list.
+function AddPagePanel({ crawled, already, busy, error, onSubmit, onClose, pageCount = 0 }) {
   const [query, setQuery] = useState('');
   const [manual, setManual] = useState('');
+  const [selectedUrl, setSelectedUrl] = useState(null);
 
   const list = crawled === null ? null : crawled.filter((p) => {
     if (!query.trim()) return true;
@@ -606,12 +750,15 @@ function AddPagePanel({ crawled, already, busy, error, onSubmit, onClose }) {
         )}
         {(list || []).slice(0, 200).map((p) => {
           const done = already.has(p.url);
+          const picked = selectedUrl === p.url;
           return (
             <button
               key={p.id || p.url}
               type="button"
+              role="option"
+              aria-selected={picked}
               disabled={done || busy}
-              onClick={() => onSubmit(p.url)}
+              onClick={() => setSelectedUrl(p.url)}
               title={done ? `Already in this report — ${p.url}` : p.url}
               style={{
                 display: 'block', width: '100%', boxSizing: 'border-box',
@@ -627,7 +774,9 @@ function AddPagePanel({ crawled, already, busy, error, onSubmit, onClose }) {
                 // overflow instead of the rows themselves.
                 flexShrink: 0, minHeight: 34, lineHeight: '20px',
                 textAlign: 'left', padding: '7px 8px', borderRadius: 6, border: 'none',
-                background: 'none', cursor: done ? 'default' : 'pointer',
+                background: picked ? 'var(--nav-active-bg)' : 'none',
+                boxShadow: picked ? 'inset 2px 0 0 var(--primary)' : 'none',
+                cursor: done ? 'default' : 'pointer',
                 // Full-strength text color at a readable size — this list is
                 // read and picked from, not a caption, so it needs the same
                 // contrast as ordinary body text rather than a muted tone.
@@ -651,7 +800,7 @@ function AddPagePanel({ crawled, already, busy, error, onSubmit, onClose }) {
       <div style={{ height: 1, background: 'var(--border)' }} />
 
       <form
-        onSubmit={(e) => { e.preventDefault(); onSubmit(manual.trim()); }}
+        onSubmit={(e) => { e.preventDefault(); if (manual.trim()) setSelectedUrl(manual.trim()); }}
         style={{ display: 'flex', gap: 6 }}
       >
         <input
@@ -670,12 +819,48 @@ function AddPagePanel({ crawled, already, busy, error, onSubmit, onClose }) {
             opacity: busy || !manual.trim() ? 0.5 : 1,
           }}
         >
-          Analyze
+          Select
         </button>
       </form>
 
+      {/* The confirm: the only control here that starts an audit. */}
+      {selectedUrl ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 8, borderRadius: 6, background: 'var(--surface)', border: '1px solid var(--border)' }}>
+          <span style={{ fontSize: 12.5, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={selectedUrl}>
+            {pathOf(selectedUrl) || selectedUrl}
+          </span>
+          <Dim>
+            Runs an AI audit of this page and adds its score to the site average
+            (now {pageCount} page{pageCount === 1 ? '' : 's'}). You can remove it again from the page list.
+          </Dim>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              onClick={() => setSelectedUrl(null)}
+              disabled={busy}
+              style={{ fontSize: 12, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-2)', cursor: 'pointer' }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => onSubmit(selectedUrl)}
+              disabled={busy}
+              style={{
+                fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 6, border: 'none',
+                background: 'var(--primary)', color: 'var(--text-on-primary, #fff)',
+                cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1,
+              }}
+            >
+              {busy ? 'Auditing…' : 'Audit this page'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <Dim>Pick a page, then confirm. Nothing is audited until you do.</Dim>
+      )}
+
       {error && <ErrorText>{error.message}</ErrorText>}
-      <Dim>Its score joins this report's average.</Dim>
     </div>
   );
 }
@@ -686,7 +871,9 @@ const inputStyle = {
   color: 'var(--text)', boxSizing: 'border-box',
 };
 
-function PagePicker({ pages, selectedId, onPick }) {
+// A page somebody added by hand ("Analyze another page") carries a Remove
+// action; pages the audit chose itself do not — the server refuses those.
+function PagePicker({ pages, selectedId, onPick, onRemove = null }) {
   const [query, setQuery] = useState('');
   const shown = query.trim()
     ? pages.filter((p) => p.url.toLowerCase().includes(query.trim().toLowerCase()))
@@ -733,13 +920,15 @@ function PagePicker({ pages, selectedId, onPick }) {
       {shown.map((page) => {
         const active = page.pageRunId === selectedId;
         const counts = page.counts || {};
+        const removable = onRemove && page.source === 'user';
         return (
+          <div key={page.pageRunId} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <button
-            key={page.pageRunId}
             role="menuitem"
             type="button"
             onClick={() => onPick(page.pageRunId)}
             style={{
+              flex: 1, minWidth: 0,
               width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10,
               padding: '7px 8px', border: 'none', cursor: 'pointer',
               background: active ? 'var(--nav-active-bg)' : 'transparent',
@@ -760,10 +949,26 @@ function PagePicker({ pages, selectedId, onPick }) {
                     counts.error ? `${counts.error} error` : null,
                     counts.warning ? `${counts.warning} warning` : null,
                     counts.notice ? `${counts.notice} notice` : null,
-                  ].filter(Boolean).join(' · ') || 'no findings'}
+                  // An unread page (refused, error page) says why it has no score.
+                  ].filter(Boolean).join(' · ') || page.error || page.band || 'no findings'}
               </span>
             </span>
           </button>
+          {removable && (
+            <button
+              type="button"
+              onClick={() => onRemove(page)}
+              title="Remove this page you added from the report and the site average"
+              style={{
+                flexShrink: 0, fontSize: 11.5, padding: '4px 8px', borderRadius: 'var(--r-sm)',
+                border: '1px solid var(--border)', background: 'transparent',
+                color: 'var(--text-2)', cursor: 'pointer',
+              }}
+            >
+              Remove
+            </button>
+          )}
+          </div>
         );
       })}
     </div>

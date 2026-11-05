@@ -14,14 +14,23 @@ const fs = require('fs');
 const path = require('path');
 
 const SOURCE = path.join(__dirname, '../../../../client/src/lib/moduleReportRoute.js');
+const ACTIVE_PROJECT = path.join(__dirname, '../../../../client/src/lib/activeProject.js');
 
+// The helper imports withProjectParam from activeProject.js, which also touches
+// browser storage; only that one pure function is lifted from it, and the
+// stored selection is stubbed as empty.
 function loadHelper() {
+  const active = fs.readFileSync(ACTIVE_PROJECT, 'utf8');
+  const withProjectParam = active.match(/export function withProjectParam[\s\S]*?\r?\n}\r?\n/);
+  if (!withProjectParam) throw new Error('withProjectParam not found in activeProject.js');
   const src = fs.readFileSync(SOURCE, 'utf8')
+    .replace(/^import .*$/gm, '')
     .replace(/export function/g, 'function')
     .replace(/^export default.*$/gm, '')
     .replace(/^export .*$/gm, '');
+  const prelude = `const readActiveProjectId = () => null;\n${withProjectParam[0].replace('export function', 'function')}`;
   // eslint-disable-next-line no-new-func
-  return new Function(`${src}; return moduleReportRoute;`)();
+  return new Function(`${prelude}\n${src}; return moduleReportRoute;`)();
 }
 
 const moduleReportRoute = loadHelper();

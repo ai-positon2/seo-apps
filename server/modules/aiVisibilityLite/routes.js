@@ -37,6 +37,7 @@ const setup = require('./setup');
 const runner = require('./run');
 const report = require('./report');
 const surfacesLib = require('./surfaces');
+const { healthFromPayload, surfacesWithHealth } = require('./runHealth');
 const { MAX_PROMPTS, AUTO_PROMPT_COUNT } = require('./models');
 const { classifyTones, TONE_VERSION } = require('./describe');
 const { extractAnswerBrands, BRANDS_VERSION } = require('./answerBrands');
@@ -88,11 +89,13 @@ async function projectViewFor(access) {
   return projectsStore.projectView(access.project, domains);
 }
 
-/** The latest run of one module key, flattened for polling. */
-async function latestRun(projectId, moduleKey) {
-  const runs = await moduleEvidence.listRuns(projectId, moduleKey, { limit: 1 }).catch(() => []);
-  const run = runs[0];
-  if (!run) return null;
+/**
+ * One run row as the page reads it, with its per-model health. `partial` and
+ * `errorSummary` say in words what a run that lost a model lost — the stored
+ * status alone reads 'completed' for those.
+ */
+function runView(run) {
+  const health = healthFromPayload(run.payload);
   return {
     runId: run.id,
     status: run.status,
@@ -100,8 +103,18 @@ async function latestRun(projectId, moduleKey) {
     finishedAt: run.finished_at,
     score: run.score,
     error: run.error || null,
-    payload: run.payload || null,
+    partial: Boolean(health?.partial),
+    errorSummary: health?.partial ? health.summary : null,
+    health,
   };
+}
+
+/** The latest run of one module key, flattened for polling. */
+async function latestRun(projectId, moduleKey) {
+  const runs = await moduleEvidence.listRuns(projectId, moduleKey, { limit: 1 }).catch(() => []);
+  const run = runs[0];
+  if (!run) return null;
+  return { ...runView(run), payload: run.payload || null };
 }
 
 /**
@@ -177,6 +190,14 @@ router.get('/:projectId', async (req, res) => {
       latestRun(projectId, runner.MODULE_KEY),
     ]);
 
+    // The newest run that finished with answers — a run still in flight has no
+    // health yet, and must not wipe out what the last one found.
+    const finished = measureRun?.health
+      ? measureRun
+      : await moduleEvidence.listRuns(projectId, runner.MODULE_KEY, { limit: 5 })
+        .then((rows) => rows.map(runView).find((r) => r.health) || null)
+        .catch(() => null);
+
     res.json({
       profile,
       prompts,
@@ -185,10 +206,13 @@ router.get('/:projectId', async (req, res) => {
       budget,
       setup: setupRun,
       latestRun: measureRun,
+      // The newest finished run's health, for the "latest run was partial"
+      // banner even while a newer run is in flight.
+      lastFinishedRun: finished ? { ...finished, payload: undefined } : null,
       // Which providers can actually answer, and why not when they cannot. The
       // page says so up front rather than letting someone spend a run to find
-      // out a key is missing.
-      surfaces: surfacesLib.availability(),
+      // out a key is missing — or that a key is set but was rejected last time.
+      surfaces: surfacesWithHealth(surfacesLib.availability(), finished?.health || null, finished?.finishedAt || null),
     });
   } catch (e) { handleError(res, e, 'status'); }
 });
@@ -334,15 +358,27 @@ router.get('/:projectId/runs', async (req, res) => {
 
     res.json({
       budget,
-      runs: runs.map((r) => ({
-        id: r.id,
-        status: r.status,
-        score: r.score,
-        scoreBasis: r.score_basis,
-        startedAt: r.started_at,
-        finishedAt: r.finished_at,
-        error: r.error || null,
-      })),
+      runs: runs.map((r) => {
+        const view = runView(r);
+        const cov = r.payload?.coverage || null;
+        return {
+          id: r.id,
+          status: r.status,
+          score: r.score,
+          scoreBasis: r.score_basis,
+          startedAt: r.started_at,
+          finishedAt: r.finished_at,
+          error: r.error || null,
+          // A run that lost a whole model still closes as 'completed'; these
+          // say so, grouped by model and plain reason.
+          partial: view.partial,
+          errorSummary: view.errorSummary,
+          answers: cov ? { total: cov.total, measured: cov.measured, failed: cov.failed } : null,
+          models: view.health ? view.health.engines.map((e) => ({
+            engine: e.engine, label: e.label, attempted: e.attempted, failed: e.failed,
+          })) : [],
+        };
+      }),
     });
   } catch (e) { handleError(res, e, 'runs'); }
 });

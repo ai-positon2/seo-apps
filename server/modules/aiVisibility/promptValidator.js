@@ -13,12 +13,29 @@ const MAX_WORDS = 25;
 // Generic industry words a brand name often contains but that do not, on
 // their own, identify the brand — "Dental" in "Gentle Dental" must not make
 // every prompt containing the word "dental" read as a brand mention.
+//
+// Stop-words and corporate/category suffixes too: "SoundHound AI" made 'ai' a
+// brand token, so every question about AI was rejected as naming SoundHound,
+// and "Centered Health for Women" made 'for' one, which rejected nearly every
+// question there was. A token must also be at least 3 characters.
 const GENERIC_WORDS = new Set([
-  'the', 'and', 'of', 'inc', 'llc', 'co', 'company', 'corp', 'corporation',
-  'group', 'associates', 'partners', 'center', 'centre', 'clinic', 'clinics',
+  // stop-words
+  'the', 'and', 'of', 'for', 'a', 'an', 'to', 'in', 'on', 'at', 'by', 'with', 'from', 'your', 'our',
+  'my', 'you', 'we', 'us', 'its', 'it', 'is', 'are', 'all', 'one', 'two', 'new', 'best', 'top',
+  // corporate forms
+  'inc', 'llc', 'ltd', 'co', 'company', 'corp', 'corporation', 'plc', 'gmbh', 'hq',
+  'group', 'associates', 'partners', 'holdings', 'enterprises', 'international', 'global',
+  // category suffixes
+  'ai', 'labs', 'lab', 'tech', 'technology', 'technologies', 'software', 'cloud', 'systems',
+  'solutions', 'digital', 'io', 'app', 'apps', 'online', 'media', 'network', 'networks', 'data',
+  'center', 'centre', 'centers', 'clinic', 'clinics', 'institute',
   'dental', 'dentist', 'dentistry', 'law', 'firm', 'office', 'offices',
   'care', 'health', 'healthcare', 'services', 'service', 'medical', 'practice',
+  'women', 'womens', 'men', 'mens', 'kids', 'children', 'family', 'home', 'homes', 'local',
 ]);
+
+/** Shortest token that can identify a brand on its own. */
+const MIN_TOKEN_CHARS = 3;
 
 function tokenize(text) {
   return String(text || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
@@ -41,7 +58,7 @@ function escapeRegex(s) {
  */
 function brandTokens(brand, competitors = []) {
   const name = String(brand?.name || '').trim();
-  const nameTokens = tokenize(name).filter((t) => t.length > 1);
+  const nameTokens = tokenize(name).filter((t) => t.length >= MIN_TOKEN_CHARS);
   const distinctive = nameTokens.filter((t) => !GENERIC_WORDS.has(t));
 
   const competitorTokens = new Set();
@@ -53,7 +70,7 @@ function brandTokens(brand, competitors = []) {
 
   for (const alias of brand?.aliases || []) {
     for (const t of tokenize(alias)) {
-      if (t.length > 1 && !GENERIC_WORDS.has(t) && !competitorTokens.has(t)) tokens.add(t);
+      if (t.length >= MIN_TOKEN_CHARS && !GENERIC_WORDS.has(t) && !competitorTokens.has(t)) tokens.add(t);
     }
   }
 
@@ -68,7 +85,12 @@ function brandTokens(brand, competitors = []) {
   const domainStem = String(brand?.domain || '').split('.')[0].toLowerCase();
   if (domainStem.length > 2 && !GENERIC_WORDS.has(domainStem) && !competitorTokens.has(domainStem)) tokens.add(domainStem);
 
-  const phrases = name ? [name.toLowerCase()] : [];
+  // The full name as a phrase, and each alias of more than one word: a
+  // question naming "SoundHound AI" or "Centered Health for Women" outright
+  // is still caught, whatever happened to the single words.
+  const phrases = [...new Set([name, ...(brand?.aliases || [])]
+    .map((p) => String(p || '').trim().toLowerCase())
+    .filter((p) => p && (p.includes(' ') || p === name.toLowerCase())))];
   const strength = tokens.size > 0 ? 'strict' : (phrases.length ? 'weak' : 'none');
 
   return { tokens, phrases, strength };

@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { Panel, Eyebrow, AnalyzingNotice } from './reportPrimitives';
 import { healthScoreBreakdown, HEALTH_WEIGHTS, SITE_LEVEL_WEIGHTS, SITE_LEVEL_CAP } from '../crawlHelpers';
 import { InfoTip } from '../../seoGeo/report/reportKit';
@@ -29,8 +30,12 @@ import { techWorking } from '../../chat/screenWorking';
  * @param {Map}    props.catalogById    rule id → catalog entry
  * @param {boolean} props.provisional  a crawl is still running, so `findings` is
  *   empty and everything derived from it is not yet a measurement
- * @param {object?} props.reconciliation  the analyser's own finding totals
- *   against what this page received — see the note at its render below
+ * @param {object?} props.diagnostics  admins only, and only when it fails: the
+ *   analyser's per-severity totals against what this page received
+ *   (runReportData.reconcileFindings) — see the note at its render below
+ * @param {object?} props.capped  { shown, total } when the run holds more
+ *   findings than the report loads
+ * @param {Function?} props.issueHref  rule id → the report address of its page
  * @param {object?} props.coverage  { limit, partial, reasons } — the crawl's
  *   page budget and why it stopped short, if it did
  */
@@ -44,7 +49,8 @@ export function lossChip(band) {
 
 export default function OverviewPanel({
   metrics, counts, groups, catalogById, provisional = false, crawled = null,
-  reconciliation = null, coverage = null, comparison = null, onOpenIssue = null,
+  diagnostics = null, capped = null, coverage = null, comparison = null, onOpenIssue = null,
+  issueHref = null,
 }) {
   const breakdown = healthScoreBreakdown(metrics);
   const lost = breakdown.reduce((sum, b) => sum + b.points, 0);
@@ -79,9 +85,15 @@ export default function OverviewPanel({
   // "What to fix first": the fixes worth the most points first. In the run's own
   // order (severity, site-wide first) the top three were often worth nothing —
   // Nike's were all 0 points while its +29-point fix sat 5th. Ties keep that order.
+  //
+  // Not on a capped run: the per-rule points come from the findings in hand,
+  // which there are only part of them, so they would rank a rule by how much of
+  // it was loaded. The run's own order (severity, site-wide, the pages' weight)
+  // is used instead, and no points are quoted.
+  const gainKnown = !capped;
   const gainByRule = new Map((metrics.ruleLoss || []).map((r) => [r.ruleId, r.points]));
   const fixFirst = groups
-    .map((g, order) => ({ ...g, gain: gainByRule.get(g.id) || 0, order }))
+    .map((g, order) => ({ ...g, gain: gainKnown ? gainByRule.get(g.id) || 0 : 0, order }))
     .sort((a, b) => (b.gain - a.gain) || (a.order - b.order));
   // Findings, not pages: one page can trip the same check twice.
   const occurrences = (s) => bySeverity(s).reduce((sum, g) => sum + (g.count || 0), 0);
@@ -177,7 +189,8 @@ export default function OverviewPanel({
                 </div>
               );
             })}
-            {metrics.pagesAtFloor > 0 && (
+            {/* Counted from the findings in hand, so not said of a capped run. */}
+            {metrics.pagesAtFloor > 0 && !capped && (
               <span style={{ fontSize: 12, color: 'var(--text-2)' }}>
                 {metrics.pagesAtFloor.toLocaleString()} page{metrics.pagesAtFloor === 1 ? '' : 's'} at the floor: they lost all 100 points,
                 so fixing one of their problems may not raise the score until the rest are fixed too.
@@ -314,80 +327,66 @@ export default function OverviewPanel({
           </details>
         )}
 
-        {/* ── Is this the whole audit? ───────────────────────────────────
-            One line answering the question a reader cannot otherwise answer:
-            does this page show everything the analyser found. The two figures
-            come from different places — the analyser's own summary, written at
-            crawl completion, and the findings this page was served — so
-            agreement is meaningful and disagreement is a defect.
+        {/* ── A crawl bigger than the report loads at once ───────────────
+            Said in plain words, to everyone: the score, the tiles and the
+            problem counts are computed over every finding; only the lists of
+            URLs are short, and they start with the most serious. */}
+        {capped && (
+          <div
+            style={{
+              display: 'flex', alignItems: 'flex-start', gap: 8, padding: '12px 16px', borderRadius: 10,
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5,
+            }}
+          >
+            <NoticeIcon kind="info" />
+            <span>
+              This site has {capped.total.toLocaleString()} findings; the lists below show the
+              first {capped.shown.toLocaleString()}, starting with the most serious. The score,
+              the tiles and the number of pages per problem count all of them.
+            </span>
+          </div>
+        )}
 
-            The old report had a whole "Count reconciliation" card for this
-            family of check. It was dropped in the redesign, correctly: four
-            metric tiles reconciling units nobody had asked about. This is the
-            one assertion in it that earns its place, at one line. */}
-        {reconciliation && (
+        {/* ── Is this the whole audit? (admins only) ─────────────────────
+            The analyser's own totals against the findings this page was
+            served, per severity at today's severities. An engineer's check:
+            shown to a platform admin, and only when it fails. It used to sit on
+            every client's overview as "Complete: … showing all of them" over a
+            per-severity line that contradicted it. */}
+        {diagnostics && (
           <div
             style={{
               display: 'flex', flexDirection: 'column', gap: 6, padding: '12px 16px',
               borderRadius: 10,
-              background: reconciliation.agrees
-                ? 'var(--surface)'
-                : 'color-mix(in srgb, var(--viz-neg) 12%, var(--card))',
-              border: `1px solid ${reconciliation.agrees
-                ? 'var(--border)'
-                : 'color-mix(in srgb, var(--viz-neg) 45%, var(--border))'}`,
+              background: 'color-mix(in srgb, var(--viz-neg) 12%, var(--card))',
+              border: '1px solid color-mix(in srgb, var(--viz-neg) 45%, var(--border))',
             }}
           >
             <span
               style={{
                 display: 'flex', alignItems: 'flex-start', gap: 8,
-                fontSize: 12.5,
-                color: reconciliation.agrees ? 'var(--text-2)' : 'var(--viz-neg)',
-                lineHeight: 1.5,
+                fontSize: 12.5, color: 'var(--viz-neg)', lineHeight: 1.5,
               }}
             >
-              <NoticeIcon kind={reconciliation.agrees ? 'ok' : 'bad'} />
+              <NoticeIcon kind="bad" />
               <span>
-              {reconciliation.agrees
-                ? `Complete: the analyser recorded ${reconciliation.analyser.toLocaleString()} `
-                  + 'findings and this page is showing all of them.'
-                : reconciliation.notStored
+                {diagnostics.notStored
                   // The audit ran and its output was not kept — the failure
-                  // migration 0023 exists to end. Saying "this page received
-                  // fewer" would point the reader at the screen, which is not
-                  // where the problem is.
-                  ? `The audit ran and its results were not saved: the crawl recorded `
-                    + `${reconciliation.analyser.toLocaleString()} findings and the run holds none. `
-                    + 'Nothing here can be fixed by reloading — the crawl needs re-running, and '
-                    + 'this is worth reporting.'
-                  : reconciliation.capped
-                    // The report reads at most this many findings at once; the
-                    // run itself holds them all.
-                    ? `Partial: this crawl produced ${reconciliation.capped.total.toLocaleString()} findings `
-                      + `and the report reads the first ${reconciliation.capped.shown.toLocaleString()}, its limit, `
-                      + 'so every figure above covers those. The Excel export has the same limit.'
-                    : `Incomplete: the analyser recorded ${reconciliation.analyser.toLocaleString()} `
-                      + `findings and this page received ${reconciliation.shown.toLocaleString()}. `
-                      + 'Every figure above understates the site — please report this.'}
+                  // migration 0023 exists to end. Re-running is the fix.
+                  ? `Admin check: the crawl recorded ${diagnostics.analyser.toLocaleString()} findings `
+                    + 'and the run holds none. The crawl needs re-running.'
+                  : `Admin check: the analyser recorded ${diagnostics.analyser.toLocaleString()} findings `
+                    + `and this page received ${diagnostics.shown.toLocaleString()}, and the two `
+                    + 'disagree by severity below.'}
               </span>
             </span>
             <span style={{ fontSize: 11.5, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
-              {reconciliation.rows
+              {diagnostics.rows
                 .filter((r) => r.analyser || r.shown)
                 .map((r) => `${r.sev} ${r.shown}/${r.analyser}`)
                 .join('  ·  ')}
-              {reconciliation.dismissed ? `  ·  ${reconciliation.dismissed} dismissed` : ''}
             </span>
-            {/* Where the findings sit, shown only when the two sides disagree.
-                A gap is far more often a population mismatch than lost data —
-                naming the scopes makes it diagnosable rather than alarming. */}
-            {!reconciliation.agrees && reconciliation.byScope && (
-              <span style={{ fontSize: 11.5, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
-                by scope: {Object.entries(reconciliation.byScope)
-                  .map(([scope, n]) => `${scope} ${n}`)
-                  .join('  ·  ')}
-              </span>
-            )}
           </div>
         )}
 
@@ -420,19 +419,25 @@ export default function OverviewPanel({
             const sev = SEVERITY[g.severity] || SEVERITY.notice;
             // The whole card opens this problem's own page — the pages it is
             // on, with the evidence — the same view a row on the issue list opens.
-            const Tag = onOpenIssue ? 'button' : 'div';
+            // A link when the report can address the problem (?issue=), so it
+            // opens in a new tab and Back returns here.
+            const Tag = issueHref ? Link : onOpenIssue ? 'button' : 'div';
             return (
               <Tag
                 key={g.id}
-                type={onOpenIssue ? 'button' : undefined}
-                onClick={onOpenIssue ? () => onOpenIssue(g.id) : undefined}
+                {...(issueHref
+                  ? { to: issueHref(g.id), state: { inReport: true } }
+                  : {
+                    type: onOpenIssue ? 'button' : undefined,
+                    onClick: onOpenIssue ? () => onOpenIssue(g.id) : undefined,
+                  })}
                 aria-label={onOpenIssue ? `Open ${entry?.title || g.label || g.id}` : undefined}
                 className={onOpenIssue ? 'fix-first-card' : undefined}
                 style={{
                   display: 'flex', alignItems: 'flex-start', gap: 14, padding: '14px 16px', borderRadius: 12,
                   background: 'var(--surface)', border: '1px solid var(--border)',
                   borderLeft: `3px solid ${sev.color}`, width: '100%', textAlign: 'left',
-                  font: 'inherit', color: 'inherit',
+                  font: 'inherit', color: 'inherit', textDecoration: 'none', boxSizing: 'border-box',
                 }}
               >
                 <span
@@ -452,9 +457,11 @@ export default function OverviewPanel({
                   <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     <Chip color={sev.color}>{sev.label}</Chip>
                     <Chip color="var(--text-2)">{g.pages.toLocaleString()} page{g.pages === 1 ? '' : 's'}</Chip>
-                    <Chip color={g.gain > 0 ? 'var(--primary-text)' : 'var(--text-3)'}>
-                      {g.gain >= 1 ? `+${Math.round(g.gain)} points` : g.gain > 0 ? 'under 1 point' : 'no effect on the score'}
-                    </Chip>
+                    {gainKnown && (
+                      <Chip color={g.gain > 0 ? 'var(--primary-text)' : 'var(--text-3)'}>
+                        {g.gain >= 1 ? `+${Math.round(g.gain)} points` : g.gain > 0 ? 'under 1 point' : 'no effect on the score'}
+                      </Chip>
+                    )}
                   </span>
                   <span style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5 }}>
                     {entry?.recommendation || 'No remediation is recorded for this check.'}

@@ -13,7 +13,9 @@ router.get('/', async (req, res) => {
       lockedCompanyName: 'Position2',
     });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    // The raw message is a database error, not something to show a person.
+    console.error('[profile.get]', e.message);
+    res.status(500).json({ error: 'We could not load your profile. Try again in a minute.' });
   }
 });
 
@@ -35,7 +37,8 @@ router.post('/', async (req, res) => {
     });
     res.json({ profile });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.error('[profile.save]', e.message);
+    res.status(500).json({ error: 'We could not save your profile. Try again in a minute.' });
   }
 });
 

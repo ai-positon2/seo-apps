@@ -42,6 +42,9 @@ export const cs = {
   run: (id) => req(`/runs/${id}`),
   results: (id, { offset = 0, limit = 500 } = {}) =>
     req(`/runs/${id}/results?offset=${offset}&limit=${limit}`),
+  // Every stored result row of a FINISHED run, in one compressed response. A
+  // live run's rows come from the stream below instead.
+  allResults: (id) => req(`/runs/${id}/results?all=1`).then((r) => r.results || []),
   streamUrl: (id) => `${BASE}/runs/${id}/stream`,
 
   pause: (id) => req(`/runs/${id}/pause`, { method: 'POST' }),
@@ -73,7 +76,11 @@ export const cs = {
    * instances are chunk-inserted into their own table, so this endpoint can
    * simply return them.
    */
-  findings: (id) => req(`/runs/${id}/findings`),
+  //
+  // Asked for with each rule's recommendation and description sent once
+  // (`texts=shared`) rather than on every instance, and put back here, so the
+  // caller receives the same finding objects as before.
+  findings: (id) => req(`/runs/${id}/findings?texts=shared`).then(inflateFindingTexts),
   /**
    * Persists review decisions — one row or a bulk batch, same endpoint.
    * `reviews` is [{ findingId, reviewStatus, reviewerNotes }]; the server
@@ -107,6 +114,24 @@ export const cs = {
     return { blob, filename: match ? match[1] : 'crawlscope-audit.xlsx' };
   },
 };
+
+/**
+ * Puts each finding's recommendation and description back from the response's
+ * shared `texts` (server crawlScope/api/findingTexts.js). A response without
+ * `texts` is returned as it came.
+ */
+export function inflateFindingTexts(response) {
+  const texts = response?.texts;
+  if (!Array.isArray(texts) || !Array.isArray(response.findings)) return response;
+  const findings = response.findings.map((f) => {
+    const { recommendationRef, descriptionRef, ...rest } = f;
+    if (recommendationRef !== undefined) rest.recommendation = texts[recommendationRef];
+    if (descriptionRef !== undefined) rest.description = texts[descriptionRef];
+    return rest;
+  });
+  const { texts: _texts, ...out } = response;
+  return { ...out, findings };
+}
 
 // Shared by the report download and the CSV export.
 export function saveBlob(blob, filename) {

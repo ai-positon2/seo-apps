@@ -23,6 +23,29 @@ const LOCATION_SERVICE_CRITERION = `
    - Targets the same local/regional service-area search intent rather than purely informational or national-brand content
 `.trim();
 
+// Semrush's candidates are sites that share ranking keywords, which for a
+// brand is mostly the shops that sell it and the blogs that write about it:
+// Nike got Foot Locker, Hibbett and Champs; Beta Bionics got a nutritionist.
+// A competitor is a company selling the same kind of product or service to
+// the same buyers, so everything else is excluded — by this instruction, and
+// again by competitorType below in case the model keeps one anyway.
+const DIRECT_RIVAL_CRITERION = `
+6. Keep ONLY companies that make or sell the same kind of product or service as the brand, to the same buyers, so a buyer would choose between them. EXCLUDE (status "exclude"):
+   - retailers, resellers, distributors, marketplaces and dealers that sell the brand's products or its category (e.g. a shoe shop is not a competitor of a shoe maker)
+   - suppliers, service providers or clinics that use or prescribe the product rather than sell a rival one
+   - directories, review/comparison sites, aggregators, publishers, news, blogs, forums, wikis and informational or educational sites
+   - social networks and general platforms
+   When unsure, exclude. Use competitorType "direct" only for a company selling a rival product or service.
+`.trim();
+
+// Only these types are ever attached; aggregators, informational sites and
+// "indirect" rivals (often resellers) are dropped even when kept by the model.
+const KEPT_TYPES = new Set(['direct']);
+
+function isDirectRival(candidate) {
+  return candidate.status === 'keep' && KEPT_TYPES.has(String(candidate.competitorType || '').toLowerCase());
+}
+
 function hasOpenAIKey() {
   return !!process.env.OPENAI_API_KEY;
 }
@@ -39,7 +62,7 @@ async function safeValidate(brandName, targetUrl, country, candidates) {
     }));
   }
   try {
-    return await gptAnalysis.validateCompetitors(brandName, targetUrl, country, candidates, LOCATION_SERVICE_CRITERION);
+    return await gptAnalysis.validateCompetitors(brandName, targetUrl, country, candidates, `${LOCATION_SERVICE_CRITERION}\n${DIRECT_RIVAL_CRITERION}`);
   } catch (err) {
     console.error('[discovery] validateCompetitors failed:', err.message);
     return candidates.map((r) => ({
@@ -56,6 +79,22 @@ async function safeSummary(brandName, country, kept) {
   } catch {
     return '';
   }
+}
+
+// Joins the model's verdicts onto Semrush's candidates and keeps the direct
+// rivals, strongest overlap first. A candidate the model did not mention is
+// excluded (it used to default to a kept "direct" rival).
+function pickDirectRivals(candidates, validation, limit) {
+  const norm = (d) => String(d || '').replace(/^www\./, '').toLowerCase();
+  const verdicts = Array.isArray(validation) ? validation : [];
+  return candidates
+    .map((c) => {
+      const v = verdicts.find((x) => norm(x?.domain) === norm(c.domain)) || {};
+      return { ...c, status: v.status || 'exclude', reason: v.reason || '', competitorType: v.competitorType || null };
+    })
+    .filter(isDirectRival)
+    .sort((a, b) => b.competitionLevel - a.competitionLevel)
+    .slice(0, limit);
 }
 
 // Discovers, validates, ranks and slices organic competitors for a client.
@@ -87,19 +126,11 @@ async function discoverCompetitorsForClient(client, { limit = DEFAULT_DISCOVERY_
   }
 
   const validation = await safeValidate(brandName, client.domain, client.country, candidates);
-  const enriched = candidates.map((c) => {
-    const v = validation.find((x) => x.domain === c.domain) || {};
-    return { ...c, status: v.status || 'keep', reason: v.reason || '', competitorType: v.competitorType || 'direct' };
-  });
-
-  const kept = enriched
-    .filter((c) => c.status === 'keep')
-    .sort((a, b) => b.competitionLevel - a.competitionLevel)
-    .slice(0, limit);
+  const kept = pickDirectRivals(candidates, validation, limit);
 
   const gptSummary = await safeSummary(brandName, client.country, kept);
 
   return { candidates: kept, gptSummary, database, unitsUsed };
 }
 
-module.exports = { discoverCompetitorsForClient, DEFAULT_DISCOVERY_LIMIT };
+module.exports = { discoverCompetitorsForClient, pickDirectRivals, DEFAULT_DISCOVERY_LIMIT, DIRECT_RIVAL_CRITERION };

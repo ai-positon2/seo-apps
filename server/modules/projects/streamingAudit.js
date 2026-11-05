@@ -239,6 +239,7 @@ async function followCrawl({
           band: result.band ?? null,
           findings: result.findings || [],
           payload: result.payload || null,
+          error: result.error || null,
         }));
       } catch (e) {
         // One page failing one module is one failed page. The others continue.
@@ -377,17 +378,20 @@ async function followCrawl({
   for (const [moduleKey, entry] of runs) {
     const rollup = moduleEvidence.aggregatePages(entry.pageResults);
     const basis = SCORE_BASIS[moduleKey];
+    // Every page answered with a refusal or an error page: nothing was measured.
+    const refused = moduleEvidence.allPagesRefused(entry.pageResults);
 
     await moduleEvidence.completeRun({
       access,
       runId: entry.run.id,
-      status: rollup.totalPages ? 'completed' : 'insufficient_data',
+      status: rollup.totalPages && !refused ? 'completed' : 'insufficient_data',
       score: rollup.mean,
       scoreMax: 100,
       scoreBasis: rollup.mean === null
         ? null
-        : `Mean of ${rollup.scoredPages} page score(s) from ${basis}`,
-      band: `${rollup.totalPages} page${rollup.totalPages === 1 ? '' : 's'} audited`,
+        : moduleEvidence.rollupBasis(rollup, basis),
+      band: moduleEvidence.rollupBand(rollup),
+      counts: rollup.counts,
       findings: rollup.findings,
       payload: {
         pagesAudited: rollup.totalPages,
@@ -408,6 +412,14 @@ async function followCrawl({
           ? selection.picks.map((k) => ({ url: k.url, type: k.type, why: k.why }))
           : [],
         stoppedBecause,
+        ...(refused ? {
+          reason: 'site_blocked',
+          blockedStatus: refused.status,
+          cardNote: moduleEvidence.siteRefusedLine(refused.status),
+          note: `${moduleEvidence.siteRefusedLine(refused.status)} Every page this audit tried answered with `
+            + 'a refusal or an error page instead of its content, so nothing was scored. This is usually bot '
+            + 'protection (a firewall or CDN rule); allowing the crawler through would let the audit read the site.',
+        } : {}),
         pages: entry.pageResults.map((p) => ({
           pageRunId: p.id,
           url: p.url,

@@ -15,7 +15,7 @@ export function KpiScorecard({ label, stat, formatValue = fmtCompact, info, info
   if (stat.unknown) {
     deltaText = 'No Semrush data for this site';
   } else if (total <= 1) {
-    deltaText = 'No competitors yet';
+    deltaText = stat.unmeasured > 0 ? 'No competitor figures to compare' : 'No competitors yet';
   } else if (leaderValue > 0) {
     if (isLeader) {
       const ratio = medianValue > 0 ? clientValue / medianValue : 1;
@@ -52,7 +52,7 @@ export function KpiScorecard({ label, stat, formatValue = fmtCompact, info, info
         </span>
         {rank !== null && (
           <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-3)' }}>
-            #{rank} of {total}
+            #{rank} of {total}{stat.unmeasured > 0 ? ` · ${stat.unmeasured} not measured` : ''}
           </span>
         )}
       </div>

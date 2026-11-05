@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Card, Kicker, Btn, Muted, Tag, FadingRule } from '../studio/primitives';
 import { projectsApi } from '../../lib/projectsApi';
+import { competitorEstimate, startsOnCreate, MAX_COMPARED_COMPETITORS } from '../../lib/projectCreated';
 
 // ── Project setup (PRD §20.2) ───────────────────────────────────────────────
 // Required: project name, primary domain, country. Optional at setup:
@@ -25,19 +26,9 @@ const COMMON_COUNTRIES = [
   { code: 'DE', label: 'Germany' },
 ];
 
-// What one domain costs Competitor Research, mirroring moduleRunners.METERED on
-// the server (domain_rank + backlinks_overview + keywords + AIO + branded). The
-// client's own domain is charged too, which is the +1 below.
-//
-// Stated here because the comparison now starts the moment the project is
-// created: a price nobody sees until the run history is not a price, it is a
-// surprise.
-const SEMRUSH_UNITS_PER_DOMAIN = 1955;
-
-// competitorAnalysis/discovery.js — how many competitors the run finds for
-// itself when the typed list is empty, so the estimate is not blank in the one
-// case where the count is not yet known.
-const AUTO_DISCOVERY_COUNT = 3;
+// What starts on Create, and what Competitor Research costs, live in
+// lib/projectCreated.js so the form and the post-create banner agree with the
+// server (routes.js POST /) and with the 4-competitor run cap.
 
 const inputStyle = {
   width: '100%',
@@ -91,11 +82,12 @@ export default function ProjectSetupCard({
     () => competitorText.split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
     [competitorText],
   );
-  const competitorCount = competitors.length;
-  const autoDiscovers = !competitorCount;
-  const estimatedUnits = (
-    (competitorCount || AUTO_DISCOVERY_COUNT) + 1
-  ) * SEMRUSH_UNITS_PER_DOMAIN;
+  // Capped at the run's 4 competitors (10,000 units): the estimate never
+  // quotes a run the server will not do, and names the ones it will skip.
+  const estimate = competitorEstimate(competitors);
+  const { autoDiscovers, compared, skipped } = estimate;
+  const estimatedUnits = estimate.units;
+  const startList = startsOnCreate({ maxUrls, competitors });
 
   async function submit(event) {
     event?.preventDefault();
@@ -118,10 +110,11 @@ export default function ProjectSetupCard({
         setBusy(false);
         return;
       }
-      // The second argument is what the server did about Competitor Research —
-      // it starts by itself now, so the caller reports that rather than leaving
-      // a metered run to be discovered.
-      onCreated?.(result.project, result.competitorResearch);
+      // The second argument is what the server did about Competitor Research
+      // (kept for callers that only read that); the third is the whole create
+      // response, so the banner can name the crawl, audits and AI Visibility
+      // run that also started (lib/projectCreated.createdBanner).
+      onCreated?.(result.project, result.competitorResearch, result);
     } catch (e) {
       setError(e.message);
       setBusy(false);
@@ -212,11 +205,12 @@ export default function ProjectSetupCard({
             style={{ ...inputStyle, minHeight: 76, resize: 'vertical' }}
             value={competitorText}
             onChange={(e) => setCompetitorText(e.target.value)}
-            placeholder={'aspendental.com\nsmiledirectclub.com'}
+            placeholder={'competitor-one.com\ncompetitor-two.com'}
           />
           <Muted size={11}>
             Optional, and editable later. One per line or comma separated. Leave it empty and
-            SEMrush + AI find competitors for you, adding them to the project automatically.
+            SEMrush + AI find competitors for you, adding them to the project automatically
+            (marked as AI picks, with the reason, on the project's settings).
             Competitors are used for competitive evidence only — their sites are never crawled.
           </Muted>
 
@@ -237,15 +231,22 @@ export default function ProjectSetupCard({
             </span>
             <Muted size={11}>
               It compares your domain against {autoDiscovers
-                ? 'the competitors it finds'
-                : `${competitorCount} competitor${competitorCount === 1 ? '' : 's'}`}{' '}
+                ? `the ${compared} competitors it finds`
+                : `${compared} competitor${compared === 1 ? '' : 's'}`}{' '}
               and costs roughly{' '}
               <strong style={{ color: 'var(--text-2)' }}>
                 {estimatedUnits.toLocaleString('en-US')} SEMrush units
               </strong>{' '}
-              {autoDiscovers ? '(estimated) ' : ''}
-              for the run. Adding competitors later starts another one.
+              {autoDiscovers ? '(estimated, including the competitor search) ' : ''}
+              for the run. A run compares at most {MAX_COMPARED_COMPETITORS} competitors (10,000-unit cap).
+              Adding competitors later starts another one.
             </Muted>
+            {skipped.length > 0 && (
+              <Muted size={11}>
+                Only the first {MAX_COMPARED_COMPETITORS} are compared. Saved on the project but not compared:{' '}
+                <strong style={{ color: 'var(--text-2)' }}>{skipped.join(', ')}</strong>.
+              </Muted>
+            )}
           </div>
         </div>
 
@@ -263,9 +264,16 @@ export default function ProjectSetupCard({
             primary site, by an administrator, with a reason that is recorded.
           </Muted>
           <Muted size={12}>
-            Crawls are capped at <strong style={{ color: 'var(--text-2)' }}>{maxUrls.toLocaleString('en-US')} URLs</strong>{' '}
-            and run weekly once scheduled. The cap is set by a platform administrator.
+            Crawls are capped at <strong style={{ color: 'var(--text-2)' }}>{maxUrls.toLocaleString('en-US')} URLs</strong>,
+            a cap set by a platform administrator. The first crawl starts as soon as the project
+            is created; only the weekly repeat waits until you enable a schedule.
           </Muted>
+          <Kicker tone="muted">Starts on Create</Kicker>
+          <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {startList.map((line) => (
+              <li key={line} style={{ fontSize: 12, color: 'var(--text-3)' }}>{line}</li>
+            ))}
+          </ul>
         </div>
 
         {duplicate && (
@@ -307,7 +315,7 @@ export default function ProjectSetupCard({
           {onCancel && (
             <Btn variant="ghost" onClick={onCancel} disabled={busy}>Cancel</Btn>
           )}
-          <Tag tone="outline">Weekly schedule · disabled until you enable it</Tag>
+          <Tag tone="outline">Weekly repeat · off until you enable it</Tag>
         </div>
       </form>
     </Card>

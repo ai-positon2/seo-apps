@@ -265,6 +265,10 @@ async function analyzeCrawledPages(crawlResult, project, { onProgress, linkGraph
   }));
 
   return {
+    // When this clustering was made. Cluster ids are positional, so saved work
+    // older than this without a topic anchor cannot be trusted to sit on the
+    // same topic (topicAnchors.js).
+    generatedAt: new Date().toISOString(),
     pages: finalPages,
     clusters: finalClusters,
     unassignedPages,

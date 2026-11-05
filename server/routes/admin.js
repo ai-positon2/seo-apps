@@ -61,6 +61,9 @@ router.get('/limits', async (req, res) => {
       defaults: adminLimits.DEFAULT_LIMITS,
       direction: adminLimits.DIRECTION,
       keys: adminLimits.LIMIT_KEYS,
+      // Which of those keys a feature actually reads; the rest are shown
+      // read-only as not active yet (see ENFORCED_KEYS).
+      enforced: adminLimits.ENFORCED_KEYS,
       databaseConfigured: isDatabaseConfigured(),
     });
   } catch (e) { handleError(res, e, 'getLimits'); }

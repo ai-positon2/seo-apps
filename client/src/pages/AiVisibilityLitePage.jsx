@@ -25,6 +25,7 @@ import { useOutletContext } from 'react-router-dom';
 import { aivLiteApi } from '../lib/aiVisibilityLiteApi';
 import { projectsApi } from '../lib/projectsApi';
 import { useActiveProjectId } from '../lib/activeProject';
+import { useUrlState } from '../lib/useUrlState';
 import {
   Card, Kicker, Muted, Tag, Btn, FadingRule, SectionHead, Spinner,
 } from '../components/studio/primitives';
@@ -106,6 +107,59 @@ function BudgetBar({ budget }) {
           : 'No runs left on this project.'}
       </Muted>
     </div>
+  );
+}
+
+const RUN_STATUS_TEXT = {
+  completed: 'Finished',
+  insufficient_data: 'Nothing measured',
+  failed: 'Failed',
+  running: 'Running',
+  queued: 'Queued',
+  cancelled: 'Cancelled',
+};
+
+/**
+ * Every measurement run, newest first: when, how it ended, and how many
+ * answers came back. A run that lost a whole model reads 'Partial' with the
+ * models and reasons, where the stored status alone says 'completed'.
+ */
+function RunsCard({ runs }) {
+  if (!runs || !runs.length) return null;
+  const date = (at) => (at ? new Date(at).toLocaleString(undefined, {
+    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+  }) : '—');
+  return (
+    <Card style={{ padding: 18 }}>
+      <SectionHead title={`Runs (${runs.length})`} />
+      <div style={{ display: 'grid', gap: 2, marginTop: 6 }}>
+        {runs.map((r) => {
+          const label = r.partial && r.status === 'completed' ? 'Partial' : (RUN_STATUS_TEXT[r.status] || r.status);
+          const warn = r.partial || r.status === 'failed';
+          return (
+            <div key={r.id} style={{ padding: '8px 0', borderTop: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', fontSize: 13 }}>
+                <span style={{ minWidth: 130, fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                  {date(r.finishedAt || r.startedAt)}
+                </span>
+                <Tag tone={warn ? 'neg' : 'muted'}>{label}</Tag>
+                {r.answers ? (
+                  <Muted size={12}>{r.answers.measured} of {r.answers.total} answers came back</Muted>
+                ) : null}
+                {r.models?.length ? (
+                  <Muted size={12}>
+                    {r.models.map((m) => `${m.label} ${m.attempted - m.failed}/${m.attempted}`).join(' · ')}
+                  </Muted>
+                ) : null}
+              </div>
+              {r.errorSummary || r.error ? (
+                <Muted size={11} style={{ display: 'block', marginTop: 4 }}>{r.errorSummary || r.error}</Muted>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </Card>
   );
 }
 
@@ -402,22 +456,52 @@ export default function AiVisibilityLitePage() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
   const [newPrompt, setNewPrompt] = useState('');
-  const [active, setActive] = useState('overview');
+  const [runs, setRuns] = useState(null);
+  // The report being read lives in the address (?report=sources), so Back
+  // steps between reports, a reload keeps the reader's place and a link opens
+  // the same report. Anything unknown falls back to the overview.
+  const [reportParam, setReportParam] = useUrlState('report', 'overview');
+  const active = REPORTS.some((r) => r.id === reportParam) ? reportParam : 'overview';
+  const setActive = useCallback((id) => setReportParam(id), [setReportParam]);
   const pollRef = useRef(null);
   const paneRef = useRef(null);
+  // The project the page is showing NOW. Every response checks it after its
+  // await: a slow answer for the previous client must never be painted under
+  // the new client's name.
+  const currentProject = useRef(projectId);
+  currentProject.current = projectId;
+
+  // A client switch clears the previous client's numbers at once, rather than
+  // leaving them on screen until (or, in a race, after) the new ones arrive.
+  useEffect(() => {
+    setState({ loading: true, error: null, data: null });
+    setReportState({ loading: false, error: null, data: null });
+    setRuns(null);
+    setNotice(null);
+    setNewPrompt('');
+  }, [projectId]);
 
   const load = useCallback(async () => {
     if (!projectId) return;
+    const stale = () => currentProject.current !== projectId;
     try {
       const data = await aivLiteApi.status(projectId);
+      if (stale()) return;
       setState({ loading: false, error: null, data });
+
+      // Run history for Setup & runs. Never blocks the page.
+      aivLiteApi.runs(projectId, 20)
+        .then((r) => { if (!stale()) setRuns(r.runs || []); })
+        .catch(() => { if (!stale()) setRuns(null); });
 
       // The report is a second call on purpose: it reads every capture the
       // project has, and the shell above it should not wait on that.
       setReportState((s) => ({ ...s, loading: true }));
       const rep = await aivLiteApi.report(projectId);
+      if (stale()) return;
       setReportState({ loading: false, error: null, data: rep });
     } catch (e) {
+      if (stale()) return;
       setState({ loading: false, error: e, data: null });
     }
   }, [projectId]);
@@ -437,6 +521,7 @@ export default function AiVisibilityLitePage() {
       tries += 1;
       try {
         const rep = await aivLiteApi.report(projectId);
+        if (currentProject.current !== projectId) { clearInterval(timer); return; }
         setReportState({ loading: false, error: null, data: rep });
         if ((!rep.sentimentAnalysing && !rep.gapsAnalysing) || tries >= 30) clearInterval(timer);
       } catch {
@@ -467,13 +552,12 @@ export default function AiVisibilityLitePage() {
   }, [working, load]);
 
   const step = useCallback((dir) => {
-    setActive((cur) => {
-      const i = REPORTS.findIndex((r) => r.id === cur);
-      const nextIndex = i + dir;
-      // No wrap-around: the ends are ends, and the buttons read Start / End.
-      return nextIndex < 0 || nextIndex >= REPORTS.length ? cur : REPORTS[nextIndex].id;
-    });
-  }, []);
+    const i = REPORTS.findIndex((r) => r.id === active);
+    const nextIndex = i + dir;
+    // No wrap-around: the ends are ends, and the buttons read Start / End.
+    if (nextIndex < 0 || nextIndex >= REPORTS.length) return;
+    setActive(REPORTS[nextIndex].id);
+  }, [active, setActive]);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -545,7 +629,18 @@ export default function AiVisibilityLitePage() {
   const runRunning = IN_FLIGHT.has(d.latestRun?.status);
   const promptsUsed = d.prompts.length;
   const roomLeft = d.promptCap - promptsUsed;
+  // Not ready = no key, OR a key that every answer on the last run failed on
+  // (the server reads the last run's health — a set key is not a working one).
   const unavailable = (d.surfaces || []).filter((s) => !s.ready);
+  const askable = (d.surfaces || []).filter((s) => s.keySet ?? s.ready);
+  const modelsPhrase = askable.length === 3 ? 'all three models'
+    : `${askable.length} model${askable.length === 1 ? '' : 's'}`;
+  // The newest finished run lost a whole model: said above every report, not
+  // only in a caveat after it.
+  const partialRun = d.lastFinishedRun?.partial ? d.lastFinishedRun : null;
+  // Setup ran but kept no questions (every candidate rejected): its reasons.
+  const setupWarnings = d.setup?.status === 'completed' ? (d.setup.payload?.warnings || []) : [];
+  const setupWroteNone = d.setup?.payload?.reason === 'no_prompts_written' && !promptsUsed;
   const meta = byId(active);
   const index = REPORTS.findIndex((r) => r.id === active);
   const prev = index > 0 ? REPORTS[index - 1] : null;
@@ -560,13 +655,21 @@ export default function AiVisibilityLitePage() {
           <div>
             <SectionHead title="Measurement budget" />
             <Muted size={11}>
-              Every run asks all {promptsUsed} prompts of all three models. The cap is enforced on
-              the server, not just here.
+              {promptsUsed
+                ? `Every run asks ${promptsUsed === 1 ? 'the 1 prompt' : `all ${promptsUsed} prompts`} of ${modelsPhrase}. `
+                : 'No prompts yet, so a run would ask nothing. '}
+              The cap is enforced on the server, not just here.
             </Muted>
           </div>
           <BudgetBar budget={d.budget} />
         </div>
         <FadingRule style={{ margin: '14px 0 10px' }} />
+        {unavailable.some((s) => s.lastRunFailed) ? (
+          <Muted size={11} style={{ display: 'block', marginBottom: 8 }}>
+            {unavailable.filter((s) => s.lastRunFailed).map((s) => s.reason).join(' ')}
+            {' '}A new run asks it again, but will spend a run if the key is still rejected.
+          </Muted>
+        ) : null}
         <Btn
           variant="primary"
           disabled={busy || runRunning || setupRunning || !promptsUsed || d.budget.remaining <= 0}
@@ -575,6 +678,19 @@ export default function AiVisibilityLitePage() {
           {runRunning ? 'Measuring…' : 'Measure now'}
         </Btn>
       </Card>
+
+      <RunsCard runs={runs} />
+
+      {setupWarnings.length ? (
+        <Card style={{ padding: 16, borderLeft: `3px solid ${setupWroteNone ? 'var(--viz-warn)' : 'var(--border)'}` }}>
+          <Kicker tone={setupWroteNone ? 'warn' : 'muted'}>
+            {setupWroteNone ? 'Setup wrote no questions' : 'Notes from setup'}
+          </Kicker>
+          {setupWarnings.map((w) => (
+            <div key={w} style={{ fontSize: 13, marginTop: 6 }}>{w}</div>
+          ))}
+        </Card>
+      ) : null}
 
       <Card style={{ padding: 18 }}>
         <SectionHead
@@ -703,8 +819,10 @@ export default function AiVisibilityLitePage() {
           <Kicker tone="muted">Nothing measured yet</Kicker>
           <Muted size={12} style={{ display: 'block', marginTop: 6 }}>
             {promptsUsed
-              ? 'Open Setup & runs and press Measure now to ask all three models every prompt.'
-              : 'Open Setup & runs to identify the business and write the prompts first.'}
+              ? `Open Setup & runs and press Measure now to ask ${modelsPhrase} every prompt.`
+              : d.profile
+                ? 'The business is identified but there are no questions to ask yet. Open Setup & runs to write them.'
+                : 'Open Setup & runs to identify the business and write the prompts first.'}
           </Muted>
         </Card>
       );
@@ -720,7 +838,7 @@ export default function AiVisibilityLitePage() {
             onTrack={async (domain) => {
               const res = await projectsApi.addCompetitor(projectId, domain);
               const rep = await aivLiteApi.report(projectId);
-              setReportState({ loading: false, error: null, data: rep });
+              if (currentProject.current === projectId) setReportState({ loading: false, error: null, data: rep });
               return res;
             }}
           />
@@ -744,6 +862,14 @@ export default function AiVisibilityLitePage() {
         <div>
           <div style={{ fontSize: 21, fontWeight: 500, letterSpacing: '-.02em' }}>{meta.name}</div>
           <Muted size={12}>{meta.blurb}</Muted>
+          {report?.meta?.period && active !== 'run' ? (
+            // Which 30 days these figures cover: they end on the latest
+            // measurement, not on today, so an older run still reads.
+            <Muted size={11} style={{ display: 'block', fontFamily: 'var(--font-mono)' }}>
+              Answers from {report.meta.period.from} to {report.meta.period.to}
+              {report.meta.periodAnchored ? ' · the 30 days up to the latest run' : ''}
+            </Muted>
+          ) : null}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Muted size={11} style={{ fontFamily: 'var(--font-mono)' }}>
@@ -792,6 +918,28 @@ export default function AiVisibilityLitePage() {
         </Card>
       ) : null}
 
+      {setupWroteNone && active !== 'run' ? (
+        <Card style={{ padding: 16, marginBottom: 14 }}>
+          <Kicker tone="warn">Setup wrote no questions</Kicker>
+          <div style={{ fontSize: 13, marginTop: 4 }}>{setupWarnings[0]}</div>
+        </Card>
+      ) : null}
+
+      {partialRun ? (
+        <Card style={{ padding: 16, marginBottom: 14, borderLeft: '3px solid var(--viz-warn)' }}>
+          <Kicker tone="warn">
+            Latest run was partial
+            {partialRun.finishedAt ? ` · ${new Date(partialRun.finishedAt).toLocaleDateString()}` : ''}
+          </Kicker>
+          <div style={{ fontSize: 13, marginTop: 4 }}>
+            {partialRun.health?.failedEngines?.length
+              ? `${partialRun.health.failedEngines.join(' and ')} answered nothing, so that run’s figures rest on the other models. `
+              : 'Many answers on that run failed, so its figures rest on fewer answers than were asked. '}
+            {partialRun.errorSummary || ''}
+          </div>
+        </Card>
+      ) : null}
+
       <div ref={paneRef}>
         {reportState.loading && !report ? <Spinner label="Building the report…" /> : body()}
       </div>
@@ -807,7 +955,11 @@ export default function AiVisibilityLitePage() {
             </Card>
           ) : null}
           {report && active !== 'run' ? (
-            <ReportWarnings warnings={report.warnings} meta={report.meta} />
+            <ReportWarnings
+              // The partial-run banner above already says this.
+              warnings={partialRun ? (report.warnings || []).filter((w) => w !== 'latest_run_partial') : report.warnings}
+              meta={report.meta}
+            />
           ) : null}
         </div>
       ) : null}

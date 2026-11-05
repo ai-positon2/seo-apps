@@ -39,10 +39,13 @@ const PAGE_SIZE = 25;
  * @param {Function} props.onReview       (findingId, reviewStatus) => void
  * @param {Function} [props.onBulkReview] (findingIds, reviewStatus) => void, for every URL the filters show
  * @param {Function} props.onExport       exports the listed URLs as CSV
+ * @param {number?}  [props.readCap]      how many findings the report loaded when
+ *   the run holds more (most serious first); a `group.partial` rule lists only
+ *   `group.loaded` of its `group.count`
  */
 export default function IssueDetail({
   group, entry, findings, titleByUrl, metrics,
-  next, backLabel, onBack, onOpenNext, onReview, onBulkReview = null, onExport,
+  next, backLabel, onBack, onOpenNext, onReview, onBulkReview = null, onExport, readCap = null,
 }) {
   const [review, setReview] = useState('all');
   const [query, setQuery] = useState('');
@@ -146,8 +149,19 @@ export default function IssueDetail({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <RuledHead
           title="Pages with this problem"
-          note={`${group.count.toLocaleString()} finding${group.count === 1 ? '' : 's'} recorded · every URL is in the Excel audit`}
+          note={group.partial
+            ? `${group.count.toLocaleString()} findings recorded · listing the first ${(group.loaded || 0).toLocaleString()}`
+            : `${group.count.toLocaleString()} finding${group.count === 1 ? '' : 's'} recorded · every URL is in the Excel audit`}
         />
+        {/* Said, not left for the reader to discover by counting rows. */}
+        {group.partial && (
+          <span style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5 }}>
+            This crawl has more findings than the report loads at once
+            {readCap ? ` (${readCap.toLocaleString()}, most serious first)` : ''}, so this list
+            shows {(group.loaded || 0).toLocaleString()} of this problem’s{' '}
+            {group.count.toLocaleString()} findings. The counts above cover all of them.
+          </span>
+        )}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <SearchField
@@ -316,6 +330,11 @@ export default function IssueDetail({
                   {findings.length ? (
                     <span style={{ color: 'var(--text-3)' }}>
                       No finding matches that search and filter.
+                    </span>
+                  ) : group.partial ? (
+                    <span style={{ color: 'var(--text-3)' }}>
+                      None of this problem’s findings are among the ones the report loads for
+                      this crawl; the counts above cover all of them.
                     </span>
                   ) : (
                     // The rule fired — `group` came from the same finding set —

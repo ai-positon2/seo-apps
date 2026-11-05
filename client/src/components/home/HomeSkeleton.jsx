@@ -70,6 +70,31 @@ export default function HomeSkeleton() {
       {/* Audit profile + module cards */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <Bar w={280} h={16} />
+        <HomeCardsSkeleton />
+      </div>
+
+      {/* What the modules say together */}
+      <Card style={{ padding: 18, gap: 12 }}>
+        <Bar w={300} h={16} />
+        <Bar w="100%" h={10} />
+        <Bar w="85%" h={10} />
+        <Bar w="92%" h={10} />
+      </Card>
+    </div>
+  );
+}
+
+/**
+ * Just the audit profile and the module cards. The page renders its header —
+ * client name, Run Full Audit, Download report — as soon as the project list
+ * has it, and holds only this part while the overview is read: the header
+ * never depended on the overview, and waiting for it left a slow client with
+ * no name and no buttons on screen at all.
+ */
+export function HomeCardsSkeleton() {
+  return (
+    <div aria-busy="true" aria-label="Loading the module cards">
+      <style>{`@keyframes shimmer { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }`}</style>
         <div
           style={{
             display: 'grid',
@@ -106,15 +131,6 @@ export default function HomeSkeleton() {
             ))}
           </div>
         </div>
-      </div>
-
-      {/* What the modules say together */}
-      <Card style={{ padding: 18, gap: 12 }}>
-        <Bar w={300} h={16} />
-        <Bar w="100%" h={10} />
-        <Bar w="85%" h={10} />
-        <Bar w="92%" h={10} />
-      </Card>
     </div>
   );
 }

@@ -11,6 +11,9 @@ import { useActiveProjectId, useProjectsChanged } from './activeProject';
 
 let cache = null; // { version, promise }
 
+/** Forgets the shared list, e.g. on sign-out, so a next user never sees it. */
+export function resetActiveProjectCache() { cache = null; }
+
 function loadProjects(version) {
   if (!cache || cache.version !== version) {
     cache = {

@@ -1,7 +1,7 @@
 import { Card } from '../../ui/Card';
 import { Badge } from '../../ui/Badge';
 import { DataTable } from '../../ui/DataTable';
-import { fmtNum, domainLabel, computeClientStat } from './utils';
+import { fmtNum, domainLabel, computeClientStat, unlessFailed, brandedCountText, hasBrandedShare } from './utils';
 import { KpiScorecard } from './charts/KpiScorecard';
 import { RankedBarChart } from './charts/RankedBarChart';
 import { ScoreCompare } from './charts/ScoreCompare';
@@ -72,9 +72,24 @@ function MarketPositionCard({ trafficScore, ctx, domains = [], capturedAt = null
   );
 }
 
+// What a Keyword Mix row says instead of a bar it cannot honestly draw.
+function brandedShareNote(d) {
+  if (d.brandedKeywordCountCapped) return `${brandedCountText(d)} branded keywords · share not measured (count capped)`;
+  return 'Branded count not measured';
+}
+
 export default function OverviewTab({ snapshot }) {
   const domains = snapshot?.domains || [];
   const hasAio = domains.some((d) => (d.aioKeywordCount || 0) > 0);
+  // A figure whose Semrush call failed is unknown, not 0 (older snapshots
+  // stored 0 there and named the failed call in fetchErrors).
+  const traffic = unlessFailed('domainRank', (d) => d.domainRank?.organicTraffic);
+  const authority = unlessFailed('backlinksOverview', (d) => d.authorityScore);
+  const backlinks = unlessFailed('backlinksOverview', (d) => d.backlinks?.totalBacklinks);
+  const refDomains = unlessFailed('backlinksOverview', (d) => d.backlinks?.referringDomains);
+  const brandedCapped = domains.some((d) => d.brandedKeywordCountCapped);
+  // Runs before per-domain brand terms stored none (brandTerm is new).
+  const legacyBrand = domains.some((d) => !d.isClient) && !domains.some((d) => d.brandTerm);
 
   const rows = domains.map((d) => ({
     id: d.domain,
@@ -91,23 +106,23 @@ export default function OverviewTab({ snapshot }) {
     ),
     organicKeywords: d.domainRank.organicKeywords,
     organicTraffic: d.domainRank.organicTraffic,
-    authorityScore: d.authorityScore,
-    totalBacklinks: d.backlinks.totalBacklinks,
-    referringDomains: d.backlinks.referringDomains,
+    authorityScore: authority(d),
+    totalBacklinks: backlinks(d),
+    referringDomains: refDomains(d),
     aioKeywordCount: d.aioKeywordCount,
-    brandedKeywordCount: d.brandedKeywordCount,
-    nonBrandedKeywordCount: d.nonBrandedKeywordCount,
+    brandedKeywordCount: brandedCountText(d),
+    nonBrandedKeywordCount: hasBrandedShare(d) ? d.nonBrandedKeywordCount : null,
   }));
 
   const columns = [
     { key: 'label', label: 'Domain', sortable: false },
     { key: 'organicKeywords', label: 'Organic Keywords', align: 'right', mono: true, render: fmtNum },
     { key: 'organicTraffic', label: 'Organic Traffic', align: 'right', mono: true, render: fmtNum },
-    { key: 'authorityScore', label: 'Authority Score', align: 'right', mono: true },
+    { key: 'authorityScore', label: 'Authority Score', align: 'right', mono: true, render: fmtNum },
     { key: 'totalBacklinks', label: 'Backlinks', align: 'right', mono: true, render: fmtNum },
     { key: 'referringDomains', label: 'Ref. Domains', align: 'right', mono: true, render: fmtNum },
     { key: 'aioKeywordCount', label: 'AIO Kw', align: 'right', mono: true, render: fmtNum },
-    { key: 'brandedKeywordCount', label: 'Branded Kw', align: 'right', mono: true, render: fmtNum },
+    { key: 'brandedKeywordCount', label: 'Branded Kw', align: 'right', mono: true },
     { key: 'nonBrandedKeywordCount', label: 'Non-Branded Kw', align: 'right', mono: true, render: fmtNum },
   ];
 
@@ -134,31 +149,31 @@ export default function OverviewTab({ snapshot }) {
 
       {/* KPI scorecard strip — where do we stand, at a glance */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-        <KpiScorecard label="Organic Traffic" info="c_traffic" infoCtx={explainCtx} stat={computeClientStat(domains, (d) => d.domainRank.organicTraffic)} />
+        <KpiScorecard label="Organic Traffic" info="c_traffic" infoCtx={explainCtx} stat={computeClientStat(domains, traffic)} />
         <KpiScorecard label="Organic Keywords" info="c_keywords" infoCtx={explainCtx} stat={computeClientStat(domains, (d) => d.domainRank.organicKeywords)} />
-        <KpiScorecard label="Authority Score" info="c_authority" infoCtx={explainCtx} stat={computeClientStat(domains, (d) => d.authorityScore)} />
-        <KpiScorecard label="Backlinks" info="c_backlinks" infoCtx={explainCtx} stat={computeClientStat(domains, (d) => d.backlinks.totalBacklinks)} />
+        <KpiScorecard label="Authority Score" info="c_authority" infoCtx={explainCtx} stat={computeClientStat(domains, authority)} />
+        <KpiScorecard label="Backlinks" info="c_backlinks" infoCtx={explainCtx} stat={computeClientStat(domains, backlinks)} />
       </div>
 
       {/* Magnitude metrics — ranked bars, small multiples 2x2 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16 }}>
         <Card title={titled('Organic Traffic', 'c_traffic')} data-explain-box>
-          <RankedBarChart domains={domains} valueFn={(d) => d.domainRank.organicTraffic} />
+          <RankedBarChart domains={domains} valueFn={traffic} />
         </Card>
         <Card title={titled('Organic Keywords', 'c_keywords')} data-explain-box>
           <RankedBarChart domains={domains} valueFn={(d) => d.domainRank.organicKeywords} />
         </Card>
         <Card title={titled('Backlinks', 'c_backlinks')} data-explain-box>
-          <RankedBarChart domains={domains} valueFn={(d) => d.backlinks.totalBacklinks} />
+          <RankedBarChart domains={domains} valueFn={backlinks} />
         </Card>
         <Card title={titled('Referring Domains', 'c_backlinks')} data-explain-box>
-          <RankedBarChart domains={domains} valueFn={(d) => d.backlinks.referringDomains} />
+          <RankedBarChart domains={domains} valueFn={refDomains} />
         </Card>
       </div>
 
       {/* Authority Score — bounded 0-100, gauge/lollipop not a bar */}
       <Card title={titled('Authority Score', 'c_authority')} data-explain-box>
-        <ScoreCompare domains={domains} />
+        <ScoreCompare domains={domains} valueFn={authority} />
       </Card>
 
       {/* Keyword mix — composition, not magnitude */}
@@ -174,7 +189,19 @@ export default function OverviewTab({ snapshot }) {
             { key: 'nonBranded', label: 'Non-Branded', color: 'var(--text-3)', valueFn: (d) => d.nonBrandedKeywordCount },
           ]}
           rowEmptyText="No keyword data"
+          rowNote={(d) => (hasBrandedShare(d) ? null : brandedShareNote(d))}
         />
+        {/* The branded figure is a count of at most 40 rows, so a full page is
+            "40 or more" and the share cannot be drawn. It used to be drawn
+            anyway: four identical "100% non-branded" bars. */}
+        {(brandedCapped || legacyBrand) && (
+          <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5 }}>
+            {brandedCapped && 'Branded share not measured where the count reached its 40-keyword limit; those rows show “40+”. '}
+            {legacyBrand
+              ? 'This run counted every competitor against the client’s brand name; run the analysis again to count each against its own.'
+              : 'Each site is counted against its own brand name.'}
+          </div>
+        )}
       </Card>
 
       <CollapsibleTable>

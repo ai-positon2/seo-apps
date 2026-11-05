@@ -1,3 +1,5 @@
+import { readActiveProjectId, withProjectParam } from './activeProject.js';
+
 // ── Where a module's own report lives ────────────────────────────────────────
 //
 // Opening a module from its dashboard card goes straight to that module's report.
@@ -27,7 +29,20 @@ function reportRefFor(module) {
  *   `isReport` is false when this only reaches the tool, not a stored report —
  *   used to keep the button honest about what the click does.
  */
-export function moduleReportRoute(module) {
+// Every route carries the client it is about (?project=<id>). Without it a
+// copied report link opened whichever client the READER last picked: LogicGate's
+// SEO & GEO link showed Position2's report, with nothing in the URL that could
+// have said otherwise. The shell adopts ?project= on arrival (MacWindow).
+//
+// `projectId` defaults to the card's own, then this tab's active client — the
+// dashboard only ever shows cards for that one.
+export function moduleReportRoute(module, { projectId } = {}) {
+  const pid = projectId ?? module.projectId ?? readActiveProjectId();
+  const route = baseRoute(module);
+  return { ...route, path: route.path ? withProjectParam(route.path, pid) : route.path };
+}
+
+function baseRoute(module) {
   const ref = reportRefFor(module);
 
   if (ref) {

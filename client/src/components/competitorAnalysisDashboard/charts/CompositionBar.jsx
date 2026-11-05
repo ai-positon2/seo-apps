@@ -5,7 +5,9 @@ import { fmtNum } from '../utils';
 // vs. Non-Branded keywords, Follow vs. Nofollow backlinks). Segment colors
 // are fixed per category across every row; the client is distinguished by
 // its bolded label + badge, not by different segment coloring.
-export function CompositionBar({ domains = [], segments = [], emptyText = 'No data yet.', rowEmptyText = 'No data' }) {
+// `rowNote(d)` returns text to show INSTEAD of a bar for a row whose split
+// cannot be drawn honestly (e.g. a capped branded count), or null.
+export function CompositionBar({ domains = [], segments = [], emptyText = 'No data yet.', rowEmptyText = 'No data', rowNote = () => null }) {
   if (!domains.length) {
     return <div style={{ padding: '24px 0', textAlign: 'center', fontSize: 12, color: 'var(--text-3)' }}>{emptyText}</div>;
   }
@@ -37,7 +39,9 @@ export function CompositionBar({ domains = [], segments = [], emptyText = 'No da
                 {d.isClient && <Badge variant="brand" style={{ flexShrink: 0 }}>Client</Badge>}
               </div>
 
-              {total === 0 ? (
+              {rowNote(d) ? (
+                <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{rowNote(d)}</div>
+              ) : total === 0 ? (
                 <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{rowEmptyText}</div>
               ) : (
                 <div style={{ display: 'flex', height: 20, borderRadius: 4, overflow: 'hidden', gap: 2 }} title={parts.map((p) => `${p.label}: ${fmtNum(p.value)} (${Math.round((p.value / total) * 100)}%)`).join(' · ')}>

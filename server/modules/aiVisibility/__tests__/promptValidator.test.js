@@ -159,5 +159,24 @@ test('a candidate matching a RETIRED prompt in `existing` is still rejected as d
   assert.strictEqual(result.rejected[0].code, 'duplicate');
 });
 
+section('brandTokens — short, stop-word and suffix tokens (UX-011)');
+
+test('"SoundHound AI": a question about AI is not a brand mention, one naming SoundHound is', () => {
+  const info = v.brandTokens({ name: 'SoundHound AI', aliases: ['SoundHound', 'OASYS'] }, []);
+  assert.ok(!info.tokens.has('ai'));
+  assert.ok(info.tokens.has('soundhoundai'), 'the de-spaced name is kept');
+  assert.strictEqual(v.matchesBrand('I need an AI solution for an IT service desk. What vendors are worth evaluating?', info), false);
+  assert.strictEqual(v.matchesBrand('Is SoundHound good for IT service desks?', info), true);
+  assert.strictEqual(v.matchesBrand('what does soundhound ai cost', info), true);
+});
+
+test('"Centered Health for Women": "for" and "women" are not brand tokens', () => {
+  const info = v.brandTokens({ name: 'Centered Health for Women' }, []);
+  assert.ok(!info.tokens.has('for'));
+  assert.ok(!info.tokens.has('women'));
+  assert.strictEqual(v.matchesBrand('Where can I find a primary care doctor for women in Raleigh?', info), false);
+  assert.strictEqual(v.matchesBrand('Is Centered Health for Women accepting new patients?', info), true);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

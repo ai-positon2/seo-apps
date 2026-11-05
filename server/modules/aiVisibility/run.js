@@ -68,14 +68,50 @@ function brandFrom(project) {
   return { name, domain, aliases: [...new Set(aliases)] };
 }
 
+// Words a business name often ENDS in, so a run-together domain stem can be
+// split back into the name a model writes: "roadwaymoving" -> "Roadway Moving".
+// Only trailing words, and only when what is left is a word of its own.
+const NAME_SUFFIXES = [
+  'movers', 'moving', 'storage', 'dental', 'dentistry', 'health', 'healthcare', 'medical', 'clinic',
+  'care', 'law', 'legal', 'group', 'partners', 'solutions', 'systems', 'software', 'labs', 'tech',
+  'technologies', 'digital', 'media', 'marketing', 'agency', 'insurance', 'realty', 'homes', 'home',
+  'auto', 'motors', 'energy', 'foods', 'store', 'shop', 'studio', 'studios', 'consulting', 'services',
+  'logistics', 'travel', 'finance', 'capital', 'bank', 'networks', 'security', 'cloud', 'ai',
+];
+
+/**
+ * A readable name from a domain stem — never the raw stem on screen.
+ * "roadwaymoving" -> "Roadway Moving", "gentle-giant" -> "Gentle Giant",
+ * "gentlegiant" -> "Gentlegiant" (no known word to split on, still a name).
+ */
+function readableStem(stem) {
+  const s = String(stem || '').toLowerCase();
+  if (!s) return s;
+  let words = s.split(/[-_]+/).filter(Boolean);
+  if (words.length === 1) {
+    const suffix = NAME_SUFFIXES
+      .filter((w) => s.endsWith(w) && s.length - w.length >= 3)
+      .sort((a, b) => b.length - a.length)[0];
+    if (suffix) words = [s.slice(0, -suffix.length), suffix];
+  }
+  return words.map((w) => (w === 'ai' ? 'AI' : w[0].toUpperCase() + w.slice(1))).join(' ');
+}
+
 /** Competitors to score share of voice against, from project_domains. */
 function competitorsFrom(project) {
   return (project.competitors || []).map((c) => {
     const host = String(c.host || '').replace(/^www\./i, '');
-    // "aspendental.com" -> "Aspen Dental". Crude, and only a fallback: a model
-    // writes the brand's real name, not its domain stem.
+    // A model writes the brand's real name, not its domain stem: the stem is
+    // kept as an alias, and the display name is the stem split into words
+    // when nothing better is configured. Matching on 'roadwaymoving' alone
+    // never found 'Roadway Moving' in an answer.
     const stem = host.split('.')[0];
-    return { name: c.name || stem, domain: host, aliases: [stem] };
+    const readable = readableStem(stem);
+    return {
+      name: c.name || readable,
+      domain: host,
+      aliases: [...new Set([stem, readable].filter((a) => a && a !== c.name))],
+    };
   });
 }
 
@@ -405,5 +441,6 @@ module.exports = {
   DEFAULT_PROMPT_BUDGET,
   brandFrom,
   competitorsFrom,
+  readableStem,
   runAiVisibility,
 };

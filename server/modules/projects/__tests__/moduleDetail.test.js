@@ -210,8 +210,15 @@ test('the run says how much of the site it covered', () => {
   assert.ok(source.includes('pageBudget'), 'and the budget that bounded the work');
   assert.ok(source.includes('pagesSkipped'), 'and what fell outside it');
   assert.ok(
-    source.includes('Mean of ${rollup.scoredPages} page score(s) from ${scoreBasis}'),
+    source.includes('moduleEvidence.rollupBasis(rollup, scoreBasis)'),
     'and the score basis must say the number is a mean, and of what',
+  );
+  // rollupBasis itself: "Mean of N page score(s) from <basis>", naming any
+  // page left unscored (UX-205).
+  const { rollupBasis } = require('../moduleEvidence');
+  assert.strictEqual(
+    rollupBasis({ scoredPages: 4, totalPages: 4 }, 'the SEO & GEO audit'),
+    'Mean of 4 page score(s) from the SEO & GEO audit',
   );
 });
 

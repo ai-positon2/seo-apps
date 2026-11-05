@@ -90,12 +90,26 @@ function historyView(rows) {
  * builds it from, so an in-flight run reads as "running" here too rather than as
  * never-run.
  */
-async function evidenceBackedDetail({ module, projectId, competitorCount }) {
+async function evidenceBackedDetail({
+  module, projectId, competitorCount, projectRow = null,
+}) {
   const runs = await moduleEvidence.listRuns(projectId, module.key, { limit: 40 });
 
   const TERMINAL = ['completed', 'failed', 'cancelled', 'insufficient_data'];
-  const terminal = runs.find((r) => TERMINAL.includes(r.status)) || null;
+  // Reconciled with its own page list, as the dashboard's card is (UX-138).
+  let terminal = moduleEvidence.reconcilePageRun(runs.find((r) => TERMINAL.includes(r.status)) || null);
   const inFlight = runs.find((r) => !TERMINAL.includes(r.status)) || null;
+
+  // AI Visibility: the same live-report score the dashboard card shows
+  // (overview.liveAiVisibilityTerminal), not the score stored when the run
+  // closed — otherwise the card read '—' while this read 3/100.
+  if (module.key === 'ai_visibility_lite' && terminal && !inFlight && projectRow
+      && typeof overview.liveAiVisibilityTerminal === 'function') {
+    terminal = await overview.liveAiVisibilityTerminal(projectRow, terminal).catch((e) => {
+      console.warn('[moduleDetail] live AI Visibility score unavailable:', e.message);
+      return terminal;
+    });
+  }
 
   const card = overview.evidenceCard(module, (terminal || inFlight) ? { terminal, inFlight } : null);
 
@@ -112,6 +126,8 @@ async function evidenceBackedDetail({ module, projectId, competitorCount }) {
       pageRunId: p.id,
       url: p.url,
       ordinal: p.ordinal,
+      // 'user' for a page added with "Analyze another page", which can be removed.
+      source: p.source || 'crawl',
       status: p.status,
       score: p.score === null || p.score === undefined ? null : Number(p.score),
       scoreMax: p.score_max === null || p.score_max === undefined ? null : Number(p.score_max),
@@ -205,19 +221,22 @@ async function technicalDetail({ module, projectId, access }) {
   const terminal = crawlRuns.find((r) => ['completed', 'stopped'].includes(r.status)) || null;
   const inFlight = crawlRuns.find((r) => ['queued', 'running', 'paused'].includes(r.status)) || null;
 
-  const [findings, crawlCounts, htmlPages, affectedPageCounts] = await Promise.all([
+  const [findings, crawlCounts, health] = await Promise.all([
     terminal ? overview.findingsForRun(terminal.id) : Promise.resolve([]),
     terminal ? overview.internalCounts(terminal.id) : Promise.resolve(null),
-    terminal ? overview.internalHtmlPageCount(terminal.id) : Promise.resolve(null),
     // Without these the card fell back to run.summary.findings, which no run
     // has carried since migration 0023 — so any crawl with an error or warning
     // came back unscored here while the dashboard card beside it had a score.
-    terminal ? overview.healthAffectedPages(terminal.id) : Promise.resolve(null),
+    // The dashboard's own cached, time-bounded read (crawlHealthWithin), so the
+    // page and the card share one computation and a huge crawl cannot hang it.
+    terminal ? overview.crawlHealthWithin(terminal.id) : Promise.resolve(null),
   ]);
+  const { htmlPages, affected: affectedPageCounts, pending } = overview.healthInputs(health);
 
   const internalPages = crawlCounts ? crawlCounts.pages : null;
   const probes = crawlCounts ? crawlCounts.probes : 0;
-  const card = overview.technicalCard(crawlRuns, findings, internalPages, htmlPages, [], affectedPageCounts, probes);
+  const built = overview.technicalCard(crawlRuns, findings, internalPages, htmlPages, [], affectedPageCounts, probes);
+  const card = pending ? overview.healthPendingCard(built) : built;
   const counts = terminal?.summary?.counts || {};
   const reportAccess = terminal ? await crawlReportAccess(terminal.id, access) : null;
   const resultCount = Number(terminal?.summary?.resultCount) || 0;
@@ -312,7 +331,9 @@ async function buildModuleDetail({ access, moduleKey, domains = [] }) {
 
   const detail = module.key === 'technical'
     ? await technicalDetail({ module, projectId, access })
-    : await evidenceBackedDetail({ module, projectId, competitorCount: pricedCompetitorCount });
+    : await evidenceBackedDetail({
+      module, projectId, competitorCount: pricedCompetitorCount, projectRow: access.project,
+    });
 
   // SEO & GEO: the run's SEO and GEO averages, computed by the same function the
   // dashboard card uses (overview.seoGeoSideScores), so the report's site average

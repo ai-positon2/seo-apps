@@ -230,7 +230,7 @@ async function startRun({
  */
 async function completeRun({
   access, runId, score = null, scoreMax = 100, scoreBasis = null, band = null,
-  findings = [], payload = null, status = 'completed',
+  findings = [], payload = null, status = 'completed', counts = null,
 }) {
   if (!db.isDatabaseConfigured()) throw notConfigured();
 
@@ -253,7 +253,10 @@ async function completeRun({
       score_max: hasScore ? Number(scoreMax) : null,
       score_basis: hasScore ? scoreBasis : null,
       band,
-      counts: countsFor(normalized),
+      // A per-page run passes its pages' summed counts (aggregatePages): its
+      // findings are merged by rule, so counting them gives "4 rules" where the
+      // pages carry 25 errors between them.
+      counts: counts && typeof counts === 'object' ? { ...countsFor([]), ...counts } : countsFor(normalized),
       findings: normalized,
       payload: trimmed,
       payload_truncated: truncated,
@@ -299,7 +302,10 @@ async function completeRun({
 async function refreshRunAggregate(runId, { basis = null } = {}) {
   if (!db.isDatabaseConfigured()) throw notConfigured();
 
-  const pageRuns = await pageRunsForRun(runId);
+  // With their findings: the rollup merges them, and without them this wrote the
+  // parent back with no findings and all-zero counts — Soteri's card read
+  // "0 error" over five pages carrying 25 (UX-138).
+  const pageRuns = await pageRunsForRun(runId, { withFindings: true });
   const rollup = aggregatePages(pageRuns);
   const normalized = (rollup.findings || []).map(normalizeFinding);
 
@@ -312,13 +318,11 @@ async function refreshRunAggregate(runId, { basis = null } = {}) {
   }
 
   const hasScore = rollup.mean !== null;
-  // Keep the run's own basis sentence when the caller has not supplied one, so a
-  // recompute never strips the attribution off an existing score.
+  // The page count is always rebuilt from the pages; only the methodology tail
+  // is kept from the old sentence when the caller has not supplied one. Keeping
+  // the whole old sentence left "Mean of 5" over a mean of 4 (UX-205).
   const scoreBasis = hasScore
-    ? (basis
-      ? `Mean of ${rollup.scoredPages} page score(s) from ${basis}`
-      : current?.score_basis
-        || `Mean of ${rollup.scoredPages} page score(s)`)
+    ? rollupBasis(rollup, basis || basisTail(current?.score_basis))
     : null;
 
   const payload = {
@@ -344,8 +348,9 @@ async function refreshRunAggregate(runId, { basis = null } = {}) {
       score: hasScore ? rollup.mean : null,
       score_max: hasScore ? 100 : null,
       score_basis: scoreBasis,
-      band: `${rollup.totalPages} page${rollup.totalPages === 1 ? '' : 's'} audited`,
-      counts: countsFor(normalized),
+      band: rollupBand(rollup),
+      // The pages' own counts summed, the same numbers the page picker lists.
+      counts: rollup.counts,
       findings: normalized,
       payload: trimmed,
       payload_truncated: truncated,
@@ -416,6 +421,15 @@ async function latestByModule(projectId) {
   // poll: a primary-key probe and a unique-index probe per hub_spoke row.
   // Competitor refs are left alone: that page already ignores an id it cannot
   // resolve.
+  //
+  // "Exists" means the analysis exists, not just the Content Architect project
+  // row: a project whose analysis was lost kept its ref, so the card promised a
+  // report that opened on "Not started" (UX-145). hubSpokeReportMissing below
+  // turns such a run into "re-run needed".
+  //
+  // Per-page runs also carry their page list's sums (pageRollup), from the
+  // payload's own page summaries, so reconcilePageRun can correct a parent row
+  // that older code closed with zero counts or a stale page count.
   let data;
   try {
     data = await db.rows(
@@ -428,12 +442,27 @@ async function latestByModule(projectId) {
               case
                 when module_key = 'hub_spoke' then coalesce(
                   (select ca.id from content_architect_projects ca
-                    where ca.id = runs.payload->>'reportRef'),
+                    where ca.id = runs.payload->>'reportRef'
+                      and exists (select 1 from content_architect_artifacts a
+                                   where a.project_id = ca.id and a.kind = 'full_analysis')),
                   (select ca.id from content_architect_projects ca
-                    where ca.platform_project_id = runs.project_id)
+                    where ca.platform_project_id = runs.project_id
+                      and exists (select 1 from content_architect_artifacts a
+                                   where a.project_id = ca.id and a.kind = 'full_analysis'))
                 )
                 else payload->>'reportRef'
-              end as "reportRef"
+              end as "reportRef",
+              case
+                when module_key in ('seo_geo', 'agent_readiness')
+                 and jsonb_typeof(payload->'pages') = 'array' then (
+                  select jsonb_build_object(
+                    'total', count(*),
+                    'scored', count(*) filter (where jsonb_typeof(p->'score') = 'number'),
+                    ${SEVERITIES.map((s) => `'${s}', coalesce(sum(case when jsonb_typeof(p->'counts'->'${s}') = 'number'
+                      then (p->'counts'->>'${s}')::numeric end), 0)`).join(',\n                    ')})
+                    from jsonb_array_elements(runs.payload->'pages') p
+                )
+              end as "pageRollup"
          from (
            -- The newest finished run and the newest in-flight run OF EACH
            -- MODULE. This read the newest 120 runs across every module, so a
@@ -457,7 +486,9 @@ async function latestByModule(projectId) {
   }
 
   const byModule = new Map();
-  for (const row of data) {
+  for (const raw of data) {
+    const { pageRollup, ...rest } = raw;
+    const row = hubSpokeReportMissing(reconcilePageRun(rest, pageRollup || null));
     const entry = byModule.get(row.module_key) || { terminal: null, inFlight: null };
     if (TERMINAL.includes(row.status)) {
       if (!entry.terminal) entry.terminal = row;
@@ -465,6 +496,12 @@ async function latestByModule(projectId) {
       entry.inFlight = row;
     }
     byModule.set(row.module_key, entry);
+  }
+
+  const setup = byModule.get('ai_visibility_lite_setup');
+  if (!byModule.has('ai_visibility_lite') && setup && !setup.inFlight) {
+    const failed = aiVisibilitySetupFailure(setup.terminal);
+    if (failed) byModule.set('ai_visibility_lite', { terminal: failed, inFlight: null });
   }
   return byModule;
 }
@@ -741,9 +778,8 @@ async function salvageInterruptedRun(row) {
     score_max: 100,
     score_basis: rollup.mean === null
       ? null
-      : `Mean of ${rollup.scoredPages} page score(s) from the ${row.moduleKey} audit, `
-        + 'from a run that was interrupted before it finished',
-    band: `${rollup.totalPages} page${rollup.totalPages === 1 ? '' : 's'} audited`,
+      : rollupBasis(rollup, `the ${row.moduleKey} audit, from a run that was interrupted before it finished`),
+    band: rollupBand(rollup),
     counts: rollup.counts,
     findings: rollup.findings,
       payload: {
@@ -887,12 +923,14 @@ let warnedMissingPageRuns = false;
  * instead of the stored report it already has. No pages is also the truth: there
  * are none.
  */
-async function pageRunsForRun(runId) {
+async function pageRunsForRun(runId, { withFindings = false } = {}) {
   if (!db.isDatabaseConfigured()) return [];
   try {
+    // Findings only when asked: refreshRunAggregate merges them into the
+    // parent, and a page picker does not need them.
     return await db.rows(
-      `select id, url, ordinal, status, score, score_max, band, counts,
-              error, finished_at, payload_truncated
+      `select id, url, ordinal, source, status, score, score_max, band, counts,
+              ${withFindings ? 'findings, ' : ''}error, finished_at, payload_truncated
          from project_module_page_runs
         where run_id = $1
         order by ordinal asc`,
@@ -1063,6 +1101,175 @@ function aggregatePages(pageRuns) {
   };
 }
 
+/**
+ * A per-page run's coverage line. "4 of 5 pages scored" when a page went
+ * unscored (an error page, a blocked request), so the card cannot say "5 pages
+ * audited" over a mean of 4 (UX-205).
+ */
+function rollupBand({ scoredPages = 0, totalPages = 0 } = {}) {
+  if (totalPages && scoredPages !== totalPages) {
+    return `${scoredPages} of ${totalPages} page${totalPages === 1 ? '' : 's'} scored`;
+  }
+  return `${totalPages} page${totalPages === 1 ? '' : 's'} audited`;
+}
+
+/** "Mean of 4 page score(s) from <basis>; 1 page not scored (…)". */
+function rollupBasis({ scoredPages = 0, totalPages = 0 } = {}, basis = null) {
+  const unscored = Math.max(0, totalPages - scoredPages);
+  return `Mean of ${scoredPages} page score(s)`
+    + (basis ? ` from ${basis}` : '')
+    + (unscored
+      ? `; ${unscored} page${unscored === 1 ? '' : 's'} not scored (an error page, a refused request or a failed audit)`
+      : '');
+}
+
+/** The methodology part of a stored rollupBasis sentence, without its page counts. */
+function basisTail(stored) {
+  const m = String(stored || '').match(/^Mean of \d+ page score\(s\)(?: from ([\s\S]*?))?(?:; \d+ pages? not scored[\s\S]*)?$/);
+  return m ? (m[1] || null) : null;
+}
+
+const pageNumber = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+};
+
+/** The page list a per-page run carries in its payload, summed: counts and coverage. */
+function rollupFromPayloadPages(pages) {
+  if (!Array.isArray(pages) || !pages.length) return null;
+  const out = { total: pages.length, scored: 0, error: 0, warning: 0, notice: 0, info: 0 };
+  for (const p of pages) {
+    if (p && p.score !== null && p.score !== undefined && Number.isFinite(Number(p.score))) out.scored += 1;
+    for (const s of SEVERITIES) out[s] += pageNumber(p?.counts?.[s]);
+  }
+  return out;
+}
+
+/**
+ * Brings a stored per-page run row in line with its own pages, at read time.
+ *
+ * Runs closed by older code carry what the pages contradict: all-zero counts
+ * over pages with 25 errors (an "Analyze another page" refresh that read the
+ * pages without their findings), and "Mean of 5" over a mean of 4 (a basis kept
+ * from before error pages went unscored). Fixing them here shows existing runs
+ * correctly without a backfill; new runs are written right in the first place.
+ *
+ * `rollup` is the page summary (latestByModule projects it in SQL); without it,
+ * the row's own payload.pages is summed. Returns a new row, or the same one.
+ */
+function reconcilePageRun(row, rollup = null) {
+  if (!row || !PAGE_MODULE_KEYS.includes(row.module_key)) return row;
+  const r = rollup || rollupFromPayloadPages(row.payload?.pages);
+  if (!r || !pageNumber(r.total)) return row;
+  const out = { ...row };
+  const total = pageNumber(r.total);
+  const scored = pageNumber(r.scored);
+
+  const counts = row.counts || {};
+  const parentSum = pageNumber(counts.error) + pageNumber(counts.warning) + pageNumber(counts.notice);
+  const pageSum = pageNumber(r.error) + pageNumber(r.warning) + pageNumber(r.notice);
+  if (!parentSum && pageSum) {
+    out.counts = {
+      error: pageNumber(r.error), warning: pageNumber(r.warning),
+      notice: pageNumber(r.notice), info: pageNumber(r.info),
+    };
+  }
+  // Only the generated coverage line is rewritten; "Homepage audited" and any
+  // other wording a runner chose is left alone.
+  if (typeof row.band === 'string' && /^\d+ (?:of \d+ )?pages? (?:audited|scored)$/.test(row.band.trim())) {
+    out.band = rollupBand({ scoredPages: scored, totalPages: total });
+  }
+  if (row.score_basis && /^Mean of \d+ page score\(s\)/.test(row.score_basis)) {
+    out.score_basis = rollupBasis({ scoredPages: scored, totalPages: total }, basisTail(row.score_basis));
+  }
+  return out;
+}
+
+/**
+ * The card line for a site that refused our requests. One sentence, shared, so
+ * Hub and Spoke, Tech Audit, SEO & GEO and AI Visibility tell the same story
+ * about the same block (UX-036).
+ */
+function siteRefusedLine(status) {
+  const code = Number(status);
+  return `The site refused our requests${Number.isFinite(code) && code > 0 ? ` (HTTP ${code})` : ''} — nothing could be read.`;
+}
+
+/**
+ * A per-page run where no page was read: every page unscored and at least one
+ * answered with a refusal or an error page (the band auditPageSeoGeo /
+ * auditPageAgentReadiness give it). Returns { status } — the HTTP code when one
+ * was recorded — or null when any page was actually measured.
+ */
+function allPagesRefused(pages) {
+  if (!Array.isArray(pages) || !pages.length) return null;
+  const isScored = (v) => v !== null && v !== undefined && Number.isFinite(Number(v));
+  if (pages.some((p) => isScored(p.score))) return null;
+  let status = null;
+  let refused = false;
+  for (const p of pages) {
+    const band = String(p.band || '');
+    // A refusal, not a missing page: a 404 home is a different problem.
+    const http = band.match(/^HTTP (403|429|503)\b/);
+    if (http) { refused = true; status = status || Number(http[1]); }
+    if (/^Blocked\b/.test(band)) refused = true;
+  }
+  return refused ? { status } : null;
+}
+
+/** The HTTP status a refusal reports in its message ("…(HTTP 429)"), if it is one. */
+function refusedStatusIn(message) {
+  const m = String(message || '').match(/\bHTTP (403|429|503)\b/);
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * Hub and Spoke: a finished run whose analysis is no longer stored is not a
+ * score. It kept its 51 and ranked as the weakest area while the report behind
+ * it was gone (UX-145), so it reads as "re-run needed" instead.
+ */
+function hubSpokeReportMissing(row) {
+  if (!row || row.module_key !== 'hub_spoke') return row;
+  if (!['completed', 'completed_with_errors'].includes(row.status) || row.reportRef) return row;
+  const note = 'The last analysis finished, but its result is no longer stored. Re-run Hub and Spoke to see it again.';
+  return {
+    ...row,
+    score: null,
+    score_max: null,
+    score_basis: null,
+    counts: {},
+    findings: [],
+    reportMissing: true,
+    note,
+    cardNote: 'Re-run needed — the last analysis is no longer stored.',
+  };
+}
+
+/**
+ * AI Visibility: a setup that could not read the site is recorded under its own
+ * key (ai_visibility_lite_setup), so the card, which reads ai_visibility_lite,
+ * said "Never run" while the module's page said setup failed (UX-036). With no
+ * measurement on record, the failed setup is the card's run.
+ */
+function aiVisibilitySetupFailure(setupRow) {
+  if (!setupRow || setupRow.status !== 'failed') return null;
+  const status = refusedStatusIn(setupRow.error);
+  const reason = String(setupRow.error || '').trim() || 'no reason was recorded';
+  return {
+    ...setupRow,
+    module_key: 'ai_visibility_lite',
+    score: null,
+    score_max: null,
+    score_basis: null,
+    counts: {},
+    findings: [],
+    setupFailed: true,
+    // A failed card prints its error, so the refusal wording goes there.
+    error: status ? `Setup could not finish. ${siteRefusedLine(status)}` : `Setup did not finish: ${reason}`,
+    reportRef: null,
+  };
+}
+
 module.exports = {
   PAGE_MODULE_KEYS,
   // Exported so a test can assert that `queued` is NOT terminal: that single
@@ -1083,6 +1290,16 @@ module.exports = {
   pageRunsForRun,
   getPageRun,
   aggregatePages,
+  rollupBand,
+  rollupBasis,
+  basisTail,
+  rollupFromPayloadPages,
+  reconcilePageRun,
+  hubSpokeReportMissing,
+  aiVisibilitySetupFailure,
+  siteRefusedLine,
+  refusedStatusIn,
+  allPagesRefused,
   MODULE_KEYS,
   MAX_PAYLOAD_CHARS,
   SEVERITIES,

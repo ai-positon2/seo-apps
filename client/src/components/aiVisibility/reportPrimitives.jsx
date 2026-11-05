@@ -268,6 +268,14 @@ const WARNING_COPY = {
     tone: 'muted',
     text: 'No earlier period to compare against yet, so no deltas are shown.',
   },
+  no_shared_prompts: {
+    tone: 'muted',
+    text: 'The earlier period asked different questions, so no deltas are shown.',
+  },
+  latest_run_partial: {
+    tone: 'warning',
+    text: 'The latest run did not hear from every AI model.',
+  },
   no_client_brand: {
     tone: 'danger',
     text: 'No approved client brand. Nothing can be measured until the measured set is '
@@ -316,7 +324,9 @@ export function ReportWarnings({ warnings = [], meta }) {
           ? ` ${meta.comparison.note}`
           : w === 'engine_unavailable' && meta?.enginesUnavailable?.length
             ? ` Not answering: ${meta.enginesUnavailable.join(', ')}.`
-            : '';
+            : w === 'latest_run_partial' && meta?.latestRun?.summary
+              ? ` ${meta.latestRun.summary}`
+              : '';
         return (
           <div
             key={w}

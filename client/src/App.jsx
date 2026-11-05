@@ -1,5 +1,6 @@
-import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
-import { lazy, useEffect } from 'react';
+import { Routes, Route, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { lazy, Suspense, useEffect } from 'react';
+import { takeReturnPath } from './lib/authEvents';
 import { getToolByPath } from './toolsMeta';
 import { notifyRouteChange } from './lib/agentRunSignal';
 import { ThemeProvider } from './components/ThemeContext';
@@ -80,8 +81,61 @@ function CrawlScopeReviewRedirect() {
   return <Navigate to={`/crawl-scope/runs/${id}`} replace />;
 }
 
+// After signing in again, back to the page the session ended on. The Google
+// callback always lands on '/', so the path is kept in this tab's
+// sessionStorage across the round trip (lib/authEvents.js).
+function ReturnAfterSignIn() {
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  useEffect(() => {
+    const path = takeReturnPath();
+    if (path && pathname === '/' && path !== '/') navigate(path, { replace: true });
+    // Once, on arrival in the signed-in app.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return null;
+}
+
+// /api/auth/verify answered 5xx or not at all. That says nothing about the
+// session, so this is a retrying screen, not the sign-in card: a fifteen-second
+// database blip used to sign every open tab out.
+function UnreachableScreen({ onRetry }) {
+  return (
+    <div className="app-splash app-splash--shown" role="status" aria-live="polite">
+      <img className="app-splash-mark" src="/brand/seo-studio-submark.svg" alt="" width={44} height={44} />
+      <span className="app-splash-name">SEO Studio</span>
+      <span className="app-splash-note">Can’t reach SEO Studio right now. Retrying…</span>
+      <button
+        type="button"
+        onClick={onRetry}
+        style={{
+          marginTop: 12, padding: '6px 14px', borderRadius: 8, cursor: 'pointer',
+          border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)',
+          font: 'inherit', fontSize: 13,
+        }}
+      >
+        Retry now
+      </button>
+    </div>
+  );
+}
+
 export default function App() {
-  const { authState, hasProfile } = useAuth();
+  const { authState, hasProfile, checkAuth } = useAuth();
+  const { pathname } = useLocation();
+
+  // A shared Agent Readiness summary is drawn from its link alone (no API
+  // call), so it opens for a recipient without an account — the point of
+  // sharing it. Signed in or not, it renders without the app's chrome.
+  if (pathname === '/agent-readiness-audit/summary') {
+    return (
+      <ThemeProvider>
+        <Suspense fallback={null}>
+          <AgentReadinessSummaryPage />
+        </Suspense>
+      </ThemeProvider>
+    );
+  }
 
   // Same markup as the splash in index.html, so the hand-over from "JavaScript
   // still downloading" to "checking your session" does not blink.
@@ -92,6 +146,14 @@ export default function App() {
         <span className="app-splash-name">SEO Studio</span>
         <span className="app-splash-note">Loading…</span>
       </div>
+    );
+  }
+
+  if (authState === 'unreachable') {
+    return (
+      <ThemeProvider>
+        <UnreachableScreen onRetry={() => checkAuth()} />
+      </ThemeProvider>
     );
   }
 
@@ -121,6 +183,7 @@ export default function App() {
           report's Legend (components/chat/ChatContext). */}
       <ChatScreenProvider>
       <RouteBridge />
+      <ReturnAfterSignIn />
       <ChatBubble />
       <Routes>
         <Route element={<MacWindow />}>

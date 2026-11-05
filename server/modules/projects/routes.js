@@ -777,6 +777,8 @@ router.post('/:projectId/modules/:moduleKey/pages', async (req, res) => {
       moduleKey,
       url,
       ordinal: existingPages.length,
+      // Marks it as added by hand, which is what lets it be removed again (DELETE below).
+      source: 'user',
       pageId: (await pages.keyToId(access.project.id).catch(() => new Map())).get(key) || null,
     });
 
@@ -793,6 +795,7 @@ router.post('/:projectId/modules/:moduleKey/pages', async (req, res) => {
         band: result.band ?? null,
         findings: result.findings || [],
         payload: result.payload || null,
+        error: result.error || null,
       });
     } catch (e) {
       // A failed page is recorded as a failed page, not swallowed: it is part of
@@ -814,6 +817,57 @@ router.post('/:projectId/modules/:moduleKey/pages', async (req, res) => {
       pagesAudited: rollup.totalPages,
     });
   } catch (e) { handleError(res, e, 'addModulePage'); }
+});
+
+// DELETE /api/projects/:projectId/modules/:moduleKey/pages/:pageRunId
+//
+// Takes back a page added above (UX-217). Only a page somebody added
+// (source = 'user'): the pages the audit chose are its sample, and removing one
+// would quietly reshape the site average. Same capability as adding, the same
+// refusal while a run is in flight, and the average is recomputed from the
+// pages that remain, never adjusted.
+router.delete('/:projectId/modules/:moduleKey/pages/:pageRunId', async (req, res) => {
+  try {
+    const access = await projectAccess.requireProject(req, req.params.projectId, 'startRun');
+    const { moduleKey, pageRunId } = req.params;
+    if (!moduleEvidence.PAGE_MODULE_KEYS.includes(moduleKey)) {
+      return res.status(400).json({ error: `${moduleKey} does not audit individual pages.` });
+    }
+
+    const page = await moduleEvidence.getPageRun(access.project.id, pageRunId);
+    if (!page || page.module_key !== moduleKey) {
+      return res.status(404).json({ error: 'Page report not found.' });
+    }
+    if (page.source !== 'user') {
+      return res.status(409).json({
+        error: 'Only pages added with "Analyze another page" can be removed. The audit chose this one; re-run it to change its pages.',
+        code: 'not_user_added',
+      });
+    }
+
+    const runs = await moduleEvidence.listRuns(access.project.id, moduleKey, { limit: 10 });
+    const run = runs.find((r) => r.id === page.run_id);
+    if (!run) return res.status(404).json({ error: 'That page’s report is no longer current.' });
+    if (run.status === 'running' || page.status === 'running') {
+      return res.status(409).json({
+        error: 'An audit is running for this module right now. Wait for it to finish, then remove the page.',
+        code: 'run_in_flight',
+      });
+    }
+
+    const db = require('../../services/db');
+    await db.deleteWhere('project_module_page_runs', { id: page.id, project_id: access.project.id });
+    const { rollup } = await moduleEvidence.refreshRunAggregate(run.id, {
+      basis: moduleRunners.SCORE_BASIS[moduleKey] || null,
+    });
+
+    res.json({
+      removed: true,
+      score: rollup.mean,
+      pagesScored: rollup.scoredPages,
+      pagesAudited: rollup.totalPages,
+    });
+  } catch (e) { handleError(res, e, 'removeModulePage'); }
 });
 
 // The live crawl alone. Cheap enough for the app shell to poll from any screen,
@@ -1008,9 +1062,12 @@ router.get('/:projectId/executive-summary', async (req, res) => {
     // Both reads in parallel. They share no state and the overview is the slower
     // of the two, so serialising them would add the backlog's latency to a page
     // that is already three round trips deep.
+    // `reuse`: the Overview's own /overview and /insights reads have usually
+    // just built both, and this one composes them — it takes those builds (or
+    // joins them in flight) instead of building everything a second time.
     const [overviewData, built] = await Promise.all([
-      overview.buildOverview({ access }),
-      insights.buildInsights({ access }),
+      overview.buildOverview({ access, reuse: true }),
+      insights.buildInsights({ access, reuse: true }),
     ]);
     res.json({
       project: built.project,

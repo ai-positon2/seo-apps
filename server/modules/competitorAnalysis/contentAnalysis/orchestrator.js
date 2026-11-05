@@ -169,7 +169,7 @@ async function runContentAnalysis(client, previous) {
     return {
       domain: s.domain, label: s.label, isClient: s.isClient,
       sitemapUrl: s.sitemapUrl, sitemapStatus: s.sitemapStatus, totalUrls: s.totalUrls,
-      capped: s.capped, error: s.error,
+      capped: s.capped, partial: !!s.partial, sitemapUrls: s.sitemapUrls || [], checks: s.checks || [], error: s.error,
       templateCounts,
       pageTypeCounts: countsFromTemplateCounts(templateCounts, byTemplate),
     };

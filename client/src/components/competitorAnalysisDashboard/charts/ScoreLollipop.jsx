@@ -1,5 +1,5 @@
 import { Badge } from '../../../ui/Badge';
-import { seriesColor } from '../utils';
+import { seriesColor, isUnmeasured } from '../utils';
 
 const TICKS = [0, 25, 50, 75, 100];
 
@@ -8,7 +8,7 @@ const TICKS = [0, 25, 50, 75, 100];
 // ScoreCompare). A thin connector from 0 to the score plus an end-dot reads
 // as a "lollipop," letting every domain share one axis instead of N separate
 // gauges.
-export function ScoreLollipop({ domains = [] }) {
+export function ScoreLollipop({ domains = [], valueFn = (d) => d.authorityScore }) {
   return (
     <div>
       {/* Shared axis ticks */}
@@ -28,9 +28,21 @@ export function ScoreLollipop({ domains = [] }) {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {domains.map((d) => {
-          const score = Math.max(0, Math.min(100, d.authorityScore || 0));
+          const unknown = isUnmeasured(valueFn(d));
+          const score = unknown ? 0 : Math.max(0, Math.min(100, Number(valueFn(d))));
           const color = seriesColor(d.isClient);
           const label = d.label || d.domain;
+          if (unknown) {
+            // No dot at 0: an unmeasured score is not the lowest one.
+            return (
+              <div key={d.domain} style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 12, alignItems: 'center' }} title={`${label}: not measured`}>
+                <div style={{ fontSize: 13, fontWeight: d.isClient ? 700 : 400, color: d.isClient ? 'var(--text)' : 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {label}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-3)' }}>— not measured</div>
+              </div>
+            );
+          }
           return (
             <div key={d.domain} style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 12, alignItems: 'center' }} title={`${label}: ${Math.round(score)} / 100`}>
               <div style={{

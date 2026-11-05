@@ -173,7 +173,53 @@ function timingSafeEqualStr(a, b) {
   return crypto.timingSafeEqual(ba, bb);
 }
 
+// ── Signing out ends the session, not just the cookie ──────────────────────
+// Logout used to only clear the cookie, so a copy of it (another device's
+// export, a captured header) stayed valid for the rest of its seven days.
+// Each signed-out token is now remembered until it would have expired anyway,
+// and requireAuth and /verify refuse it.
+//
+// Held in this process's memory, which is the limit of doing it without a
+// schema change: a server restart forgets the list, and a second web instance
+// would not see it. Durable, cross-instance revocation needs a table (token id
+// + expiry) — a migration this change deliberately does not make.
+const revokedTokens = new Map(); // sha256(token) → expiry (ms)
+
+function tokenKey(token) {
+  return crypto.createHash('sha256').update(String(token)).digest('hex');
+}
+
+function revokeToken(token, expSeconds) {
+  const now = Date.now();
+  // Prune on write, so the map never outgrows the tokens still worth refusing.
+  for (const [key, until] of revokedTokens) if (until <= now) revokedTokens.delete(key);
+  const until = Number.isFinite(expSeconds) ? expSeconds * 1000 : now + 7 * 24 * 3600 * 1000;
+  if (until > now) revokedTokens.set(tokenKey(token), until);
+}
+
+function isTokenRevoked(token) {
+  const until = revokedTokens.get(tokenKey(token));
+  if (!until) return false;
+  if (until <= Date.now()) { revokedTokens.delete(tokenKey(token)); return false; }
+  return true;
+}
+
+// A 401 that means "your session is gone", as opposed to a route refusing for
+// its own reasons. The client's fetch watcher (lib/authEvents.js) only signs
+// the user out on 401s carrying this header.
+function sessionEnded(res, error) {
+  res.set('X-Session-Ended', '1');
+  return res.status(401).json({ error });
+}
+
 router.post('/logout', (req, res) => {
+  const token = req.cookies?.[COOKIE_NAME];
+  if (token) {
+    try {
+      const payload = jwt.verify(token, JWT_SECRET);
+      revokeToken(token, payload.exp);
+    } catch { /* already invalid: nothing to revoke */ }
+  }
   res.clearCookie(COOKIE_NAME, COOKIE_OPTIONS);
   // The workspace selection outlived the session it was made in (30 days), so on
   // a shared browser the next person to sign in silently inherited the previous
@@ -218,6 +264,7 @@ router.get('/verify', async (req, res) => {
     return res.json({ valid: false });
   }
   if (payload.username === LEGACY_EMBED_USER) return res.json({ valid: false });
+  if (isTokenRevoked(token)) return res.json({ valid: false });
   // A session is only as good as its account's *current* standing. Without this
   // re-check a cookie stayed usable for its full 7 days after the person was
   // removed from the allowlist, so off-boarding someone had no effect for a week.
@@ -270,19 +317,22 @@ router.get('/verify', async (req, res) => {
 
 function requireAuth(req, res, next) {
   const token = req.cookies?.[COOKIE_NAME];
-  if (!token) return res.status(401).json({ error: 'Not authenticated.' });
+  if (!token) return sessionEnded(res, 'Not authenticated.');
   try {
     req.user = jwt.verify(token, JWT_SECRET);
     // Sessions minted by the removed shared-token paths. They are still validly
     // signed for up to a week, so they are rejected by identity rather than left
     // to expire — otherwise "removed" would mean "removed for new visitors".
     if (req.user.username === LEGACY_EMBED_USER) {
-      return res.status(401).json({ error: 'Please sign in with Google.' });
+      return sessionEnded(res, 'Please sign in with Google.');
     }
     // Same reasoning as in /verify: a validly-signed cookie for an account that
     // is no longer allowed to sign in must stop working now, not in seven days.
     if (!isSessionIdentityStillAllowed(req.user.username)) {
-      return res.status(401).json({ error: 'This account is no longer authorised. Please sign in again.' });
+      return sessionEnded(res, 'This account is no longer authorised. Please sign in again.');
+    }
+    if (isTokenRevoked(token)) {
+      return sessionEnded(res, 'You signed out. Please sign in again.');
     }
     // peek, not resolve: the cached workspace is already membership-checked,
     // and the activity trail must never add a query to the request path.
@@ -294,7 +344,7 @@ function requireAuth(req, res, next) {
     });
     next();
   } catch (e) {
-    return res.status(401).json({ error: 'Session expired. Please log in again.' });
+    return sessionEnded(res, 'Session expired. Please log in again.');
   }
 }
 
@@ -404,5 +454,7 @@ module.exports = {
     isAllowedEmail,
     isSessionIdentityStillAllowed,
     timingSafeEqualStr,
+    revokeToken,
+    isTokenRevoked,
   },
 };

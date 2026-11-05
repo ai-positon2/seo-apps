@@ -12,6 +12,7 @@ import ModuleRuns from '../components/ModuleRuns';
 import HubSpokeReport, { healthVariant } from '../components/contentArchitect/HubSpokeReport';
 import { InfoTip } from '../components/seoGeo/report/reportKit';
 import { ca } from '../lib/contentArchitectApi';
+import { friendlyError } from '../components/contentArchitect/friendlyError';
 import { useActiveProjectId } from '../lib/activeProject';
 import { useActiveProject } from '../lib/useActiveProject';
 import { projectsApi } from '../lib/projectsApi';
@@ -131,16 +132,28 @@ export default function ContentArchitectProjectPage() {
       setProject(updated);
       toast.add({ title: 'Competitors saved', description: 'Used automatically by "Suggest new spokes".' });
     } catch (e) {
-      toast.add({ title: 'Save failed', description: e.message, variant: 'danger' });
+      toast.add({ title: 'Save failed', description: friendlyError(e), variant: 'danger' });
     } finally {
       setSavingCompetitors(false);
     }
   }
 
+  // A report link opens that client's report (UX-082). On first load the
+  // report's client becomes the active one, whatever the reader last picked;
+  // only a client switch made afterwards leaves for that client's landing.
+  // Redirecting on any mismatch threw away every link to a client other than
+  // the selected one.
+  const adoptedRef = useRef(null);
   useEffect(() => {
-    if (project?.platformProjectId && activeProjectId
-      && activeProjectId !== project.platformProjectId) navigate('/content-architect');
-  }, [activeProjectId, project?.platformProjectId, navigate]);
+    const owner = project?.platformProjectId;
+    if (!owner) return;
+    if (adoptedRef.current !== owner) {
+      adoptedRef.current = owner;
+      if (activeProjectId !== owner) setActiveProjectId(owner);
+      return;
+    }
+    if (activeProjectId && activeProjectId !== owner) navigate('/content-architect');
+  }, [activeProjectId, project?.platformProjectId, navigate, setActiveProjectId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -150,14 +163,16 @@ export default function ContentArchitectProjectPage() {
         if (cancelled) return;
         setProject(proj);
         if (proj.platformProjectId) {
-          if (!activeProjectId) setActiveProjectId(proj.platformProjectId);
+          // Adopting the report's client is the effect above's job.
           const existingAnalysis = await ca.getFullAnalysis(id).catch(() => null);
           if (cancelled) return;
           if (existingAnalysis) {
             setAnalysis(existingAnalysis);
             setScreen('results');
           } else {
-            navigate('/content-architect', { replace: true });
+            // Said on arrival, so landing on "Not started" reads as an answer
+            // rather than a silent redirect (UX-145).
+            navigate('/content-architect', { replace: true, state: { missingAnalysis: true } });
           }
           return;
         }
@@ -203,7 +218,7 @@ export default function ContentArchitectProjectPage() {
       await projectsApi.connectContentArchitect(project.platformProjectId, { retry: true });
       navigate('/content-architect');
     } catch (e) {
-      toast.add({ title: 'Could not start analysis', description: e.message, variant: 'danger' });
+      toast.add({ title: 'Could not start analysis', description: friendlyError(e), variant: 'danger' });
     }
   }
 
@@ -254,7 +269,7 @@ export default function ContentArchitectProjectPage() {
     try {
       await ca.savePatterns(id, patternsArg.map((p) => ({ pattern: p.pattern, included: p.included })), verticalArg);
     } catch (e) {
-      toast.add({ title: 'Save failed', description: e.message, variant: 'danger' });
+      toast.add({ title: 'Save failed', description: friendlyError(e), variant: 'danger' });
       setSaving(false);
       setScreen('patterns');
       return;
@@ -315,7 +330,7 @@ export default function ContentArchitectProjectPage() {
       a.remove();
       URL.revokeObjectURL(url);
     } catch (e) {
-      toast.add({ title: 'Export failed', description: e.message, variant: 'danger' });
+      toast.add({ title: 'Export failed', description: friendlyError(e), variant: 'danger' });
     } finally {
       setExportingFormat(null);
     }
@@ -356,7 +371,9 @@ export default function ContentArchitectProjectPage() {
     <div style={{ maxWidth: 1000, margin: '0 auto' }}>
       <SectionHeader
         eyebrow="Build · Content Architect"
-        title={project?.name || 'Loading…'}
+        // The client's own name, not the host the record was created with —
+        // Soteri Skin's report was titled www.position2.com (UX-108).
+        title={project?.platformProjectName || project?.name || 'Loading…'}
         subtitle={project?.domain}
       />
 

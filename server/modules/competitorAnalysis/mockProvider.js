@@ -103,7 +103,7 @@ function createRunContext(allDomains) {
   };
 }
 
-function fetchDomainData(domain, ctx) {
+function fetchDomainData(domain, ctx, { brandName } = {}) {
   const rand = mulberry32(hashSeed('domain:' + domain));
 
   const keywords = ctx.keywordPool
@@ -137,6 +137,7 @@ function fetchDomainData(domain, ctx) {
     aioKeywordCount: Math.floor(rand() * (keywords.length * 0.3)),
     brandedKeywordCount,
     brandedKeywordCountCapped: false,
+    brandTerm: brandName || null,
     nonBrandedKeywordCount: Math.max(0, organicKeywords - brandedKeywordCount),
     pageSpeed: pageSpeedFor(rand),
     // Mock data never fails a fetch — kept for interface parity with

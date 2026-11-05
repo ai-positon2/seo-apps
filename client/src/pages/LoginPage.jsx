@@ -1,4 +1,5 @@
 import BrandMark from '../components/BrandMark';
+import { useAuth } from '../context/AuthContext';
 
 const params = new URLSearchParams(window.location.search);
 const ERROR_MESSAGES = {
@@ -11,8 +12,16 @@ const ERROR_MESSAGES = {
     'Sign-in is temporarily unavailable — we could not reach the database. This is not a problem with your account. Please wait a few minutes and reload.',
 };
 
+// Not an error: the session ran out, or the user signed out in another tab.
+// Shown neutrally, and signing in returns them to the page they were on.
+const SESSION_NOTES = {
+  session_expired: 'Your session ended. Please sign in again.',
+};
+
 export default function LoginPage() {
+  const { signedOutReason } = useAuth() || {};
   const error = ERROR_MESSAGES[params.get('error')];
+  const note = !error ? SESSION_NOTES[signedOutReason] : null;
 
   // Local-dev-only escape hatch — see server/routes/auth.js POST /dev-login.
   // import.meta.env.DEV is Vite's own dev-vs-build flag, so this never
@@ -57,6 +66,20 @@ export default function LoginPage() {
             marginBottom: 16,
           }}>
             {error}
+          </div>
+        )}
+
+        {note && (
+          <div role="status" style={{
+            fontSize: 12,
+            color: 'var(--text-2)',
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            padding: '8px 10px',
+            marginBottom: 16,
+          }}>
+            {note}
           </div>
         )}
 

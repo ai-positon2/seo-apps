@@ -1204,6 +1204,60 @@ async function listAllRunFindingInstances(client, runId, { cap = FINDINGS_READ_C
                 left(md5(coalesce(data->>'recommendation','')), 8) as rk,
                 left(md5(coalesce(data->>'description','')), 8)    as dk`;
 
+  const rebuild = (row) => {
+    const finding = row.d;
+    const recommendation = recommendationFor.get(row.rk);
+    if (recommendation !== undefined) finding.recommendation = recommendation;
+    const description = descriptionFor.get(row.dk);
+    if (description !== undefined) finding.description = description;
+    return regrade(finding);
+  };
+
+  // More than the cap: WHICH findings fill it matters. Taking the first 50,000
+  // by id filled Eventgroove's with notices (49,797 of them) and left out its
+  // 3,661 broken internal links, so the report's Errors tab listed 13 pages.
+  // The cap is now filled by severity (planCappedRead), and the caller gets the
+  // per-rule totals over every finding so its counts do not shrink with it.
+  if (runTotal > cap) {
+    const rollup = await listRunFindingInstanceRollup(client, runId);
+    if (meta) meta.rollup = rollup;
+    const plan = planCappedRead(rollup, cap);
+    const byRule = new Array(plan.length);
+    let nextRule = 0;
+    const ruleWorker = async () => {
+      for (;;) {
+        const i = nextRule++;
+        if (i >= plan.length) return;
+        const { ruleId, limit } = plan[i];
+        const rows = [];
+        // Keyset pages within the rule, oldest first: the same rows every time.
+        let after = 0;
+        while (rows.length < limit) {
+          // eslint-disable-next-line no-await-in-loop
+          const page = await client.rows(
+            `select id, ${PAGE_COLUMNS}
+               from crawl_run_finding_instances
+              where run_id = $1 and rule_id = $2 and id > $3
+              order by id asc
+              limit $4`,
+            [runId, ruleId, after, Math.min(PAGE, limit - rows.length)],
+          );
+          if (!page.length) break;
+          for (const row of page) rows.push(row);
+          after = page[page.length - 1].id;
+        }
+        byRule[i] = rows;
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, plan.length) }, ruleWorker));
+    const all = [];
+    for (const rows of byRule) {
+      if (!rows) continue;
+      for (const row of rows) all.push(rebuild(row));
+    }
+    return all;
+  }
+
   const pages = new Array(starts.length);
   let next = 0;
   const worker = async () => {
@@ -1237,16 +1291,108 @@ async function listAllRunFindingInstances(client, runId, { cap = FINDINGS_READ_C
   const all = [];
   for (const rows of pages) {
     if (!rows) continue;
-    for (const row of rows) {
-      const finding = row.d;
-      const recommendation = recommendationFor.get(row.rk);
-      if (recommendation !== undefined) finding.recommendation = recommendation;
-      const description = descriptionFor.get(row.dk);
-      if (description !== undefined) finding.description = description;
-      all.push(regrade(finding));
-    }
+    for (const row of rows) all.push(rebuild(row));
   }
   return all;
+}
+
+// Per rule, over EVERY stored instance: how many findings and on how many
+// distinct URLs, at today's severity. What a capped read is filled from, and
+// what the report counts with when its list is capped.
+async function listRunFindingInstanceRollup(client, runId) {
+  const rows = await client.rows(
+    `select rule_id,
+            max(data->>'severity') as severity,
+            max(data->>'category') as category,
+            max(data->>'title')    as title,
+            max(case when coalesce(data->>'scope', 'page') <> 'page' then data->>'scope' end) as scope,
+            count(*)                        as count,
+            count(distinct data->>'url')    as pages
+       from crawl_run_finding_instances
+      where run_id = $1
+      group by rule_id`,
+    [runId],
+  );
+  return rows.map((row) => ({
+    ruleId: row.rule_id,
+    severity: currentSeverity(row.rule_id, row.severity),
+    category: row.category || null,
+    title: row.title || null,
+    scope: row.scope || "page",
+    count: Number(row.count) || 0,
+    pages: Number(row.pages) || 0,
+  }));
+}
+
+// How many of each rule's findings a capped read takes. Two passes:
+//
+//   1. a sample of every rule (at most RULE_SAMPLE each), so no rule drops out
+//      of the lists or out of a workbook rebuilt from this read;
+//   2. the rest by severity — errors, then warnings, then notices — smaller
+//      rules first within a severity, so as many rules as possible are whole.
+//
+// Within a rule the oldest findings (lowest id) are the ones taken, so the same
+// rows come back on every read and a review saved on one is found again.
+const RULE_SAMPLE = 100;
+const SEVERITY_RANK = { error: 0, warning: 1, notice: 2, info: 3 };
+
+function planCappedRead(rollup, cap) {
+  const rules = [...(rollup || [])].sort((a, b) =>
+    (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9)
+    || a.count - b.count
+    || String(a.ruleId).localeCompare(String(b.ruleId)));
+  const take = new Map();
+  let left = Math.max(0, cap);
+  const sample = rules.length ? Math.min(RULE_SAMPLE, Math.floor(left / rules.length)) : 0;
+  for (const rule of rules) {
+    const n = Math.min(rule.count, sample, left);
+    take.set(rule.ruleId, n);
+    left -= n;
+  }
+  for (const rule of rules) {
+    if (left <= 0) break;
+    const n = Math.min(rule.count - take.get(rule.ruleId), left);
+    take.set(rule.ruleId, take.get(rule.ruleId) + n);
+    left -= n;
+  }
+  return rules
+    .map((rule) => ({ ruleId: rule.ruleId, limit: take.get(rule.ruleId) }))
+    .filter((step) => step.limit > 0);
+}
+
+// The rule of each of these finding ids, if the run produced it. What a review
+// save checks against — one lookup of the ids being saved, rather than reading
+// the whole (capped) finding set to find them.
+async function findRunFindingRules(client, runId, findingIds) {
+  if (!findingIds.length) return new Map();
+  const rows = await client.rows(
+    `select finding_id, rule_id
+       from crawl_run_finding_instances
+      where run_id = $1 and finding_id = any($2::text[])`,
+    [runId, findingIds],
+  );
+  return new Map(rows.map((row) => [row.finding_id, row.rule_id]));
+}
+
+// Every stored result row of a run, oldest first: what a finished report is
+// drawn from, in one response instead of a replay over the event stream.
+// Keyset pages, so a 10,000-row run is not one enormous result set.
+async function listAllResults(client, runId, { page = 2_000 } = {}) {
+  const all = [];
+  let after = 0;
+  for (;;) {
+    // eslint-disable-next-line no-await-in-loop
+    const rows = await client.rows(
+      `select id, data from crawl_run_results
+        where run_id = $1 and id > $2
+        order by id asc
+        limit $3`,
+      [runId, after, page],
+    );
+    for (const row of rows) all.push(row.data);
+    if (rows.length < page) return all;
+    after = rows[rows.length - 1].id;
+  }
 }
 
 // Internal link edges for one run (migration 0012). Chunked because a crawl of
@@ -1552,6 +1698,10 @@ module.exports = {
   listRunPageFacts,
   replaceRuleFindings,
   listAllRunFindingInstances,
+  listRunFindingInstanceRollup,
+  planCappedRead,
+  findRunFindingRules,
+  listAllResults,
   listRunFindingRollup,
   listRunFindingInstancesPage,
   deleteRunResults,

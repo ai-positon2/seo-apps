@@ -9,6 +9,8 @@ import { Field } from '../ui/Field';
 import { useToast } from '../ui/Toast';
 import ModuleRuns from '../components/ModuleRuns';
 import { ca } from '../lib/contentArchitectApi';
+import { friendlyError } from '../components/contentArchitect/friendlyError';
+import { canRetry } from '../components/contentArchitect/connection';
 import { projectsApi } from '../lib/projectsApi';
 import { useActiveProjectId } from '../lib/activeProject';
 
@@ -45,15 +47,6 @@ const STATE_VARIANTS = {
 // are worth re-checking on a timer.
 const IN_FLIGHT = new Set(['queued', 'analyzing', 'discovering']);
 
-// "Failed to fetch" is the browser's wording for "no response", and it told
-// the reader nothing about what to do.
-function friendlyError(e) {
-  const msg = String(e?.message || '');
-  if (!msg || /failed to fetch|networkerror|load failed/i.test(msg)) {
-    return 'Could not reach the server to check this project. Check your connection and reload the page.';
-  }
-  return msg;
-}
 
 function CreateProjectCard({ onCreate, creating }) {
   const [domain, setDomain] = useState('');
@@ -115,7 +108,7 @@ export default function ContentArchitectPage() {
         const list = await ca.projects();
         if (!cancelled) setProjects(list);
       } catch (e) {
-        if (!cancelled) toast.add({ title: 'Could not load projects', description: e.message, variant: 'danger' });
+        if (!cancelled) toast.add({ title: 'Could not load projects', description: friendlyError(e, 'reload the page'), variant: 'danger' });
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -143,7 +136,7 @@ export default function ContentArchitectPage() {
         setConnection(result);
         setConnectionError(null);
       } catch (e) {
-        if (!cancelled) setConnectionError(friendlyError(e));
+        if (!cancelled) setConnectionError(friendlyError(e, 'reload the page'));
       }
       if (!cancelled && result && IN_FLIGHT.has(result.state)) {
         timer = setTimeout(() => refresh(), 5000);
@@ -160,7 +153,7 @@ export default function ContentArchitectPage() {
       await projectsApi.connectContentArchitect(projectId, { retry: true });
       setRetryVersion((v) => v + 1);
     } catch (e) {
-      toast.add({ title: 'Could not start analysis', description: e.message, variant: 'danger' });
+      toast.add({ title: 'Could not start analysis', description: friendlyError(e), variant: 'danger' });
     } finally {
       setCreating(false);
     }
@@ -182,7 +175,7 @@ export default function ContentArchitectPage() {
       await ca.deleteProject(id);
       setProjects((prev) => prev.filter((p) => p.id !== id));
     } catch (e2) {
-      toast.add({ title: 'Delete failed', description: e2.message, variant: 'danger' });
+      toast.add({ title: 'Delete failed', description: friendlyError(e2), variant: 'danger' });
     }
   }
 
@@ -219,7 +212,8 @@ export default function ContentArchitectPage() {
               <div style={{ color: 'var(--text-2)', fontSize: 13 }}>{connection.note}</div>
               <div style={{ display: 'flex', gap: 8 }}>
                 {connection.ready && <Button onClick={() => navigate(`/content-architect/${connection.project.id}`)}>Open analysis</Button>}
-                {connection.canStartRun && ['failed', 'cancelled', 'insufficient_data', 'not_started'].includes(connection.state) && (
+                {/* Only when a retry could change the answer (UX-228). */}
+                {canRetry(connection) && (
                   <Button variant={connection.state === 'not_started' ? 'primary' : 'secondary'} onClick={retryAnalysis} loading={creating}>
                     {connection.state === 'not_started' ? 'Start analysis' : 'Retry analysis'}
                   </Button>

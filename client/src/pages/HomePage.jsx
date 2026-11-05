@@ -14,7 +14,8 @@ import { overviewExplainCtx } from '../components/home/overviewExplainCtx';
 import { InfoDot, Legend } from '../components/explain';
 import ExecutiveSummary from '../components/home/ExecutiveSummary';
 import ProjectSetupCard from '../components/home/ProjectSetupCard';
-import HomeSkeleton from '../components/home/HomeSkeleton';
+import HomeSkeleton, { HomeCardsSkeleton } from '../components/home/HomeSkeleton';
+import { overviewCache } from '../components/home/overviewCache';
 import AnalysisProgress from '../components/home/AnalysisProgress';
 import { takePrefetch } from '../lib/homePrefetch';
 
@@ -25,6 +26,8 @@ const CRAWL_POLL_MS = 8000;
 // While a module is queued or running with no crawl to follow — the minutes
 // right after a project is created, when its modules start themselves.
 const MODULE_POLL_MS = 8000;
+// When the module cards' loading state starts saying it is taking a while.
+const SLOW_LOAD_MS = 8000;
 
 // ── Home — the project dashboard ────────────────────────────────────────────
 // The home screen leads with one client site's audit profile (PRD §20.1
@@ -113,15 +116,22 @@ export default function HomePage() {
   // and blanks the page. The build compiles it without complaint.
   const loadInsights = useCallback(async (projectId) => {
     if (!projectId) return;
-    setInsights((prev) => ({ ...prev, loading: true, error: null }));
+    // The last answer for this client, if any, stays on screen while the fresh
+    // one is read (components/home/overviewCache.js).
+    const cached = overviewCache.get('insights', projectId);
+    setInsights(cached
+      ? { loading: false, error: null, data: cached }
+      : (prev) => ({ ...prev, loading: true, error: null }));
     try {
       // Started before React mounted, while the session was still being verified
       // — see lib/homePrefetch.js. Null on every read after the first.
       const data = await (takePrefetch('insights', projectId) || projectsApi.insights(projectId));
+      overviewCache.set('insights', projectId, data);
       if (wantedProjectId.current !== projectId) return;   // see wantedProjectId
       setInsights({ loading: false, error: null, data });
     } catch (e) {
       if (wantedProjectId.current !== projectId) return;
+      if (cached) return;   // keep the numbers already shown
       // The dashboard is still useful without the cross-module answer; the panel
       // below reports the failure and offers a retry.
       setInsights({ loading: false, error: e, data: null });
@@ -213,19 +223,36 @@ export default function HomePage() {
   useEffect(() => { wantedProjectId.current = evidenceProjectId; }, [evidenceProjectId]);
 
   // ── Load the selected project's overview ──────────────────────────────────
+  // The project whose overview read is in flight, so a poller tick does not
+  // stack a second copy of a read that is still running (on a large client one
+  // read can outlast several 8-second ticks, and each copy was more database work).
+  const overviewInFlight = useRef(null);
   const loadOverview = useCallback(async (projectId, { quiet = false } = {}) => {
     if (!projectId) return;
+    if (quiet && overviewInFlight.current === projectId) return;
     // A quiet reload keeps what is on screen while it refetches. The crawl
     // poller below uses it: dropping to a spinner every few seconds would make
     // the dashboard flash, lose scroll position, and tell the reader less than
     // the slightly stale numbers it just threw away.
-    if (!quiet) setOverview({ loading: true, error: null, data: null });
+    //
+    // A loud one (arriving on the page, switching client) shows this client's
+    // last overview straight away when there is one — Back from a module page
+    // used to mean ten to fifty seconds of skeletons for numbers seen a moment
+    // ago — and refreshes behind it.
+    const cached = quiet ? null : overviewCache.get('overview', projectId);
+    if (!quiet) {
+      setOverview(cached
+        ? { loading: false, refreshing: true, error: null, data: cached }
+        : { loading: true, error: null, data: null, startedAt: Date.now() });
+    }
+    overviewInFlight.current = projectId;
     try {
       // A quiet reload is the crawl poller asking for what changed, so it must
       // never be served the startup read — takePrefetch is single-use, but this
       // says so at the call site too.
       const data = await ((!quiet && takePrefetch('overview', projectId))
         || projectsApi.overview(projectId));
+      overviewCache.set('overview', projectId, data);
       if (wantedProjectId.current !== projectId) return;   // see wantedProjectId
       setOverview({ loading: false, error: null, data });
     } catch (e) {
@@ -233,9 +260,27 @@ export default function HomePage() {
       // for is allowed to replace the page with an error.
       if (quiet) return;
       if (wantedProjectId.current !== projectId) return;
+      // A failed refresh behind cached numbers keeps them, and says so.
+      if (cached) {
+        setOverview({ loading: false, refreshing: false, refreshError: e, error: null, data: cached });
+        return;
+      }
       setOverview({ loading: false, error: e, data: null });
+    } finally {
+      if (overviewInFlight.current === projectId) overviewInFlight.current = null;
     }
   }, []);
+
+  // "Still reading" after SLOW_LOAD_MS with nothing on screen yet. The request
+  // itself gives up after 30 seconds (projectsApi.overview) and the error card
+  // offers Try again — the loading state never runs forever.
+  const [slowLoad, setSlowLoad] = useState(false);
+  useEffect(() => {
+    setSlowLoad(false);
+    if (!overview.loading || overview.data) return undefined;
+    const timer = setTimeout(() => setSlowLoad(true), SLOW_LOAD_MS);
+    return () => clearTimeout(timer);
+  }, [overview.loading, overview.data, overview.startedAt]);
 
   useEffect(() => {
     if (evidenceProjectId) loadOverview(evidenceProjectId);
@@ -307,6 +352,8 @@ export default function HomePage() {
     if (!activeProject) return;
     const projectId = activeProject.id;
     const { run } = await projectsApi.runModule(projectId, moduleKey);
+    // What is cached predates the run; the reload must show it starting.
+    overviewCache.forget(projectId);
     await loadOverview(projectId);
 
     // `queued` counts as started. AI Visibility is enqueued for the module
@@ -328,6 +375,7 @@ export default function HomePage() {
       } catch {
         continue; // a dropped poll is not a failed run — keep trying
       }
+      overviewCache.set('overview', projectId, data);
       if (!stillWanted(projectId)) return;
       setOverview({ loading: false, error: null, data });
       const stillRunning = (data.modules || []).some((m) => m.key === moduleKey && isModuleInFlight(m.status));
@@ -434,6 +482,7 @@ export default function HomePage() {
       if (!stillWanted(auditedProjectId)) return;
       try {
         last = await projectsApi.overview(auditedProjectId);
+        overviewCache.set('overview', auditedProjectId, last);
         if (!stillWanted(auditedProjectId)) return;
         setOverview({ loading: false, error: null, data: last });
         const stillRunning = (last.modules || []).some((m) => isModuleInFlight(m.status));
@@ -593,10 +642,13 @@ export default function HomePage() {
   // A quiet crawl poll never re-enters this: it leaves the previous data in
   // place, so `overview.data` stays truthy and the page never flickers back to
   // the skeleton while a crawl runs.
-  const settled = (s) => Boolean(s.data) || Boolean(s.error);
-  if (activeProject && !settled(overview)) {
-    return <HomeSkeleton />;
-  }
+  //
+  // The header is the exception now. It needs only the project list, which is
+  // already here — so the client's name, Run Full Audit and Download report
+  // render straight away, and only the cards below wait for the overview
+  // (HomeCardsSkeleton, with a "still reading" line after SLOW_LOAD_MS and an
+  // error with Try again if the read fails or times out). A client whose
+  // overview was slow used to get a page with no name and no buttons at all.
 
   const data = overview.data;
   const modules = data?.modules || [];
@@ -902,13 +954,26 @@ export default function HomePage() {
           title="Where we stand"
           right={
             overview.loading ? 'Loading…'
+            : overview.refreshing ? 'Updating…'
+            : overview.refreshError ? 'Could not refresh — showing the last numbers read'
             : lastRunAt ? `Latest evidence ${relativeTime(lastRunAt)}`
             : 'No module has produced evidence for this project yet'
           }
         />
 
+        {overview.loading && !data && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {slowLoad && (
+              <Muted size={13} role="status">
+                Still reading this client&rsquo;s evidence. Large sites can take up to half a minute.
+              </Muted>
+            )}
+            <HomeCardsSkeleton />
+          </div>
+        )}
+
         {overview.error && (
-          <Card style={{ padding: 18, gap: 8 }}>
+          <Card role="alert" style={{ padding: 18, gap: 8 }}>
             <Kicker tone="muted">Overview unavailable</Kicker>
             <Muted size={13}>{overview.error.message}</Muted>
             <div><Btn onClick={() => loadOverview(activeProject.id)}>Try again</Btn></div>
@@ -989,15 +1054,20 @@ export default function HomePage() {
           request. The insight layer is still READ, because the "To fix"
           figure in the header is its backlog total; it is just not rendered
           as a panel of its own. */}
-      <ExecutiveSummary
-        /* Keyed, so switching client REMOUNTS it rather than showing the
-           previous client's verdict while the new one loads. The same reason
-           CrawlBudget and ProjectDetail are keyed. */
-        key={activeProject.id}
-        projectId={activeProject.id}
-        onPromote={promoteInsight}
-        modules={visibleModules}
-      />
+      {/* Once the cards are in. The server builds the summary from the same
+          overview and fix list it just built for this page (reuse), so asking
+          after them costs a composition, not a second build of everything. */}
+      {data && (
+        <ExecutiveSummary
+          /* Keyed, so switching client REMOUNTS it rather than showing the
+             previous client's verdict while the new one loads. The same reason
+             CrawlBudget and ProjectDetail are keyed. */
+          key={activeProject.id}
+          projectId={activeProject.id}
+          onPromote={promoteInsight}
+          modules={visibleModules}
+        />
+      )}
 
       {/* ── Run Full Audit confirmation ─────────────────────────────────── */}
       {auditSheet && (

@@ -169,11 +169,29 @@ test('Competitor: ratio, cap and rank from the domains', () => {
   assert.equal(w.domains.find((d) => d.domain === 'small.com').gapCalculation, '5000 − 1000 = 4000 estimated monthly visits: you are ahead of them');
 });
 
-test('Hub and Spoke: the health parts that can be rebuilt', () => {
+test('Hub and Spoke: the health parts follow the v2 formula, with no size part', () => {
   const w = buildWorking('hub', { clusters: [{ name: 'Whitening', health: 62, isGap: false, members: 8, meanDepth: 2 }] });
-  assert.deepEqual(w.clusters[0].healthParts, { hubPresent: 30, sizeInRange: 15, clickDepth: 11.3 });
-  assert.equal(w.clusters[0].coveragePlusLinks, 5.7);
-  assert.equal(w.clusters[0].calculation, '30 hub + 15 size + 11.3 click depth + 5.7 coverage & links = 62');
+  const parts = w.clusters[0].healthParts;
+  assert.deepEqual(parts.hubPresent, { points: 30, max: 30 });
+  assert.deepEqual(parts.clickDepth, { points: 15, max: 20 });
+  assert.deepEqual(parts.vocabularyBreadthPlusHubSpokeLinking, { points: 17, max: 50 });
+  assert.equal(w.clusters[0].calculation, '30 hub (of 30) + 15 click depth (of 20) + 17 hub vocabulary breadth and hub ↔ spoke linking together (of 50) = 62');
+  assert.ok(!/size/i.test(JSON.stringify(parts)));
+  assert.deepEqual(w.formula.parts.map((p) => p.max), [30, 20, 30, 20]);
+  assert.equal(w.formula.total, 100);
+});
+
+test('Hub and Spoke: a suggested hub earns half the hub points; a missing one none', () => {
+  const w = buildWorking('hub', { clusters: [
+    { name: 'A', health: 40, hubConfidence: 'suggested', meanDepth: 4 },
+    { name: 'B', health: 10, isGap: true, meanDepth: 4 },
+  ] });
+  const a = w.clusters.find((c) => c.name === 'A');
+  const b = w.clusters.find((c) => c.name === 'B');
+  assert.equal(a.healthParts.hubPresent.points, 15);
+  assert.equal(a.healthParts.vocabularyBreadthPlusHubSpokeLinking.points, 15);
+  assert.equal(b.healthParts.hubPresent.points, 0);
+  assert.equal(b.healthParts.vocabularyBreadthPlusHubSpokeLinking.points, 0);
 });
 
 test('Hub and Spoke: clusters come weakest first', () => {

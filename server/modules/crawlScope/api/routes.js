@@ -56,6 +56,7 @@ const { staggerMinute } = require("../shared/schedule");
 // a destructured binding would capture and make unpatchable.
 const report = require("../run/report");
 const repo = require("../db/repo");
+const { shareFindingTexts } = require("./findingTexts");
 const catalog = require("../issue-catalog.json");
 const { getPageSpeedForAllDomains } = require("../../../services/pageSpeedCA");
 const { refreshPageSpeedFindings } = require("../run/pagespeed-findings");
@@ -243,6 +244,14 @@ router.get(
     // — the rows belong to the run, not to the reader.
     const run = await repo.getRunForViewer(req.db, req.params.id, req.crawlViewer);
     if (!run) return res.status(404).json({ error: "Run not found." });
+    // `?all=1`: every row in one response, for a finished report. It used to
+    // replay the whole crawl over the event stream, which is never compressed
+    // (server.js) — 9.6 MB for a 3,000-URL crawl, arriving in batches the
+    // report scored as they came. Plain JSON here, so it is gzipped.
+    if (String(req.query.all || "") === "1") {
+      const results = await repo.listAllResults(req.db, run.id);
+      return res.json({ results, total: results.length });
+    }
     const rows = await repo.listResults(req.db, req.params.id, { offset, limit });
     res.json({ results: rows.map((r) => r.data), offset, limit });
   }),
@@ -457,14 +466,24 @@ router.get(
         console.error("[crawlScope.findings.serverHealth]", error.message);
       }
     }
+    // A capped list is filled most serious first (repo.planCappedRead), so the
+    // counts per rule come from every finding instead: `ruleRollup` is each
+    // rule's full count and distinct pages, for the tab counts, the tiles and
+    // the issue list to use while the instance list is short.
+    const ruleRollup = capped ? meta.rollup || null : null;
+    const merged = mergeReviews(findings, reviews);
+    const body = String(req.query.texts || "") === "shared"
+      ? shareFindingTexts(merged)
+      : { findings: merged };
     res.json({
       grain: "instance",
-      findings: mergeReviews(findings, reviews),
+      ...body,
       // A run can hold more findings than one read returns; the report says
       // "the first N of M" instead of calling N the whole audit.
       total,
       capped,
       serverHealth,
+      ruleRollup,
     });
   }),
 );
@@ -487,8 +506,16 @@ router.patch(
     // A review may only be attached to a finding this run actually produced:
     // the finding id is client-supplied, and without this an arbitrary id could
     // be written into the table.
-    const findings = await loadRunFindings(req.db, run);
-    const ruleById = new Map(findings.map((f) => [f.id, f.ruleId]));
+    //
+    // Looked up by id rather than by reading the run's findings: that read stops
+    // at 50,000, so on a bigger run a finding past the cap was "unknown" here,
+    // and every save read (and sent back) the whole capped set.
+    const ids = [...new Set(incoming.map((r) => String(r.findingId || "")))];
+    let ruleById = await repo.findRunFindingRules(req.db, run.id, ids);
+    // A run finalized before migration 0023 keeps its findings in the summary.
+    if (!ruleById.size && Array.isArray(run.summary?.findings)) {
+      ruleById = new Map(run.summary.findings.map((f) => [f.id, f.ruleId]));
+    }
 
     const reviews = [];
     for (const r of incoming) {
@@ -514,8 +541,21 @@ router.patch(
     // The row's `owner` stays the RUN's owner, so one shared review row keeps a
     // single consistent value; `reviewed_by` records who made this decision.
     await repo.saveFindingReviews(req.db, run.id, run.owner, reviews, req.user.id);
+    // The decisions just saved, not the whole finding set again: the report
+    // already holds its findings and applied these on screen before sending.
     const saved = await repo.listFindingReviews(req.db, run.id);
-    res.json({ findings: mergeReviews(findings, saved) });
+    const savedIds = new Set(reviews.map((r) => r.findingId));
+    res.json({
+      saved: reviews.length,
+      reviews: saved
+        .filter((row) => savedIds.has(row.finding_id))
+        .map((row) => ({
+          findingId: row.finding_id,
+          reviewStatus: row.review_status || NEEDS_REVIEW,
+          reviewerNotes: row.reviewer_notes || "",
+          reviewedAt: row.updated_at || null,
+        })),
+    });
   }),
 );
 

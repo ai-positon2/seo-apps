@@ -34,6 +34,7 @@ import {
 } from './reportRegistry';
 import { InfoDot, Legend } from '../explain';
 import { aivisLiteWorking } from '../chat/screenWorking';
+import { standingOf, emptyHeadline } from './standing';
 
 // ── Shared pieces ──────────────────────────────────────────────────────────
 
@@ -718,7 +719,7 @@ function EngineDotCards({ byEngine }) {
             )}
             <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 10 }}>
               {!e.measured
-                ? 'Could not be measured'
+                ? `Could not be measured${e.failureReasons?.[0] ? ` — ${e.failureReasons[0].text}` : ''}`
                 : e.named === 0
                   ? `Didn’t mention you in any of ${e.measured} answers`
                   : `Mentions you in ${e.named} of ${e.measured} answers`}
@@ -731,26 +732,17 @@ function EngineDotCards({ byEngine }) {
 }
 
 export function OverviewReport({ report }) {
-  const brands = (report.brands || []).filter((b) => b.namedRate.value !== null);
-  const ranked = [...brands].sort((a, b) => b.namedRate.value - a.namedRate.value);
+  // Rank, ties, the verdict pill and the sentence under the headline — see
+  // standing.js. The verdict is gated on having something to compare against,
+  // and a tie or an all-zero table is never 'LEADING'.
+  const { ranked, verdict, sentence: standingSentence } = standingOf(report);
   const clientRow = ranked.find((b) => b.isClient) || null;
-  const rank = ranked.findIndex((b) => b.isClient) + 1;
-
-  // The verdict is gated on having something to compare against. With one
-  // tracked brand the client is always rank 1 of 1, and a WINNING pill off
-  // that is a claim nobody measured.
-  const comparable = ranked.length >= 2 && report.headline.namedRate.value !== null;
-  const verdict = !comparable ? null
-    : (rank === 1 ? 'LEADING' : (rank <= Math.ceil(ranked.length / 2) ? 'HOLDING' : 'BEHIND'));
-
-  const runnerUp = ranked.find((b) => !b.isClient) || null;
   const weakest = [...(report.byQuestion || [])]
     .filter((q) => q.state !== 'not_measured')
     .sort((a, b) => (a.namedRate.value ?? 1) - (b.namedRate.value ?? 1))
     .slice(0, 5);
 
   const stage = rateStageFor(report.headline.namedRate.value);
-  const brandName = clientRow?.name || 'You';
   const interval = report.headline.namedRate.interval || null;
   // Position, sentiment and citations qualify the rate; they are not blended in.
   const factor = (key) => (report.headline.scoreBreakdown || []).find((f) => f.key === key) || null;
@@ -781,7 +773,7 @@ export function OverviewReport({ report }) {
         <div style={{ display: 'flex', gap: 28, alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 320 }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              {verdict ? <Tag tone={verdict === 'BEHIND' ? 'neg' : 'accent'}>{verdict}</Tag> : null}
+              {verdict ? <Tag tone={verdict === 'BEHIND' ? 'neg' : (verdict === 'TIED' ? 'muted' : 'accent')}>{verdict}</Tag> : null}
               <Muted size={11} style={{ fontFamily: 'var(--font-mono)', letterSpacing: '.1em' }}>
                 {report.meta.answersMeasured} ANSWERS MEASURED
                 {report.meta.answers !== report.meta.answersMeasured
@@ -796,7 +788,7 @@ export function OverviewReport({ report }) {
               letterSpacing: '-.02em', margin: '14px 0 0', color: 'var(--text)',
             }}
             >
-              {namedValue === null ? 'No AI answers measured yet.' : (
+              {namedValue === null ? emptyHeadline(report) : (
                 <>
                   {stage ? <>You’re <span style={{ color: accent }}>{stage.label.toLowerCase()}</span> — </> : null}
                   {mentionPhrase(namedValue)}
@@ -805,11 +797,7 @@ export function OverviewReport({ report }) {
             </h2>
 
             <div style={{ fontSize: 14.5, color: 'var(--text-2)', marginTop: 14, lineHeight: 1.55, maxWidth: 620 }}>
-              {comparable && runnerUp
-                ? `${brandName} ranks #${rank} of the ${ranked.length} brands this project tracks. `
-                  + `The next one, ${runnerUp.name}, comes up in ${runnerUp.namedRate.display} of answers.`
-                : 'This project isn’t tracking any competitors yet, so there’s nothing to compare against — '
-                  + 'add one or two to see how you stack up.'}
+              {standingSentence}
             </div>
             {report.headline.namedByType && report.headline.namedByType.recommendation.answers > 0
               && report.headline.namedByType.informational.answers > 0 && (
@@ -883,7 +871,6 @@ export function OverviewReport({ report }) {
               { key: 'shareOfMentions', label: 'Share of voice', metric: report.headline.shareOfMentions },
               { key: 'citationRate', label: 'Cited as a source', metric: report.headline.citationRate },
               { key: 'mentionRank', label: 'Average position', metric: report.headline.mentionRank },
-              { key: 'groundedRate', label: 'Uses live web search', metric: report.headline.groundedRate },
             ]}
           />
         </div>
@@ -1108,7 +1095,6 @@ export function InsightsReport({ report }) {
             { key: 'namedRate', label: 'Mentioned in AI answers', metric: report.headline.namedRate },
             { key: 'shareOfMentions', label: 'Share of voice', metric: report.headline.shareOfMentions },
             { key: 'mentionRank', label: 'Average position', metric: report.headline.mentionRank },
-            { key: 'groundedRate', label: 'Uses live web search', metric: report.headline.groundedRate },
             { key: 'coverage', label: 'Answers checked', metric: report.meta.coverage },
           ]}
         />
@@ -2645,8 +2631,10 @@ function AnswerPanel({ engine, surfaces, onClose }) {
               }}
             />
           ) : (
-            <span style={{ fontSize: 13, color: '#6B6B6B' }}>
-              No answer could be captured{s.failureReason ? ` — ${s.failureReason}` : ''}.
+            // A plain sentence from the server (runHealth.plainFailure); the
+            // provider's raw error only on hover.
+            <span style={{ fontSize: 13, color: '#6B6B6B' }} title={s.failureDetail || undefined}>
+              {s.failureReason || 'No answer could be captured.'}
             </span>
           )}
         </div>
@@ -2741,7 +2729,8 @@ function EngineVisibilityCard({ e, surfaces, selected, onSelect }) {
   const status = visibilityStatus(e);
   const cited = surfaces.some((s) => s.cited);
   const didNotSearch = surfaces.some((s) => s.grounded === false);
-  const failureReason = surfaces.find((s) => s.failureReason)?.failureReason || null;
+  const failed = surfaces.find((s) => s.failureReason) || null;
+  const failureReason = failed?.failureReason || null;
   return (
     <button
       type="button"
@@ -2805,7 +2794,9 @@ function EngineVisibilityCard({ e, surfaces, selected, onSelect }) {
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
             {cited ? <Tag tone="accent">cited your site</Tag> : null}
             {didNotSearch ? <Tag tone="muted">did not search</Tag> : null}
-            {failureReason ? <Muted size={11}>{failureReason}</Muted> : null}
+            {failureReason ? (
+              <span title={failed?.failureDetail || undefined}><Muted size={11}>{failureReason}</Muted></span>
+            ) : null}
           </div>
         )}
       </div>
@@ -2957,7 +2948,6 @@ export function AnswersReport({ report }) {
           tiles={[
             { key: 'coverage', label: 'Answers measured', metric: report.meta.coverage },
             { key: 'namedRate', label: 'Named in answers', metric: report.headline.namedRate },
-            { key: 'groundedRate', label: 'Answers that searched', metric: report.headline.groundedRate },
             { key: 'citationRate', label: 'Cited as a source', metric: report.headline.citationRate },
           ]}
         />

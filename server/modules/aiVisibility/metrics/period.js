@@ -108,9 +108,16 @@ function split(captures, options = {}) {
   const previous = inPeriod(captures, period.previous);
   const comparison = promptIntersection(current, previous);
 
+  // Only a comparison that exists can have changed. With either window empty
+  // there is nothing to compare, and 'the question set changed' beside 'no
+  // earlier period' was two contradicting notices about one empty window.
   const warnings = [];
-  if (comparison.changed) warnings.push('prompt_set_changed');
-  if (!comparison.comparable) warnings.push('no_comparable_period');
+  if (comparison.changed && comparison.comparable) warnings.push('prompt_set_changed');
+  if (!comparison.comparable && comparison.currentCount > 0) {
+    // Earlier answers exist but share no question with these: that is not
+    // "no earlier period", and saying so would be false.
+    warnings.push(comparison.previousCount > 0 ? 'no_shared_prompts' : 'no_comparable_period');
+  }
 
   return {
     period,

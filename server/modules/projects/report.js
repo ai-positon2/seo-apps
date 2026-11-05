@@ -17,7 +17,6 @@ const ExcelJS = require('exceljs');
 const puppeteer = require('puppeteer-core');
 const chromium = require('@sparticuz/chromium');
 const fs = require('fs');
-const moduleEvidence = require('./moduleEvidence');
 const recommendations = require('./recommendations');
 const overview = require('./overview');
 const insights = require('./insights');
@@ -87,6 +86,344 @@ function titleBlock(sheet, title, subtitle) {
   sheet.addRow([]);
 }
 
+// ── Plain language, shared by all three formats ─────────────────────────────
+
+// The dashboard's own status words (client lib/projectsApi.js
+// MODULE_STATUS_LABEL). A client reading "completed_with_errors" in a report
+// is reading the database, not the audit.
+const STATUS_LABEL = {
+  not_run: 'Not run',
+  running: 'Running',
+  queued: 'Queued',
+  paused: 'Paused',
+  completed: 'Up to date',
+  completed_with_errors: 'Finished with errors',
+  cancelled: 'Cancelled',
+  failed: 'Failed',
+  insufficient_data: 'Nothing to measure',
+  needs_setup: 'Needs setup',
+};
+
+function statusLabel(module) {
+  if (module.profileStale) return 'Profile out of date';
+  if (module.healthPending) return 'Score still being worked out';
+  return STATUS_LABEL[module.status] || humanize(module.status);
+}
+
+/** 'completed_with_errors' -> 'Completed with errors' — raw status/enum values read as code, not prose. */
+function humanize(value) {
+  const s = String(value ?? '').replace(/_/g, ' ');
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+/**
+ * The figure the dashboard card leads with. Competitor Research and AI
+ * Visibility lead with a percentage (`metric`), not their 0-100 score — the
+ * report printed the score ("50") beside a card reading "17% of AI answers".
+ */
+function headlineFigure(module) {
+  const metric = module?.metric;
+  if (metric && metric.display && metric.display !== '—') {
+    return `${metric.display}${metric.unit ? ` ${metric.unit}` : ''}`;
+  }
+  return module?.scored ? `${module.score}/100` : null;
+}
+
+/** Why a module's results are left out of the report, or null. */
+function staleNote(module) {
+  if (!module?.profileStale) return null;
+  const builtFor = module.profileStale.builtFor;
+  return `Profile out of date: it was built for ${builtFor || 'the project’s previous site'}, not this one. `
+    + 'Its results describe that site, so they are left out of this report. Rebuild the profile to measure this one.';
+}
+
+function plural(n, one, many) { return `${n} ${n === 1 ? one : many}`; }
+
+/**
+ * A finding's structured `detail` in words. AI Visibility stores lists
+ * (prompts, competitors, cited domains, topics); JSON.stringify put
+ * '{"prompts":[...]}' in a client's report.
+ */
+function detailText(detail) {
+  if (detail === null || detail === undefined || detail === '') return '';
+  if (typeof detail === 'string') return detail;
+  if (typeof detail !== 'object') return String(detail);
+  const parts = [];
+  const list = (items, cap = 3) => {
+    const shown = items.slice(0, cap);
+    const more = items.length - shown.length;
+    return shown.join('; ') + (more > 0 ? `; and ${more} more` : '');
+  };
+  if (Array.isArray(detail.prompts)) {
+    const prompts = [...new Set(detail.prompts.map((p) => String(p).trim()).filter(Boolean))];
+    if (prompts.length) parts.push(`For example: ${list(prompts.map((p) => `“${p}”`))}`);
+  }
+  if (Array.isArray(detail.competitors)) {
+    const named = detail.competitors.map((c) => (typeof c === 'string' ? c
+      : `${c.name || c.domain || 'a competitor'}${Number.isFinite(c.prompts) ? ` named in ${plural(c.prompts, 'prompt', 'prompts')}` : ''}`));
+    if (named.length) parts.push(list(named, 5));
+  }
+  if (Array.isArray(detail.domains)) {
+    const cited = detail.domains.map((d) => (typeof d === 'string' ? d
+      : `${d.domain || d.name || 'a site'}${Number.isFinite(d.prompts) ? ` (${plural(d.prompts, 'prompt', 'prompts')})` : ''}`));
+    if (cited.length) parts.push(`Cited: ${list(cited, 5)}`);
+  }
+  if (Array.isArray(detail.topics)) {
+    const topics = detail.topics.map((t) => (typeof t === 'string' ? t
+      : `${t.topic || 'a topic'}${t.targetUrl ? ` (${t.targetUrl})` : ''}`
+        + `${Array.isArray(t.competitorsNamed) && t.competitorsNamed.length ? `: ${t.competitorsNamed.join(', ')} named instead` : ''}`));
+    if (topics.length) parts.push(list(topics));
+  }
+  if (parts.length) return parts.join('. ');
+  // Anything else: its fields, in words, never as code.
+  return Object.entries(detail)
+    .filter(([, v]) => v !== null && v !== undefined && v !== '')
+    .map(([k, v]) => {
+      const label = humanize(k.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase());
+      if (Array.isArray(v)) return `${label}: ${list(v.map((x) => (x && typeof x === 'object' ? Object.values(x).filter((y) => typeof y !== 'object').join(' ') : String(x))), 5)}`;
+      if (typeof v === 'object') return `${label}: ${Object.values(v).filter((y) => typeof y !== 'object').join(', ')}`;
+      return `${label}: ${v}`;
+    })
+    .join('. ');
+}
+
+// ── Tech Audit, from the crawl the card reads ───────────────────────────────
+
+// How many issues a report lists. The full list is the Site Crawler's own
+// export; this is what the card's numbers are made of, worst first.
+const TECH_ISSUE_CAP = 25;
+const SEVERITY_ORDER = { error: 0, warning: 1, notice: 2, info: 3 };
+
+/**
+ * The Tech Audit section's data: the dashboard card (its Site Health score and
+ * headline), and the latest finished crawl's issues — the rules that cost
+ * points first, then by severity and by how many scored pages each is on.
+ * Read from the same cached aggregates as the card (overview.costingRulePages).
+ */
+async function techAuditData(modules) {
+  const card = (modules || []).find((m) => m.key === 'technical');
+  const runId = card ? (card.evidence ? card.runId : card.previousRunId) : null;
+  if (!card || !runId) return null;
+  const [rollup, costing] = await Promise.all([
+    overview.findingsForRun(runId).catch((e) => {
+      console.error('[projects.report.techFindings]', e.message);
+      return [];
+    }),
+    overview.costingRulePages(runId),
+  ]);
+  return techAuditRows(card, rollup, costing);
+}
+
+/** Pure: the rows, given the card, the per-rule rollup and the costing map. */
+function techAuditRows(card, rollup, costing) {
+  const issues = (rollup || [])
+    .filter((f) => f.severity in SEVERITY_ORDER && f.severity !== 'info')
+    .map((f) => {
+      const cost = costing?.get?.(f.rule_id) || null;
+      return {
+        ruleId: f.rule_id,
+        title: f.detail?.title || f.rule_id,
+        severity: f.severity,
+        category: f.category || '',
+        findings: Number(f.count) || 0,
+        costsPoints: costing ? Boolean(cost) : null,
+        pages: cost ? (cost.siteLevel ? null : cost.pages.size) : null,
+        siteLevel: cost?.siteLevel || null,
+      };
+    })
+    .sort((a, b) => (Number(b.costsPoints) - Number(a.costsPoints))
+      || (SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
+      || ((b.pages || 0) - (a.pages || 0))
+      || (b.findings - a.findings));
+  return { card, issues: issues.slice(0, TECH_ISSUE_CAP), total: issues.length };
+}
+
+function techScoreLine(card) {
+  if (card.healthPending) return 'Site Health is still being worked out for this crawl.';
+  return card.scored ? `Site Health ${card.score}/100` : 'Site Health not scored for this crawl';
+}
+
+function techPagesCell(issue) {
+  if (issue.siteLevel) return 'site-wide';
+  if (issue.pages === null) return issue.costsPoints === false ? 'none scored' : '—';
+  return issue.pages;
+}
+
+function techCostCell(issue) {
+  if (issue.costsPoints === null) return '—';
+  return issue.costsPoints ? 'yes' : 'no';
+}
+
+// ── Hub and Spoke structure, from the analysis the card reads ───────────────
+
+const STRUCTURE_CLUSTER_CAP = 50;
+
+/**
+ * The Content Architect analysis behind the Hub and Spoke card: its page and
+ * cluster counts, and the clusters themselves. The report used to read
+ * `payload.structure`, which the Content Architect-based run never writes —
+ * and which the evidence rows do not load anyway — so every field printed as
+ * blank or "undefined". Null when there is no saved analysis.
+ */
+async function hubSpokeStructure(projectId) {
+  const db = require('../../services/db');
+  const [row] = await db.rows(
+    `select a.updated_at,
+            jsonb_array_length(coalesce(a.data->'pages', '[]'::jsonb)) as pages,
+            jsonb_array_length(coalesce(a.data->'clusters', '[]'::jsonb)) as clusters,
+            jsonb_array_length(coalesce(a.data->'unassignedPages', '[]'::jsonb)) as unassigned,
+            (select count(*) from jsonb_array_elements(coalesce(a.data->'clusters', '[]'::jsonb)) c
+              where (c->>'isGap')::boolean)::int as gaps,
+            (select round(avg(coalesce((c->>'health')::numeric, 0)))
+               from jsonb_array_elements(coalesce(a.data->'clusters', '[]'::jsonb)) c)::int as mean_health,
+            (select coalesce(json_agg(x), '[]'::json) from (
+               select c->>'name' as name,
+                      (c->>'health')::numeric as health,
+                      coalesce((c->>'isGap')::boolean, false) as gap,
+                      jsonb_array_length(coalesce(c->'spokeIds', '[]'::jsonb)) as spokes,
+                      (select p->>'url' from jsonb_array_elements(coalesce(a.data->'pages', '[]'::jsonb)) p
+                        where p->>'id' = c->>'hubPageId' limit 1) as hub
+                 from jsonb_array_elements(coalesce(a.data->'clusters', '[]'::jsonb)) c
+                limit $2) x) as cluster_rows
+       from content_architect_projects ca
+       join content_architect_artifacts a on a.project_id = ca.id and a.kind = 'full_analysis'
+      where ca.platform_project_id = $1
+      order by a.updated_at desc
+      limit 1`,
+    [projectId, STRUCTURE_CLUSTER_CAP],
+  );
+  if (!row) return null;
+  return {
+    savedAt: row.updated_at,
+    pages: Number(row.pages) || 0,
+    clusters: Number(row.clusters) || 0,
+    gaps: Number(row.gaps) || 0,
+    unassigned: Number(row.unassigned) || 0,
+    meanHealth: Number.isFinite(row.mean_health) ? row.mean_health : null,
+    clusterRows: (Array.isArray(row.cluster_rows) ? row.cluster_rows : [])
+      .sort((a, b) => (Number(b.spokes) || 0) - (Number(a.spokes) || 0)),
+  };
+}
+
+/** The structure section's content, the same for every format. */
+function structureContent(run, structure) {
+  if (!run) return null;
+  if (run.status === 'insufficient_data') {
+    return { note: run.payload?.note || run.note || 'No completed crawl with a stored link graph for this project yet.' };
+  }
+  if (!structure) {
+    return {
+      note: 'This Hub and Spoke result has no saved Content Architect analysis to summarise. '
+        + 'Open Hub and Spoke for the clusters.',
+    };
+  }
+  const day = structure.savedAt ? new Date(structure.savedAt).toISOString().slice(0, 10) : null;
+  return {
+    subtitle: `${plural(structure.pages, 'page', 'pages')} analysed · ${plural(structure.clusters, 'topic cluster', 'topic clusters')}`
+      + (day ? ` · analysis saved ${day}` : ''),
+    measures: [
+      ['Pages analysed', structure.pages, 'Informational pages the analysis grouped into topics.'],
+      ['Topic clusters', structure.clusters, 'Groups of pages about one topic.'],
+      ['Clusters with no hub', structure.gaps, 'Topics with several pages but no single page that covers them broadly.'],
+      ['Pages not in any topic', structure.unassigned, 'Pages the analysis could not place in a cluster.'],
+      ['Mean cluster health', structure.meanHealth === null ? 'Not scored' : `${structure.meanHealth}/100`,
+        'The Hub and Spoke score: the average of every cluster’s health.'],
+    ],
+    clusters: structure.clusterRows.map((c) => [
+      c.name || 'Unnamed cluster',
+      c.gap ? 'No hub yet' : (c.hub || '—'),
+      Number(c.spokes) || 0,
+      Number.isFinite(Number(c.health)) && c.health !== null ? Math.round(Number(c.health)) : '—',
+    ]),
+    clustersCapped: structure.clusters > structure.clusterRows.length,
+  };
+}
+
+/** The card's percentage, when it leads with one and has a value. */
+function profileMetric(module) {
+  const metric = module?.metric;
+  return metric && metric.display && metric.display !== '—' ? metric : null;
+}
+
+/**
+ * One audit-profile row, the same in every format: the figure the card leads
+ * with (a percentage for Competitor Research and AI Visibility, labelled; the
+ * 0-100 score otherwise), the status in the dashboard's words.
+ */
+function profileCells(module) {
+  const counts = module.evidence?.counts || {};
+  const metric = profileMetric(module);
+  const stale = staleNote(module);
+  let score;
+  let outOf;
+  let basis;
+  if (stale) {
+    score = 'Not scored';
+    outOf = '';
+    basis = stale;
+  } else if (metric) {
+    score = metric.display;
+    outOf = '';
+    basis = `${metric.unit ? `${metric.unit[0].toUpperCase()}${metric.unit.slice(1)}` : 'A percentage'}, the figure the dashboard card shows.`
+      + (module.scored ? ` Its 0–100 score is ${module.score}: ${module.scoreBasis || 'the module’s own score'}.` : '');
+  } else if (module.scored) {
+    score = module.score;
+    outOf = 100;
+    basis = module.scoreBasis || 'the module reported a score without naming its basis';
+  } else {
+    score = 'Not scored';
+    outOf = '';
+    basis = module.healthPending
+      ? 'The site crawl’s health score was still being worked out when this report was made.'
+      : 'This module reports findings, not a 0–100 score.';
+  }
+  return [
+    module.label,
+    statusLabel(module),
+    score,
+    outOf,
+    basis,
+    stale ? '' : (counts.error ?? ''),
+    stale ? '' : (counts.warning ?? ''),
+    stale ? '' : (counts.notice ?? ''),
+    module.updatedAt ? new Date(module.updatedAt).toISOString().slice(0, 16).replace('T', ' ') : 'never',
+  ];
+}
+
+/** Coverage: [covered?, why], the same in every format. */
+function coverageCells(module) {
+  if (module.profileStale) return ['no', staleNote(module)];
+  const covered = Boolean(module.evidence) || module.status === 'insufficient_data';
+  if (!covered) return ['no', 'Never run against this project, so nothing here reflects it.'];
+  return ['yes', module.status === 'insufficient_data'
+    ? 'Ran, but had nothing it could measure for this project.'
+    : `Stored evidence from ${module.updatedAt ? new Date(module.updatedAt).toISOString().slice(0, 10) : 'an earlier run'}.`];
+}
+
+/** The findings a report may show for a module: none for a stale profile. */
+function reportableFindings(run, card) {
+  if (card?.profileStale) return [];
+  return Array.isArray(run?.findings) ? run.findings : [];
+}
+
+/** A findings section's subtitle, leading with the card's own figure. */
+function findingsSubtitle(run, card) {
+  const figure = card ? headlineFigure(card) : (run.score !== null && run.score !== undefined ? `Score ${run.score}` : null);
+  return [
+    run.target_url ? `Audited ${run.target_url}` : null,
+    run.finished_at ? `on ${new Date(run.finished_at).toISOString().slice(0, 16).replace('T', ' ')}` : null,
+    card && figure ? `Dashboard figure ${figure}` : figure,
+  ].filter(Boolean).join(' · ');
+}
+
+/** What a findings section says when it has none to list. */
+function noFindingsText(run, card) {
+  return staleNote(card) || (run.status === 'insufficient_data'
+    ? 'This module ran and found nothing it could measure for this project. That is a real '
+      + 'result, not a missing one.'
+    : 'This module ran and reported no findings at error, warning or notice level.');
+}
+
 /**
  * The audit profile: one row per module, with the score ONLY where the module
  * computes one, and the basis for it alongside.
@@ -114,21 +451,8 @@ function addProfileSheet(book, { project, modules, composite }) {
   );
 
   for (const module of modules) {
-    const counts = module.evidence?.counts || {};
-    const row = sheet.addRow([
-      module.label,
-      module.status === 'insufficient_data' ? 'Nothing to measure' : module.status,
-      module.scored ? module.score : 'Not scored',
-      module.scored ? 100 : '',
-      module.scored
-        ? (module.scoreBasis || 'the module reported a score without naming its basis')
-        : 'This module reports findings, not a 0–100 score.',
-      counts.error ?? '',
-      counts.warning ?? '',
-      counts.notice ?? '',
-      module.updatedAt ? new Date(module.updatedAt).toISOString().slice(0, 16).replace('T', ' ') : 'never',
-    ]);
-    if (!module.scored) {
+    const row = sheet.addRow(profileCells(module));
+    if (!module.scored && !profileMetric(module)) {
       row.getCell(3).font = { italic: true, color: { argb: MUTED } };
       row.getCell(5).font = { italic: true, color: { argb: MUTED } };
     }
@@ -153,16 +477,21 @@ function addProfileSheet(book, { project, modules, composite }) {
 }
 
 /** One sheet of findings per module that has any. */
-function addFindingsSheets(book, evidenceByModule) {
+// `modules` are the dashboard's cards, when the caller has them: the section
+// leads with the card's figure and a stale AI Visibility profile lists nothing.
+// The Tech Audit is not here: its findings live in the crawl, not in a module
+// run (addTechAuditSheet).
+function addFindingsSheets(book, evidenceByModule, modules = []) {
   let added = 0;
 
   for (const module of overview.MODULES) {
-    if (module.key === 'technical') continue;   // CrawlScope has its own workbook
+    if (module.key === 'technical') continue;   // addTechAuditSheet
     const entry = evidenceByModule.get(module.key);
     const run = entry?.terminal;
     if (!run) continue;
+    const card = modules.find((m) => m.key === module.key) || null;
 
-    const findings = Array.isArray(run.findings) ? run.findings : [];
+    const findings = reportableFindings(run, card);
     // Excel sheet names are capped at 31 chars and cannot contain : \\ / ? * [ ]
     const name = module.label.replace(/[:\\/?*[\]]/g, '').slice(0, 28);
     const sheet = book.addWorksheet(name);
@@ -170,18 +499,11 @@ function addFindingsSheets(book, evidenceByModule) {
     titleBlock(
       sheet,
       `${module.label} — ${findings.length} finding${findings.length === 1 ? '' : 's'}`,
-      [
-        run.target_url ? `Audited ${run.target_url}` : null,
-        run.finished_at ? `on ${new Date(run.finished_at).toISOString().slice(0, 16).replace('T', ' ')}` : null,
-        run.score !== null && run.score !== undefined ? `Score ${run.score}` : null,
-      ].filter(Boolean).join(' · '),
+      findingsSubtitle(run, card),
     );
 
     if (!findings.length) {
-      note(sheet, run.status === 'insufficient_data'
-        ? 'This module ran and found nothing it could measure for this project. That is a real '
-          + 'result, not a missing one.'
-        : 'This module ran and reported no findings at error, warning or notice level.');
+      note(sheet, noFindingsText(run, card));
       added += 1;
       continue;
     }
@@ -196,7 +518,7 @@ function addFindingsSheets(book, evidenceByModule) {
     for (const f of [...findings].sort((a, b) => (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9) || b.count - a.count)) {
       const row = sheet.addRow([
         f.severity, f.title, f.category || '', f.count,
-        typeof f.detail === 'string' ? f.detail : (f.detail ? JSON.stringify(f.detail) : ''),
+        detailText(f.detail),
         f.recommendation || '',
       ]);
       row.getCell(1).fill = {
@@ -213,66 +535,87 @@ function addFindingsSheets(book, evidenceByModule) {
   return added;
 }
 
-/** Hub-and-spoke structure, when a run stored one. */
-function addStructureSheet(book, evidenceByModule) {
+/**
+ * Hub-and-spoke structure: the Content Architect analysis the card reads
+ * (hubSpokeStructure), or a sentence saying why there is none.
+ *
+ * @param {object|null} structure  hubSpokeStructure's answer
+ */
+function addStructureSheet(book, evidenceByModule, structure = null) {
   const run = evidenceByModule.get('hub_spoke')?.terminal;
-  if (!run) return null;
+  const content = structureContent(run, structure);
+  if (!content) return null;
 
   const sheet = book.addWorksheet('Site structure');
-  const payload = run.payload || {};
-  const structure = payload.structure || {};
+  titleBlock(sheet, 'Topic structure (Hub and Spoke)', content.subtitle || null);
 
-  titleBlock(
-    sheet,
-    'Internal link structure',
-    run.status === 'insufficient_data'
-      ? 'No link graph was available'
-      : `${structure.pagesAnalyzed || 0} pages · ${structure.edgeCount || 0} internal links`,
-  );
-
-  if (run.status === 'insufficient_data') {
+  if (content.note) {
     // The evidence rows come from latestByModule, which projects the note out
     // of the payload rather than loading the payload itself — so `run.note` is
     // where the run's own explanation (e.g. too few informational pages) is.
-    note(sheet, payload.note || run.note || 'No completed crawl with a stored link graph for this project yet.');
+    note(sheet, content.note);
     return sheet;
   }
 
   headerRow(sheet, ['Measure', 'Value', 'What it means'], { width: [28, 12, 80] });
-  const rows = [
-    ['Pages analysed', structure.pagesAnalyzed, 'Internal pages the crawl reached.'],
-    ['Internal links', structure.edgeCount, 'Link edges between those pages.'],
-    ['Topic hubs', structure.hubCount, `Pages linking to at least ${structure.hubMinOutlinks} others, excluding site-wide navigation.`],
-    ['Navigation hubs', structure.navigationHubCount, `Pages linking to ${Math.round((structure.navigationLinkShare || 0) * 100)}%+ of the site — header, footer or sitemap rather than a topic grouping.`],
-    ['Clusters', structure.clusterCount, 'Topic hubs that actually have spokes.'],
-    ['Orphans', structure.orphanCount, 'Pages nothing internal links to.'],
-    ['Unclustered', structure.unclusteredCount, 'Linked, but only from navigation.'],
-  ];
-  for (const r of rows) {
+  for (const r of content.measures) {
     const row = sheet.addRow(r);
     row.getCell(3).alignment = { wrapText: true, vertical: 'top' };
     row.getCell(3).font = { color: { argb: MUTED }, size: 10 };
   }
 
-  if (structure.navigationTestApplied === false) {
+  if (content.clusters.length) {
     sheet.addRow([]);
-    note(sheet,
-      'This site has too few pages for the navigation test to be meaningful, so every wide-linking '
-      + 'page was treated as a topic hub.');
-  }
-
-  if ((payload.clusters || []).length) {
-    sheet.addRow([]);
-    headerRow(sheet, ['Hub', 'Spokes', 'Linked from', 'Example spokes'], { width: [46, 9, 12, 80] });
-    for (const cluster of payload.clusters) {
-      const row = sheet.addRow([
-        cluster.hub, cluster.spokes.length, cluster.inboundCount,
-        cluster.spokes.slice(0, 8).join(', '),
-      ]);
-      row.getCell(4).alignment = { wrapText: true, vertical: 'top' };
+    headerRow(sheet, ['Cluster', 'Hub page', 'Spokes', 'Health'], { width: [40, 70, 9, 9] });
+    for (const r of content.clusters) {
+      const row = sheet.addRow(r);
+      row.getCell(2).alignment = { wrapText: true, vertical: 'top' };
+    }
+    if (content.clustersCapped) {
+      note(sheet, `The ${STRUCTURE_CLUSTER_CAP} largest clusters are listed; Hub and Spoke has the rest.`);
     }
   }
 
+  return sheet;
+}
+
+/**
+ * Tech Audit: the card's Site Health and the latest crawl's issues, worst first.
+ *
+ * @param {object|null} tech  techAuditData's answer
+ */
+function addTechAuditSheet(book, tech) {
+  if (!tech) return null;
+  const { card, issues, total } = tech;
+  const sheet = book.addWorksheet('Tech Audit');
+  titleBlock(sheet, `Tech Audit — ${techScoreLine(card)}`, [card.headline, card.coverage].filter(Boolean).join(' · '));
+  if (card.detail) note(sheet, card.detail);
+  sheet.addRow([]);
+
+  if (!issues.length) {
+    note(sheet, 'The latest crawl reported no error, warning or notice findings.');
+    return sheet;
+  }
+
+  headerRow(
+    sheet,
+    ['Severity', 'Issue', 'Category', 'Costs points', 'Scored pages affected', 'Findings listed'],
+    { width: [11, 56, 20, 13, 20, 14] },
+  );
+  for (const issue of issues) {
+    const row = sheet.addRow([
+      issue.severity, issue.title, issue.category, techCostCell(issue), techPagesCell(issue), issue.findings,
+    ]);
+    row.getCell(1).fill = {
+      type: 'pattern', pattern: 'solid',
+      fgColor: { argb: SEVERITY_FILL[issue.severity] || SEVERITY_FILL.notice },
+    };
+  }
+  if (total > issues.length) {
+    sheet.addRow([]);
+    note(sheet, `The ${issues.length} issues that cost the most are listed, of ${total}. `
+      + 'The Site Crawler report has every one, page by page.');
+  }
   return sheet;
 }
 
@@ -337,18 +680,10 @@ function addCoverageSheet(book, { modules, generatedAt }) {
   headerRow(sheet, ['Module', 'Covered?', 'Why'], { width: [24, 14, 96] });
 
   for (const module of modules) {
-    const covered = Boolean(module.evidence) || module.status === 'insufficient_data';
-    const row = sheet.addRow([
-      module.label,
-      covered ? 'yes' : 'no',
-      covered
-        ? (module.status === 'insufficient_data'
-          ? 'Ran, but had nothing it could measure for this project.'
-          : `Stored evidence from ${module.updatedAt ? new Date(module.updatedAt).toISOString().slice(0, 10) : 'an earlier run'}.`)
-        : 'Never run against this project, so nothing here reflects it.',
-    ]);
+    const [covered, why] = coverageCells(module);
+    const row = sheet.addRow([module.label, covered, why]);
     row.getCell(3).alignment = { wrapText: true, vertical: 'top' };
-    if (!covered) row.getCell(2).font = { color: { argb: 'FFB3261E' }, bold: true };
+    if (covered === 'no') row.getCell(2).font = { color: { argb: 'FFB3261E' }, bold: true };
   }
 
   sheet.addRow([]);
@@ -370,11 +705,28 @@ async function gather({ access }) {
   const store = require('./store');
   const project = await store.getProject(access.project);
 
-  const [profile, evidenceByModule, recos, backlogBuilt] = await Promise.all([
-    overview.buildOverview({ access }),
-    moduleEvidence.latestByModule(access.project.id),
+  // The evidence comes WITH the overview, after the cards' own freshness rules
+  // (AI Visibility's stale-profile check, Hub and Spoke's Content Architect
+  // analysis) — reading latestByModule separately put results in the file that
+  // the card beside it had set aside. `reuse` takes the build the dashboard
+  // made a moment ago instead of a third one.
+  const [{ overview: profile, evidenceByModule }, recos, backlogBuilt] = await Promise.all([
+    overview.buildOverviewWithEvidence({ access, reuse: true }),
     recommendations.list(access.project.id, { limit: 500 }),
-    insights.buildInsights({ access }),
+    insights.buildInsights({ access, reuse: true }),
+  ]);
+  const hubRun = evidenceByModule.get('hub_spoke')?.terminal;
+  const [tech, structure] = await Promise.all([
+    techAuditData(profile.modules).catch((e) => {
+      console.error('[projects.report.techAudit]', e.message);
+      return null;
+    }),
+    hubRun && hubRun.status !== 'insufficient_data'
+      ? hubSpokeStructure(access.project.id).catch((e) => {
+        console.error('[projects.report.structure]', e.message);
+        return null;
+      })
+      : Promise.resolve(null),
   ]);
 
   // Same composition the dashboard's own Executive Summary card reads —
@@ -386,7 +738,7 @@ async function gather({ access }) {
     backlog: backlogBuilt.backlog,
   });
 
-  return { project, profile, evidenceByModule, recos, executiveSummary };
+  return { project, profile, evidenceByModule, recos, executiveSummary, tech, structure };
 }
 
 function slugify(name) {
@@ -402,7 +754,7 @@ function slugify(name) {
  * @returns {Promise<{buffer: Buffer, filename: string, sheets: string[]}>}
  */
 async function build({ access }) {
-  const { project, profile, evidenceByModule, recos } = await gather({ access });
+  const { project, profile, evidenceByModule, recos, tech, structure } = await gather({ access });
 
   const book = new ExcelJS.Workbook();
   book.creator = 'SEO Studio';
@@ -414,8 +766,9 @@ async function build({ access }) {
     modules: profile.modules,
     composite: profile.composite,
   });
-  addFindingsSheets(book, evidenceByModule);
-  addStructureSheet(book, evidenceByModule);
+  addTechAuditSheet(book, tech);
+  addFindingsSheets(book, evidenceByModule, profile.modules);
+  addStructureSheet(book, evidenceByModule, structure);
   addRecommendationsSheet(book, recos);
   addCoverageSheet(book, {
     modules: profile.modules,
@@ -447,7 +800,7 @@ function mdTable(lines, headers, rows) {
   lines.push('');
 }
 
-function buildMarkdownReport({ project, profile, evidenceByModule, recos, generatedAt }) {
+function buildMarkdownReport({ project, profile, evidenceByModule, recos, generatedAt, tech = null, structure = null }) {
   const lines = [];
 
   lines.push(`# ${project.name}`);
@@ -465,19 +818,9 @@ function buildMarkdownReport({ project, profile, evidenceByModule, recos, genera
     lines,
     ['Module', 'Status', 'Score', 'Basis for the score', 'Errors', 'Warnings', 'Notices', 'Last run'],
     profile.modules.map((module) => {
-      const counts = module.evidence?.counts || {};
-      return [
-        module.label,
-        module.status === 'insufficient_data' ? 'Nothing to measure' : module.status,
-        module.scored ? module.score : 'Not scored',
-        module.scored
-          ? (module.scoreBasis || 'the module reported a score without naming its basis')
-          : 'This module reports findings, not a 0–100 score.',
-        counts.error ?? '',
-        counts.warning ?? '',
-        counts.notice ?? '',
-        module.updatedAt ? new Date(module.updatedAt).toISOString().slice(0, 16).replace('T', ' ') : 'never',
-      ];
+      // Same cells as the workbook, without its "Out of" column.
+      const [label, status, score, outOf, ...rest] = profileCells(module);
+      return [label, status, outOf ? `${score}/${outOf}` : score, ...rest];
     }),
   );
   const { composite } = profile;
@@ -489,28 +832,43 @@ function buildMarkdownReport({ project, profile, evidenceByModule, recos, genera
       + 'omitted, not counted as zero.');
   lines.push('');
 
-  let findingsSheets = 0;
+  if (tech) {
+    const { card, issues, total } = tech;
+    lines.push(`## Tech Audit — ${techScoreLine(card)}`);
+    const sub = [card.headline, card.coverage].filter(Boolean).join(' · ');
+    if (sub) { lines.push(`_${sub}_`); lines.push(''); }
+    if (card.detail) { lines.push(card.detail); lines.push(''); }
+    if (!issues.length) {
+      lines.push('The latest crawl reported no error, warning or notice findings.');
+      lines.push('');
+    } else {
+      mdTable(
+        lines,
+        ['Severity', 'Issue', 'Category', 'Costs points', 'Scored pages affected', 'Findings listed'],
+        issues.map((i) => [i.severity, i.title, i.category, techCostCell(i), techPagesCell(i), i.findings]),
+      );
+      if (total > issues.length) {
+        lines.push(`_The ${issues.length} issues that cost the most are listed, of ${total}. `
+          + 'The Site Crawler report has every one, page by page._');
+        lines.push('');
+      }
+    }
+  }
+
   for (const module of overview.MODULES) {
     if (module.key === 'technical') continue;
     const entry = evidenceByModule.get(module.key);
     const run = entry?.terminal;
     if (!run) continue;
-    findingsSheets += 1;
+    const card = profile.modules.find((m) => m.key === module.key) || null;
 
-    const findings = Array.isArray(run.findings) ? run.findings : [];
+    const findings = reportableFindings(run, card);
     lines.push(`## ${module.label} — ${findings.length} finding${findings.length === 1 ? '' : 's'}`);
-    const subtitle = [
-      run.target_url ? `Audited ${run.target_url}` : null,
-      run.finished_at ? `on ${new Date(run.finished_at).toISOString().slice(0, 16).replace('T', ' ')}` : null,
-      run.score !== null && run.score !== undefined ? `Score ${run.score}` : null,
-    ].filter(Boolean).join(' · ');
+    const subtitle = findingsSubtitle(run, card);
     if (subtitle) { lines.push(`_${subtitle}_`); lines.push(''); }
 
     if (!findings.length) {
-      lines.push(run.status === 'insufficient_data'
-        ? 'This module ran and found nothing it could measure for this project. That is a real '
-          + 'result, not a missing one.'
-        : 'This module ran and reported no findings at error, warning or notice level.');
+      lines.push(noFindingsText(run, card));
       lines.push('');
       continue;
     }
@@ -524,46 +882,28 @@ function buildMarkdownReport({ project, profile, evidenceByModule, recos, genera
       ['Severity', 'Finding', 'Category', 'Affected', 'Detail', 'Recommendation'],
       sorted.map((f) => [
         f.severity, f.title, f.category || '', f.count,
-        typeof f.detail === 'string' ? f.detail : (f.detail ? JSON.stringify(f.detail) : ''),
+        detailText(f.detail),
         f.recommendation || '',
       ]),
     );
   }
 
-  const structRun = evidenceByModule.get('hub_spoke')?.terminal;
-  if (structRun) {
-    lines.push('## Internal link structure');
-    const payload = structRun.payload || {};
-    const structure = payload.structure || {};
-    if (structRun.status === 'insufficient_data') {
-      lines.push(payload.note || structRun.note || 'No completed crawl with a stored link graph for this project yet.');
+  const struct = structureContent(evidenceByModule.get('hub_spoke')?.terminal, structure);
+  if (struct) {
+    lines.push('## Topic structure (Hub and Spoke)');
+    if (struct.note) {
+      lines.push(struct.note);
       lines.push('');
     } else {
-      lines.push(`${structure.pagesAnalyzed || 0} pages · ${structure.edgeCount || 0} internal links`);
+      lines.push(struct.subtitle);
       lines.push('');
-      mdTable(lines, ['Measure', 'Value', 'What it means'], [
-        ['Pages analysed', structure.pagesAnalyzed, 'Internal pages the crawl reached.'],
-        ['Internal links', structure.edgeCount, 'Link edges between those pages.'],
-        ['Topic hubs', structure.hubCount,
-          `Pages linking to at least ${structure.hubMinOutlinks} others, excluding site-wide navigation.`],
-        ['Navigation hubs', structure.navigationHubCount,
-          `Pages linking to ${Math.round((structure.navigationLinkShare || 0) * 100)}%+ of the site — `
-          + 'header, footer or sitemap rather than a topic grouping.'],
-        ['Clusters', structure.clusterCount, 'Topic hubs that actually have spokes.'],
-        ['Orphans', structure.orphanCount, 'Pages nothing internal links to.'],
-        ['Unclustered', structure.unclusteredCount, 'Linked, but only from navigation.'],
-      ]);
-      if (structure.navigationTestApplied === false) {
-        lines.push(
-          'This site has too few pages for the navigation test to be meaningful, so every '
-          + 'wide-linking page was treated as a topic hub.',
-        );
-        lines.push('');
-      }
-      if ((payload.clusters || []).length) {
-        mdTable(lines, ['Hub', 'Spokes', 'Linked from', 'Example spokes'], payload.clusters.map((c) => [
-          c.hub, c.spokes.length, c.inboundCount, c.spokes.slice(0, 8).join(', '),
-        ]));
+      mdTable(lines, ['Measure', 'Value', 'What it means'], struct.measures);
+      if (struct.clusters.length) {
+        mdTable(lines, ['Cluster', 'Hub page', 'Spokes', 'Health'], struct.clusters);
+        if (struct.clustersCapped) {
+          lines.push(`_The ${STRUCTURE_CLUSTER_CAP} largest clusters are listed; Hub and Spoke has the rest._`);
+          lines.push('');
+        }
       }
     }
   }
@@ -593,18 +933,7 @@ function buildMarkdownReport({ project, profile, evidenceByModule, recos, genera
 
   lines.push('## What this report covers');
   lines.push('');
-  mdTable(lines, ['Module', 'Covered?', 'Why'], profile.modules.map((module) => {
-    const covered = Boolean(module.evidence) || module.status === 'insufficient_data';
-    return [
-      module.label,
-      covered ? 'yes' : 'no',
-      covered
-        ? (module.status === 'insufficient_data'
-          ? 'Ran, but had nothing it could measure for this project.'
-          : `Stored evidence from ${module.updatedAt ? new Date(module.updatedAt).toISOString().slice(0, 10) : 'an earlier run'}.`)
-        : 'Never run against this project, so nothing here reflects it.',
-    ];
-  }));
+  mdTable(lines, ['Module', 'Covered?', 'Why'], profile.modules.map((module) => [module.label, ...coverageCells(module)]));
   lines.push(
     '_Every figure in this document is read from stored rows. Nothing was measured while the '
     + 'report was produced, and no score was computed here — each score is the one its own module '
@@ -652,12 +981,6 @@ const STATUS_TONE = { approved: TONE.good, shipped: TONE.good, proposed: TONE.wa
 
 function tone(map, key, fallback = TONE.neutral) { return map[key] || fallback; }
 
-/** 'completed_with_errors' -> 'Completed with errors' — raw status/enum values read as code, not prose. */
-function humanize(value) {
-  const s = String(value ?? '').replace(/_/g, ' ');
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
-}
-
 /**
  * A finding's `detail` field is a plain string a module wrote for a wide
  * table cell — often a comma-joined list of every affected URL, which reads
@@ -675,7 +998,7 @@ function humanize(value) {
  *      say how many more.
  */
 function formatDetail(detail) {
-  if (typeof detail !== 'string') return detail ? JSON.stringify(detail) : '';
+  if (typeof detail !== 'string') return detailText(detail);
   if (!detail) return '';
 
   let text = detail.replace(
@@ -707,6 +1030,8 @@ function formatDetail(detail) {
  * that wins whenever there's a real status to report instead of a gap.
  */
 function moduleStatusLine(module) {
+  if (module.profileStale) return 'Profile out of date — results left out';
+  if (module.healthPending) return 'Score still being worked out';
   if (module.status === 'insufficient_data') return 'Nothing to measure';
   if (module.status === 'not_run') return 'Not run yet';
   if (module.status === 'failed') return 'Failed — see findings below';
@@ -746,7 +1071,7 @@ function kpi(label, value, sub) {
     + `${sub ? `<span class="kpi-sub">${escapeHtml(sub)}</span>` : ''}</div>`;
 }
 
-function buildReportHtml({ project, profile, evidenceByModule, recos, executiveSummary, generatedAt }) {
+function buildReportHtml({ project, profile, evidenceByModule, recos, executiveSummary, generatedAt, tech = null, structure = null }) {
   const domain = project.primaryDomain?.origin || project.legacyUrl || 'no primary domain';
   const { verdict, standing, leverage, priorities, confidence } = executiveSummary;
   const sections = [];
@@ -826,13 +1151,13 @@ function buildReportHtml({ project, profile, evidenceByModule, recos, executiveS
       <h2>Score by module</h2>
       <div class="module-grid">
         ${profile.modules.map((module) => {
-          const counts = module.evidence?.counts || {};
+          const counts = module.profileStale ? {} : (module.evidence?.counts || {});
           const scoreColor = !module.scored ? TONE.neutral : module.score >= 80 ? TONE.good : module.score >= 60 ? TONE.warn : TONE.risk;
           return `
             <div class="module-tile">
               <div class="module-tile-top">
                 <span class="module-tile-label">${escapeHtml(module.label)}</span>
-                <span class="module-tile-score" style="color:${scoreColor}">${module.scored ? module.score : '—'}</span>
+                <span class="module-tile-score" style="color:${scoreColor}">${escapeHtml(profileMetric(module) && !module.profileStale ? module.metric.display : (module.scored ? module.score : '—'))}</span>
               </div>
               <div class="module-tile-status">${escapeHtml(moduleStatusLine(module))}</div>
               <div class="module-tile-counts">
@@ -848,18 +1173,37 @@ function buildReportHtml({ project, profile, evidenceByModule, recos, executiveS
     </section>
   `);
 
+  // ── Tech Audit ──────────────────────────────────────────────────────────
+  if (tech) {
+    const { card, issues, total } = tech;
+    sections.push(`
+      <section class="pagebreak">
+        <div class="eyebrow">Tech Audit</div>
+        <h2>${escapeHtml(techScoreLine(card))}</h2>
+        ${card.headline ? `<p class="lead-sub">${escapeHtml(card.headline)}</p>` : ''}
+        ${card.coverage ? `<p class="muted">${escapeHtml(card.coverage)}</p>` : ''}
+        ${card.detail ? `<p class="muted small">${escapeHtml(card.detail)}</p>` : ''}
+        ${issues.length
+          ? htmlTable(['Severity', 'Issue', 'Costs points', 'Scored pages affected', 'Findings listed'],
+            issues.map((i) => [humanize(i.severity), i.title, techCostCell(i), techPagesCell(i), i.findings]),
+            { className: 'data-table' })
+          : '<p class="muted">The latest crawl reported no error, warning or notice findings.</p>'}
+        ${total > issues.length
+          ? `<p class="muted small">The ${issues.length} issues that cost the most are listed, of ${total}. The Site Crawler report has every one, page by page.</p>`
+          : ''}
+      </section>
+    `);
+  }
+
   // ── Per-module deep dives ───────────────────────────────────────────────
   for (const module of overview.MODULES) {
     if (module.key === 'technical') continue;
     const entry = evidenceByModule.get(module.key);
     const run = entry?.terminal;
     if (!run) continue;
-    const findings = Array.isArray(run.findings) ? run.findings : [];
-    const subtitle = [
-      run.target_url ? `Audited ${run.target_url}` : null,
-      run.finished_at ? `on ${new Date(run.finished_at).toISOString().slice(0, 16).replace('T', ' ')}` : null,
-      run.score !== null && run.score !== undefined ? `Score ${run.score}` : null,
-    ].filter(Boolean).join(' · ');
+    const card = profile.modules.find((m) => m.key === module.key) || null;
+    const findings = reportableFindings(run, card);
+    const subtitle = findingsSubtitle(run, card);
 
     sections.push(`
       <section class="pagebreak">
@@ -869,9 +1213,7 @@ function buildReportHtml({ project, profile, evidenceByModule, recos, executiveS
     `);
 
     if (!findings.length) {
-      sections.push(`<p class="muted">${escapeHtml(run.status === 'insufficient_data'
-        ? 'This module ran and found nothing it could measure for this project. That is a real result, not a missing one.'
-        : 'This module ran and reported no findings at error, warning or notice level.')}</p></section>`);
+      sections.push(`<p class="muted">${escapeHtml(noFindingsText(run, card))}</p></section>`);
       continue;
     }
 
@@ -897,28 +1239,21 @@ function buildReportHtml({ project, profile, evidenceByModule, recos, executiveS
   }
 
   // ── Site structure ──────────────────────────────────────────────────────
-  const structRun = evidenceByModule.get('hub_spoke')?.terminal;
-  if (structRun) {
-    sections.push('<section class="pagebreak"><div class="eyebrow">Content Architecture</div><h2>Internal link structure</h2>');
-    const payload = structRun.payload || {};
-    const structure = payload.structure || {};
-    if (structRun.status === 'insufficient_data') {
-      sections.push(`<p class="muted">${escapeHtml(payload.note || structRun.note || 'No completed crawl with a stored link graph for this project yet.')}</p></section>`);
+  const struct = structureContent(evidenceByModule.get('hub_spoke')?.terminal, structure);
+  if (struct) {
+    sections.push('<section class="pagebreak"><div class="eyebrow">Content Architecture</div><h2>Topic structure (Hub and Spoke)</h2>');
+    if (struct.note) {
+      sections.push(`<p class="muted">${escapeHtml(struct.note)}</p></section>`);
     } else {
-      sections.push(`<p class="lead-sub">${structure.pagesAnalyzed || 0} pages · ${structure.edgeCount || 0} internal links</p>`);
+      sections.push(`<p class="lead-sub">${escapeHtml(struct.subtitle)}</p>`);
       sections.push(`<div class="module-grid">
-        ${[
-          ['Topic hubs', structure.hubCount, `Link to ${structure.hubMinOutlinks}+ others`],
-          ['Navigation hubs', structure.navigationHubCount, 'Header/footer/sitemap'],
-          ['Clusters', structure.clusterCount, 'Hubs that have spokes'],
-          ['Orphans', structure.orphanCount, 'No inbound internal link'],
-          ['Unclustered', structure.unclusteredCount, 'Linked only from nav'],
-        ].map(([label, value, sub]) => kpi(label, String(value ?? '—'), sub)).join('')}
+        ${struct.measures.map(([label, value, sub]) => kpi(label, String(value ?? '—'), sub)).join('')}
       </div>`);
-      if ((payload.clusters || []).length) {
-        sections.push(htmlTable(['Hub', 'Spokes', 'Linked from', 'Example spokes'], payload.clusters.map((c) => [
-          c.hub, c.spokes.length, c.inboundCount, c.spokes.slice(0, 8).join(', '),
-        ]), { className: 'data-table' }));
+      if (struct.clusters.length) {
+        sections.push(htmlTable(['Cluster', 'Hub page', 'Spokes', 'Health'], struct.clusters, { className: 'data-table' }));
+        if (struct.clustersCapped) {
+          sections.push(`<p class="muted small">The ${STRUCTURE_CLUSTER_CAP} largest clusters are listed; Hub and Spoke has the rest.</p>`);
+        }
       }
       sections.push('</section>');
     }
@@ -958,17 +1293,7 @@ function buildReportHtml({ project, profile, evidenceByModule, recos, executiveS
     <section class="pagebreak">
       <div class="eyebrow">Coverage</div>
       <h2>What this report does not cover</h2>
-      ${htmlTable(['Module', 'Covered?', 'Why'], profile.modules.map((module) => {
-        const covered = Boolean(module.evidence) || module.status === 'insufficient_data';
-        return [
-          module.label, covered ? 'yes' : 'no',
-          covered
-            ? (module.status === 'insufficient_data'
-              ? 'Ran, but had nothing it could measure for this project.'
-              : `Stored evidence from ${module.updatedAt ? new Date(module.updatedAt).toISOString().slice(0, 10) : 'an earlier run'}.`)
-            : 'Never run against this project, so nothing here reflects it.',
-        ];
-      }), { className: 'data-table' })}
+      ${htmlTable(['Module', 'Covered?', 'Why'], profile.modules.map((module) => [module.label, ...coverageCells(module)]), { className: 'data-table' })}
       <p class="muted small" style="margin-top:14px;">Every figure in this report is read from stored rows. Nothing was
         measured while the report was produced, and no score was computed here — each score is the one its own module
         calculated, with its basis stated on the Audit Profile page.</p>
@@ -1095,4 +1420,12 @@ module.exports = {
   addStructureSheet,
   addRecommendationsSheet,
   addCoverageSheet,
+  addTechAuditSheet,
+  // The pure builders behind the three formats, for the tests.
+  buildMarkdownReport,
+  buildReportHtml,
+  detailText,
+  techAuditRows,
+  structureContent,
+  profileCells,
 };

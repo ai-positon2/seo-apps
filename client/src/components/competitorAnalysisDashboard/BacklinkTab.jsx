@@ -1,7 +1,7 @@
 import { Card } from '../../ui/Card';
 import { Badge } from '../../ui/Badge';
 import { DataTable } from '../../ui/DataTable';
-import { fmtNum, domainLabel } from './utils';
+import { fmtNum, domainLabel, unlessFailed } from './utils';
 import { RankedBarChart } from './charts/RankedBarChart';
 import { ScoreCompare } from './charts/ScoreCompare';
 import { CompositionBar } from './charts/CompositionBar';
@@ -13,11 +13,13 @@ import { CollapsibleTable } from './charts/CollapsibleTable';
 function buildFollowInsight(domains) {
   const client = domains.find((d) => d.isClient);
   if (!client) return null;
-  const clientTotal = client.backlinks.followLinks + client.backlinks.nofollowLinks;
+  if ((client.fetchErrors || []).includes('backlinksOverview')) return null;
+  const clientTotal = (client.backlinks?.followLinks || 0) + (client.backlinks?.nofollowLinks || 0);
   if (!clientTotal) return null;
   const clientPct = Math.round((client.backlinks.followLinks / clientTotal) * 100);
 
-  const competitors = domains.filter((d) => !d.isClient);
+  // Only rivals whose backlinks were measured can be compared.
+  const competitors = domains.filter((d) => !d.isClient && Number.isFinite(d.backlinks?.totalBacklinks) && !(d.fetchErrors || []).includes('backlinksOverview'));
   if (!competitors.length) return `${clientPct}% of your backlinks are "follow" (SEO-valuable).`;
 
   const biggest = [...competitors].sort((a, b) => b.backlinks.totalBacklinks - a.backlinks.totalBacklinks)[0];
@@ -56,7 +58,7 @@ export default function BacklinkTab({ snapshot }) {
 
   const overviewColumns = [
     { key: 'label', label: 'Domain', sortable: false },
-    { key: 'authorityScore', label: 'Authority Score', align: 'right', mono: true },
+    { key: 'authorityScore', label: 'Authority Score', align: 'right', mono: true, render: fmtNum },
     { key: 'totalBacklinks', label: 'Backlinks', align: 'right', mono: true, render: fmtNum },
     { key: 'referringDomains', label: 'Ref. Domains', align: 'right', mono: true, render: fmtNum },
     { key: 'followLinks', label: 'Follow', align: 'right', mono: true, render: fmtNum },
@@ -72,15 +74,15 @@ export default function BacklinkTab({ snapshot }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <Card title="Authority Score">
-        <ScoreCompare domains={domains} />
+        <ScoreCompare domains={domains} valueFn={unlessFailed('backlinksOverview', (d) => d.authorityScore)} />
       </Card>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16 }}>
         <Card title="Backlinks">
-          <RankedBarChart domains={domains} valueFn={(d) => d.backlinks.totalBacklinks} />
+          <RankedBarChart domains={domains} valueFn={unlessFailed('backlinksOverview', (d) => d.backlinks?.totalBacklinks)} />
         </Card>
         <Card title="Referring Domains">
-          <RankedBarChart domains={domains} valueFn={(d) => d.backlinks.referringDomains} />
+          <RankedBarChart domains={domains} valueFn={unlessFailed('backlinksOverview', (d) => d.backlinks?.referringDomains)} />
         </Card>
       </div>
 
@@ -92,6 +94,7 @@ export default function BacklinkTab({ snapshot }) {
             { key: 'nofollow', label: 'Nofollow', color: 'var(--text-3)', valueFn: (d) => d.backlinks.nofollowLinks },
           ]}
           rowEmptyText="No backlink data"
+          rowNote={(d) => ((d.fetchErrors || []).includes('backlinksOverview') ? 'Not measured: the backlinks check failed' : null)}
         />
         {insight && (
           <div style={{ marginTop: 14, padding: '10px 12px', background: 'var(--surface)', borderRadius: 'var(--r-md)', fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>

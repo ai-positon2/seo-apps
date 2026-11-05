@@ -21,11 +21,12 @@ const TEAM = { id: 'ws-team', name: 'Position2', auto_join_domain: 'position2.co
 const PERSONAL = { id: 'ws-personal', name: "x's workspace", is_personal: true, lifecycle_status: 'active' };
 
 // Answers each identityStore query by what it is asking for.
-function fakeDb(t, { team = TEAM, member = false, personal = PERSONAL, teamError = null } = {}) {
+function fakeDb(t, { team = TEAM, member = false, personal = PERSONAL, teamError = null, lastEvent = null } = {}) {
   const inserted = [];
   t.mock.method(db, 'maybeOne', async (sql) => {
     if (/auto_join_domain = \$1/.test(sql)) { if (teamError) throw teamError; return team; }
     if (/from workspace_members where workspace_id/.test(sql)) return member ? { user_id: 'u' } : null;
+    if (/from workspace_member_events/.test(sql)) return lastEvent;
     if (/is_personal = true/.test(sql)) return personal;
     throw new Error(`unexpected query: ${sql}`);
   });
@@ -74,6 +75,48 @@ test('an existing member is left alone — no write, whatever their role', async
   const ws = await identityStore.ensureHomeWorkspace('user-1', 'someone@position2.com');
   assert.equal(ws.id, TEAM.id);
   assert.equal(writes.length, 0);
+});
+
+// Removing a teammate on the Team page used to be undone by their next request:
+// auto-join saw "not a member" and put them straight back as approver.
+test('a teammate removed by a person is not re-added, and works in a personal workspace', async (t) => {
+  const writes = fakeDb(t, {
+    lastEvent: { action: 'removed', old_role: 'approver', new_role: null, actor_email: 'owner@position2.com' },
+  });
+  t.mock.method(platformAdmin, 'isPlatformAdmin', async () => false);
+
+  const ws = await identityStore.ensureHomeWorkspace('user-1', 'someone@position2.com');
+  assert.equal(ws.id, PERSONAL.id);
+  assert.equal(writes.length, 0, 'no membership row and no auto-join history entry');
+});
+
+test('adding them back by hand lifts the block, at the role they were given', async (t) => {
+  // Re-added as contributor, then (say) the row was lost: they come back as
+  // contributor, not as the approver default.
+  const writes = fakeDb(t, {
+    lastEvent: { action: 'added', old_role: null, new_role: 'contributor', actor_email: 'owner@position2.com' },
+  });
+  t.mock.method(platformAdmin, 'isPlatformAdmin', async () => false);
+
+  const ws = await identityStore.ensureHomeWorkspace('user-1', 'someone@position2.com');
+  assert.equal(ws.id, TEAM.id);
+  const join = writes.find((w) => /insert into workspace_members/.test(w.sql));
+  assert.deepEqual(join.params, [TEAM.id, 'user-1', 'contributor']);
+});
+
+test('teamJoinDecision: a demotion is never undone into a promotion', () => {
+  const d = identityStore.teamJoinDecision;
+  assert.deepEqual(d(null, 'approver'), { join: true, role: 'approver' });
+  assert.deepEqual(
+    d({ action: 'role_changed', old_role: 'approver', new_role: 'viewer', actor_email: 'o@position2.com' }, 'owner'),
+    { join: true, role: 'viewer' },
+  );
+  assert.equal(d({ action: 'removed', old_role: 'owner', actor_email: 'o@position2.com' }, 'owner').join, false);
+  // Only auto-join history: the default applies.
+  assert.deepEqual(
+    d({ action: 'added', new_role: 'approver', actor_email: 'system:team-auto-join' }, 'approver'),
+    { join: true, role: 'approver' },
+  );
 });
 
 test('someone outside Position2 keeps their personal workspace', async (t) => {

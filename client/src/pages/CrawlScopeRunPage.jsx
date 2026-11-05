@@ -27,14 +27,25 @@
 //     finding — is now done in the row, on the issue's own page, where the
 //     finding is being read. /crawl-scope/runs/:id/review redirects here.
 //
-// The stream is the same SSE endpoint for a running and a finished crawl — it
-// tails the database rather than the crawler, so a run executed by the worker in
-// another process is watchable here exactly like a manual one. EventSource sends
-// the session cookie itself and replays from Last-Event-ID on reconnect, so a
-// dropped connection resumes rather than restarting.
+// A LIVE crawl is followed on the SSE stream — it tails the database rather than
+// the crawler, so a run executed by the worker in another process is watchable
+// here exactly like a manual one. EventSource sends the session cookie itself
+// and replays from Last-Event-ID on reconnect, so a dropped connection resumes
+// rather than restarting.
+//
+// A FINISHED crawl is not. It used to be: the stream replayed every stored row
+// (uncompressed — 9.6 MB for a 3,000-URL crawl) while the findings had already
+// arrived, so the report scored the rows as they trickled in (78, "Complete"),
+// then blanked and fetched the findings a second time (65). Its stored rows and
+// its findings are now two ordinary JSON requests, made together, behind one
+// loading state.
+//
+// Where the reader is — the tab, an open problem, an open page — is in the
+// address (?tab=, ?issue=, ?page=), so Back steps back one level, a reload keeps
+// the place, and the link can be shared.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useLocation, useParams, useNavigate } from 'react-router-dom';
 import { Button, EmptyState, useToast } from '../ui';
 import {
   Panel, Pill, RuledHead, Eyebrow, OutlineButton,
@@ -53,6 +64,12 @@ import {
 import { useRegisterChatScreen } from '../components/chat/ChatContext';
 import { techWorking } from '../components/chat/screenWorking';
 import { cs, saveBlob } from '../lib/crawlScopeApi';
+import { useUrlState } from '../lib/useUrlState';
+import { useAuth } from '../context/AuthContext';
+import { InfoTip } from '../components/seoGeo/report/reportKit';
+import {
+  uniqueByUrl, applyRuleRollup, reconcileFindings, crawledLine, reportSearch,
+} from '../components/crawlScope/runReportData';
 
 // How long a crawl may go without a heartbeat before this page stops calling it
 // running. A CLIENT-SIDE heuristic, deliberately generous: it has to exceed the
@@ -88,7 +105,9 @@ const TABS = [
 export default function CrawlScopeRunPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const toast = useToast();
+  const isAdmin = Boolean(useAuth()?.isPlatformAdmin);
 
   const [run, setRun] = useState(null);
   const [results, setResults] = useState([]);
@@ -99,11 +118,16 @@ export default function CrawlScopeRunPage() {
   // The health score computed on the server over EVERY finding, sent when the
   // list was capped (the dashboard's own calculation). Null otherwise.
   const [serverHealth, setServerHealth] = useState(null);
+  // Each rule's count and distinct pages over EVERY finding, sent when the list
+  // was capped: the list is filled most serious first, and the counts come
+  // from this so they do not shrink with it (runReportData.applyRuleRollup).
+  const [ruleRollup, setRuleRollup] = useState(null);
   const takeFindings = (response) => {
     const list = response?.findings || [];
     setFindings(list);
     setFindingsCap(response?.capped ? { shown: list.length, total: Number(response.total) || list.length } : null);
     setServerHealth(response?.capped ? response.serverHealth || null : null);
+    setRuleRollup(response?.capped && Array.isArray(response.ruleRollup) ? response.ruleRollup : null);
   };
   // Whether the AUDIT — the full rule catalog's finding set — has actually been loaded.
   //
@@ -136,15 +160,42 @@ export default function CrawlScopeRunPage() {
   const [catalog, setCatalog] = useState([]);
 
   // ── Which of the six views is showing, and what is open inside it ─────────
-  const [tab, setTab] = useState('overview');
-  const [openIssueId, setOpenIssueId] = useState(null);
+  //
+  // In the address, not in component state: these were useState, so Back left
+  // the report altogether, a reload went back to the Overview, and no problem
+  // could be linked to.
+  const [tabParam, setTab] = useUrlState('tab', 'overview');
+  const tab = TABS.some((t) => t.id === tabParam) ? tabParam : 'overview';
+  const [openIssueId] = useUrlState('issue', null);
+  const [openUrl] = useUrlState('page', null);
   // Opening a problem from further down the page (the overview's "What to fix
   // first") brings its view into sight rather than changing content off-screen.
   const issueTopRef = useRef(null);
   useEffect(() => {
     if (openIssueId) issueTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [openIssueId]);
-  const [openUrl, setOpenUrl] = useState(null);
+
+  // An address in this report with some parameters changed — for real links
+  // ('View →') as well as for the buttons below.
+  const hrefWith = useCallback(
+    (changes) => ({ pathname: location.pathname, search: reportSearch(location.search, changes) }),
+    [location.pathname, location.search],
+  );
+  // Opening a problem or a page is one step deeper: its own history entry,
+  // marked as opened from inside the report so its in-page Back can step back.
+  const openView = useCallback(
+    (changes) => navigate(hrefWith(changes), { state: { inReport: true } }),
+    [navigate, hrefWith],
+  );
+  const openIssue = useCallback((ruleId) => openView({ issue: ruleId }), [openView]);
+  const issueHref = useCallback((ruleId) => hrefWith({ issue: ruleId }), [hrefWith]);
+  // The in-page "Every problem found" / "Back to this page": the browser's own
+  // Back when the reader got here from inside the report, so the two agree;
+  // otherwise (a shared link, a reload of one) the parent view is opened.
+  const backOneLevel = useCallback((changes) => {
+    if (location.state?.inReport) navigate(-1);
+    else navigate(hrefWith(changes));
+  }, [location.state, navigate, hrefWith]);
 
   // Results arrive one event at a time and a large crawl is thousands of rows,
   // so they accumulate in a ref and are flushed to state on a timer. Setting
@@ -160,8 +211,59 @@ export default function CrawlScopeRunPage() {
     setResults((prev) => [...prev, ...batch]);
   }, []);
 
+  // Whether the run was still going when the page opened: only then is the
+  // stream opened. A finished run's rows come from loadStoredAudit instead.
+  const [live, setLive] = useState(false);
+  // Set when a finished run's stored rows could not be read, which (unlike a
+  // findings failure) leaves "All Pages" empty too.
+  const [resultsError, setResultsError] = useState(null);
+
+  /**
+   * A finished crawl's stored pages and its findings, together.
+   *
+   * Both before anything is drawn: the score is computed from the pages AND the
+   * findings, and drawing either half first is what printed a wrong score
+   * labelled "Complete". Each failure is kept apart — findings that fail leave
+   * the pages listable; pages that fail leave nothing to score.
+   */
+  const loadStoredAudit = useCallback(async (isCancelled = () => false) => {
+    setFindingsState('loading');
+    setFindingsError(null);
+    setResultsError(null);
+    const [rows, found] = await Promise.allSettled([cs.allResults(id), cs.findings(id)]);
+    if (isCancelled()) return;
+    if (rows.status === 'fulfilled') {
+      const list = uniqueByUrl(rows.value);
+      seenUrls.current = new Set(list.map((r) => r.url).filter(Boolean));
+      setResults(list);
+    } else {
+      setResultsError(rows.reason?.message || 'Could not load the crawled pages.');
+    }
+    if (found.status === 'fulfilled' && rows.status === 'fulfilled') {
+      takeFindings(found.value);
+      setFindingsState('ready');
+    } else {
+      // Its own state, not the page's `error`: the crawl loaded fine and the
+      // page is still worth showing. What is not worth showing is a score
+      // computed without both halves.
+      setFindingsState('error');
+      setFindingsError((found.status === 'rejected' ? found.reason : rows.reason)?.message || null);
+    }
+  }, [id]);
+
   useEffect(() => {
     let cancelled = false;
+    // Another run opened in the same page (Recrawl now) starts clean.
+    setLive(false);
+    setLoading(true);
+    setError('');
+    setResults([]);
+    setFindings([]);
+    setFindingsState('idle');
+    setFindingsError(null);
+    setResultsError(null);
+    seenUrls.current = new Set();
+    pending.current = [];
     (async () => {
       try {
         const { run: r } = await cs.run(id);
@@ -169,26 +271,11 @@ export default function CrawlScopeRunPage() {
         setRun(r);
         setStatus(r.status);
         setProgress(r.progress || {});
-        // A finished crawl has its findings (with any review state) ready; a
-        // running one has none yet, and gets them from the complete event.
-        if (TERMINAL_STATUSES.includes(r.status)) {
-          if (!cancelled) setFindingsState('loading');
-          try {
-            const f = await cs.findings(id);
-            if (!cancelled) {
-              takeFindings(f);
-              setFindingsState('ready');
-            }
-          } catch (e) {
-            // Its own state, not the page's `error`: the crawl and its results
-            // loaded fine and the page is still worth showing. What is not
-            // worth showing is a score computed without the findings.
-            if (!cancelled) {
-              setFindingsState('error');
-              setFindingsError(e.message);
-            }
-          }
-        }
+        // A finished crawl: its pages and findings, once, behind the page's
+        // loading state. A running one is followed on the stream, and gets
+        // its findings from the complete event.
+        if (TERMINAL_STATUSES.includes(r.status)) await loadStoredAudit(() => cancelled);
+        else setLive(true);
       } catch (e) {
         if (!cancelled) setError(e.message);
       } finally {
@@ -196,13 +283,14 @@ export default function CrawlScopeRunPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [id]);
+  }, [id, loadStoredAudit]);
 
   useEffect(() => {
     cs.catalog().then(setCatalog).catch(() => {});
   }, []);
 
   useEffect(() => {
+    if (!live) return undefined;
     const source = new EventSource(cs.streamUrl(id), { withCredentials: true });
 
     source.addEventListener('state', (e) => {
@@ -244,7 +332,9 @@ export default function CrawlScopeRunPage() {
           : prev));
         if (payload.error) toast.add({ title: payload.error, variant: 'danger' });
       } catch { /* ignore */ }
-      // Findings only exist once the crawl has written its summary.
+      // Findings only exist once the crawl has written its summary. This is
+      // the only findings fetch a live run makes — a finished run never opens
+      // this stream.
       //
       // This used to be `.catch(() => {})`. A failed load left `findings` empty
       // with nothing recording that it had failed, and every view on the page
@@ -271,7 +361,7 @@ export default function CrawlScopeRunPage() {
       if (flushTimer.current) { clearTimeout(flushTimer.current); flushTimer.current = null; }
       flush();
     };
-  }, [id, flush, toast]);
+  }, [id, live, flush, toast]);
 
   // ── Pages of THIS site, and the external URLs it links out to ────────────
   //
@@ -342,14 +432,19 @@ export default function CrawlScopeRunPage() {
   // occurrences and affected pages diverge.
   // In the run's own order (orderIssueGroups): the one the workbook and the
   // email use, with a reason per rule.
+  //
+  // A capped list (more findings than one read returns) holds only some of each
+  // big rule's instances, so the counts come from the server's per-rule rollup
+  // over every finding, and a group with instances left out says so.
   const groups = useMemo(() => {
     const merged = mergeRuleGroups([...pageGroups, ...siteGroups]).map((g) => ({
       ...g,
       count: g.urls.length,
       pages: new Set(g.urls).size,
     }));
-    return orderIssueGroups(merged, run?.summary?.ruleOrder);
-  }, [pageGroups, siteGroups, run?.summary?.ruleOrder]);
+    const counted = ruleRollup ? applyRuleRollup(merged, ruleRollup, findings) : merged;
+    return orderIssueGroups(counted, run?.summary?.ruleOrder);
+  }, [pageGroups, siteGroups, ruleRollup, findings, run?.summary?.ruleOrder]);
 
   const findingsByRule = useMemo(() => {
     const map = new Map();
@@ -529,61 +624,26 @@ export default function CrawlScopeRunPage() {
     indexable: metrics.indexable,
   } : null, () => techWorking({ metrics, breakdown: chatBreakdown, groups }));
 
-  // ── Does this page show everything the analyser found? ───────────────────
+  // ── Does this page show everything the analyser found? (admins only) ─────
   //
-  // Two independent sources for the same quantity. `run.summary.counts` is
-  // written server-side by the analyser when the crawl completes; `findings` is
-  // what /runs/:id/findings hands this page. If they disagree, findings are
-  // being lost between the two and every number on this screen understates the
-  // site — which is not a discrepancy anyone should have to notice for
-  // themselves.
+  // Two independent sources for the same quantity: the analyser's per-rule
+  // counts written when the crawl completed, and what /runs/:id/findings
+  // handed this page. A disagreement means findings are being lost between
+  // the two. It is an engineer's check, so only a platform admin sees it, and
+  // only when it fails: clients were shown "Complete: … showing all of them"
+  // over "warning 1327/8189", because the totals agreed while the stored
+  // per-severity counts predated a re-grading. Compared per severity, at
+  // today's severities (runReportData.reconcileFindings).
   //
-  // Compared against RAW findings, before the dismissal filter: a finding
-  // marked Resolved or False positive is legitimately absent from the lists
-  // below but was still found, so counting the filtered set would report a
-  // false mismatch on every triaged run.
-  const reconciliation = useMemo(() => {
-    const stored = run?.summary?.counts;
-    if (!stored || running) return null;
-    if (findingsState !== 'ready') return null;
-    // Every severity the analyser counts, `info` included. Omitting one would
-    // put findings permanently outside this check, which is the opposite of
-    // what it is for.
-    const severities = ['error', 'warning', 'notice', 'info'];
-    const rows = severities.map((sev) => ({
-      sev,
-      analyser: Number(stored[sev]) || 0,
-      // Raw findings, before the dismissal filter: a triaged finding was still
-      // found, so excluding it would report a false mismatch on a reviewed run.
-      // Every scope too — summary.counts is built over all of them, and
-      // counting only page-scoped ones reported a shortfall of exactly the
-      // site- and resource-scoped findings.
-      shown: findings.filter((f) => f.severity === sev).length,
-    }));
-    const analyser = rows.reduce((sum, r) => sum + r.analyser, 0);
-    const shown = rows.reduce((sum, r) => sum + r.shown, 0);
-    // Where the findings sit. Computed here now that the whole array is in
-    // hand — it was the rollup's `byScope` before, and leaving it null meant
-    // the one line that explained a mismatch could never render. It is what
-    // told us a 379-vs-133 "shortfall" was site- and resource-scoped findings
-    // rather than lost data.
-    const byScope = {};
-    for (const f of findings) {
-      const k = f.scope || 'page';
-      byScope[k] = (byScope[k] || 0) + 1;
-    }
-    return {
-      rows, analyser, shown, dismissed: 0,
-      stored: findings.length, storedCount: findings.length, byScope,
-      agrees: analyser === shown,
-      // Short by design, not by loss: the run holds more findings than one
-      // read returns.
-      capped: findingsCap,
-      // The audit ran and its output was not kept — the failure mode migration
-      // 0023 exists to end. Kept as a check rather than assumed fixed.
-      notStored: Boolean(analyser) && findings.length === 0,
-    };
-  }, [run?.summary?.counts, findings, findingsCap, running, findingsState]);
+  // Against RAW findings, before the dismissal filter: a triaged finding was
+  // still found.
+  const diagnostics = useMemo(() => {
+    if (!isAdmin || running || findingsState !== 'ready') return null;
+    const check = reconcileFindings({
+      run, findings, rollup: ruleRollup, capped: findingsCap, catalogById,
+    });
+    return check && (!check.agrees || check.notStored) ? check : null;
+  }, [isAdmin, running, findingsState, run, findings, ruleRollup, findingsCap, catalogById]);
 
   // ── Actions ───────────────────────────────────────────────────────────────
   /**
@@ -776,9 +836,15 @@ export default function CrawlScopeRunPage() {
       : tab === 'urls' ? 'Every HTML page crawled'
         : 'Every problem found';
 
+  // On a capped list the findings are counted from the per-rule rollup, and
+  // the "on N of M pages" part is left off: it would count the loaded part.
+  const occurrences = findingsCap
+    ? groups.reduce((sum, g) => sum + (g.count || 0), 0)
+    : counts.occurrences;
   const issuesNote = `${groups.length} distinct problem${groups.length === 1 ? '' : 's'} · `
-    + `${counts.occurrences.toLocaleString()} finding${counts.occurrences === 1 ? '' : 's'} on `
-    + `${metrics.affectedAnyPages.toLocaleString()} of ${metrics.htmlCount.toLocaleString()} pages`;
+    + `${occurrences.toLocaleString()} finding${occurrences === 1 ? '' : 's'}`
+    + (findingsCap ? ''
+      : ` on ${metrics.affectedAnyPages.toLocaleString()} of ${metrics.htmlCount.toLocaleString()} pages`);
 
   const note = loadingAudit && tab !== 'urls'
     ? 'Loading the audit results…'
@@ -805,17 +871,34 @@ export default function CrawlScopeRunPage() {
           >
             {host} — site health
           </h1>
-          <span style={{ fontSize: 13, color: 'var(--text-3)' }}>
-            Crawl of {host} {stalled ? 'stopped responding' : finishedWord}
-            {run?.finished_at ? ` ${new Date(run.finished_at).toLocaleString()}` : ''}
-            {elapsed ? ` · ${formatDuration(elapsed)} elapsed` : ''}
-            {coverage.limit ? ` · page limit ${coverage.limit.toLocaleString('en-US')}` : ''}
-            {coverage.clamped
-              ? ` (reduced from ${coverage.clamped.requested.toLocaleString('en-US')} by `
-                + `${describeBudgetSource(coverage.clamped.source)})`
-              : ''}
-            {run?.summary?.robotsStatus ? ` · robots.txt: ${run.summary.robotsStatus}` : ''}
-          </span>
+          {/* A finished crawl: when, and how long ago, in plain words. The
+              plumbing (time taken, page limit, robots.txt) is behind the "i". */}
+          {crawledLine(run, status) && !stalled ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-3)' }}>
+              {crawledLine(run, status)}
+              <InfoTip label="About this crawl" align="left">
+                <strong style={{ color: 'var(--text)', fontSize: 13.5 }}>About this crawl</strong>
+                <span>Finished {new Date(run.finished_at).toLocaleString()}</span>
+                {elapsed ? <span>Took {formatDuration(elapsed)}</span> : null}
+                {coverage.limit ? (
+                  <span>
+                    Page limit {coverage.limit.toLocaleString('en-US')}
+                    {coverage.clamped
+                      ? ` (reduced from ${coverage.clamped.requested.toLocaleString('en-US')} by `
+                        + `${describeBudgetSource(coverage.clamped.source)})`
+                      : ''}
+                  </span>
+                ) : null}
+                {run?.summary?.robotsStatus ? <span>robots.txt: {run.summary.robotsStatus}</span> : null}
+              </InfoTip>
+            </span>
+          ) : (
+            <span style={{ fontSize: 13, color: 'var(--text-3)' }}>
+              Crawl of {host} {stalled ? 'stopped responding' : finishedWord}
+              {elapsed ? ` · ${formatDuration(elapsed)} elapsed` : ''}
+              {coverage.limit ? ` · page limit ${coverage.limit.toLocaleString('en-US')}` : ''}
+            </span>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {/* '/crawl-scope' is the standalone tool's own run history — useful
@@ -992,10 +1075,13 @@ export default function CrawlScopeRunPage() {
             The audit could not be loaded for this crawl
           </span>
           <span style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5 }}>
-            The crawl itself finished and every page it fetched is listed under “All Pages”. What
-            failed is the finding set — the full audit — so no score, no issue list and no
-            counts are shown: they would be computed from the crawler’s live status checks alone
-            and would understate the site.
+            {resultsError
+              ? 'The crawl itself finished, but its stored pages could not be read, so no score, '
+                + 'no issue list and no counts are shown: they are computed from those pages.'
+              : 'The crawl itself finished and every page it fetched is listed under “All Pages”. What '
+                + 'failed is the finding set — the full audit — so no score, no issue list and no '
+                + 'counts are shown: they would be computed from the crawler’s live status checks alone '
+                + 'and would understate the site.'}
             {run?.summary?.counts && (
               <>
                 {' '}The crawl recorded{' '}
@@ -1016,13 +1102,7 @@ export default function CrawlScopeRunPage() {
           <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
             <OutlineButton
               tone="accent"
-              onClick={() => {
-                setFindingsState('loading');
-                setFindingsError(null);
-                cs.findings(id)
-                  .then((f) => { takeFindings(f); setFindingsState('ready'); })
-                  .catch((e) => { setFindingsState('error'); setFindingsError(e.message); });
-              }}
+              onClick={() => { loadStoredAudit(); }}
               style={{ height: 34, fontSize: 12.5, padding: '0 14px' }}
             >
               Try again
@@ -1047,8 +1127,13 @@ export default function CrawlScopeRunPage() {
       {/* ── One problem's own page ────────────────────────────────────────── */}
       {openGroup && (
         <div ref={issueTopRef} style={{ scrollMarginTop: 80 }}>
+        {/* Keyed by the problem, so "Open it →" mounts the next one fresh: its
+            search, status filter, table page and "More detail" used to carry
+            over and show the next problem as empty. */}
         <IssueDetail
+          key={`${openGroup.id}|${openGroup.scope || ''}`}
           group={openGroup}
+          readCap={findingsCap?.shown || null}
           entry={catalogById.get(openGroup.id)}
           findings={findingsByRule.get(openGroup.id) || []}
           titleByUrl={titleByUrl}
@@ -1064,16 +1149,17 @@ export default function CrawlScopeRunPage() {
             };
           })()}
           backLabel={openUrl ? 'Back to this page' : 'Every problem found'}
-          onBack={() => {
-            setOpenIssueId(null);
+          onBack={() => backOneLevel(
             // Arriving here from a page's own view goes back to that page, not
             // to the list — the reader was working through one URL's issues.
-            if (!openUrl) setTab((t) => (t === 'overview' ? 'all' : t));
-          }}
+            openUrl || tab !== 'overview' ? { issue: null } : { issue: null, tab: 'all' },
+          )}
           onOpenNext={() => {
             const i = groups.indexOf(openGroup);
             const n = groups[i + 1] || groups[0];
-            if (n) setOpenIssueId(n.id);
+            // In place of this one, not one step deeper: Back from the next
+            // problem still returns to the list it was opened from.
+            if (n) navigate(hrefWith({ issue: n.id }), { replace: true, state: location.state });
           }}
           onReview={onReview}
           onBulkReview={onBulkReview}
@@ -1085,10 +1171,11 @@ export default function CrawlScopeRunPage() {
       {/* ── One crawled page's own view ───────────────────────────────────── */}
       {openPage && (
         <UrlDetail
+          key={openPage.url}
           page={openPage}
           issues={pageIssueCards(findings, openPage.url, catalogById, pagesByRule)}
-          onBack={() => setOpenUrl(null)}
-          onOpenIssue={(ruleId) => setOpenIssueId(ruleId)}
+          onBack={() => backOneLevel({ page: null })}
+          onOpenIssue={openIssue}
         />
       )}
 
@@ -1099,7 +1186,7 @@ export default function CrawlScopeRunPage() {
 
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {TABS.map((t) => (
-              <Pill key={t.id} active={tab === t.id} onClick={() => setTab(t.id)}>
+              <Pill key={t.id} active={tab === t.id} onClick={() => { if (t.id !== tab) setTab(t.id); }}>
                 {t.label}
                 {/* All Pages keeps its count throughout: a crawled page is a
                     crawled page, and that number is real the moment it lands. */}
@@ -1126,7 +1213,8 @@ export default function CrawlScopeRunPage() {
 
           {!loadingAudit && tab === 'overview' && (
             <OverviewPanel
-              reconciliation={reconciliation}
+              diagnostics={diagnostics}
+              capped={findingsCap}
               metrics={metrics}
               counts={counts}
               groups={groups}
@@ -1136,7 +1224,8 @@ export default function CrawlScopeRunPage() {
               crawled={crawledSoFar}
               coverage={coverage}
               comparison={comparison}
-              onOpenIssue={setOpenIssueId}
+              onOpenIssue={openIssue}
+              issueHref={issueHref}
             />
           )}
 
@@ -1144,7 +1233,8 @@ export default function CrawlScopeRunPage() {
             <IssueList
               groups={shownGroups}
               catalogById={catalogById}
-              onOpen={setOpenIssueId}
+              onOpen={openIssue}
+              hrefFor={issueHref}
               provisional={provisional}
               crawled={crawledSoFar}
               comparison={comparison}
@@ -1152,7 +1242,7 @@ export default function CrawlScopeRunPage() {
           )}
 
           {tab === 'urls' && (
-            <UrlsTable pages={htmlPages} onOpen={setOpenUrl} />
+            <UrlsTable pages={htmlPages} onOpen={(url) => openView({ page: url })} />
           )}
         </div>
       )}

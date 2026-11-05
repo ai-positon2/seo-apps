@@ -3,7 +3,7 @@ import { Card } from '../../ui/Card';
 import { Badge } from '../../ui/Badge';
 import { DataTable } from '../../ui/DataTable';
 import { EmptyState } from '../../ui/EmptyState';
-import { fmtNum, domainLabel } from './utils';
+import { fmtNum, fmtCompact, domainLabel, sitemapStatusText, sitemapFootnote, isSitemapPartial } from './utils';
 import { RankedBarChart } from './charts/RankedBarChart';
 import { CompositionBar } from './charts/CompositionBar';
 import { CollapsibleTable } from './charts/CollapsibleTable';
@@ -325,10 +325,24 @@ export default function ContentAnalysisTab({
   onRegenerateSitemap,
   onSaveMapping,
   savingMapping,
+  loadError = null,
+  onRetry,
 }) {
   const anyBusy = running || regeneratingTopPages || regeneratingSitemap || savingMapping;
   const topPages = contentAnalysis?.topPages;
   const sitemap = contentAnalysis?.sitemap;
+
+  // A failed read is not "never run": offering the (Semrush-metered) run
+  // because the read failed would pay again for an analysis that may exist.
+  if (!contentAnalysis && loadError) {
+    return (
+      <EmptyState
+        title="Couldn't load the Content Analysis"
+        description={`The saved analysis could not be read (${loadError}). Nothing was run; try again.`}
+        action={onRetry ? <button onClick={onRetry} style={{ ...actionButtonStyle(false), padding: '8px 16px' }}>Retry</button> : null}
+      />
+    );
+  }
 
   if (!contentAnalysis) {
     return (
@@ -345,7 +359,7 @@ export default function ContentAnalysisTab({
   const classifier = contentAnalysis?.topPages?.classifier || null;
   const sitemapDomains = sitemap?.domains || [];
   const noSitemap = sitemapDomains.filter((d) => d.sitemapStatus !== 'found');
-  const cappedSitemaps = sitemapDomains.filter((d) => d.capped);
+  const cappedSitemaps = sitemapDomains.filter(isSitemapPartial);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
@@ -477,17 +491,24 @@ export default function ContentAnalysisTab({
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <Card title="Total Pages (Sitemap)">
-              <RankedBarChart domains={sitemapDomains} valueFn={(d) => d.totalUrls} />
+              <RankedBarChart
+                domains={sitemapDomains}
+                valueFn={(d) => d.totalUrls}
+                // A blocked check or a missing sitemap is not "0 pages".
+                isUnknown={(d) => d.sitemapStatus !== 'found'}
+                unknownText={sitemapStatusText}
+                formatValue={(v, d) => (isSitemapPartial(d) ? `${fmtCompact(v)}+ (partial)` : fmtCompact(v))}
+              />
             </Card>
             <Card title="Page Type Distribution">
-              <CompositionBar domains={sitemapDomains} segments={buildTypeSegments(sitemapDomains, 'pageTypeCounts')} rowEmptyText="No sitemap found" />
+              <CompositionBar domains={sitemapDomains} segments={buildTypeSegments(sitemapDomains, 'pageTypeCounts')} rowEmptyText="No sitemap found" rowNote={(d) => (d.sitemapStatus === 'blocked' ? sitemapStatusText(d) : null)} />
               {(noSitemap.length > 0 || cappedSitemaps.length > 0) && (
                 <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
                   {noSitemap.map((d) => (
-                    <span key={d.domain} style={{ fontSize: 11, color: 'var(--text-3)' }}>{domainLabel(d)}: no accessible sitemap found.</span>
+                    <span key={d.domain} style={{ fontSize: 11, color: 'var(--text-3)' }}>{domainLabel(d)}: {sitemapFootnote(d)}</span>
                   ))}
                   {cappedSitemaps.map((d) => (
-                    <span key={`${d.domain}-capped`} style={{ fontSize: 11, color: 'var(--warning)' }}>{domainLabel(d)}: sitemap crawl limit reached — counts are a partial sample.</span>
+                    <span key={`${d.domain}-capped`} style={{ fontSize: 11, color: 'var(--warning)' }}>{domainLabel(d)}: {d.capped ? 'sitemap crawl limit reached' : 'some declared sitemaps could not be read'} — counts are a partial sample.</span>
                   ))}
                 </div>
               )}

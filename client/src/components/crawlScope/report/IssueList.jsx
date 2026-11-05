@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { sevOf, AnalyzingNotice } from './reportPrimitives';
 import { ruleTrend } from '../crawlHelpers';
 
@@ -10,15 +11,13 @@ import { ruleTrend } from '../crawlHelpers';
 // affected URLs inline, so nine issues filled four screens and the shape of the
 // list — which problems are big — was invisible.
 //
-// The row is a button rather than an anchor because the whole report is one
-// route: opening an issue changes which view the page renders, not which URL it
-// is at. That is a deliberate trade — an issue is not linkable — and the reason
-// is that the crawl's results, findings and catalog are one fetch each for the
-// whole screen; making every issue a route would refetch all three to render a
-// panel the page already has the data for.
+// The row is a link: an open problem is in the report's address (?issue=), so
+// it can be opened in a new tab, copied, and reached again with Back. It is a
+// search-parameter change on the same route, so the page keeps the data it
+// already has rather than refetching it. Without `hrefFor` it is a button.
 
 export default function IssueList({
-  groups, catalogById, onOpen, provisional = false, crawled = null, comparison = null,
+  groups, catalogById, onOpen, hrefFor = null, provisional = false, crawled = null, comparison = null,
 }) {
   // While the crawl runs, no issues at all — not a shortened list, not a
   // labelled one. The only rules that have run are the crawler's dozen live
@@ -45,30 +44,36 @@ export default function IssueList({
           entry={catalogById.get(g.id)}
           trend={ruleTrend(comparison, g.id)}
           onOpen={() => onOpen(g.id)}
+          href={hrefFor ? hrefFor(g.id) : null}
         />
       ))}
     </div>
   );
 }
 
-function IssueRow({ group, entry, trend = null, onOpen }) {
+function IssueRow({ group, entry, trend = null, onOpen, href = null }) {
   const [hover, setHover] = useState(false);
   const s = sevOf(group.severity);
   const priority = entry?.priority || null;
+  const rowStyle = {
+    width: '100%', display: 'flex', alignItems: 'center', gap: 14,
+    padding: '16px 18px', border: 'none', cursor: 'pointer', textAlign: 'left',
+    fontFamily: 'var(--font-sans)', color: 'inherit', textDecoration: 'none',
+    boxSizing: 'border-box',
+    background: hover ? 'var(--surface)' : 'transparent',
+  };
+  const Row = href ? Link : 'button';
+  const rowProps = href
+    ? { to: href, state: { inReport: true } }
+    : { type: 'button', onClick: onOpen };
 
   return (
     <div style={{ borderRadius: 10, background: 'var(--card)', border: '1px solid var(--border)', overflow: 'hidden' }}>
-      <button
-        type="button"
-        onClick={onOpen}
+      <Row
+        {...rowProps}
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
-        style={{
-          width: '100%', display: 'flex', alignItems: 'center', gap: 14,
-          padding: '16px 18px', border: 'none', cursor: 'pointer', textAlign: 'left',
-          fontFamily: 'var(--font-sans)',
-          background: hover ? 'var(--surface)' : 'transparent',
-        }}
+        style={rowStyle}
       >
         <span
           style={{
@@ -91,6 +96,13 @@ function IssueRow({ group, entry, trend = null, onOpen }) {
           {/* Why it is where it is in the list (the run's ordering). */}
           {group.reason && (
             <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{group.reason}</span>
+          )}
+          {/* A very large crawl: the report loads a limited number of findings,
+              most serious first, and this rule has more than it loaded. */}
+          {group.partial && (
+            <span style={{ fontSize: 12, color: 'var(--viz-warn)' }}>
+              Listing {(group.loaded || 0).toLocaleString()} of {(group.count || 0).toLocaleString()} findings
+            </span>
           )}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
@@ -120,7 +132,7 @@ function IssueRow({ group, entry, trend = null, onOpen }) {
         >
           View →
         </span>
-      </button>
+      </Row>
     </div>
   );
 }

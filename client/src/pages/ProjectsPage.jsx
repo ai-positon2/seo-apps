@@ -7,6 +7,7 @@ import {
   Card, Kicker, Muted, Tag, Btn, FadingRule, SectionHead, Spinner,
 } from '../components/studio/primitives';
 import ProjectSetupCard from '../components/home/ProjectSetupCard';
+import { createdBanner } from '../lib/projectCreated';
 import ModuleRuns from '../components/ModuleRuns';
 
 // ── Projects — settings (PRD §20.9) ─────────────────────────────────────────
@@ -28,6 +29,14 @@ const inputStyle = {
 };
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+// The tooltip on an AI-picked competitor: why discovery kept it.
+function aiPickTitle(domain) {
+  const why = domain.discovery?.reason;
+  const type = domain.discovery?.competitorType;
+  return ['Suggested by SEMrush + AI and added without review.', why, type ? `Type: ${type}.` : null]
+    .filter(Boolean).join(' ');
+}
 
 export default function ProjectsPage() {
   const navigate = useNavigate();
@@ -127,14 +136,15 @@ export default function ProjectsPage() {
           limits={state.data?.limits}
           workspaces={state.data?.workspaces || []}
           activeWorkspaceId={state.data?.activeWorkspaceId || null}
-          onCreated={async (project, competitorResearch) => {
+          onCreated={async (project, competitorResearch, result) => {
             setShowSetup(false);
             setSelectedId(project.id);
             await load();
+            // Names what creating it actually started: the crawl, the homepage
+            // audits, AI Visibility and Competitor Research (UX-041).
             setBanner({
               tone: 'accent',
-              text: `${project.name} created. Its weekly schedule is off until you enable it. `
-                + `${competitorResearch?.note || ''}`.trim(),
+              text: createdBanner(result || { project, competitorResearch }),
             });
           }}
           onCancel={() => setShowSetup(false)}
@@ -589,6 +599,14 @@ function ProjectDetail({ project, capabilities, viewerUserId, onMutate, onOpenDa
             {project.competitors.map((domain) => (
               <span key={domain.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <Tag tone="muted">{domain.host}</Tag>
+                {/* 'accepted' = picked by SEMrush + AI discovery and attached without a
+                    person reviewing it. Marked, with the model's reason when stored, so
+                    an unreviewed pick is not mistaken for a rival someone chose. */}
+                {domain.source === 'accepted' && (
+                  <span title={aiPickTitle(domain)} style={{ cursor: 'help' }}>
+                    <Tag tone="accent">AI pick</Tag>
+                  </span>
+                )}
                 {canManageCompetitors && !proposeOnly && (
                   <button
                     type="button"
@@ -615,7 +633,7 @@ function ProjectDetail({ project, capabilities, viewerUserId, onMutate, onOpenDa
                 style={{ ...inputStyle, minWidth: 220 }}
                 value={competitor}
                 onChange={(e) => setCompetitor(e.target.value)}
-                placeholder="aspendental.com"
+                placeholder="competitor.com"
               />
               <Btn
                 disabled={!competitor.trim()}

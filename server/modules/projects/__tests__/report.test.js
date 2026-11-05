@@ -235,6 +235,125 @@ async function main() {
     );
   });
 
+  console.log('\nProject report — Tech Audit, structure and AI Visibility (UX-057/058/059/108)');
+
+  const techCard = {
+    key: 'technical', label: 'Tech Audit', status: 'completed', scored: true, score: 71,
+    headline: '3 pages lose points to errors', detail: '300 pages crawled', runId: 'crawl-1',
+    updatedAt: '2026-10-15T10:00:00Z', evidence: { counts: { error: 534, warning: 20, notice: 9 } },
+  };
+  const costing = new Map([
+    ['broken-js', { severity: 'error', pages: new Set(['https://x.com/a', 'https://x.com/b', 'https://x.com/c']) }],
+    ['robots-blocked', { severity: 'warning', pages: new Set(), siteLevel: 'site' }],
+  ]);
+  const rollup = [
+    { rule_id: 'img-alt', severity: 'error', category: 'Images', count: 400, detail: { title: 'Images without alt text' } },
+    { rule_id: 'broken-js', severity: 'error', category: 'Resources', count: 12, detail: { title: 'Broken internal JavaScript' } },
+    { rule_id: 'robots-blocked', severity: 'warning', category: 'Crawl', count: 1, detail: { title: 'Robots.txt blocks a section' } },
+    { rule_id: 'meta-short', severity: 'notice', category: 'Meta', count: 30, detail: null },
+  ];
+
+  await test('the Tech Audit section lists what costs points first, with pages affected', async () => {
+    const tech = report.techAuditRows(techCard, rollup, costing);
+    assert.deepStrictEqual(tech.issues.map((i) => i.ruleId), ['broken-js', 'robots-blocked', 'img-alt', 'meta-short']);
+    assert.strictEqual(tech.issues[0].pages, 3);
+    assert.strictEqual(tech.issues[2].costsPoints, false, 'a listed finding that costs nothing says so');
+    const book = new ExcelJS.Workbook();
+    report.addTechAuditSheet(book, tech);
+    const cells = cellsOf(book.getWorksheet('Tech Audit'));
+    assert.ok(cells.some((c) => /Site Health 71\/100/.test(c)));
+    assert.ok(cells.includes('Broken internal JavaScript'));
+    assert.ok(cells.includes('site-wide'));
+  });
+
+  const hubRun = { status: 'completed', finished_at: '2026-10-09T10:00:00Z', findings: [] };
+  const structure = {
+    savedAt: '2026-10-09T10:00:00Z', pages: 121, clusters: 25, gaps: 4, unassigned: 18, meanHealth: 62,
+    clusterRows: [{ name: 'Fundraising', hub: 'https://x.com/fundraising', spokes: 9, health: 70, gap: false },
+      { name: 'Events', hub: null, spokes: 3, health: 41, gap: true }],
+  };
+  const aivStale = {
+    key: 'ai_visibility_lite', label: 'AI Visibility', status: 'completed_with_errors', scored: false, score: null,
+    updatedAt: '2026-10-01T10:00:00Z', evidence: { counts: { error: 1, notice: 1 } },
+    metric: { value: null, display: '—', unit: 'profile built for position2.com — rebuild it', tag: 'Profile out of date' },
+    profileStale: { builtFor: 'position2.com' },
+  };
+  const aivRun = {
+    status: 'completed_with_errors', finished_at: '2026-10-01T10:00:00Z', score: 50,
+    findings: [{ ruleId: 'aiv-absent', title: 'Not named in 30 of 30 measured prompts', severity: 'error', count: 30,
+      detail: { prompts: ['best marketing agency', 'best marketing agency'] } }],
+  };
+  const project = { name: 'Soteri', primaryDomain: { origin: 'https://soteriskin.com' } };
+  const composite = { value: 71, status: 'partial', scoredModules: 1, totalModules: 3 };
+
+  await test('the markdown report has Tech Audit and real structure figures, never "undefined"', async () => {
+    const evidence = new Map([['hub_spoke', { terminal: hubRun }], ['ai_visibility_lite', { terminal: aivRun }]]);
+    const md = report.buildMarkdownReport({
+      project,
+      profile: { modules: [techCard, aivStale], composite },
+      evidenceByModule: evidence,
+      recos: [],
+      generatedAt: '2026-11-05 10:00',
+      tech: report.techAuditRows(techCard, rollup, costing),
+      structure,
+    });
+    assert.ok(/## Tech Audit — Site Health 71\/100/.test(md));
+    assert.ok(/121 pages analysed · 25 topic clusters/.test(md));
+    assert.ok(/No hub yet/.test(md));
+    assert.ok(!/undefined/.test(md), 'no "undefined" anywhere');
+    // UX-108: the stale profile's agency prompts are not this client's results.
+    assert.ok(!/best marketing agency/.test(md));
+    assert.ok(/Profile out of date/.test(md));
+    assert.ok(/\| AI Visibility \| no \|/.test(md), 'counted as not covered');
+    assert.ok(!/completed_with_errors/.test(md), 'statuses read as words');
+  });
+
+  await test('a Hub and Spoke run with no saved analysis gets a sentence, not an empty table', async () => {
+    const book = new ExcelJS.Workbook();
+    report.addStructureSheet(book, new Map([['hub_spoke', { terminal: hubRun }]]), null);
+    const cells = cellsOf(book.getWorksheet('Site structure'));
+    assert.ok(cells.some((c) => /no saved Content Architect analysis/.test(c)));
+    assert.ok(!cells.some((c) => /undefined/.test(c)));
+  });
+
+  await test('the PDF html carries the same sections and no raw code', async () => {
+    const evidence = new Map([['hub_spoke', { terminal: hubRun }]]);
+    const html = report.buildReportHtml({
+      project,
+      profile: { modules: [techCard], composite },
+      evidenceByModule: evidence,
+      recos: [],
+      executiveSummary: {
+        verdict: { state: 'healthy', headline: 'h', sentence: 's' },
+        standing: { score: 71, basis: 'b' },
+        leverage: { actions: 0 },
+        priorities: [],
+        confidence: { crawledPages: 300, modulesCovered: 1, modulesTotal: 3, sentence: 'c', caveats: [] },
+      },
+      generatedAt: '2026-11-05 10:00',
+      tech: report.techAuditRows(techCard, rollup, costing),
+      structure,
+    });
+    assert.ok(/Tech Audit/.test(html) && /Broken internal JavaScript/.test(html));
+    assert.ok(/Fundraising/.test(html));
+    assert.ok(!/undefined/.test(html));
+  });
+
+  await test('AI Visibility details read as sentences, and the profile leads with the card\'s figure', async () => {
+    const text = report.detailText({ competitors: [{ name: 'givebutter', prompts: 6 }] });
+    assert.strictEqual(text, 'givebutter named in 6 prompts');
+    const prompts = report.detailText({ prompts: ['a', 'a', 'b', 'c', 'd'] });
+    assert.ok(/and 1 more/.test(prompts) && !/[{[]/.test(prompts), prompts);
+    assert.ok(!/^[{[]/.test(report.detailText({ domains: [{ domain: 'bloomerang.com', prompts: 3 }] })));
+    const cells = report.profileCells({
+      key: 'ai_visibility_lite', label: 'AI Visibility', status: 'completed_with_errors', scored: true, score: 50,
+      metric: { value: 17, display: '17%', unit: 'of AI answers' }, evidence: { counts: {} },
+    });
+    assert.strictEqual(cells[1], 'Finished with errors');
+    assert.strictEqual(cells[2], '17%');
+    assert.ok(/0–100 score is 50/.test(cells[4]), 'both figures, each labelled');
+  });
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 }

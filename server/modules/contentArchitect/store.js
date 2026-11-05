@@ -151,7 +151,10 @@ async function ensureProject({ platformProjectId, workspaceId, domain, host }) {
   };
 
   const existing = await byPlatform();
-  if (existing) return existing;
+  // The platform project's primary domain changed since this row was made:
+  // Soteri Skin's report and downloads were still titled www.position2.com
+  // (UX-108). The row follows the project's current site.
+  if (existing) return retarget(existing, { domain, host });
 
   // Legacy standalone analyses can be reused once. Never share a linked record
   // between projects/workspaces that happen to track the same site.
@@ -217,6 +220,50 @@ async function ensureProject({ platformProjectId, workspaceId, domain, host }) {
     }
     throw error;
   }
+}
+
+/**
+ * A linked row pointed at the platform project's current primary domain.
+ * Unchanged when it already is (or either side cannot be parsed). The old
+ * domain is kept as `previousDomain`, so the change is on record.
+ */
+async function retarget(project, { domain, host }) {
+  const now = siteOf(domain);
+  if (!project || !now || !siteOf(project.domain) || siteOf(project.domain) === now) return project;
+  let name = host;
+  if (!name) { try { name = new URL(domain).host; } catch { name = now; } }
+  return updateProject(project.id, { domain, name, previousDomain: project.domain });
+}
+
+/**
+ * A linked record checked against its platform project: its domain follows
+ * the project's current primary domain (retarget above), and
+ * `platformProjectName` carries the project's own name, which titles the page
+ * and the exports. A record with no link, or a lookup that fails, is returned
+ * as it is.
+ */
+async function syncWithPlatform(project) {
+  if (!project?.platformProjectId) return project;
+  let row;
+  try {
+    row = await db.maybeOne(
+      `select p.name, d.normalized_origin, d.host
+         from crawl_projects p
+         left join project_domains d
+           on d.project_id = p.id and d.role = 'primary' and d.status = 'active'
+        where p.id = $1
+        limit 1`,
+      [project.platformProjectId]
+    );
+  } catch (error) {
+    console.error('[contentArchitect.store.syncWithPlatform]', error.message);
+    return project;
+  }
+  if (!row) return project;
+  const current = row.normalized_origin
+    ? await retarget(project, { domain: row.normalized_origin, host: row.host })
+    : project;
+  return { ...current, platformProjectName: row.name || null };
 }
 
 async function updateProject(id, patch) {
@@ -307,6 +354,7 @@ async function deleteFullAnalysis(id) {
 
 module.exports = {
   listProjects, getProject, createProject, ensureProject, updateProject, deleteProject,
+  retarget, syncWithPlatform,
   getPatterns, savePatterns, getUrls, saveUrls, getClusters, saveClusters,
   getFullAnalysis, saveFullAnalysis, deleteFullAnalysis,
 };

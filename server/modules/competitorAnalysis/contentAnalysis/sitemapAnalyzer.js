@@ -12,6 +12,9 @@ async function crawlSitemaps(domainEntries) {
       sitemapStatus: result.sitemapStatus,
       totalUrls: result.totalUrls,
       capped: result.capped,
+      partial: !!result.partial,
+      sitemapUrls: result.sitemapUrls || (result.sitemapUrl ? [result.sitemapUrl] : []),
+      checks: result.checks || [],
       error: result.error,
       urls: result.urls, // in-memory only — never persisted (see orchestrator)
     };

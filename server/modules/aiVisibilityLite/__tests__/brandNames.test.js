@@ -57,5 +57,20 @@ test('flags "S1"/"V3", not real names', () => {
   assert.strictEqual(isShortCode('Fish.Audio'), false);
 });
 
+console.log('\nbrandNames.mergeCompetitors');
+
+test('a site-found competitor matching a configured domain is one competitor, with its real name', () => {
+  const { mergeCompetitors } = require('../brandNames');
+  const out = mergeCompetitors(
+    [{ name: 'Roadway Moving', domain: 'roadwaymoving.com', aliases: ['roadwaymoving'] },
+      { name: 'Gentlegiant', domain: 'gentlegiant.com', aliases: ['gentlegiant'] }],
+    ['Roadway Moving', 'Gentle Giant', 'Other Movers'],
+  );
+  assert.strictEqual(out.length, 3, 'no competitor listed twice');
+  assert.strictEqual(out[1].name, 'Gentle Giant', 'the site spelling replaces the derived one');
+  assert.ok(out[1].aliases.includes('gentlegiant'));
+  assert.strictEqual(out[2].name, 'Other Movers');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

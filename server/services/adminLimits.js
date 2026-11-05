@@ -100,6 +100,32 @@ const DIRECTION = {
 
 const LIMIT_KEYS = Object.keys(DEFAULT_LIMITS);
 
+// The keys some feature actually reads. Migration 0011 seeded the whole PRD
+// §10.2 schema, but only these were ever wired to a consumer; the Admin page
+// listed all twenty as "effective", so an administrator could publish a $5
+// spend cap per run that nothing checked. The rest stay valid policy keys
+// (historical versions carry them and the policy schema accepts them) but are
+// shown read-only as "not active yet". A key moves into this list in the same
+// change that makes a run honour it — a test checks every key here is read by
+// at least one non-test module.
+//
+//   maxUrlsPerCrawl, maxCrawlDepth,
+//   maxCrawlConcurrency, requestTimeoutMs  crawlScope/shared/options.js
+//   scheduleMinIntervalHours                moduleScheduler.js
+//   workspacePurgeGraceDays                 workspaceLifecycle.js
+//   maxPagesPerModuleAudit                  projects/crawledPages.js, moduleRunners.js
+//   maxPromptsPerVisibilityRun              aiVisibility/routes.js, generate.js, run.js
+const ENFORCED_KEYS = Object.freeze([
+  'maxUrlsPerCrawl',
+  'maxCrawlDepth',
+  'maxCrawlConcurrency',
+  'requestTimeoutMs',
+  'scheduleMinIntervalHours',
+  'workspacePurgeGraceDays',
+  'maxPagesPerModuleAudit',
+  'maxPromptsPerVisibilityRun',
+]);
+
 // ── Env is a FALLBACK, never a ceiling ──────────────────────────────────────
 //
 // These used to be read in crawlScope/shared/options.js as a SECOND ceiling on
@@ -410,6 +436,7 @@ async function createVersion({ scope, scopeRef = null, limits, note, actorUserId
 module.exports = {
   DEFAULT_LIMITS,
   LIMIT_KEYS,
+  ENFORCED_KEYS,
   DIRECTION,
   ENV_FALLBACK,
   HARD_MAX,

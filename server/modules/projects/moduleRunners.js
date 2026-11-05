@@ -115,6 +115,36 @@ async function auditPageSeoGeo({ url, keywords }) {
   const challenge = challengeReason(pageFacts(result.findings));
   const overall = Number(scores.overall);
   const hasScore = Number.isFinite(overall) && !errorPage && !challenge;
+  const unread = errorPage || Boolean(challenge);
+
+  // Checks and AI text run against an error page or a bot wall describe that
+  // page, not the site's: Soteri's 429 page showed 73 findings and an AI verdict,
+  // all counted in the totals (UX-036). Nothing from it is kept but its facts.
+  if (unread) {
+    // A refusal status names the block more exactly than the wall it served.
+    const refused = errorPage && [403, 429, 503].includes(httpStatus);
+    const reason = refused
+      ? `${moduleEvidence.siteRefusedLine(httpStatus)} Not scored.`
+      : challenge
+        ? `${challenge} Not scored.`
+        : `The page answered HTTP ${httpStatus}, so there was no content to audit; not scored.`;
+    return {
+      score: null,
+      scoreMax: 100,
+      scoreBasis: null,
+      band: challenge && !errorPage ? 'Blocked — not measured' : `HTTP ${httpStatus} — not scored`,
+      findings: [],
+      error: reason,
+      payload: {
+        native: { findings: { ...(result.findings || {}), checks: [] }, ai: null },
+        blocked: challenge || null,
+        unreadable: { httpStatus: Number.isFinite(httpStatus) ? httpStatus : null, reason },
+        aiAnalysisPresent: false,
+        scores: {},
+        bandBlurb: null,
+      },
+    };
+  }
 
   const findings = (result.findings?.checks || [])
     .filter((c) => ['error', 'warning', 'notice'].includes(String(c.severity || '').toLowerCase()))
@@ -134,11 +164,7 @@ async function auditPageSeoGeo({ url, keywords }) {
     scoreBasis: hasScore ? SCORE_BASIS.seo_geo : null,
     // scores.band is an object here ({ label, blurb }); the column is text, so
     // storing it whole once put raw JSON on a card.
-    band: challenge
-      ? 'Blocked — not measured'
-      : errorPage
-      ? `HTTP ${httpStatus} — not scored`
-      : (typeof scores.band === 'string' ? scores.band : (scores.band?.label || null)),
+    band: typeof scores.band === 'string' ? scores.band : (scores.band?.label || null),
     findings,
     payload: {
       native: { findings: result.findings, ai: result.ai || null },
@@ -170,6 +196,8 @@ async function auditPageAgentReadiness({ url }) {
       scoreBasis: null,
       band: 'Blocked — not measured',
       findings: [],
+      // Why this page has no score, in the shared refusal wording (UX-036/205).
+      error: `${moduleEvidence.siteRefusedLine(result.blocked?.status ?? moduleEvidence.refusedStatusIn(JSON.stringify(result.blocked)))} Not scored.`,
       payload: { native: result, site: result.site || null, cats: [], blocked: result.blocked },
     };
   }
@@ -314,7 +342,15 @@ async function autoDiscoverCompetitors({ access, project, primary, existingCompe
   const failures = [];
   for (const candidate of discovery.candidates) {
     try {
-      added.push(await store.addCompetitor({ access, domain: candidate.domain, status, source: 'accepted' }));
+      added.push(await store.addCompetitor({
+        access, domain: candidate.domain, status, source: 'accepted',
+        // Shown as the "AI pick" reason on the project's competitor chips.
+        discovery: {
+          reason: candidate.reason || null,
+          competitorType: candidate.competitorType || null,
+          at: new Date().toISOString(),
+        },
+      }));
     } catch (e) {
       // One candidate failing to save (a duplicate, a transient DB error) is
       // not a reason to discard the others.
@@ -785,6 +821,166 @@ async function reusableSnapshot(clientId, client) {
 // through the shared provider factory. All three are optional: selection falls
 // back to URL rules, every cluster has a mechanical name if the model is
 // unavailable, and the pipeline completes regardless.
+// Exclusion reasons that say something went wrong reading or marking up the
+// page, not that the page is not an article. When one of these is the main
+// reason, "this site has too few articles" is the wrong conclusion (UX-227).
+const TECHNICAL_EXCLUSIONS = new Set([
+  'canonical_to_homepage', 'canonical_elsewhere', 'not_indexable', 'fetch_failed',
+  'redirected', 'not_html', 'fetch_cap', 'not_checked', 'unclassified',
+]);
+
+// Exclusions a second run can change: our checker or our page limit, not the site.
+const RETRYABLE_EXCLUSIONS = new Set(['unclassified', 'not_checked', 'fetch_cap', 'fetch_failed']);
+
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** One exclusion reason in plain words: "71 pages point search engines to the homepage…". */
+function plainExclusion({ code, label, count }) {
+  const n = Number(count) || 0;
+  const pages = plural(n, 'page');
+  const verb = n === 1 ? 'points' : 'point';
+  switch (code) {
+    case 'canonical_to_homepage': return `${pages} ${verb} search engines to the homepage instead of themselves`;
+    case 'canonical_elsewhere': return `${pages} ${verb} search engines to a different page instead of themselves`;
+    case 'not_indexable': return `${pages} ${n === 1 ? 'is' : 'are'} marked noindex`;
+    case 'fetch_failed': return `${pages} could not be read (an error or not found)`;
+    case 'redirected': return `${pages} redirect${n === 1 ? 's' : ''} to another address`;
+    case 'unclassified': return `our page checker was briefly unavailable for ${pages}`;
+    case 'not_checked':
+    case 'fetch_cap': return `${pages} ${n === 1 ? 'was' : 'were'} not read this run (our per-run limit)`;
+    default: return `${pages} ${n === 1 ? 'is not an article or guide' : 'are not articles or guides'} `
+      + `(${String(label || code).toLowerCase()})`;
+  }
+}
+
+/** What to do about the main exclusion reason, when it is a technical one. */
+function exclusionAdvice(code) {
+  switch (code) {
+    case 'canonical_to_homepage':
+    case 'canonical_elsewhere':
+      return 'Point each article’s canonical tag at the article itself, then re-crawl.';
+    case 'not_indexable': return 'Remove noindex from the articles you want found, then re-crawl.';
+    case 'fetch_failed': return 'Check that those pages load, then retry.';
+    case 'redirected': return 'List final addresses in the sitemap, then re-crawl.';
+    case 'unclassified':
+    case 'not_checked':
+    case 'fetch_cap': return 'Retrying the analysis may pick those up.';
+    default: return '';
+  }
+}
+
+/**
+ * The Hub and Spoke result when too few informational pages survived selection.
+ *
+ * Three different situations, three answers (UX-227, UX-228):
+ *   - the site refused our requests: the shared blocked wording;
+ *   - the site served its homepage for nearly every address (a crawler sees a
+ *     shell): 'homepage_served', never "too few articles";
+ *   - otherwise a plain sentence, the main reason in plain words and one thing
+ *     to do. "Too few to group yet" only when the main reason is the content.
+ * `retryHelps` says whether pressing Retry could change the answer.
+ */
+function hubSpokeTooFewResult({ input, summary = {}, crawlRunId = null, aiMissing = false }) {
+  const reasons = Array.isArray(summary.excludedByReason) ? summary.excludedByReason : [];
+  const found = Number(input.crawledPageCount) || 0;
+  const used = Number(input.pageCount) || 0;
+  const base = {
+    crawlRunId,
+    pagesCrawled: input.crawledPageCount,
+    informationalPageCount: input.pageCount,
+    minimum: input.minimum,
+    excludedByReason: reasons,
+    selectionMethod: summary.method || null,
+    selectionVersion: summary.version ?? null,
+    crawlCapped: Boolean(input.meta?.capped),
+    urlCap: input.meta?.urlCap ?? null,
+    limitations: summary.limitations || [],
+  };
+
+  // The site refused the requests. Its sitemap and menus were never seen, so
+  // advice about publishing a sitemap would be wrong — seen on two retailers
+  // whose bot protection answered every request with 403.
+  const blocked = input.meta?.blocked;
+  if (blocked) {
+    return {
+      status: 'insufficient_data',
+      score: null,
+      findings: [],
+      payload: {
+        ...base,
+        reason: 'site_blocked',
+        blockedStatus: blocked.status ?? null,
+        retryHelps: false,
+        cardNote: moduleEvidence.siteRefusedLine(blocked.status),
+      },
+      note:
+        `The site answered our requests with ${blocked.status ? `HTTP ${blocked.status}` : 'a refusal'}, so its `
+        + 'sitemaps, menus and articles could not be read. This is usually bot protection (a firewall or CDN rule). '
+        + 'Allowing the crawler through — by its user agent or IP address — would let hub and spoke analyse the site.',
+    };
+  }
+
+  const countOf = (code) => Number(reasons.find((r) => r.code === code)?.count) || 0;
+  const toHome = countOf('canonical_to_homepage');
+  const nonHome = Math.max(0, found - countOf('homepage'));
+  // Joincabinet.com answered our crawler with its homepage on 78 of 78 article
+  // addresses (canonical to /), and was told it had too few articles.
+  if (toHome >= 5 && nonHome > 0 && toHome / nonHome >= 0.6) {
+    return {
+      status: 'insufficient_data',
+      score: null,
+      findings: [],
+      payload: {
+        ...base,
+        reason: 'homepage_served',
+        retryHelps: false,
+        cardNote: `The site showed our crawler its homepage for ${toHome} of ${nonHome} addresses — its articles could not be read.`,
+      },
+      note:
+        `Almost every address on this site (${toHome} of ${nonHome}) returned the homepage to our crawler `
+        + 'instead of its own page, so its articles could not be read. This usually means the site treats '
+        + 'crawlers differently from browsers. Allowing the crawler’s user agent would let hub and spoke '
+        + 'analyse the site.',
+    };
+  }
+
+  const top = reasons.find((r) => r.code !== 'homepage') || null;
+  const technical = Boolean(top && TECHNICAL_EXCLUSIONS.has(top.code));
+  const retryHelps = Boolean(aiMissing || (top && RETRYABLE_EXCLUSIONS.has(top.code)));
+  const lead = used
+    ? `Only ${plural(used, 'article, guide or FAQ page', 'article, guide or FAQ pages')} could be used out of the `
+      + `${plural(found, 'page')} found; grouping needs at least ${input.minimum}.`
+    : `None of the ${plural(found, 'page')} found could be used as an article, guide or FAQ; `
+      + `grouping needs at least ${input.minimum}.`;
+  const why = top ? ` The main reason: ${plainExclusion(top)}.` : '';
+  const todo = technical
+    ? exclusionAdvice(top.code)
+    : input.meta?.noSitemap
+      ? 'The site has no usable sitemap, and its menus led to too few articles — publishing a sitemap, '
+        + 'or linking the blog from the main menu, would let hub and spoke find them.'
+      : 'Hub and spoke organises a site’s articles and guides, and this site has too few to group yet.';
+  const checker = aiMissing && top?.code !== 'unclassified'
+    ? ' Our page checker was briefly unavailable for some pages; retrying may help with those.'
+    : '';
+
+  return {
+    status: 'insufficient_data',
+    score: null,
+    findings: [],
+    payload: {
+      ...base,
+      // status() in ./contentArchitect.js counts this crawl as attempted by it.
+      reason: 'too_few_informational_pages',
+      mainExclusion: top?.code || null,
+      retryHelps,
+      cardNote: technical
+        ? `Only ${used} of ${found} pages could be used — ${plainExclusion(top)}.`
+        : `Only ${plural(used, 'informational page')} among ${found} found — too few to cluster.`,
+    },
+    note: `${lead}${why}${todo ? ` ${todo}` : ''}${checker}`,
+  };
+}
+
 async function runHubSpoke({ project, domains }) {
   const crawlToArchitect = require('./crawlToArchitect');
   const { analyzeCrawledPages } = require('../contentArchitect/fullAnalysis');
@@ -847,8 +1043,6 @@ async function runHubSpoke({ project, domains }) {
 
   if (input.tooFewInformational) {
     const summary = input.selection?.summary || {};
-    const topReasons = (summary.excludedByReason || []).slice(0, 3)
-      .map((r) => `${r.label.toLowerCase()} (${r.count})`).join(', ');
     // Only when there was something for it to judge: with no candidates at all
     // the method reads 'rules' without the model ever having been needed.
     const aiMissing = (summary.crawledPageCount || 0) > 0
@@ -864,62 +1058,7 @@ async function runHubSpoke({ project, domains }) {
         .catch((e) => console.error('[hub_spoke] could not clear the all-pages analysis:', e.message));
     }
 
-    // The site refused the requests. Its sitemap and menus were never seen, so
-    // advice about publishing a sitemap would be wrong — seen on two retailers
-    // whose bot protection answered every request with 403.
-    const blocked = input.meta?.blocked;
-    if (blocked) {
-      return {
-        status: 'insufficient_data',
-        score: null,
-        findings: [],
-        payload: {
-          reason: 'site_blocked',
-          crawlRunId: crawl.id,
-          blockedStatus: blocked.status ?? null,
-          limitations: summary.limitations || [],
-          cardNote: `The site refused our requests${blocked.status ? ` (HTTP ${blocked.status})` : ''} — nothing could be read.`,
-        },
-        note:
-          `The site answered our requests with ${blocked.status ? `HTTP ${blocked.status}` : 'a refusal'}, so its `
-          + 'sitemaps, menus and articles could not be read. This is usually bot protection (a firewall or CDN rule). '
-          + 'Allowing the crawler through — by its user agent or IP address — would let hub and spoke analyse the site.',
-      };
-    }
-
-    return {
-      status: 'insufficient_data',
-      score: null,
-      findings: [],
-      payload: {
-        reason: 'too_few_informational_pages',
-        // status() in ./contentArchitect.js counts this crawl as attempted by it.
-        crawlRunId: crawl.id,
-        pagesCrawled: input.crawledPageCount,
-        informationalPageCount: input.pageCount,
-        minimum: input.minimum,
-        excludedByReason: summary.excludedByReason || [],
-        selectionMethod: summary.method || null,
-        selectionVersion: summary.version ?? null,
-        crawlCapped: Boolean(input.meta?.capped),
-        urlCap: input.meta?.urlCap ?? null,
-        limitations: summary.limitations || [],
-        cardNote: `Only ${input.pageCount} informational page(s) among ${input.crawledPageCount} found — `
-          + 'too few to cluster.',
-      },
-      note:
-        `Only ${input.pageCount} informational page(s) (articles, guides, FAQs) among the `
-        + `${input.crawledPageCount} found in the site's sitemaps and informational listings; `
-        + `clustering needs ${input.minimum}. `
-        + (topReasons ? `The rest were left out as: ${topReasons}. ` : '')
-        + (input.meta?.noSitemap
-          ? 'The site has no usable sitemap, and its menus led to too few articles — publishing a sitemap, '
-            + 'or linking the blog from the main menu, would let hub and spoke find them. '
-          : 'Hub and spoke organises a site\'s articles and guides, and this site has too few to group yet. ')
-        + (aiMissing
-          ? 'The AI page check was not fully available, so pages the URL rules could not judge were left out.'
-          : ''),
-    };
+    return hubSpokeTooFewResult({ input, summary, crawlRunId: crawl.id, aiMissing });
   }
 
   await caStore.updateProject(caProject.id, { workflowState: 'analyzing' });
@@ -1254,13 +1393,28 @@ async function runHomepageAudit({ access, moduleKey, run, project, keywords, isS
       band: result.band ?? null,
       findings: result.findings || [],
       payload: result.payload || null,
+      error: result.error || null,
     });
+    // The homepage refused us (8x8's 429): the shared blocked state, unscored,
+    // instead of a "completed" homepage audit of the error page (UX-036).
+    const refused = moduleEvidence.allPagesRefused([page]);
     // Keep the same per-page storage that the module screens already open, and
     // explicitly label the coverage so one page cannot read as a site average.
     return {
       ...result,
+      ...(refused ? {
+        status: 'insufficient_data',
+        note: `${moduleEvidence.siteRefusedLine(refused.status)} The homepage answered with a refusal or an `
+          + 'error page instead of its content, so nothing was scored. This is usually bot protection '
+          + '(a firewall or CDN rule); allowing the crawler through would let the audit read the site.',
+      } : {}),
       band: 'Homepage audited',
       payload: {
+        ...(refused ? {
+          reason: 'site_blocked',
+          blockedStatus: refused.status,
+          cardNote: moduleEvidence.siteRefusedLine(refused.status),
+        } : {}),
         scope: 'homepage',
         source: 'project_setup',
         pagesAudited: 1,
@@ -1272,7 +1426,9 @@ async function runHomepageAudit({ access, moduleKey, run, project, keywords, isS
           band: page.band, counts: page.counts || {}, findings: (page.findings || []).length,
         }],
       },
-      note: 'Homepage audited automatically at project setup. This score covers the homepage only.',
+      ...(refused ? {} : {
+        note: 'Homepage audited automatically at project setup. This score covers the homepage only.',
+      }),
     };
   } catch (e) {
     if (!lost()) await moduleEvidence.completePageRun({ pageRunId: pageRun.id, status: 'failed', error: e.message });
@@ -1346,6 +1502,7 @@ async function runAcrossCrawledPages({ access, moduleKey, run, project, keywords
         band: result.band ?? null,
         findings: result.findings || [],
         payload: result.payload || null,
+        error: result.error || null,
       }));
     } catch (e) {
       // One page's failure is one page's failure.
@@ -1360,19 +1517,30 @@ async function runAcrossCrawledPages({ access, moduleKey, run, project, keywords
 
   const rollup = moduleEvidence.aggregatePages(pageResults);
   const scoreBasis = SCORE_BASIS[moduleKey];
+  // No page could be read: one shared "site refused our requests" state rather
+  // than a completed run with nothing in it (UX-036).
+  const refused = moduleEvidence.allPagesRefused(pageResults);
 
   return {
+    ...(refused ? { status: 'insufficient_data' } : {}),
     score: rollup.mean,
     scoreMax: 100,
     // The mean is a new number, so it says exactly what it is a mean OF and what
     // produced each input. §6.2 forbids inventing a methodology; averaging a
     // module's own per-page scores is arithmetic on its methodology, and the
-    // basis has to make that legible.
+    // basis has to make that legible. Unscored pages are named in it (UX-205).
     scoreBasis: rollup.mean === null ? null
-      : `Mean of ${rollup.scoredPages} page score(s) from ${scoreBasis}`,
-    band: `${rollup.totalPages} page${rollup.totalPages === 1 ? '' : 's'} audited`,
+      : moduleEvidence.rollupBasis(rollup, scoreBasis),
+    band: moduleEvidence.rollupBand(rollup),
+    // The pages' own counts summed, the numbers the page picker lists.
+    counts: rollup.counts,
     findings: rollup.findings,
     payload: {
+      ...(refused ? {
+        reason: 'site_blocked',
+        blockedStatus: refused.status,
+        cardNote: moduleEvidence.siteRefusedLine(refused.status),
+      } : {}),
       pagesAudited: rollup.totalPages,
       pagesScored: rollup.scoredPages,
       pagesFailed: rollup.failedPages,
@@ -1402,8 +1570,11 @@ async function runAcrossCrawledPages({ access, moduleKey, run, project, keywords
         findings: Array.isArray(p.findings) ? p.findings.length : 0,
       })),
     },
-    note:
-      `${rollup.totalPages} of ${crawl.crawledCount} crawled page(s) audited`
+    note: refused
+      ? `${moduleEvidence.siteRefusedLine(refused.status)} Every page this audit tried answered with a `
+        + 'refusal or an error page instead of its content, so nothing was scored. This is usually bot '
+        + 'protection (a firewall or CDN rule); allowing the crawler through would let the audit read the site.'
+      : `${rollup.totalPages} of ${crawl.crawledCount} crawled page(s) audited`
       + (crawl.skipped
         ? ` — the ${crawl.limit} ${crawl.linkGraph ? 'most internally linked' : 'shallowest'},`
           + ` leaving ${crawl.skipped} unaudited`
@@ -1626,6 +1797,7 @@ async function executeOpenRun({
       scoreBasis: result.scoreBasis ?? null,
       band: result.band ?? null,
       findings: result.findings || [],
+      counts: result.counts || null,
       payload: result.note ? { ...(result.payload || {}), note: result.note } : result.payload,
     });
   } catch (error) {
@@ -1749,4 +1921,6 @@ module.exports = {
   runModule,
   executeOpenRun,
   autoDiscoverCompetitors,
+  hubSpokeTooFewResult,
+  auditPageSeoGeo,
 };

@@ -21,6 +21,7 @@ const db = require('../../services/db');
 const projectAccess = require('../../services/projectAccess');
 const keywordResearchStore = require('./keywordResearchStore');
 const enhancementsStore = require('./enhancementsStore');
+const { remapWork } = require('./topicAnchors');
 const { cleanHtml } = require('../contentWriter/document');
 
 const norm = (s) => String(s || '').trim().toLowerCase();
@@ -107,18 +108,23 @@ async function listArticles(req, project) {
   return (await visibleTo(req, rows, project.platformProjectId)).map(toArticle);
 }
 
-/** The whole project's work, as summaries. */
-async function projectWork(req, project) {
+/**
+ * The whole project's work, as summaries. With `analysis`, every item is
+ * placed on the topic of that analysis it was made for, and work whose topic it
+ * no longer has comes back marked `orphaned` (topicAnchors.remapWork, UX-159).
+ */
+async function projectWork(req, project, { analysis = null } = {}) {
   const [keywordResearch, articles, enhancements] = await Promise.all([
     keywordResearchStore.listSummaries(project.id),
     listArticles(req, project),
     enhancementsStore.listSummaries(project.id),
   ]);
-  return {
+  const work = {
     keywordResearch,
     articles: linkArticles(articles, keywordResearch, { caProjectId: project.id, platformProjectId: project.platformProjectId }),
     enhancements,
   };
+  return analysis ? remapWork(work, analysis) : work;
 }
 
 /** One article, in full, if it belongs to this project's report. */

@@ -129,6 +129,86 @@ const H = 'https://health.invalid';
       assert.equal(overview.siteHealth({ summary: { counts: {} } }, 1, [], counts).score, 0);
     });
 
+    // The aggregates moved into one statement (overview.crawlHealthAggregates)
+    // that reads each result's JSON once. These are the statements it replaced,
+    // verbatim; on every fixture run both must give the same numbers.
+    const SCORED_R = `r.content_type ilike '%text/html%'
+              and r.data->>'scope' = 'Internal'
+              and coalesce(r.data->>'crawlRefused', 'false') <> 'true'
+              and coalesce(r.data->>'probe', 'false') <> 'true'
+              and coalesce(r.data->>'unrenderedShell', 'false') <> 'true'
+              and coalesce(r.data->>'javascriptRedirectUrl', '') = ''
+              and (r.status is null or r.status between 200 and 299)`;
+    const { SEVERITY_TABLE_JSON } = require('../../crawlScope/currentSeverity');
+    const legacy = async (runId) => {
+      const html = await db.count(
+        `select count(*) from crawl_run_results r where r.run_id = $1 and ${SCORED_R}`, [runId]);
+      const [loss] = await db.rows(
+        `with counted as (
+           select f.data->>'url' as url,
+                  coalesce(($7::jsonb)->>(f.data->>'ruleId'), f.data->>'severity') as severity,
+                  coalesce(f.data->>'ruleId', '?') as rule
+             from crawl_run_finding_instances f
+             join crawl_run_results r on r.run_id = f.run_id and r.url = f.data->>'url'
+             left join crawl_finding_reviews v on v.run_id = f.run_id and v.finding_id = f.finding_id
+            where f.run_id = $1 and coalesce(f.data->>'scope', 'page') = any($2)
+              and ${SCORED_R}
+              and coalesce(v.review_status, '') <> all($3)
+         ), per_page as (
+           select url,
+                  count(distinct rule) filter (where severity = 'error') * $4::float8 as e,
+                  count(distinct rule) filter (where severity = 'warning') * $5::float8 as w,
+                  count(distinct rule) filter (where severity = 'notice') * $6::float8 as n
+             from counted group by url
+         )
+         select count(*) filter (where e > 0)::int as error_pages,
+                count(*) filter (where w > 0)::int as warning_pages,
+                count(*) filter (where n > 0)::int as notice_pages,
+                coalesce(sum(case when e + w + n > 0 then e * least(100, e + w + n) / (e + w + n) else 0 end), 0)::float8 as error_loss,
+                coalesce(sum(case when e + w + n > 0 then w * least(100, e + w + n) / (e + w + n) else 0 end), 0)::float8 as warning_loss,
+                coalesce(sum(case when e + w + n > 0 then n * least(100, e + w + n) / (e + w + n) else 0 end), 0)::float8 as notice_loss
+           from per_page`,
+        [runId, ['page', 'template'], ['False positive', 'Resolved'], 40, 10, 0, SEVERITY_TABLE_JSON]);
+      const site = await db.rows(
+        `select coalesce(f.data->>'ruleId', '?') as rule,
+                coalesce(($4::jsonb)->>(f.data->>'ruleId'), f.data->>'severity') as severity,
+                bool_or(coalesce(f.data->>'scope', 'page') <> all($2)) as site_scoped,
+                bool_or(coalesce(f.data->>'scope', 'page') = any($2) and r.url is not null and ${SCORED_R}) as on_scored
+           from crawl_run_finding_instances f
+           left join crawl_run_results r on r.run_id = f.run_id and r.url = f.data->>'url'
+           left join crawl_finding_reviews v on v.run_id = f.run_id and v.finding_id = f.finding_id
+          where f.run_id = $1 and coalesce(v.review_status, '') <> all($3)
+          group by 1, 2`,
+        [runId, ['page', 'template'], ['False positive', 'Resolved'], SEVERITY_TABLE_JSON]);
+      const costing = await db.rows(
+        `select coalesce(f.data->>'ruleId', '?') as rule,
+                coalesce(($4::jsonb)->>(f.data->>'ruleId'), f.data->>'severity') as severity,
+                array_agg(distinct f.data->>'url') as urls
+           from crawl_run_finding_instances f
+           join crawl_run_results r on r.run_id = f.run_id and r.url = f.data->>'url'
+           left join crawl_finding_reviews v on v.run_id = f.run_id and v.finding_id = f.finding_id
+          where f.run_id = $1 and coalesce(f.data->>'scope', 'page') = any($2)
+            and ${SCORED_R}
+            and coalesce(v.review_status, '') <> all($3)
+          group by 1, 2`,
+        [runId, ['page', 'template'], ['False positive', 'Resolved'], SEVERITY_TABLE_JSON]);
+      return { html, loss, site, costing };
+    };
+    const sortRows = (rows, key) => [...rows].map((r) => ({ ...r, ...(r.urls ? { urls: [...r.urls].sort() } : {}) }))
+      .sort((a, b) => key(a).localeCompare(key(b)));
+
+    await test('the single statement gives the same numbers as the statements it replaced', async () => {
+      for (const id of [run.id]) {
+        const old = await legacy(id);
+        const agg = await overview.crawlHealthAggregates(id);
+        assert.equal(agg.htmlPages, old.html);
+        assert.deepEqual(agg.loss, old.loss);
+        const k = (r) => `${r.rule}|${r.severity}`;
+        assert.deepEqual(sortRows(agg.siteRuleRows, k), sortRows(old.site, k));
+        assert.deepEqual(sortRows(agg.costingRows, k), sortRows(old.costing, k));
+      }
+    });
+
     await test('a run with no stored instances returns null so the caller can fall back', async () => {
       const empty = await newRun();
       assert.equal(await overview.healthAffectedPages(empty.id), null);

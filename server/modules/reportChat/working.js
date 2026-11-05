@@ -17,6 +17,7 @@
 
 const seoGeo = require('../../checks/seoGeoChecks');
 const agentReadiness = require('../../routes/agentReadinessAudit');
+const { CLUSTER_HEALTH_WEIGHTS, UNVERIFIED_HUB_CREDIT } = require('../contentArchitect/config');
 
 const LIMITS = { string: 300, array: 250, depth: 6 };
 
@@ -437,32 +438,50 @@ function comp(w) {
 }
 
 function hub(w) {
+  // The same weights the score is built with (contentArchitect/config.js), so
+  // this breakdown cannot drift from the formula: v2 has four parts and no
+  // "size" part.
+  const W = CLUSTER_HEALTH_WEIGHTS;
   const clusters = arr(w.clusters).map((c) => {
-    const members = num(c.members);
     const depth = num(c.meanDepth);
-    const known = {
-      hubPresent: c.isGap ? 0 : 30,
-      sizeInRange: members !== null && members >= 3 && members <= 12 ? 15 : 0,
-      clickDepth: depth === null ? 0 : r1(15 * Math.max(0, 1 - depth / 8)),
-    };
-    const knownTotal = known.hubPresent + known.sizeInRange + known.clickDepth;
-    const rest = num(c.health) === null ? null : r1(c.health - knownTotal);
+    const unverified = c.hubConfidence === 'suggested' || c.hubConfidence === 'reference';
+    const hubPoints = c.isGap ? 0 : W.hubPresent * (unverified ? UNVERIFIED_HUB_CREDIT : 1);
+    const depthPoints = depth === null ? 0 : r1(W.clickDepth * Math.max(0, 1 - depth / 8));
+    const health = num(c.health);
+    // Vocabulary breadth and hub <-> spoke linking are not stored separately;
+    // together they are what is left. Without a hub both are 0 by the formula.
+    const rest = health === null ? null : r1(Math.max(0, health - hubPoints - depthPoints));
     return {
       ...c,
-      healthParts: known,
-      coveragePlusLinks: rest,
+      healthParts: {
+        hubPresent: { points: hubPoints, max: W.hubPresent },
+        clickDepth: { points: depthPoints, max: W.clickDepth },
+        vocabularyBreadthPlusHubSpokeLinking: { points: rest, max: W.hubTermCoverage + W.hubSpokeLinking },
+      },
       calculation: rest === null ? null
-        : `${known.hubPresent} hub + ${known.sizeInRange} size + ${known.clickDepth} click depth + ${rest} coverage & links = ${c.health}`,
+        : `${hubPoints} hub (of ${W.hubPresent}) + ${depthPoints} click depth (of ${W.clickDepth}) + ${rest} hub vocabulary breadth and hub ↔ spoke linking together (of ${W.hubTermCoverage + W.hubSpokeLinking}) = ${health}`,
     };
   });
   // Weakest first, so "which is weakest" is the first row, not a comparison.
   clusters.sort((a, b) => (num(a.health) ?? 101) - (num(b.health) ?? 101));
   return {
     averageHealth: clusters.length ? Math.round(clusters.reduce((s, c) => s + (num(c.health) || 0), 0) / clusters.length) : null,
+    // The only cluster-health formula. Answer "what are the parts / maximums"
+    // from this, never from older wording.
+    formula: {
+      parts: [
+        { part: 'Hub present', max: W.hubPresent, rule: `${W.hubPresent} with a hub; ${W.hubPresent * UNVERIFIED_HUB_CREDIT} if the hub is only suggested or is a glossary index; 0 if the hub is missing` },
+        { part: 'Hub vocabulary breadth', max: W.hubTermCoverage, rule: `${W.hubTermCoverage} × share of the cluster's vocabulary the hub page covers` },
+        { part: 'Hub ↔ spoke linking', max: W.hubSpokeLinking, rule: `${W.hubSpokeLinking} × (spokes linking to the hub + spokes the hub links to) ÷ (2 × spokes)` },
+        { part: 'Click depth', max: W.clickDepth, rule: `${W.clickDepth} × max(0, 1 − average click depth ÷ 8)` },
+      ],
+      total: W.hubPresent + W.hubTermCoverage + W.hubSpokeLinking + W.clickDepth,
+      notParts: 'Cluster size (number of spoke pages) is not part of the score.',
+    },
     clustersOrder: 'weakest health first',
     clusters: clusters.slice(0, 120),
     clustersNotListed: Math.max(0, clusters.length - 120),
-    note: 'healthParts are recomputed from the cluster\'s status, size and click depths. coveragePlusLinks is the rest of the health score: 20 × hub vocabulary breadth + 20 × link density, which are not stored separately (± rounding).',
+    note: 'healthParts are rebuilt from the cluster\'s hub status and click depths. Hub vocabulary breadth (max 20) and hub ↔ spoke linking (max 30) are not stored separately, so only their sum is known; never split it into two figures (± rounding).',
   };
 }
 

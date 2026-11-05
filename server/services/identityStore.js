@@ -298,9 +298,11 @@ async function ensurePersonalWorkspace(userId, email, nameOverride) {
 // 0039). Position2's is the one created on first use; a client company
 // onboarded later gets its own, made by a platform administrator.
 //
-// Removing someone from a team workspace does not stick — they rejoin on their
-// next sign-in. Access to the app as a whole is the sign-in allowlist's job
-// (routes/auth.js isAllowedEmail), not this.
+// Removing someone from a team workspace sticks: auto-join reads the person's
+// own membership history first and stays out while its latest entry is a
+// removal made by a person (see teamJoinDecision). Adding them back by hand
+// writes a newer entry, which is what lifts the block. Access to the app as a
+// whole is still the sign-in allowlist's job (routes/auth.js isAllowedEmail).
 const TEAM_WORKSPACE_DOMAINS = { [POSITION2_DOMAIN]: 'Position2' };
 
 // Approver, not contributor: members edit project settings, manage competitors
@@ -374,12 +376,53 @@ async function createTeamWorkspace(domain, userId, email) {
   }
 }
 
-// Adds the user to their team workspace if they are not in it yet. Existing
-// members keep whatever role they already have.
-async function joinTeamWorkspace(workspace, userId, email) {
-  if (await isWorkspaceMember(workspace.id, userId)) return false;
+// Whether auto-join may add this person, and at what role, from the latest
+// entry in their membership history for this workspace. Pure, so the rule is
+// testable without a database.
+//
+//   latest entry is a removal by a person  → stay out. Removing a teammate on
+//                                           the Team page used to be undone by
+//                                           their very next request.
+//   latest entry names a role a person set → rejoin at that role, never at the
+//                                           default: a demotion must not come
+//                                           back as a promotion.
+//   no history, or only auto-join entries  → the default role.
+//
+// No new table: the history is already written inside the same transaction as
+// every membership change, so it is exactly as current as the membership.
+function teamJoinDecision(lastEvent, defaultRole) {
+  if (!lastEvent) return { join: true, role: defaultRole };
+  const byPerson = lastEvent.actor_email !== TEAM_AUTO_JOIN_ACTOR;
+  if (lastEvent.action === 'removed') {
+    return byPerson ? { join: false, role: null } : { join: true, role: lastEvent.old_role || defaultRole };
+  }
+  if (byPerson && lastEvent.new_role) return { join: true, role: lastEvent.new_role };
+  return { join: true, role: defaultRole };
+}
 
-  const role = (await isPlatformAdminUser(userId, email)) ? 'owner' : TEAM_DEFAULT_ROLE;
+async function lastMemberEvent(workspaceId, userId) {
+  try {
+    return await db.maybeOne(
+      `select action, old_role, new_role, actor_email from workspace_member_events
+        where workspace_id = $1 and subject_user = $2
+        order by created_at desc, id desc
+        limit 1`,
+      [workspaceId, userId]);
+  } catch (error) {
+    fail('lastMemberEvent', error);
+  }
+}
+
+// Adds the user to their team workspace if they are not in it yet and nobody
+// removed them. Existing members keep whatever role they already have.
+// Returns true when they are (now) a member, false when they are kept out.
+async function joinTeamWorkspace(workspace, userId, email) {
+  if (await isWorkspaceMember(workspace.id, userId)) return true;
+
+  const defaultRole = (await isPlatformAdminUser(userId, email)) ? 'owner' : TEAM_DEFAULT_ROLE;
+  const decision = teamJoinDecision(await lastMemberEvent(workspace.id, userId), defaultRole);
+  if (!decision.join) return false;
+  const role = decision.role;
   const domain = workspace.auto_join_domain;
   let added;
   try {
@@ -405,7 +448,7 @@ async function joinTeamWorkspace(workspace, userId, email) {
   } catch (error) {
     fail('joinTeamWorkspace', error);
   }
-  if (!added) return false;
+  if (!added) return true;   // a concurrent request added them first
 
   require('./projectAccess').invalidateRole(workspace.id, userId);
   invalidateWorkspacesFor(userId);
@@ -441,7 +484,9 @@ async function ensureHomeWorkspace(userId, email) {
     team = await createTeamWorkspace(domain, userId, email);
   }
   if (!team) return ensurePersonalWorkspace(userId, email);
-  await joinTeamWorkspace(team, userId, email);
+  // Someone removed from the team workspace on the Team page works in their
+  // own workspace until they are added back, rather than being re-added.
+  if (!(await joinTeamWorkspace(team, userId, email))) return ensurePersonalWorkspace(userId, email);
   return team;
 }
 
@@ -990,7 +1035,7 @@ module.exports = {
   addWorkspaceMember, setWorkspaceMemberRole, removeWorkspaceMember, listMemberEvents,
   ASSIGNABLE_ROLES, parseAssignableRole,
   isWorkspaceMember, getPersonalWorkspace, ensurePersonalWorkspace, ensurePlatformWorkspace,
-  ensureHomeWorkspace, getTeamWorkspace, emailDomain,
+  ensureHomeWorkspace, getTeamWorkspace, emailDomain, teamJoinDecision,
   TEAM_WORKSPACE_DOMAINS, TEAM_DEFAULT_ROLE,
   PLATFORM_EMAIL,
   recordActivity,

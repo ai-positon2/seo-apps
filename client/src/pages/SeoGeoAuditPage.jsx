@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { saveAs } from 'file-saver';
 import { useSeoGeoAudit } from '../hooks/useSeoGeoAudit';
 import { asText } from '../components/seoGeo/primitives';
@@ -9,6 +9,8 @@ import { UnderlineTabs, Eyebrow } from '../components/seoGeo/report/reportKit';
 import ModuleRuns from '../components/ModuleRuns';
 import ProjectReportBar from '../components/project/ProjectReportBar';
 import ReportResolving from '../components/project/ReportResolving';
+import ReportUnavailable from '../components/project/ReportUnavailable';
+import { useUrlState } from '../lib/useUrlState';
 import { useOnPageTab } from '../hooks/useOnPageTab';
 
 // ── downloadReport (7 sheets) ─────────────────────────────────────────────────
@@ -268,9 +270,16 @@ export default function SeoGeoAuditPage() {
   // stored report, then 'report' or 'none'. Starting at 'loading' is the point —
   // the input form used to render on mount and be replaced a moment later.
   const [reportState, setReportState] = useState('loading');
+  // Why the selected page cannot be shown ('page_failed' / 'error'), from the bar.
+  const [reportIssue, setReportIssue] = useState(null);
   // The stored page of a multi-page run currently loaded, if any (see onOpenReport).
   const [storedScope, setStoredScope] = useState(null);
-  const [view, setView] = useState('summary');
+  // In the address (?view=details), so a reload or Back keeps it (UX-151).
+  const [rawView, setView] = useUrlState('view', 'summary');
+  const view = VIEWS.some((v) => v.id === rawView) ? rawView : 'summary';
+  // The stored page last opened: a different one starts on its Summary, the
+  // first keeps the view the address asked for.
+  const openedPageId = useRef(null);
   // Set only when someone runs an audit on this screen. Opening a stored report
   // (restored, or read from the project) must not start paid work on its own.
   const [freshRun, setFreshRun] = useState(false);
@@ -278,8 +287,8 @@ export default function SeoGeoAuditPage() {
   // Inputs, the SSE run and run persistence live in the shared hook so the
   // Snapshot page provably sends the same request body and restores the same way.
   const ctl = useSeoGeoAudit('seo-geo-audit', {
-    onRestored: () => { setFreshRun(false); setView('summary'); },
-    onResult: () => { setFreshRun(true); setView('summary'); },
+    onRestored: () => { setFreshRun(false); },
+    onResult: () => { setFreshRun(true); setView('summary', { replace: true }); },
   });
   const { findings, ai } = ctl;
 
@@ -305,6 +314,10 @@ export default function SeoGeoAuditPage() {
     if (auditedUrl && freshRun) onPage.autoStart(findings?.meta?.keywords || []);
   }, [auditedUrl, freshRun, onPage.autoStart, findings?.meta?.keywords]);
 
+  // Another stored page was picked and its report is on its way: the one on
+  // screen belongs to the previous page, so it is not drawn under the new name.
+  const switchingPage = reportState === 'loading' && Boolean(findings) && Boolean(openedPageId.current) && !ctl.running;
+
   const host = (() => {
     try { return new URL(findings?.meta?.url || '').hostname.replace(/^www\./, ''); } catch { return null; }
   })();
@@ -321,6 +334,8 @@ export default function SeoGeoAuditPage() {
         moduleKey="seo_geo"
         onOpenReport={(native, detail, page) => {
           ctl.hydrate(native);
+          if (openedPageId.current && page && openedPageId.current !== page.id) setView('summary', { replace: true });
+          openedPageId.current = page?.id || null;
           // Which page of a multi-page run this report is, and the run's averages,
           // so the Summary can say "this page" beside the figure the dashboard
           // card shows. Null for a run with one report.
@@ -338,7 +353,13 @@ export default function SeoGeoAuditPage() {
             geoDetail: detail?.sideScores?.geoDetail || null,
           } : null);
         }}
-        onResolved={setReportState}
+        onResolved={(state, info) => {
+          setReportState(state);
+          setReportIssue(info || null);
+          // A failed page or an unreadable report replaces the one on screen:
+          // never another page's report under this page's name (UX-181).
+          if (state === 'page_failed' || state === 'error') { ctl.reset(); setStoredScope(null); }
+        }}
       />
       <style>{'@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }'}</style>
 
@@ -346,9 +367,15 @@ export default function SeoGeoAuditPage() {
           still being looked up this shows a skeleton rather than the input form —
           the form used to appear for a moment on every client that already had a
           report. */}
-      {reportState === 'loading' && !findings && <ReportResolving maxWidth={672} />}
+      {reportState === 'loading' && (!findings || switchingPage) && <ReportResolving maxWidth={672} />}
 
-      {reportState !== 'loading' && !findings && (
+      {/* A stored report exists but cannot be shown: say why, with a retry —
+          not the blank new-audit form below. */}
+      {(reportState === 'page_failed' || reportState === 'error') && !findings && !ctl.running && (
+        <ReportUnavailable state={reportState} info={reportIssue} maxWidth={960} />
+      )}
+
+      {reportState !== 'loading' && reportState !== 'page_failed' && reportState !== 'error' && !findings && (
         <div style={{ maxWidth: 672, margin: '0 auto' }}>
           <AuditInputPanel
             ctl={ctl}
@@ -360,7 +387,7 @@ export default function SeoGeoAuditPage() {
         </div>
       )}
 
-      {findings && (
+      {findings && !switchingPage && (
         <>
           {/* ── Which page this is ───────────────────────────────────────── */}
           <div

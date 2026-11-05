@@ -20,7 +20,9 @@ async function recentRuns(projectId) {
   return db.rows(
     `select id, status, created_at, started_at, error,
             payload->>'note' as "note",
-            payload->>'crawlRunId' as "crawlRunId"
+            payload->>'crawlRunId' as "crawlRunId",
+            payload->>'reason' as "reason",
+            payload->>'retryHelps' as "retryHelps"
        from project_module_runs
       where project_id = $1 and module_key = 'hub_spoke'
       order by created_at desc
@@ -65,6 +67,11 @@ async function status({ access, domains = [], start = false, retry = false }) {
     });
   }
   let state = ready ? 'analyzed' : 'waiting_for_crawl';
+  // Why the last attempt stopped, and whether pressing Retry could change that
+  // (UX-228): a site that serves crawlers its homepage gives the same answer
+  // on every retry, an AI checker that was briefly down may not.
+  let reason = null;
+  let retryHelps = true;
   let note = ready ? 'Content architecture is ready.'
     : 'Content Architect is set up. Analysis starts automatically when the project crawl finishes.';
   if (inFlight || scheduled?.scheduled) {
@@ -74,6 +81,13 @@ async function status({ access, domains = [], start = false, retry = false }) {
   } else if (attempted && !['completed', 'completed_with_errors'].includes(attempted.status)) {
     state = attempted.status;
     note = attempted.error || attempted.note || 'The analysis did not finish. Retry it from this project.';
+    reason = attempted.reason || null;
+    // Runs stored before retryHelps existed say nothing, and keep their Retry.
+    if (attempted.status === 'insufficient_data') {
+      retryHelps = attempted.retryHelps === null || attempted.retryHelps === undefined
+        ? !['site_blocked', 'homepage_served', 'too_few_pages', 'no_completed_crawl'].includes(reason)
+        : attempted.retryHelps === 'true';
+    }
   } else if (crawl && !ready) {
     state = 'not_started';
     note = !autostart.isEnabled()
@@ -87,7 +101,10 @@ async function status({ access, domains = [], start = false, retry = false }) {
         ? 'The last analysis finished, but its result is no longer stored. Retry to run it again.'
         : 'Content Architect is set up, but its analysis has not started. Retry to queue it.';
   }
-  return { project, state, note, ready, canStartRun: access.can('startRun') === true && autostart.isEnabled() };
+  return {
+    project, state, note, ready, reason, retryHelps,
+    canStartRun: access.can('startRun') === true && autostart.isEnabled(),
+  };
 }
 
 module.exports = { ensureProject, connect, status };

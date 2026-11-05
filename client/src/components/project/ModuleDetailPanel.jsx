@@ -204,7 +204,8 @@ export default function ModuleDetailPanel({ moduleKey, onOpenReport }) {
   });
   // Only a route AWAY from here is worth a button; the in-page modules have
   // already hydrated by the time this renders.
-  const reportRoute = routeInfo.isReport && routeInfo.path !== module.toolPath
+  // Compared without the query: the route now carries ?project=.
+  const reportRoute = routeInfo.isReport && routeInfo.path.split('?')[0] !== module.toolPath
     ? { path: routeInfo.path, label: 'Open the full report' }
     : null;
 

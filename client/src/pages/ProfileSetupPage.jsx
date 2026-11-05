@@ -1,42 +1,57 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { fetchJson } from '../lib/fetchJson';
+
+// The company lock is known from the email alone (the server forces the same
+// rule on save), so it holds even when reading the profile fails — which used
+// to leave the field empty and editable for a Position2 account.
+const POSITION2 = /@position2\.com$/i;
 
 export default function ProfileSetupPage() {
   const { email, checkAuth } = useAuth();
+  const lockedByEmail = POSITION2.test(String(email || '').trim());
   const [fullName, setFullName] = useState('');
-  const [company, setCompany] = useState('');
-  const [companyLocked, setCompanyLocked] = useState(false);
+  const [company, setCompany] = useState(lockedByEmail ? 'Position2' : '');
+  const [companyLocked, setCompanyLocked] = useState(lockedByEmail);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [loadFailed, setLoadFailed] = useState(false);
 
-  useEffect(() => {
-    fetch('/api/profile', { credentials: 'include' })
-      .then(r => r.json())
-      .then(data => {
-        setCompanyLocked(data.companyLocked);
-        if (data.companyLocked) setCompany(data.lockedCompanyName);
+  function loadProfile() {
+    setLoading(true);
+    setLoadFailed(false);
+    setError('');
+    fetchJson('/api/profile')
+      .then((data) => {
+        const locked = Boolean(data.companyLocked) || lockedByEmail;
+        setCompanyLocked(locked);
+        if (locked) setCompany(data.lockedCompanyName || 'Position2');
         if (data.profile) {
           setFullName(data.profile.full_name || '');
-          if (!data.companyLocked) setCompany(data.profile.company || '');
+          if (!locked) setCompany(data.profile.company || '');
         }
       })
+      .catch(() => {
+        // The form still works: saving does not depend on this read.
+        setLoadFailed(true);
+        setError('We could not load your profile. You can still fill it in, or retry.');
+      })
       .finally(() => setLoading(false));
-  }, []);
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadProfile(); }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
     setSaving(true);
     try {
-      const res = await fetch('/api/profile', {
+      await fetchJson('/api/profile', {
         method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fullName, company }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to save profile.');
       await checkAuth();
     } catch (e) {
       setError(e.message);
@@ -76,6 +91,18 @@ export default function ProfileSetupPage() {
             border: '1px solid rgba(248,113,113,0.25)', borderRadius: 8, padding: '8px 10px', marginBottom: 16,
           }}>
             {error}
+            {loadFailed && (
+              <button
+                type="button"
+                onClick={loadProfile}
+                style={{
+                  marginLeft: 8, fontSize: 12, fontWeight: 600, color: 'var(--text-2)', background: 'none',
+                  border: '1px solid var(--border)', borderRadius: 6, padding: '2px 8px', cursor: 'pointer',
+                }}
+              >
+                Retry
+              </button>
+            )}
           </div>
         )}
 

@@ -232,11 +232,15 @@ const prompt = (i) => ({ id: `p${i}`, text: `question ${i}` });
       'models write the name both ways and missing one undercounts every mention');
   });
 
-  await test('a competitor with no configured name falls back to its domain stem', async () => {
+  await test('a competitor with no configured name gets a readable name; the stem stays an alias', async () => {
     const run = loadRun({ prompts: [] });
     const [c] = run.competitorsFrom({ competitors: [{ host: 'www.aspendental.com' }] });
-    assert.strictEqual(c.name, 'aspendental');
+    assert.strictEqual(c.name, 'Aspen Dental');
     assert.ok(c.aliases.includes('aspendental'));
+    const [r] = run.competitorsFrom({ competitors: [{ host: 'roadwaymoving.com' }] });
+    assert.strictEqual(r.name, 'Roadway Moving', 'never the raw stem on screen');
+    const [g] = run.competitorsFrom({ competitors: [{ host: 'gentlegiant.com' }] });
+    assert.strictEqual(g.name, 'Gentlegiant');
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

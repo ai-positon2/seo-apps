@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { SectionHeader } from '../ui/SectionHeader';
 import { setActiveProjectId } from '../lib/activeProject';
+import { fetchJson } from '../lib/fetchJson';
 
 // ── Team ─────────────────────────────────────────────────────────────────────
 //
@@ -15,16 +16,13 @@ import { setActiveProjectId } from '../lib/activeProject';
 // platform administrator can create one. There is no "active workspace" to
 // switch: work on a client is always filed with that client.
 
-async function req(path, options = {}) {
-  const res = await fetch(path, {
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Request failed.');
-  return data;
-}
+// Reads the body as text first: a gateway's HTML error page used to surface as
+// "Unexpected token '<' … is not valid JSON" in the red box (lib/fetchJson.js).
+const req = fetchJson;
+
+// A member whose email is on the workspace's auto-join domain.
+const autoJoins = (email, domain) =>
+  Boolean(domain) && String(email || '').toLowerCase().endsWith(`@${String(domain).toLowerCase()}`);
 
 const countLabel = (n) => (n === 1 ? '1 project' : `${n} projects`);
 
@@ -140,18 +138,22 @@ export default function WorkspacesPage() {
       .catch(() => setMemberEvents([]));
   }
 
-  useEffect(() => {
-    // Open the home workspace by default rather than showing an empty pane: the
-    // first thing worth knowing is who is on your team.
-    loadList()
+  // Open the home workspace by default rather than showing an empty pane: the
+  // first thing worth knowing is who is on your team. Also what Retry runs.
+  function loadAll() {
+    setError('');
+    return loadList()
       .then((d) => {
-        const first = (d.workspaces || []).find((w) => w.id === d.activeWorkspaceId)
+        const first = (d.workspaces || []).find((w) => w.id === (selected?.id || d.activeWorkspaceId))
+          || (d.workspaces || []).find((w) => w.id === d.activeWorkspaceId)
           || (d.workspaces || [])[0];
         if (first) openWorkspace(first.id);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }
+
+  useEffect(() => { loadAll(); }, []);
 
   function openProject(projectId) {
     setActiveProjectId(projectId);
@@ -240,11 +242,22 @@ export default function WorkspacesPage() {
       />
 
       {error && (
-        <div style={{
+        <div role="alert" style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
           fontSize: 12, color: '#f87171', background: 'rgba(248,113,113,0.10)',
           border: '1px solid rgba(248,113,113,0.25)', borderRadius: 8, padding: '8px 10px', marginBottom: 16,
         }}>
-          {error}
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={loadAll}
+            style={{
+              fontSize: 12, fontWeight: 600, color: 'var(--text-2)', background: 'none', flexShrink: 0,
+              border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px', cursor: 'pointer',
+            }}
+          >
+            Retry
+          </button>
         </div>
       )}
 
@@ -341,6 +354,7 @@ export default function WorkspacesPage() {
             <div style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5, marginBottom: 20, maxWidth: 620 }}>
               {selected.auto_join_domain
                 ? `Anyone who signs in with an @${selected.auto_join_domain} email joins automatically, as an approver. `
+                  + 'Removing someone here keeps them out until they are added back; access to the app itself is set by the sign-in list. '
                 : ''}
               Everything a project records — crawls, module runs, recommendations —
               belongs to the workspace that project sits in. Members of this
@@ -415,6 +429,9 @@ export default function WorkspacesPage() {
                       {m.userId === selected.viewerUserId && (
                         <span style={{ color: 'var(--text-3)', fontSize: 11 }}> (you)</span>
                       )}
+                      {autoJoins(m.email, selected.auto_join_domain) && (
+                        <span style={{ color: 'var(--text-3)', fontSize: 11 }}> · joins automatically</span>
+                      )}
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
@@ -441,6 +458,9 @@ export default function WorkspacesPage() {
                       {canManageMembers && (
                         <button
                           onClick={() => handleRemoveMember(m.userId)}
+                          title={autoJoins(m.email, selected.auto_join_domain)
+                            ? 'Removes them from this workspace. They will not rejoin automatically until someone adds them back.'
+                            : 'Removes them from this workspace.'}
                           style={{ fontSize: 11, color: '#f87171', background: 'none', border: 'none', cursor: 'pointer' }}
                         >
                           Remove

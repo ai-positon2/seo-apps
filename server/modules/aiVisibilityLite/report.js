@@ -79,6 +79,7 @@ const { prominenceOf, namesBrand } = require('../aiVisibility/capture');
 const domainClassify = require('../aiVisibility/captureEngines/domainClassify');
 const { TONE_VERSION } = require('./describe');
 const { BRANDS_VERSION } = require('./answerBrands');
+const runHealth = require('./runHealth');
 
 // A brand needs to appear in at least this many measured answers before it is
 // ranked against the others. Two answers is not a standing, and a competitor
@@ -654,7 +655,10 @@ function questionTable(groups, client = null) {
         cited: s.cited,
         grounded: s.grounded,
         status: s.status,
-        failureReason: s.failureReason || null,
+        // A sentence, not the provider's raw error ('401 {"type":"error",…'),
+        // which stays alongside for anyone who needs the detail.
+        failureReason: runHealth.plainFailure(s.failureReason),
+        failureDetail: s.failureReason || null,
         // Competitors THIS engine's answer named — a subset of `competitors`
         // above, which pools every engine on this question together.
         competitorsMentioned: s.competitorsMentioned || [],
@@ -873,11 +877,15 @@ function othersNamedTable(measured, brandMap, client, competitors = []) {
 
   const trackedDomains = new Set(competitors.map((c) => c.domain).filter(Boolean)
     .map((d) => domainClassify.registrableDomain(d) || d));
+  // Each tracked competitor's names and domain stem, de-spaced: 'Roadway
+  // Moving' named in an answer with no site cited is roadwaymoving.com.
+  const trackedKeys = new Set(competitors.flatMap(competitorKeys));
   const list = [...acc.values()].map((e) => {
     // The most used spelling, preferring the shorter on a tie ("Adidas" over "Adidas India").
     const name = [...e.spellings.entries()].sort((a, b) => (b[1] - a[1]) || (a[0].length - b[0].length))[0][0];
     const domain = siteFor(e.key, e.domains);
     const tracked = (domain && trackedDomains.has(domain))
+      || trackedKeys.has(e.key)
       || competitors.some((c) => namesBrand(name, [c.name, ...(c.aliases || [])].filter(Boolean)));
     return {
       name,
@@ -906,11 +914,26 @@ function enrichCompetitors(competitors, captures, answerBrands) {
   const { list } = othersNamedTable(captures, brandMap, null, []);
   return competitors.map((c) => {
     const d = c.domain && (domainClassify.registrableDomain(c.domain) || c.domain);
-    const extra = list.filter((o) => d && o.domain === d).flatMap((o) => o.spellings);
+    const keys = new Set(competitorKeys(c));
+    // Spellings whose cited site is this competitor's, or whose de-spaced
+    // name IS its domain stem ('Roadway Moving' for roadwaymoving.com, often
+    // named with no link at all).
+    const extra = list
+      .filter((o) => (d && o.domain === d) || keys.has(brandKey(o.name)))
+      .flatMap((o) => o.spellings);
     const aliases = [...new Set([...(c.aliases || []), ...extra])];
-    const name = extra.length && /^[a-z0-9-]+$/.test(c.name || '') ? extra[0] : c.name;
+    // Replace a name we only derived from the domain with how answers write it.
+    const stem = d ? brandKey(d.split('.')[0]) : null;
+    const derived = !c.name || /^[a-z0-9-]+$/.test(c.name) || (stem && brandKey(c.name) === stem);
+    const name = extra.length && derived ? extra[0] : c.name;
     return { ...c, name, aliases };
   });
+}
+
+/** A competitor's de-spaced names and domain stem, as brandKey writes them. */
+function competitorKeys(c) {
+  const stem = c?.domain ? String(c.domain).replace(/^www\./, '').split('.')[0] : null;
+  return [c?.name, ...(c?.aliases || []), stem].map(brandKey).filter((k) => k && k.length >= 4);
 }
 
 /**
@@ -1097,6 +1120,54 @@ function sentimentFor(table, fallback) {
 }
 
 /**
+ * When the newest answer that actually came back was captured — falling back
+ * to any attempt when every one failed. Null with no captures at all.
+ */
+function latestCaptureAt(rows) {
+  let best = null;
+  let bestAny = null;
+  for (const r of rows || []) {
+    const t = Date.parse(r.capturedAt || '');
+    if (!Number.isFinite(t)) continue;
+    if (bestAny === null || t > bestAny) bestAny = t;
+    if (r.status === 'captured' && (best === null || t > best)) best = t;
+  }
+  const at = best ?? bestAny;
+  return at === null ? null : new Date(at).toISOString();
+}
+
+/**
+ * The window a report reads when nobody chose one: the 30 days ending on the
+ * day of the latest measurement. An explicit from/to is always honoured.
+ */
+function defaultWindow(options = {}, lastMeasuredAt = null) {
+  if (options?.from || options?.to || !lastMeasuredAt) return options || {};
+  const today = new Date().toISOString().slice(0, 10);
+  const last = lastMeasuredAt.slice(0, 10);
+  return last < today ? { ...options, to: last } : options;
+}
+
+/**
+ * The health of the newest run in scope, per model — so a run that lost a
+ * whole model is named on the page even when older runs in the same window
+ * still carry that model's figures.
+ */
+function latestRunHealth(rows) {
+  const byRun = new Map();
+  for (const r of rows || []) {
+    if (!r.runId) continue;
+    const t = Date.parse(r.capturedAt || '') || 0;
+    const e = byRun.get(r.runId) || { runId: r.runId, at: r.capturedAt, t: 0, rows: [] };
+    e.rows.push(r);
+    if (t > e.t) { e.t = t; e.at = r.capturedAt; }
+    byRun.set(r.runId, e);
+  }
+  const newest = [...byRun.values()].sort((a, b) => b.t - a.t)[0];
+  if (!newest) return null;
+  return { runId: newest.runId, at: newest.at, ...runHealth.healthOfRows(newest.rows) };
+}
+
+/**
  * Build the report for a project.
  *
  * @param {object} input
@@ -1149,7 +1220,15 @@ function build({
   // period.split gives the current window and the intersection windows: the
   // prompts BOTH periods measured. Comparing anything else would report the
   // effect of editing the question set as though the client had moved.
-  const split = period.split(inScope, options);
+  //
+  // With no period asked for, the window is the 30 days up to the LATEST
+  // MEASUREMENT, not up to today. Ending it today emptied every report of a
+  // project whose last run was over a month old — 'No AI answers measured yet'
+  // above a history of 30 measured answers (NICE, Acalvio, FishAudio,
+  // Riccobene) — and the card and the report disagreed with the run's own row.
+  const lastMeasuredAt = latestCaptureAt(inScope);
+  const windowOptions = defaultWindow(options, lastMeasuredAt);
+  const split = period.split(inScope, windowOptions);
 
   const current = core.scopeCaptures(split.current, {});
   const deltaNow = core.scopeCaptures(split.currentForDelta, {});
@@ -1353,21 +1432,37 @@ function build({
   // Per engine, from the inline columns. core.byEngine needs the entity layer,
   // and this is the same arithmetic scoring.score does — share of MEASURED
   // captures naming the brand — applied one engine at a time.
-  const engines = [...new Set(current.map((c) => c.engine))].sort().map((engine) => {
+  //
+  // The engine list is every engine ASKED in the period, failed answers
+  // included. It was built from `current`, which scopeCaptures has already
+  // stripped of failures — so a model whose every answer failed vanished from
+  // the list instead of being reported as unavailable, and the check below
+  // could never fire.
+  const attempted = split.current.filter((c) => !c.offGeo);
+  const engines = [...new Set(attempted.map((c) => c.engine).filter(Boolean))].sort().map((engine) => {
+    const tried = attempted.filter((c) => c.engine === engine);
     const rows = current.filter((c) => c.engine === engine);
     const engineMeasured = scoring.measuredRows(rows);
     const engineNamed = engineMeasured.filter((r) => r.mentioned).length;
     const engineGrounded = rows.filter((r) => r.grounded === true).length;
+    const engineFailed = tried.filter((c) => c.status === 'failed');
     return {
       engine,
-      surfaceLabel: rows[0]?.surfaceLabel || engine,
-      answers: rows.length,
+      surfaceLabel: tried[0]?.surfaceLabel || engine,
+      answers: tried.length,
+      failed: engineFailed.length,
+      // Why, in plain words: "our API key for this model was rejected".
+      failureReasons: runHealth.healthOfRows(engineFailed).engines[0]?.reasons || [],
       measured: engineMeasured.length,
       named: engineNamed,
       namedRate: fmt.metric(fmt.ratio(engineNamed, engineMeasured.length), 'percent'),
       groundedRate: fmt.metric(fmt.ratio(engineGrounded, rows.length), 'percent'),
     };
   });
+
+  // The newest run on its own: older runs in the window can still carry a
+  // model's figures after it stopped answering, which hid the loss.
+  const latestRun = latestRunHealth(inScope);
 
   // An engine that was asked but measured nothing — every answer failed. Since
   // 23 Oct every Claude answer and since 28 Oct every Gemini answer failed on an
@@ -1376,6 +1471,7 @@ function build({
 
   const warnings = [...(split.warnings || [])];
   if (enginesUnavailable.length) warnings.push('engine_unavailable');
+  if (latestRun?.failedEngines?.length) warnings.push('latest_run_partial');
   if (coverage.belowThreshold) warnings.push('coverage_below_threshold');
   if (excluded.length) warnings.push('removed_prompts_excluded');
   if (!brand?.name) warnings.push('no_client_brand');
@@ -1443,6 +1539,14 @@ function build({
       enginesMeasured: engines.filter((e) => e.measured > 0).length,
       enginesAsked: engines.length,
       enginesUnavailable,
+      // The newest run's own per-model health (runHealth.healthOfRows), for
+      // the "latest run was partial" notice.
+      latestRun,
+      // When the newest answer came back, whatever the window — so an empty
+      // period can say "last measured <date>" rather than "never measured".
+      lastMeasuredAt,
+      // The window was not chosen: it ends on the latest measurement.
+      periodAnchored: Boolean(lastMeasuredAt && windowOptions !== options && !options?.from && !options?.to),
       // The sentence that has to travel with the headline number.
       basis: summary.scoreBasis,
       generatedAt: new Date().toISOString(),
@@ -1513,5 +1617,5 @@ module.exports = {
   mentionOrder, trendByRun, MIN_ANSWERS_TO_RANK,
   compositeScore, rankToScore, shareScore, SCORE_WEIGHTS, MIN_MEASURED_FOR_SCORE, shareInterval,
   sentimentTable, listPosition, toneKey, SENTIMENT_SCORES,
-  othersNamedTable, enrichCompetitors, brandKey,
+  othersNamedTable, enrichCompetitors, brandKey, latestCaptureAt, defaultWindow, latestRunHealth,
 };

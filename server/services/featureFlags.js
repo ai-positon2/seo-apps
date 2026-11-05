@@ -16,9 +16,14 @@ const auditEvents = require('./auditEvents');
 
 // The flags this codebase reads. Declared so a typo at a call site fails a test
 // rather than silently resolving to off forever.
-const FLAGS = {
-  UNIFIED_PROJECT_WORKSPACE: 'unified_project_workspace',
-};
+//
+// Empty for now. unified_project_workspace (seeded global-off by migration
+// 0011) was retired: the shared team workspace shipped ungated and is live for
+// everyone, nothing ever read the flag, and the Admin page showed it as "Off
+// globally" with a switch that did nothing. Its old assignment row is left in
+// the table as history; it is simply no longer a flag this code knows.
+const FLAGS = {};
+const RETIRED_FLAGS = ['unified_project_workspace'];
 
 const SCOPES = ['global', 'workspace', 'project', 'user'];
 // Highest number wins.
@@ -128,6 +133,11 @@ async function setAssignment({ flagKey, scope, scopeRef = null, enabled, note, a
     throw Object.assign(new Error('Feature flags need the database configured.'), { status: 503 });
   }
   if (!flagKey) throw Object.assign(new Error('flagKey is required.'), { status: 400 });
+  // A switch for a flag nothing reads changes nothing, which is worse than a
+  // refusal: it looks like it worked.
+  if (!Object.values(FLAGS).includes(flagKey)) {
+    throw Object.assign(new Error(`${flagKey} is not a flag this app reads.`), { status: 400 });
+  }
   if (!SCOPES.includes(scope)) {
     throw Object.assign(new Error(`scope must be one of: ${SCOPES.join(', ')}.`), { status: 400 });
   }
@@ -195,4 +205,4 @@ async function setAssignment({ flagKey, scope, scopeRef = null, enabled, note, a
   return row;
 }
 
-module.exports = { FLAGS, SCOPES, isEnabled, resolveAll, listAssignments, setAssignment, invalidate };
+module.exports = { FLAGS, RETIRED_FLAGS, SCOPES, isEnabled, resolveAll, listAssignments, setAssignment, invalidate };

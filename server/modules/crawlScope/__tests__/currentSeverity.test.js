@@ -32,6 +32,9 @@ test('the dashboard SQL reads the same table', () => {
 
 test('the report and export readers regrade what they return', () => {
   const repo = fs.readFileSync(path.join(__dirname, '../db/repo.js'), 'utf8');
-  assert.match(repo, /all\.push\(regrade\(finding\)\)/);
+  // listAllRunFindingInstances rebuilds every row (capped or not) through one
+  // function, which regrades it.
+  assert.match(repo, /return regrade\(finding\);/);
+  assert.match(repo, /all\.push\(rebuild\(row\)\)/);
   assert.match(repo, /rows\.map\(\(r\) => regrade\(r\.data\)\)/);
 });

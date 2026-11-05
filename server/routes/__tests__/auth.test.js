@@ -195,3 +195,42 @@ test('the state comparison is exact and length-safe', () => {
   assert.equal(eq('abc', 'abcdef'), false);
   assert.equal(eq('', ''), true);
 });
+
+// Signing out used to clear only the cookie; a copy stayed valid for 7 days.
+test('a signed-out session is refused by requireAuth, with the session-ended marker', () => {
+  withAuth({}, (auth) => {
+    const jwt = require('jsonwebtoken');
+    const token = jwt.sign({ username: 'a@example.com', role: 'seo' }, STRONG_SECRET, { expiresIn: '7d' });
+    const { exp } = jwt.decode(token);
+    const run = () => {
+      const out = { status: null, headers: {}, body: null, nexted: false };
+      const res = {
+        set(k, v) { out.headers[k.toLowerCase()] = v; return res; },
+        status(s) { out.status = s; return res; },
+        json(b) { out.body = b; return res; },
+      };
+      auth.requireAuth({ cookies: { seo_session: token }, method: 'GET', path: '/x' }, res, () => { out.nexted = true; });
+      return out;
+    };
+    assert.equal(run().nexted, true, 'valid before sign-out');
+    auth.__testables.revokeToken(token, exp);
+    const after = run();
+    assert.equal(after.nexted, false);
+    assert.equal(after.status, 401);
+    assert.equal(after.headers['x-session-ended'], '1');
+    // An already-expired entry is not kept.
+    auth.__testables.revokeToken('old', Math.floor(Date.now() / 1000) - 10);
+    assert.equal(auth.__testables.isTokenRevoked('old'), false);
+  });
+});
+
+test('a missing cookie is a session-ended 401, so the client returns to sign-in', () => {
+  withAuth({}, (auth) => {
+    const headers = {};
+    let status = null;
+    const res = { set(k, v) { headers[k.toLowerCase()] = v; return res; }, status(s) { status = s; return res; }, json() { return res; } };
+    auth.requireAuth({ cookies: {} }, res, () => {});
+    assert.equal(status, 401);
+    assert.equal(headers['x-session-ended'], '1');
+  });
+});

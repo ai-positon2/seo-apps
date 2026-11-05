@@ -562,7 +562,22 @@ textarea:focus-visible {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   font-size: 11.5px; color: var(--text-3);
 }
-@media (max-width: 1439px) { .explain-toggle__note { display: none; } }
+/* Help text, so it is the first thing to go: at 1440px it alone pushed the
+   account menu off the right edge of the header. */
+@media (max-width: 1599px) { .explain-toggle__note { display: none; } }
+
+/* The app header (MacWindow). The right-hand controls never shrink, so these
+   shed width from the left and the middle as the window narrows; the account
+   menu (sign-out) stays on screen down to 1024px. */
+.app-header__client-name { max-width: 180px; }
+@media (max-width: 1279px) {
+  .app-header__client-name { max-width: 120px; }
+  .app-header__user-name { display: none; }
+}
+@media (max-width: 1199px) {
+  .app-header__dash-label { display: none; }
+  .app-header__semrush { display: none; }
+}
 .explain-toggle__switch {
   flex-shrink: 0; white-space: nowrap;
   display: inline-flex; align-items: center; gap: 10px;

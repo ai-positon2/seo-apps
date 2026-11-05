@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, Kicker, Muted, Btn, FadingRule } from '../studio/primitives';
 import { projectsApi, relativeTime } from '../../lib/projectsApi';
+import { overviewCache } from './overviewCache';
 import { InfoDot } from '../explain';
 import { moduleReportRoute } from '../../lib/moduleReportRoute';
 
@@ -83,16 +84,26 @@ export default function ExecutiveSummary({ projectId, onPromote, modules = [] })
   useEffect(() => {
     if (!projectId) return undefined;
     let live = true;
-    setSummary({ loading: true, error: null, data: null });
-    setTrend({ loading: true, error: null, data: null });
+    // Back to the Overview shows this client's last summary at once and
+    // refreshes it behind (overviewCache.js), like the cards above.
+    const cached = overviewCache.get('executive', projectId);
+    const cachedTrend = overviewCache.get('trend', projectId);
+    setSummary(cached ? { loading: false, error: null, data: cached } : { loading: true, error: null, data: null });
+    setTrend(cachedTrend ? { loading: false, error: null, data: cachedTrend } : { loading: true, error: null, data: null });
     setShowBasis(false);
 
     projectsApi.executiveSummary(projectId)
-      .then((data) => { if (live && wanted.current === projectId) setSummary({ loading: false, error: null, data }); })
-      .catch((e) => { if (live && wanted.current === projectId) setSummary({ loading: false, error: e, data: null }); });
+      .then((data) => {
+        overviewCache.set('executive', projectId, data);
+        if (live && wanted.current === projectId) setSummary({ loading: false, error: null, data });
+      })
+      .catch((e) => { if (live && wanted.current === projectId && !cached) setSummary({ loading: false, error: e, data: null }); });
 
     projectsApi.executiveTrend(projectId)
-      .then((data) => { if (live && wanted.current === projectId) setTrend({ loading: false, error: null, data: data?.trend || null }); })
+      .then((data) => {
+        if (data?.trend) overviewCache.set('trend', projectId, data.trend);
+        if (live && wanted.current === projectId) setTrend({ loading: false, error: null, data: data?.trend || null });
+      })
       // A trend that cannot be read costs one line, not the block. Reported in
       // place rather than swallowed, because "we could not compare" and "nothing
       // changed" are different facts and the second is the flattering one.

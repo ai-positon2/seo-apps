@@ -119,7 +119,29 @@ function buildGaps({ index, backlog, correlated }) {
  * @param {object} input.access  from projectAccess.requireProject
  * @param {object} [input.traffic]  Search Console metrics, when connected
  */
-async function buildInsights({ access, traffic = null }) {
+async function buildInsights({ access, traffic = null, reuse = false }) {
+  // Without traffic data the backlog depends on the project alone, so a reader
+  // (the executive summary, the report download) can take the build /insights
+  // just made — the same sharing rule as overview.buildOverview.
+  if (traffic) return buildInsightsCore({ access, traffic });
+  const key = String(access.project.id);
+  const prev = insightBuilds.get(key);
+  if (reuse && prev && (!prev.settledAt || Date.now() - prev.settledAt < INSIGHTS_REUSE_MS)) return prev.promise;
+  const entry = { promise: null, settledAt: null };
+  entry.promise = buildInsightsCore({ access }).then(
+    (built) => { entry.settledAt = Date.now(); return built; },
+    (error) => { if (insightBuilds.get(key) === entry) insightBuilds.delete(key); throw error; },
+  );
+  insightBuilds.delete(key);
+  if (insightBuilds.size >= 64) insightBuilds.delete(insightBuilds.keys().next().value);
+  insightBuilds.set(key, entry);
+  return entry.promise;
+}
+
+const INSIGHTS_REUSE_MS = 60_000;
+const insightBuilds = new Map();   // projectId -> { promise, settledAt }
+
+async function buildInsightsCore({ access, traffic = null }) {
   const index = await findingIndex.buildFindingIndex({ access });
 
   // Pages somebody has decided not to audit. Degrades to an empty set when

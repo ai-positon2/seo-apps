@@ -37,7 +37,39 @@ const LIMIT_HELP = {
   rawHtmlRetentionMonths: 'Months stored raw HTML is kept.',
   exportRetentionMonths: 'Months generated exports are kept.',
   workspacePurgeGraceDays: 'Days a deleted workspace stays restorable before purge.',
+  maxPagesPerModuleAudit: 'Pages one SEO & GEO, On-Page or Agent Readiness audit covers. Each page is a model call, so this bounds both the wait and the spend.',
+  maxPromptsPerVisibilityRun: 'Questions one AI Visibility run asks the AI assistants. Each answer is a paid capture, so this bounds what one run costs.',
 };
+
+// A plain name per key, with the code key shown small underneath for anyone
+// matching it to a log line.
+const LIMIT_LABEL = {
+  maxUrlsPerCrawl: 'Pages per crawl',
+  maxCrawlDepth: 'Crawl depth',
+  scheduleMinIntervalHours: 'Hours between scheduled runs',
+  perProjectConcurrency: 'Crawls at once per project',
+  globalCrawlConcurrency: 'Crawls at once overall',
+  maxCrawlConcurrency: 'Parallel requests per crawl',
+  requestTimeoutMs: 'Page fetch timeout (ms)',
+  renderTimeoutMs: 'Browser render timeout (ms)',
+  renderBudgetPerRun: 'Browser-rendered pages per run',
+  crawlRetryCount: 'Retries per page',
+  modelCallsPerRun: 'Model calls per run',
+  modelSpendPerRunUsd: 'Model spend per run (USD)',
+  providerCallsPerDay: 'Third-party API calls per day',
+  gscFreshnessDays: 'Search Console freshness (days)',
+  measurementRetryDays: 'Measurement retry window (days)',
+  rawHtmlRetentionMonths: 'Raw HTML kept (months)',
+  exportRetentionMonths: 'Exports kept (months)',
+  workspacePurgeGraceDays: 'Deleted workspace recovery (days)',
+  maxPagesPerModuleAudit: 'Pages checked per module audit',
+  maxPromptsPerVisibilityRun: 'Questions per AI Visibility run',
+};
+
+// Free-text notes on seeded rows were written for developers ("PRD §7.3",
+// "Seeded by migration 0011"). Those say nothing to the person reading this
+// page, so they are left out rather than shown verbatim.
+const developerNote = (note) => /PRD\s*§|migration\s*\d+/i.test(String(note || ''));
 
 // What a `sources` value means, for the two that are not a policy scope. Without
 // these the column shows a bare word and the operator has to know the codebase
@@ -48,7 +80,11 @@ const SOURCE_NOTE = {
   default: 'the built-in default; no policy sets this key',
 };
 
-const DIRECTION_NOTE = { min: 'lower wins', max: 'higher wins', specific: 'most specific scope wins' };
+const DIRECTION_NOTE = {
+  min: 'a stricter (lower) value wins',
+  max: 'a stricter (higher) value wins',
+  specific: 'the most specific setting wins',
+};
 
 const numberInput = {
   minHeight: 32,
@@ -141,6 +177,14 @@ export default function AdminPage() {
   const effective = limits?.limits || {};
   const sources = limits?.sources || {};
   const direction = limits?.direction || {};
+  // Only the keys some feature reads are editable. An older server that does
+  // not send `enforced` gets the old behaviour: every key editable.
+  const enforcedKeys = useMemo(() => {
+    const all = Object.keys(effective).sort();
+    if (!Array.isArray(limits?.enforced)) return { active: all, inactive: [] };
+    const on = new Set(limits.enforced);
+    return { active: all.filter((k) => on.has(k)), inactive: all.filter((k) => !on.has(k)) };
+  }, [effective, limits]);
   const dirty = useMemo(
     () => Object.keys(draft).some((k) => String(draft[k]) !== String(effective[k])),
     [draft, effective],
@@ -235,12 +279,13 @@ export default function AdminPage() {
               </tr>
             </thead>
             <tbody>
-              {Object.keys(effective).sort().map((key) => (
+              {enforcedKeys.active.map((key) => (
                 <tr key={key} style={{ borderBottom: '1px solid color-mix(in srgb, var(--border) 55%, transparent)' }}>
                   <td style={{ padding: 8 }}>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5 }}>{key}</span>
+                      <span style={{ fontSize: 13 }}>{LIMIT_LABEL[key] || key}</span>
                       {LIMIT_HELP[key] && <Muted>{LIMIT_HELP[key]}</Muted>}
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-3)' }}>{key}</span>
                     </div>
                   </td>
                   <td style={{ padding: 8, textAlign: 'right', fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' }}>
@@ -299,6 +344,28 @@ export default function AdminPage() {
           {dirty && <Btn onClick={() => setDraft({})}>Discard</Btn>}
           <Muted>Publishing appends a version; the previous one stays queryable.</Muted>
         </div>
+
+        {/* Keys the policy schema carries but no feature reads yet. Read-only:
+            an editable box here invited publishing a spend cap that nothing
+            would ever apply. */}
+        {enforcedKeys.inactive.length > 0 && (
+          <details style={{ marginTop: 16 }}>
+            <summary style={{ cursor: 'pointer', fontSize: 12.5, color: 'var(--text-2)' }}>
+              Not active yet ({enforcedKeys.inactive.length}) — stored in the policy, but no feature applies them
+            </summary>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+              {enforcedKeys.inactive.map((key) => (
+                <div key={key} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12.5 }}>
+                  <span style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ color: 'var(--text-2)' }}>{LIMIT_LABEL[key] || key}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-3)' }}>{key}</span>
+                  </span>
+                  <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-3)' }}>{String(effective[key])}</span>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
       </Card>
 
       {/* ── Feature flags ──────────────────────────────────────────────────── */}
@@ -380,13 +447,17 @@ function DatabaseCapacityCard() {
 
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
         <span style={{ fontSize: 22, fontWeight: 500, color: tone }}>{usage.pretty}</span>
-        <Muted size={13}>
-          of {usage.limitPretty}
-          {rawPct != null && (over
-            ? ` — ${rawPct}% of the limit, ${rawPct - 100}% over`
-            : ` — ${rawPct}% used, ${usage.freePretty} free`)}
-        </Muted>
-        {usage.level !== 'ok' && (
+        {usage.limitPretty ? (
+          <Muted size={13}>
+            of {usage.limitPretty}
+            {rawPct != null && (over
+              ? ` — ${rawPct}% of the configured limit`
+              : ` — ${rawPct}% used, ${usage.freePretty} free`)}
+          </Muted>
+        ) : (
+          <Muted size={13}>in use</Muted>
+        )}
+        {(usage.level === 'warning' || usage.level === 'critical') && (
           <Tag tone={usage.level === 'critical' ? 'neg' : 'warn'}>
             {usage.level === 'critical' ? 'Critical' : 'Warning'}
           </Tag>
@@ -400,7 +471,13 @@ function DatabaseCapacityCard() {
       )}
 
       <Muted size={12.5} style={{ display: 'block', marginBottom: 12 }}>
-        {usage.level === 'critical'
+        {!usage.limitPretty
+          ? 'No storage limit is configured, so this shows the size only. Set DATABASE_SIZE_LIMIT_MB on the server to the database’s allocated storage to get warnings.'
+          : over
+            // Past 100% of a limit the database is evidently still accepting
+            // writes, so the limit setting is what is wrong, not the database.
+            ? 'Above the configured limit. The database is still accepting writes, so check that DATABASE_SIZE_LIMIT_MB matches the storage it really has.'
+          : usage.level === 'critical'
           ? 'Writes will start failing when this is full, in whichever feature happens to write next.'
           : usage.level === 'warning'
             ? 'Worth planning a clean-up before this fills — a full database fails the next write, not the one that filled it.'
@@ -445,13 +522,16 @@ function DatabaseCapacityCard() {
 
 function FlagsCard({ flagKeys, assignments, onMutate }) {
   const byFlag = useMemo(() => {
+    // Only flags the server says the code reads. An assignment row for a
+    // retired flag (unified_project_workspace) is history, not a switch: shown
+    // "Off globally" it contradicted the shared workspace everyone was using.
     const map = new Map(flagKeys.map((key) => [key, []]));
     for (const a of assignments) {
-      if (!map.has(a.flagKey)) map.set(a.flagKey, []);
-      map.get(a.flagKey).push(a);
+      if (map.has(a.flagKey)) map.get(a.flagKey).push(a);
     }
     return map;
   }, [flagKeys, assignments]);
+  const shownAssignments = [...byFlag.values()].reduce((n, rows) => n + rows.length, 0);
 
   const toggle = (flagKey, scope, scopeRef, enabled, note) => onMutate(
     () => adminApi.setFeatureFlag({ flagKey, scope, scopeRef, enabled, note }),
@@ -460,10 +540,11 @@ function FlagsCard({ flagKeys, assignments, onMutate }) {
 
   return (
     <Card style={{ padding: 18 }}>
-      <SectionHead title="Feature flags" right={`${assignments.length} assignment${assignments.length === 1 ? '' : 's'}`} />
+      <SectionHead title="Feature flags" right={`${shownAssignments} assignment${shownAssignments === 1 ? '' : 's'}`} />
       <Muted size={12.5} style={{ display: 'block', marginBottom: 12 }}>
-        Unassigned flags are off. The most specific assignment wins — user over project over
-        workspace over global.
+        {byFlag.size
+          ? 'Unassigned flags are off. The most specific assignment wins — user over project over workspace over global.'
+          : 'No feature is behind a flag right now. The shared team workspace is on for everyone; its old rollout switch was retired.'}
       </Muted>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -479,7 +560,7 @@ function FlagsCard({ flagKeys, assignments, onMutate }) {
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5 }}>{flagKey}</span>
                   <Muted>
                     {global
-                      ? `Global assignment${global.note ? ` · ${global.note}` : ''}`
+                      ? `Global assignment${global.note && !developerNote(global.note) ? ` · ${global.note}` : ''}`
                       : 'No global assignment — off everywhere it is not overridden'}
                   </Muted>
                 </div>
@@ -553,8 +634,8 @@ function GrantsCard({ grants, onMutate }) {
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <span style={{ fontSize: 13.5 }}>{grant.email}</span>
                 <Muted>
-                  {grant.source === 'bootstrap' ? 'Seeded on first boot' : 'Granted by an administrator'}
-                  {grant.note ? ` · ${grant.note}` : ''}
+                  {grant.source === 'bootstrap' ? 'Set up as the first administrator' : 'Granted by an administrator'}
+                  {grant.note && !developerNote(grant.note) ? ` · ${grant.note}` : ''}
                   {revoked ? ' · revoked' : ''}
                 </Muted>
               </div>

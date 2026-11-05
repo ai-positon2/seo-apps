@@ -164,18 +164,27 @@ const fetchWellKnown = (url) => safeFetch(url, { maxRedirects: 0 });
 
 // ── A site that refused us is not a site that failed ────────────────────────
 //
-// If robots.txt and the page itself both come back refused (401/403/429),
-// erroring (5xx) or not at all, nothing was measured: every check would
-// "fail" and the site would read "Level 0 — Not Indexed". Eventgroove scored 0
-// and 8x8 12 this way, on 429 Too Many Requests.
+// If the page itself comes back refused (401/403/429), erroring (5xx) or not
+// at all, nothing was measured: every check would "fail" and the site would
+// read "Level 0 — Not Indexed". Eventgroove scored 0 and 8x8 12 this way, on
+// 429 Too Many Requests.
+//
+// The page alone decides it. This used to need robots.txt refused as well, so a
+// site that served robots.txt but answered the page with a 403 was scored from
+// its error page: the Link header, the Markdown reply and the WebMCP scan all
+// read the refusal, not the page.
 function refused(status) {
   return status === null || status === undefined
     || status === 401 || status === 403 || status === 429 || status >= 500;
 }
 
 function auditBlocked(robotsResp, homeResp) {
-  if (!refused(robotsResp?.status) || !refused(homeResp?.status)) return null;
+  if (!refused(homeResp?.status)) return null;
   const what = (r) => (r?.status ? `HTTP ${r.status}` : 'no response');
+  if (!refused(robotsResp?.status)) {
+    return `The site refused the audit's request for the page (${what(homeResp)}), so it could not be `
+      + 'measured. This usually means bot protection or rate limiting.';
+  }
   return `The site refused the audit's requests (robots.txt: ${what(robotsResp)}; page: ${what(homeResp)}), `
     + 'so nothing could be measured. This usually means bot protection or rate limiting.';
 }
@@ -214,6 +223,100 @@ function allowsEveryCrawler(robotsText) {
   }
   // No `*` group, or one that does not disallow the root: everyone is let in.
   return true;
+}
+
+// ── Which AI crawlers robots.txt lets in ────────────────────────────────────
+//
+// The aibots check passed whenever robots.txt merely MENTIONED an AI crawler,
+// so `User-agent: GPTBot / Disallow: /` — a site shutting ChatGPT out — scored
+// the same as one welcoming it. It has to read the rules: a crawler obeys the
+// group that names it, and only falls back to `*` when none does (RFC 9309).
+
+const AI_BOTS = ['GPTBot', 'ClaudeBot', 'anthropic-ai', 'PerplexityBot', 'cohere-ai', 'Google-Extended'];
+
+/** robots.txt as groups: [{ agents: ['gptbot'], rules: [{ type: 'disallow', path: '/' }] }]. */
+function robotsGroups(robotsText) {
+  const groups = [];
+  let current = null;
+  let lastWasAgent = false;
+  for (const line of String(robotsText || '').split(/\r?\n/)) {
+    const clean = line.replace(/#.*/, '').trim();
+    if (!clean) continue;
+    const [field, ...rest] = clean.split(':');
+    const key = field.trim().toLowerCase();
+    const value = rest.join(':').trim();
+    if (key === 'user-agent') {
+      // Consecutive User-agent lines share one group.
+      if (!lastWasAgent || !current) {
+        current = { agents: [], rules: [] };
+        groups.push(current);
+      }
+      current.agents.push(value.toLowerCase());
+      lastWasAgent = true;
+      continue;
+    }
+    lastWasAgent = false;
+    if (current && (key === 'allow' || key === 'disallow')) current.rules.push({ type: key, path: value });
+  }
+  return groups;
+}
+
+/** True when a group shuts the whole site: `Disallow: /` (or `/*`) with no `Allow: /` beside it. */
+function groupBlocksSite(group) {
+  const rootBlocked = group.rules.some((r) => r.type === 'disallow' && (r.path === '/' || r.path === '/*'));
+  const rootAllowed = group.rules.some((r) => r.type === 'allow' && (r.path === '/' || r.path === '/*'));
+  return rootBlocked && !rootAllowed;
+}
+
+/**
+ * The AI crawlers robots.txt names, and the ones it shuts out.
+ *
+ * `blocked` includes crawlers refused through `User-agent: *`, because that is
+ * the rule they follow when nothing names them.
+ */
+function aiBotAccess(robotsText) {
+  const groups = robotsGroups(robotsText);
+  const star = groups.filter((g) => g.agents.includes('*'));
+  const named = [];
+  const blocked = [];
+  for (const bot of AI_BOTS) {
+    const own = groups.filter((g) => g.agents.includes(bot.toLowerCase()));
+    if (own.length) named.push(bot);
+    const applies = own.length ? own : star;
+    if (applies.some(groupBlocksSite)) blocked.push(bot);
+  }
+  return { named, blocked };
+}
+
+/** The aibots check result from robots.txt. `blocking` marks a real refusal. */
+function aiBotsCheck(robotsOk, robotsText, robotsStatus) {
+  if (!robotsOk) {
+    return {
+      status: 'fail',
+      tech: `robots.txt could not be read (${robotsStatus || 'no response'}), so it states no rules for AI crawlers`,
+    };
+  }
+  const { named, blocked } = aiBotAccess(robotsText);
+  if (blocked.length) {
+    return { status: 'fail', blocking: true, tech: `robots.txt blocks AI crawlers: ${blocked.join(', ')}` };
+  }
+  return {
+    status: 'pass',
+    tech: named.length
+      ? `AI-specific bot rules detected: ${named.join(', ')} (all allowed)`
+      : 'No AI-specific rules, but robots.txt lets every crawler in, AI crawlers included',
+  };
+}
+
+/** The HTTP checks with their static metadata, as stored and shown. */
+function describeHttpChecks(rawHttpChecks) {
+  return Object.entries(rawHttpChecks).map(([id, result]) => ({
+    id,
+    ...CHECK_META[id],
+    status: result.status,
+    tech: result.tech,
+    ...(result.blocking ? { blocking: true } : {}),
+  }));
 }
 
 // ── Site-level files, fetched once per site ────────────────────────────────
@@ -303,20 +406,11 @@ async function runHttpChecks(inputUrl) {
 
   // 5. AI bot rules
   //
-  // A robots.txt that lets every crawler in has made a decision about AI
-  // crawlers too: it failed here for not naming them, beside sites that name
-  // them only to block them.
-  const aiBots = ['GPTBot', 'ClaudeBot', 'anthropic-ai', 'PerplexityBot', 'cohere-ai', 'Google-Extended'];
-  const foundBots = aiBots.filter(b => robotsText.toLowerCase().includes(b.toLowerCase()));
-  const allowsAll = robotsOk && allowsEveryCrawler(robotsText);
-  checks.aibots = {
-    status: foundBots.length > 0 || allowsAll ? 'pass' : 'fail',
-    tech: foundBots.length > 0
-      ? `AI-specific bot rules detected: ${foundBots.join(', ')}`
-      : allowsAll
-        ? 'No AI-specific rules, but robots.txt lets every crawler in, AI crawlers included'
-        : 'No AI-specific bot rules found in robots.txt, and the general rules do not let every crawler in',
-  };
+  // Passes when AI crawlers are let in, whether by name or by the general
+  // rules. Fails when robots.txt refuses one — marked `blocking`, the only
+  // finding the report may call "blocking AI agents" — or cannot be read, which
+  // is a missing statement, not a refusal.
+  checks.aibots = aiBotsCheck(robotsOk, robotsText, robotsResp.status);
 
   // 6. Content signals
   const hasContentSignal = /Content-Signal/i.test(robotsText);
@@ -423,7 +517,7 @@ const CHECK_META = {
   sitemap:        { cat: 'Discoverability',   label: 'XML sitemap',               effort: 'medium', business: 'Without a discoverable XML sitemap, agents can only find pages by following links from your homepage — pages more than a few clicks deep, or not linked in navigation at all, may never be discovered or indexed.', action: 'Generate an XML sitemap (most CMS platforms have a built-in option or plugin) and either declare it in robots.txt with "Sitemap: https://yoursite.com/sitemap.xml" or publish it at a common path like /sitemap.xml. ~half a day, less with an existing CMS.' },
   linkheaders:    { cat: 'Discoverability',   label: 'Link headers (RFC 8288)',   effort: 'quick',  business: 'Without Link headers, agents cannot auto-discover your API or documentation endpoints. They rely on guesswork instead of following your signposts — adding friction to every automated interaction.', action: 'Add Link: </.well-known/api-catalog>; rel="api-catalog" to your server\'s HTTP response headers. ~1–2 hours with a developer.' },
   markdown:       { cat: 'Content',           label: 'Markdown negotiation',      effort: 'medium', business: 'AI agents parse raw HTML including nav menus and footers — not your actual content. This degrades how AI tools summarize and cite your information, creating risk of misquotation or incomplete representation.', action: 'Enable Markdown for Agents via Cloudflare or server middleware. When a request includes Accept: text/markdown, respond with Content-Type: text/markdown. ~1–3 days of dev time.' },
-  aibots:         { cat: 'Bot Access',        label: 'AI bot rules',              effort: 'quick',  business: "Without explicit AI-specific rules, your site has no documented stance on AI crawler access — it defaults to whatever your general robots.txt rules already allow, leaving partners, platforms, and regulators with no visible signal that access is a deliberate, managed decision.", action: 'Add explicit User-agent rules for AI crawlers (GPTBot, ClaudeBot, anthropic-ai, PerplexityBot, Google-Extended) to robots.txt — even an explicit "allow everything" rule signals deliberate, managed access rather than undefined default behavior. ~15–30 min for a developer.' },
+  aibots:         { cat: 'Bot Access',        label: 'AI bot rules',              effort: 'quick',  business: "When robots.txt refuses an AI crawler, that assistant cannot read your pages to cite or recommend them. When robots.txt cannot be read at all, crawlers have no stated rules to follow. Unless shutting a crawler out is a deliberate choice, either one costs you visibility in AI answers.", action: 'Remove the "Disallow: /" rules for the AI crawlers you want to be found by (GPTBot, ClaudeBot, PerplexityBot, Google-Extended), and make sure /robots.txt is served as text/plain. To opt out of AI training only, keep the crawlers allowed and add a Content-Signal line instead. ~15–30 min for a developer.' },
   contentsignals: { cat: 'Bot Access',        label: 'Content signals',           effort: 'quick',  business: "You haven't declared whether your content can be used for AI training. That's an IP governance gap — and increasingly one partners, distributors, and regulators will ask about.", action: 'Add one line to robots.txt: Content-Signal: ai-train=no, search=yes, ai-input=yes. 15 minutes. No developer needed.' },
   webbotauth:     { cat: 'Bot Access',        label: 'Web bot auth',              effort: 'low',    business: "Your server can't cryptographically identify itself for agent-to-agent trust verification. Not urgent today — will matter as authenticated agent networks mature in 2026–27.", action: 'Backlog for H2 2026. Publish a JWKS at /.well-known/http-message-signatures-directory.' },
   apicatalog:     { cat: 'API / Auth / MCP',  label: 'API catalog (RFC 9727)',    effort: 'medium', business: "Agents and AI platforms can't auto-discover your APIs or developer resources. Your tools, integrations, and documentation are dark to the AI ecosystem.", action: 'Create /.well-known/api-catalog as application/linkset+json with service-desc and service-doc relations for any existing API. ~3–5 days.' },
@@ -443,15 +537,43 @@ function briefClient() {
   return _briefClient;
 }
 
-async function generateCmoBrief(siteUrl, score, level, checks, openai, cats) {
+// The model used to be told "If Bot Access = 0 AND API/Auth/MCP = 0: lead with
+// AI discoverability risk", with "Invisible to AI assistants" as its example
+// label, and never told what robots.txt actually said. Bot Access is 0 on any
+// site without a Content-Signal line, so LogicGate and Beta Bionics — whose
+// robots.txt lets every AI crawler in — were told they were "invisible" and
+// "completely closed off". Whether crawlers are refused is now a stated fact,
+// and the words that claim it are forbidden unless it is true.
+
+/** Whether AI crawlers can read the site, from the aibots check. */
+function crawlerFacts(checks) {
+  const aibots = checks?.aibots;
+  const crawlersAllowed = !aibots?.blocking;
+  return {
+    crawlersAllowed,
+    line: crawlersAllowed
+      ? 'crawlersAllowed = true. robots.txt does not refuse AI crawlers: ChatGPT, Claude, Perplexity and Google AI can read and cite this site today.'
+      : `crawlersAllowed = false. ${aibots?.tech || 'robots.txt refuses AI crawlers'}.`,
+  };
+}
+
+function buildBriefPrompt(siteUrl, score, level, checks, cats, now = new Date()) {
   const passed = Object.entries(checks).filter(([, c]) => c.status === 'pass').map(([id]) => id);
   const failed = Object.entries(checks).filter(([, c]) => c.status === 'fail').map(([id]) => id);
+  const access = crawlerFacts(checks);
 
-  const prompt = `You are a senior digital strategist advising CMOs on AI readiness.
+  const accessRules = access.crawlersAllowed
+    ? `- AI crawlers are NOT blocked. Never say or imply the site is invisible, closed off, blocked, shut out, inaccessible or unreadable to AI agents or assistants, and never say they cannot access, find or read it. What is missing are optional, newer signals (content-use declarations, API and agent files): describe those as "not yet set up", not as a block.
+- If Bot Access and API/Auth/MCP are both low: lead with being early on agent-ready signals, not with discoverability risk`
+    : `- AI crawlers ARE refused by robots.txt (see the fact above). Lead with that discoverability risk, naming it as a robots.txt rule the site controls.`;
+
+  return `You are a senior digital strategist advising CMOs on AI readiness.
 
 Site: ${siteUrl}
 Agent-readiness score: ${score}/100 (${level})
-Scan date: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+Scan date: ${now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+
+AI crawler access (a measured fact, not an inference): ${access.line}
 
 Passing (${passed.length}): ${passed.join(', ') || 'none'}
 Failing (${failed.length}): ${failed.join(', ') || 'none'}
@@ -460,7 +582,8 @@ Category scores:
 ${cats ? cats.map(c => `${c.id}: ${c.score}/100 (${c.passed}/${c.total} passed)`).join('\n') : 'not available'}
 
 Guidance:
-- If Bot Access = 0 AND API/Auth/MCP = 0: lead with AI discoverability risk
+${accessRules}
+- The score measures readiness for emerging agent protocols, which few sites have adopted yet; a low score means early, not broken
 - If Forms score is low AND On-Page Signals score is low: lead with conversion and agent interaction risk
 - If HTTP score is high but on-page score is low: note the gap between infrastructure and user-facing agent readiness
 - If score >= 75: shift tone from risk to optimization opportunity
@@ -469,13 +592,17 @@ Generate an executive summary. Be specific to this site's industry based on its 
 {
   "headline": "A punchy headline of at most 10 words capturing the core risk or opportunity",
   "summary": "1-2 short sentences (at most 35 words in total) on what this score means for the business",
-  "riskTitle": "2-4 word label for the top risk, e.g. 'Invisible to AI assistants'",
+  "riskTitle": "2-4 word label for the top risk, e.g. 'Behind on agent signals'",
   "risk": "1 sentence, at most 18 words, naming the single most important business risk",
-  "opportunityTitle": "2-4 word label for the opportunity, e.g. 'Open bot access'",
+  "opportunityTitle": "2-4 word label for the opportunity, e.g. 'Publish agent files'",
   "opportunity": "1 sentence, at most 18 words, on the top opportunity if they act within 60 days",
   "competitiveTitle": "2-4 word label for the competitive position, e.g. 'First-mover advantage'",
   "competitive": "1 sentence, at most 18 words, on competitive positioning in their industry"
 }`;
+}
+
+async function generateCmoBrief(siteUrl, score, level, checks, openai, cats) {
+  const prompt = buildBriefPrompt(siteUrl, score, level, checks, cats);
 
   const response = await openai.chat.completions.create({
     model: 'claude-sonnet-5',
@@ -865,12 +992,7 @@ async function runAgentReadiness({ url, url_homepage, url_action, url_form, skip
     }
 
     // Build full HTTP check list with metadata
-    const httpChecks = Object.entries(rawHttpChecks).map(([id, result]) => ({
-      id,
-      ...CHECK_META[id],
-      status: result.status,
-      tech: result.tech,
-    }));
+    const httpChecks = describeHttpChecks(rawHttpChecks);
 
     // Combined scoring
     const httpMax = 100;
@@ -1017,7 +1139,7 @@ router.post('/stream', async (req, res) => {
     // Emit each HTTP check result
     for (const [id, result] of Object.entries(rawHttpChecks)) {
       if (disconnected) return;
-      emit('check', { id, ...CHECK_META[id], status: result.status, tech: result.tech });
+      emit('check', { id, ...CHECK_META[id], status: result.status, tech: result.tech, ...(result.blocking ? { blocking: true } : {}) });
     }
 
     // Emit HTTP score
@@ -1042,12 +1164,7 @@ router.post('/stream', async (req, res) => {
     if (disconnected) return;
 
     // Build full HTTP check list with metadata
-    const httpChecks = Object.entries(rawHttpChecks).map(([id, result]) => ({
-      id,
-      ...CHECK_META[id],
-      status: result.status,
-      tech: result.tech,
-    }));
+    const httpChecks = describeHttpChecks(rawHttpChecks);
 
     // Combined scoring
     const httpMax = 100;
@@ -1180,4 +1297,7 @@ module.exports.levelFromScore = levelFromScore;
 // The report assistant (modules/reportChat/working.js) prices each failed check with these.
 module.exports.WEIGHTS = WEIGHTS;
 // Exposed for routes/__tests__/egressWiring.test.js.
-module.exports._private = { safeFetch, buildPdfHtml, isJsonDocument, isSitemapDocument, auditBlocked, allowsEveryCrawler, agentLinkRels, siteOnce };
+module.exports._private = {
+  safeFetch, buildPdfHtml, isJsonDocument, isSitemapDocument, auditBlocked, allowsEveryCrawler, agentLinkRels, siteOnce,
+  aiBotAccess, aiBotsCheck, describeHttpChecks, buildBriefPrompt, crawlerFacts,
+};

@@ -21,6 +21,8 @@ import { useActiveProjectId } from './activeProject';
 
 const LIVE_MS = 4000;
 const IDLE_MS = 15000;
+// Returned by poll() when polling cannot succeed again (401/403).
+const STOP = Symbol('stop');
 
 /**
  * @param {object}  [options]
@@ -62,7 +64,12 @@ export function useCrawlStatus({ enabled = true } = {}) {
     try {
       const { crawlStatus } = await projectsApi.crawlStatus(id);
       return crawlStatus || null;
-    } catch {
+    } catch (e) {
+      // Signed out, or no access to this client: polling again cannot succeed.
+      // This used to be swallowed like any dropped poll, so a tab whose session
+      // had ended kept asking every fifteen seconds forever. The 401 itself
+      // already sent the app to the sign-in screen (lib/authEvents.js).
+      if (e?.status === 401 || e?.status === 403) return STOP;
       // A dropped poll is not a finished crawl. Keep whatever was last known and
       // try again on the next tick — blanking the bar on one failed request
       // would look exactly like the crawl ending.
@@ -74,13 +81,30 @@ export function useCrawlStatus({ enabled = true } = {}) {
     if (!projectId) { setStatus(null); return undefined; }
 
     let cancelled = false;
+    let stopped = false;
+    // Set while the tab is hidden and a tick came due: nobody is looking at
+    // the bar, so the poll waits for the tab to come back instead of running.
+    let due = false;
 
     const tick = async () => {
+      timer.current = null;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        due = true;
+        return;
+      }
       const next = await poll(projectId);
       if (cancelled) return;
+      if (next === STOP) { stopped = true; return; }
       setStatus((prev) => (sameStatus(prev, next) ? prev : next));
       timer.current = setTimeout(tick, next ? LIVE_MS : IDLE_MS);
     };
+
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible' || !due || stopped || cancelled) return;
+      due = false;
+      tick();
+    };
+    document.addEventListener('visibilitychange', onVisible);
 
     // Clear immediately on a project switch: showing the previous client's crawl
     // under a new client's name is worse than showing nothing for one tick.
@@ -89,12 +113,14 @@ export function useCrawlStatus({ enabled = true } = {}) {
 
     return () => {
       cancelled = true;
+      document.removeEventListener('visibilitychange', onVisible);
       if (timer.current) { clearTimeout(timer.current); timer.current = null; }
     };
   }, [projectId, poll]);
 
   const refresh = useCallback(async () => {
     const next = await poll(projectId);
+    if (next === STOP) return statusRef.current;
     setStatus((prev) => (sameStatus(prev, next) ? prev : next));
     return next;
   }, [poll, projectId]);

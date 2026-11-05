@@ -16,6 +16,9 @@ import { useSearchParams } from 'react-router-dom';
 import ModuleRuns from '../components/ModuleRuns';
 import { useActiveProjectId } from '../lib/activeProject';
 import { projectsApi, countryLabel, isModuleInFlight } from '../lib/projectsApi';
+import { useUrlState } from '../lib/useUrlState';
+
+const TAB_KEYS = ['overview', 'backlinks', 'contentAnalysis', 'pagespeed'];
 
 const EMPTY_CLIENT_FORM = { name: '', domain: '', country: 'United States', brandName: '' };
 
@@ -139,14 +142,28 @@ export default function CompetitorAnalysisDashboardPage() {
   const [projects, setProjects] = useState(null);
   const [settingUpFromProject, setSettingUpFromProject] = useState(false);
   const [reclassifying, setReclassifying] = useState(false);
-  useEffect(() => {
-    projectsApi.list()
+  // ── A failed read is an error, not an empty store (UX-035) ────────────────
+  // Each read keeps its own error. A failed dashboard read used to fall into
+  // "No analysis yet / Run Analysis" (a ~7,800-unit Semrush run, for a client
+  // that had a stored one), a failed client list into "Set up from project"
+  // (a duplicate client record), and a failed content read into "Run Content
+  // Analysis". Every one of those now shows the error and a Retry instead.
+  const [projectsError, setProjectsError] = useState(null);
+  const [clientsError, setClientsError] = useState(null);
+  const [dashboardError, setDashboardError] = useState(null);
+  const [contentError, setContentError] = useState(null);
+  const loadProjects = useCallback(() => {
+    setProjectsError(null);
+    return projectsApi.list()
       .then((d) => setProjects(d.projects || []))
-      // Not fatal. Without the project list nothing can be matched, so the page
-      // falls back to naming this tool's own clients — which is what it did
-      // before there were projects at all.
-      .catch(() => setProjects([]));
+      .catch((e) => {
+        // Without the project list nothing can be matched; the page must not
+        // then offer to create clients as if none existed.
+        setProjectsError(e?.message || 'request failed');
+        setProjects([]);
+      });
   }, []);
+  useEffect(() => { loadProjects(); }, [loadProjects]);
   const activeProject = useMemo(() => {
     if (!projects?.length) return null;
     return projects.find((p) => p.id === activeProjectId) || projects[0];
@@ -163,6 +180,7 @@ export default function CompetitorAnalysisDashboardPage() {
   const [client, setClient] = useState(null);
   const [snapshot, setSnapshot] = useState(null);
   const [loadingDashboard, setLoadingDashboard] = useState(false);
+  const [loadingContent, setLoadingContent] = useState(false);
   const [running, setRunning] = useState(false);
   const [runningClientId, setRunningClientId] = useState(null);
   const [pageSpeedRunning, setPageSpeedRunning] = useState(false);
@@ -172,7 +190,10 @@ export default function CompetitorAnalysisDashboardPage() {
   const [regeneratingTopPages, setRegeneratingTopPages] = useState(false);
   const [regeneratingSitemap, setRegeneratingSitemap] = useState(false);
   const [savingMapping, setSavingMapping] = useState(false);
-  const [activeTab, setActiveTab] = useState('overview');
+  // The open tab lives in the address (?tab=), beside ?client=, so reload
+  // keeps it, Back steps back to the previous tab, and a tab can be linked.
+  const [tabParam, setActiveTab] = useUrlState('tab', 'overview');
+  const activeTab = TAB_KEYS.includes(tabParam) ? tabParam : 'overview';
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_CLIENT_FORM);
@@ -328,39 +349,64 @@ export default function CompetitorAnalysisDashboardPage() {
     });
   }, [linkedClient, projects, requestedClientExists, unlinkedClients, activeProject?.id]);
 
+  // ── Only the selected client's answer may land (UX-098) ───────────────────
+  // Every read is for one client id, and its answer is applied only if that
+  // id is still the one selected when it arrives. Without this the LAST
+  // answer won: picking Hyster then Gentle Dental, Hyster's slow reply landed
+  // after and put Hyster's numbers under "Gentle Dental" in the dropdown.
+  const selectedRef = useRef(selectedClientId);
+  selectedRef.current = selectedClientId;
+  const isCurrent = (clientId) => selectedRef.current === clientId;
+
   const loadDashboard = useCallback(async (clientId) => {
-    if (!clientId) { setClient(null); setSnapshot(null); return; }
+    if (!clientId) { setClient(null); setSnapshot(null); setDashboardError(null); setLoadingDashboard(false); return; }
     setLoadingDashboard(true);
     try {
       const data = await ct.dashboard(clientId);
+      if (!isCurrent(clientId)) return;
       setClient(data.client);
       setSnapshot(data.snapshot);
+      setDashboardError(null);
     } catch (e) {
-      toast.add({ title: 'Failed to load dashboard', description: e.message, variant: 'danger' });
+      if (!isCurrent(clientId)) return;
+      setDashboardError(e?.message || 'request failed');
     } finally {
-      setLoadingDashboard(false);
+      if (isCurrent(clientId)) setLoadingDashboard(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadContentAnalysis = useCallback(async (clientId) => {
-    if (!clientId) { setContentAnalysis(null); return; }
+    if (!clientId) { setContentAnalysis(null); setContentError(null); setLoadingContent(false); return; }
+    setLoadingContent(true);
     try {
       const data = await ct.contentAnalysis(clientId);
+      if (!isCurrent(clientId)) return;
       setContentAnalysis(data.contentAnalysis);
-    } catch {
+      setContentError(null);
+    } catch (e) {
+      if (!isCurrent(clientId)) return;
       setContentAnalysis(null);
+      setContentError(e?.message || 'request failed');
+    } finally {
+      if (isCurrent(clientId)) setLoadingContent(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    ct.meta().then(setMeta).catch(() => {});
+  const loadClients = useCallback(() => {
+    setClientsError(null);
     // A requested client is honoured only if it exists; a stale id falls back to
     // the normal first-client behaviour rather than showing an empty dashboard.
-    refreshClients(requestedClientId || undefined)
-      .catch(() => {})
+    return refreshClients(requestedClientId || undefined)
+      .catch((e) => setClientsError(e?.message || 'request failed'))
       .finally(() => setClientsLoaded(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshClients]);
+
+  useEffect(() => {
+    ct.meta().then(setMeta).catch(() => {});
+    loadClients();
     return () => {
       clearInterval(pollRef.current);
       clearInterval(pageSpeedPollRef.current);
@@ -369,10 +415,32 @@ export default function CompetitorAnalysisDashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Switching to a DIFFERENT client clears what is on screen first, so the
+  // previous client's numbers are never shown under the new name while it
+  // loads (the page shows its loading state instead). A reload of the client
+  // already shown — after a run finishes — keeps it on screen.
+  const shownClientRef = useRef(null);
   useEffect(() => {
+    if (shownClientRef.current !== selectedClientId) {
+      shownClientRef.current = selectedClientId;
+      setClient(null);
+      setSnapshot(null);
+      setContentAnalysis(null);
+      setDashboardError(null);
+      setContentError(null);
+    }
     loadDashboard(selectedClientId);
     loadContentAnalysis(selectedClientId);
   }, [selectedClientId, loadDashboard, loadContentAnalysis]);
+
+  const retryReads = () => {
+    if (projectsError) loadProjects();
+    if (clientsError) loadClients();
+    if (selectedClientId) {
+      loadDashboard(selectedClientId);
+      loadContentAnalysis(selectedClientId);
+    }
+  };
 
   // There used to be a "self-heal" effect here that started a PageSpeed refresh
   // whenever a client was opened without usable Page Speed data. Opening a
@@ -782,12 +850,21 @@ export default function CompetitorAnalysisDashboardPage() {
 
   // Nothing on screen yet: no stored snapshot, no content analysis, and not
   // mid-load. The same condition the "No analysis yet" branch below uses.
-  const nothingToShow = !snapshot && !contentAnalysis && !loadingDashboard;
+  const nothingToShow = !snapshot && !contentAnalysis && !loadingDashboard && !loadingContent;
   // Still working out what to show: the client list or the project list has
-  // not answered, or the selected client's dashboard is loading for the first
+  // not answered, or the selected client's reads are loading for the first
   // time (a reload of an already-shown dashboard keeps it on screen).
   const resolving = !clientsLoaded || projects === null
-    || (Boolean(selectedClientId) && loadingDashboard && !snapshot);
+    || (Boolean(selectedClientId) && (loadingDashboard || loadingContent) && !snapshot && !contentAnalysis);
+  // A read that failed where its answer decides between "nothing here yet"
+  // and real data. With one of these set, no empty/paid-run branch is shown.
+  const listReadError = clientsError || projectsError;
+  const clientReadError = selectedClientId && !snapshot && (dashboardError || (!contentAnalysis && contentError))
+    ? (dashboardError || contentError) : null;
+  // The client the dropdown names, by its id — not the last response to land.
+  const selectedClientName = clients.find((c) => c.id === selectedClientId)?.name
+    || (linkedClient && linkedClient.id === selectedClientId ? activeProject?.name : null)
+    || null;
 
   return (
     <div className="ca-report">
@@ -840,7 +917,7 @@ export default function CompetitorAnalysisDashboardPage() {
               variant="primary"
               onClick={handleRun}
               loading={running && runningClientId === selectedClientId}
-              disabled={!selectedClientId || (pageSpeedRunning && pageSpeedRunningClientId === selectedClientId)}
+              disabled={!selectedClientId || Boolean(clientReadError) || (pageSpeedRunning && pageSpeedRunningClientId === selectedClientId)}
             >
               {running && runningClientId === selectedClientId ? 'Running…' : 'Run Analysis'}
             </Button>
@@ -939,6 +1016,8 @@ export default function CompetitorAnalysisDashboardPage() {
           <span style={{ flex: '1 1 320px', color: 'var(--text-2)' }}>
             These competitors differ from {activeProject?.name}’s own list
             ({projectCompetitors.slice(0, maxCompetitors).join(', ')}), which the dashboard and other tools use.
+            {' '}So the market position and ranks below will not match the Overview card, which withholds
+            its rank until the lists agree. Switch to the project’s list and run the analysis to line them up.
           </span>
           <Button size="sm" variant="secondary" loading={syncingCompetitors} onClick={syncCompetitorsFromProject}>
             Use the project’s competitors
@@ -974,8 +1053,19 @@ export default function CompetitorAnalysisDashboardPage() {
         </div>
       )}
 
-      {resolving ? (
-        <EmptyState title="Loading competitor analysis…" description="Reading this client’s latest comparison." />
+      {listReadError || clientReadError ? (
+        // Never an empty state and never a run button: the read failed, so
+        // whether an analysis exists is unknown.
+        <EmptyState
+          title="Couldn’t load this comparison"
+          description={`${listReadError ? 'The list of clients' : `${selectedClientName || 'This client'}’s saved analysis`} could not be read (${listReadError || clientReadError}). Nothing was run or changed. Try again.`}
+          action={<Button variant="primary" onClick={retryReads}>Retry</Button>}
+        />
+      ) : resolving ? (
+        <EmptyState
+          title={selectedClientName ? `Loading ${selectedClientName}…` : 'Loading competitor analysis…'}
+          description="Reading this client’s latest comparison."
+        />
       ) : nothingToShow && activeProject && projectRunInFlight ? (
         // A comparison is already on the queue or executing for this project, so
         // this is a wait, not a setup step. Naming the state beats an empty page
@@ -1034,7 +1124,9 @@ export default function CompetitorAnalysisDashboardPage() {
       ) : nothingToShow ? (
         <EmptyState
           title="No analysis yet"
-          description="Run an analysis to populate this dashboard with (simulated) SEMrush data."
+          description={meta?.liveDataSource
+            ? `Run an analysis to populate this dashboard with live SEMrush data (about ${(meta.estimatedCostPerDomain || 0).toLocaleString()} units per domain).`
+            : 'Run an analysis to populate this dashboard with simulated SEMrush data.'}
           action={<Button variant="primary" onClick={handleRun} loading={running && runningClientId === selectedClientId}>Run Analysis</Button>}
         />
       ) : (
@@ -1055,6 +1147,8 @@ export default function CompetitorAnalysisDashboardPage() {
             {activeTab === 'contentAnalysis' && (
               <ContentAnalysisTab
                 contentAnalysis={contentAnalysis}
+                loadError={contentError}
+                onRetry={() => loadContentAnalysis(selectedClientId)}
                 running={contentAnalysisRunning}
                 onRun={handleRunContentAnalysis}
                 regeneratingTopPages={regeneratingTopPages}
@@ -1076,7 +1170,7 @@ export default function CompetitorAnalysisDashboardPage() {
       <ModuleRuns
         toolId="competitor-analysis"
         search={selectedClientId ? `client ${selectedClientId}` : ''}
-        scopeNote={client ? `Runs for ${client.name}` : ''}
+        scopeNote={selectedClientName ? `Runs for ${selectedClientName}` : ''}
       />
 
       <Drawer

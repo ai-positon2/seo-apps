@@ -26,15 +26,20 @@ function toRecord(row) {
   };
 }
 
-/** Every saved topic for one cluster of a project. */
+/**
+ * Every saved topic for one cluster of a project. `clusterId` may be a list:
+ * the stored ids whose work now belongs to that cluster (topicAnchors.js).
+ */
 async function listForCluster(projectId, clusterId) {
   if (!db.isDatabaseConfigured()) return [];
+  const ids = Array.isArray(clusterId) ? clusterId : [clusterId];
+  if (!ids.length) return [];
   try {
     const found = await db.rows(
       `select cluster_id, topic, intent, result, selection, updated_at
-         from ${TABLE} where project_id = $1 and cluster_id = $2
+         from ${TABLE} where project_id = $1 and cluster_id = any($2::text[])
         order by updated_at desc`,
-      [projectId, clusterId],
+      [projectId, ids],
     );
     return found.map(toRecord);
   } catch (error) {
@@ -57,6 +62,7 @@ async function listSummaries(projectId) {
   try {
     const found = await db.rows(
       `select cluster_id, topic, intent, updated_at,
+              result->'anchor' as anchor,
               result->>'keyword' as seed,
               coalesce(selection->'primary', result->'result'->'primary', '[]'::jsonb) as primary_picks,
               coalesce(selection->'secondary', result->'result'->'secondary', '[]'::jsonb) as secondary_picks
@@ -71,6 +77,8 @@ async function listSummaries(projectId) {
       seed: row.seed || '',
       primary: picks(row.primary_picks),
       secondary: picks(row.secondary_picks),
+      // The topic it was made for (topicAnchors.js); null on rows saved before.
+      anchor: row.anchor || null,
       updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at,
     }));
   } catch (error) {
@@ -110,10 +118,13 @@ async function saveResult(projectId, clusterId, { topic, intent, result, selecti
 async function saveSelection(projectId, clusterId, topic, selection) {
   if (!db.isDatabaseConfigured()) return { saved: false, reason: 'not_configured' };
   try {
+    // A list of stored ids, as listForCluster takes: the row may still be
+    // stored under the id its cluster had in an earlier analysis.
+    const ids = Array.isArray(clusterId) ? clusterId : [clusterId];
     const { rowCount } = await db.query(
       `update ${TABLE} set selection = $4::jsonb, updated_at = now()
-        where project_id = $1 and cluster_id = $2 and topic = $3`,
-      [projectId, clusterId, topic, JSON.stringify(selection || null)],
+        where project_id = $1 and cluster_id = any($2::text[]) and topic = $3`,
+      [projectId, ids, topic, JSON.stringify(selection || null)],
     );
     return rowCount ? { saved: true } : { saved: false, reason: 'not_found' };
   } catch (error) {

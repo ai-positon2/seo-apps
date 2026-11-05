@@ -83,6 +83,36 @@ function appendHistory(previousSnapshot, newSnapshot) {
   return history.slice(-MAX_HISTORY_POINTS);
 }
 
+// Second-level labels that are part of a public suffix ("co.uk", "com.au"),
+// so the brand stem of "argos.co.uk" is "argos", not "co".
+const SUFFIX_LABELS = new Set(['co', 'com', 'net', 'org', 'gov', 'edu', 'ac', 'ltd', 'plc']);
+
+// The registrable name of a domain: "www.footlocker.com" -> "footlocker".
+function domainStem(domain) {
+  const host = String(domain || '').toLowerCase()
+    .replace(/^https?:\/\//, '').replace(/[/:?#].*$/, '').replace(/^www\./, '');
+  const labels = host.split('.').filter(Boolean);
+  if (labels.length <= 1) return labels[0] || '';
+  let i = labels.length - 2;
+  if (i > 0 && SUFFIX_LABELS.has(labels[i]) && labels[labels.length - 1].length === 2) i -= 1;
+  return labels[i];
+}
+
+// The term a domain's branded keywords are counted against. Each domain is
+// measured against ITS OWN brand: every competitor used to be counted
+// against the client's brand name, so Foot Locker's "branded" keywords were
+// the ones containing "nike". The client uses its configured brand name; a
+// competitor uses its label when that is a name ("Foot Locker"), otherwise
+// its domain stem ("footlocker").
+function brandTermFor(entry, client) {
+  if (entry.isClient && client?.brandName && String(client.brandName).trim()) {
+    return String(client.brandName).trim();
+  }
+  const label = String(entry.label || '').trim();
+  const labelIsDomain = !label || /^(https?:\/\/)?[\w-]+(\.[\w-]+)+\/?$/i.test(label);
+  return labelIsDomain ? domainStem(entry.domain) : label;
+}
+
 // Runs the pipeline for one client. Provider-agnostic budget guard: stops
 // fetching new domains the moment the next one would push cumulative
 // estimated spend over the hard per-run cap (client is always fetched
@@ -117,7 +147,7 @@ async function fetchClientDashboardData(client, previousSnapshot, capUnits = MAX
       skipped.push(entry.domain);
       continue;
     }
-    const raw = await provider.fetchDomainData(entry.domain, ctx, { database, brandName: client.brandName });
+    const raw = await provider.fetchDomainData(entry.domain, ctx, { database, brandName: brandTermFor(entry, client) || null });
     usedUnits += perDomainCost;
     const ps = useLive ? pageSpeedFor(entry.domain) : { data: raw.pageSpeed, fetchedAt: null };
     fetched.push({
@@ -153,4 +183,4 @@ async function fetchClientDashboardData(client, previousSnapshot, capUnits = MAX
   return snapshot;
 }
 
-module.exports = { fetchClientDashboardData, refreshPageSpeedOnly, refreshStalePageSpeed };
+module.exports = { fetchClientDashboardData, refreshPageSpeedOnly, refreshStalePageSpeed, brandTermFor, domainStem };

@@ -48,12 +48,23 @@ async function fetchDomainData(domain, ctx, { database = 'us', brandName } = {})
     withRetry(() => semrush.getKeywordsFull(domain, database, ROW_LIMITS.keywordsFull, 'nq_desc'), 'keywords', fetchErrors).then((r) => r || []),
     withRetry(() => semrush.getAIOKeywords(domain, database, ROW_LIMITS.aioKeywords), 'aioKeywords', fetchErrors).then((r) => r || { count: 0, keywords: [] }),
     brandName
-      ? withRetry(() => semrush.getBrandedKeywordCount(domain, database, brandName, ROW_LIMITS.brandedKeywordCount), 'brandedKeywordCount', fetchErrors).then((r) => r || 0)
-      : Promise.resolve(0),
+      ? withRetry(() => semrush.getBrandedKeywordCount(domain, database, brandName, ROW_LIMITS.brandedKeywordCount), 'brandedKeywordCount', fetchErrors)
+      : Promise.resolve(null),
   ]);
 
   const organicKeywords = domainRank?.organicKeywords || 0;
-  const brandedKeywordCount = brandedCount || 0;
+  // Unknown stays null (no brand term, or the call failed) — never a 0 the
+  // chart would draw as "100% non-branded".
+  const brandedKeywordCount = Number.isFinite(brandedCount) ? brandedCount : null;
+  // The branded figure is a row count of a page capped at
+  // ROW_LIMITS.brandedKeywordCount rows. Semrush's domain_organic export has
+  // no total-count field (a total means paying 10 units for every row), so a
+  // full page means "at least this many" and the non-branded split is
+  // unknown. The UI shows "40+" and no share for a capped domain.
+  const brandedKeywordCountCapped = brandedKeywordCount !== null && brandedKeywordCount >= ROW_LIMITS.brandedKeywordCount;
+  // No backlinks answer (failed twice, or Semrush had nothing) is "not
+  // measured", not a domain with 0 authority that ranks last.
+  const bl = (field) => (backlinksOverview && Number.isFinite(backlinksOverview[field]) ? backlinksOverview[field] : null);
 
   return {
     domain,
@@ -62,18 +73,21 @@ async function fetchDomainData(domain, ctx, { database = 'us', brandName } = {})
       // null when Semrush returned nothing for this domain — unknown, not 0.
       organicTraffic: Number.isFinite(domainRank?.organicTraffic) ? domainRank.organicTraffic : null,
     },
-    authorityScore: backlinksOverview?.authorityScore || 0,
+    authorityScore: bl('authorityScore'),
     backlinks: {
-      totalBacklinks: backlinksOverview?.totalBacklinks || 0,
-      referringDomains: backlinksOverview?.referringDomains || 0,
-      followLinks: backlinksOverview?.followLinks || 0,
-      nofollowLinks: backlinksOverview?.nofollowLinks || 0,
+      totalBacklinks: bl('totalBacklinks'),
+      referringDomains: bl('referringDomains'),
+      followLinks: bl('followLinks'),
+      nofollowLinks: bl('nofollowLinks'),
     },
     keywords,
     aioKeywordCount: aio?.count || 0,
     brandedKeywordCount,
-    brandedKeywordCountCapped: brandedKeywordCount >= ROW_LIMITS.brandedKeywordCount,
-    nonBrandedKeywordCount: Math.max(0, organicKeywords - brandedKeywordCount),
+    brandedKeywordCountCapped,
+    brandTerm: brandName || null,
+    nonBrandedKeywordCount: brandedKeywordCount === null || brandedKeywordCountCapped
+      ? null
+      : Math.max(0, organicKeywords - brandedKeywordCount),
     // Empty array means every call succeeded. Non-empty names exactly which
     // fields are unverified zeroes rather than confirmed data — see UI badge.
     fetchErrors,

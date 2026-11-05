@@ -103,3 +103,60 @@ export function pathOf(url) {
     return String(url);
   }
 }
+
+// ── When a report cannot be shown ────────────────────────────────────────────
+//
+// The bar used to have one word for every way a report could be missing:
+// 'none', which the pages read as "nothing stored, show the input form". A page
+// whose audit failed, or whose stored report would not load, therefore left the
+// PREVIOUS page's report on screen under the new page's name (Agent Readiness)
+// or swapped it for a blank new-audit form (SEO & GEO). These say what happened
+// instead, in words a reader can act on.
+
+/**
+ * A failure in plain words.
+ *
+ * `kind` is whose failure it is: 'page' — the audited site refused or broke
+ * (the reason stored on a failed page or run) — or 'fetch' — our own request
+ * for the stored report failed. The same "HTTP 503" means different things in
+ * each, and only one of them is the client's site to fix.
+ */
+export function plainFailure(message, { kind = 'page', status = null } = {}) {
+  const text = String(message || '');
+  if (kind === 'fetch') {
+    if (status === 404 || /not found/i.test(text)) return 'This page’s stored report is no longer available.';
+    if (status === 401 || status === 403) return 'You no longer have access to this client’s reports.';
+    return 'We couldn’t open this report just now.';
+  }
+  if (/\b(401|403|429)\b|forbidden|too many requests|rate.?limit|refused|blocked|captcha|challenge|bot protection/i.test(text)) {
+    return 'The site blocked our check of this page. Allow our crawler (or wait for its rate limit to reset), then try again.';
+  }
+  if (/timed? ?out|timeout|ETIMEDOUT|took too long/i.test(text)) return 'The site took too long to respond.';
+  if (/ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|could not resolve|getaddrinfo/i.test(text)) {
+    return 'The page’s address could not be reached.';
+  }
+  if (/\b5\d\d\b|internal server error|bad gateway|service unavailable/i.test(text)) {
+    return 'The site returned a server error when we checked this page.';
+  }
+  if (/\b404\b|not found/i.test(text)) return 'The page was not found on the site (404).';
+  return 'This page couldn’t be audited.';
+}
+
+/** True for a run that ended without a report — failed, or stopped. */
+export function runDidNotFinish(run) {
+  return Boolean(run) && ['failed', 'cancelled'].includes(run.status);
+}
+
+/**
+ * Which page the bar should select.
+ *
+ * The address (?page=<pageRunId>) wins when it names a page of this run, so a
+ * reload or a shared link opens the page it was on; then the current choice;
+ * then the first page audited.
+ */
+export function pickSelection(pages, { wanted = null, current = null } = {}) {
+  const list = pages || [];
+  if (wanted && list.some((p) => p.pageRunId === wanted)) return wanted;
+  if (current && list.some((p) => p.pageRunId === current)) return current;
+  return defaultPage(list)?.pageRunId || null;
+}

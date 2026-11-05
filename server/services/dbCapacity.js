@@ -21,11 +21,20 @@
 
 const { getPool, isDatabaseConfigured } = require('./db');
 
-// The cap the host enforces. Defaults to 512 MB — the tier this project runs
-// on — because a default of "unlimited" would make the whole module silent on
-// exactly the deployment that needs it. Set to 0 to disable the thresholds
-// (usage is still reported, just never judged).
-const LIMIT_BYTES = Math.round(Number(process.env.DATABASE_SIZE_LIMIT_MB ?? 512) * 1024 * 1024);
+// The cap the host enforces, from DATABASE_SIZE_LIMIT_MB. Unset means unknown:
+// usage is still reported (size and largest tables), just never judged.
+//
+// This used to default to 512 MB, the cap of the hosted tier the app started
+// on. The database has since moved to a host with far more storage, the
+// variable was never set there, and the Admin page showed a permanent red
+// "Critical — 685% of the limit" measured against a limit that no longer
+// existed. A made-up cap is worse than none: it trains people to ignore the
+// card. Set the variable to the real allocated storage to get the verdict back.
+function limitBytesFrom(raw) {
+  const mb = Number(raw);
+  return Number.isFinite(mb) && mb > 0 ? Math.round(mb * 1024 * 1024) : 0;
+}
+const LIMIT_BYTES = limitBytesFrom(process.env.DATABASE_SIZE_LIMIT_MB);
 
 // Two thresholds, because they mean different things: `warning` is "plan the
 // clean-up", `critical` is "the next big write may fail".
@@ -170,5 +179,5 @@ function stop() {
 
 module.exports = {
   init, stop, check, getUsage, describe, prettyBytes, levelFor,
-  LIMIT_BYTES, WARN_RATIO, CRITICAL_RATIO,
+  LIMIT_BYTES, WARN_RATIO, CRITICAL_RATIO, limitBytesFrom,
 };

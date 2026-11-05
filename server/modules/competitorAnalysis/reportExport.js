@@ -54,16 +54,19 @@ function mapSnapshotToSections(client, snapshot, contentAnalysis) {
 
   const keywordRanking = domains.map((d) => {
     const totalOrganic = d.domainRank?.organicKeywords ?? d.keywordBuckets?.total ?? 0;
-    const nonBranded = d.nonBrandedKeywordCount ?? 0;
+    // A capped branded count is "at least N" and leaves the split unknown:
+    // print "40+" and N/A, not a 100% non-branded share.
+    const capped = !!d.brandedKeywordCountCapped;
+    const nonBranded = capped ? null : (d.nonBrandedKeywordCount ?? null);
     return {
       domain: d.domain,
       page1: d.keywordBuckets?.page1,
       page2: d.keywordBuckets?.page2,
       page3to5: d.keywordBuckets?.page3to5,
       totalOrganic,
-      branded: d.brandedKeywordCount,
+      branded: capped ? `${d.brandedKeywordCount}+` : d.brandedKeywordCount,
       nonBranded,
-      nonBrandedPct: totalOrganic > 0 ? Math.round((nonBranded / totalOrganic) * 100) : 0,
+      nonBrandedPct: nonBranded !== null && totalOrganic > 0 ? Math.round((nonBranded / totalOrganic) * 100) : undefined,
     };
   });
 

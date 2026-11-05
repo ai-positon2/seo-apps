@@ -291,6 +291,17 @@ test('a failed module is reported as failed, not as covered', () => {
   assert.notStrictEqual(s.confidence.level, 'high', 'a failed audit must cost confidence');
 });
 
+test('an AI Visibility profile built for another site is not counted as covered (UX-108)', () => {
+  const all = modules({});
+  const full = executive.buildExecutiveSummary({ overview: overview({ mods: all }), backlog: backlogOf([]) });
+  const mods = modules({
+    ai_visibility: { status: 'completed', scored: false, score: null, label: 'AI Visibility', profileStale: { builtFor: 'position2.com' } },
+  });
+  const s = executive.buildExecutiveSummary({ overview: overview({ mods }), backlog: backlogOf([]) });
+  assert.strictEqual(s.confidence.modulesCovered, full.confidence.modulesCovered - 1);
+  assert.ok(s.confidence.caveats.some((c) => /profile is out of date \(built for position2\.com\)/.test(c)));
+});
+
 test('month-old evidence is described as dated', () => {
   const old = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString();
   const mods = modules(Object.fromEntries(MODULE_KEYS.map((k) => [k, { updatedAt: old }])));

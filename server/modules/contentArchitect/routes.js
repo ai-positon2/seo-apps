@@ -36,6 +36,7 @@ const spokeSuggestionsStore = require('./spokeSuggestionsStore');
 const keywordResearchStore = require('./keywordResearchStore');
 const enhancementsStore = require('./enhancementsStore');
 const work = require('./work');
+const topicAnchors = require('./topicAnchors');
 const runStore = require('../../services/runStore');
 const { buildCorpusTermProfiles } = require('./termProfile');
 const { computeIdf } = require('./similarity');
@@ -118,7 +119,8 @@ router.post('/projects', async (req, res) => {
 router.get('/projects/:id', wrap(async (req, res) => {
   const project = await store.getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
-  res.json(project);
+  // Follows the platform project's current site and name (UX-108).
+  res.json(await store.syncWithPlatform(project));
 }));
 
 // Set once (like the vertical dropdown), reused automatically by every
@@ -418,8 +420,15 @@ router.get('/projects/:id/full-analysis', wrap(async (req, res) => {
   // The database copy of spokeSuggestionsByCluster wins over the file-store's
   // own — it is the durable one, so a stale or missing file-store value must
   // not shadow a suggestion that genuinely exists.
+  //
+  // Placed by the topic each was made for, not by its stored cluster id, which
+  // a re-run reassigns (UX-159). Those whose topic is gone are listed apart.
   const dbSuggestions = await spokeSuggestionsStore.getSpokeSuggestions(req.params.id);
-  res.json(spokeSuggestionsStore.mergeInto(analysis, dbSuggestions));
+  const { byCluster, earlier } = topicAnchors.remapSuggestions(dbSuggestions, analysis);
+  res.json({
+    ...spokeSuggestionsStore.mergeInto(analysis, byCluster),
+    earlierSpokeSuggestions: earlier,
+  });
 }));
 
 // GET /projects/:id/action-status
@@ -516,7 +525,13 @@ router.post('/projects/:id/clusters/:clusterId/suggest-spokes', async (req, res)
       competitorDomains: project.competitors || [],
     });
 
-    const savedSuggestion = { ...result, generatedAt: new Date().toISOString() };
+    // The anchor records which topic this was for, so a re-run that renumbers
+    // the clusters cannot show it under another one (topicAnchors.js).
+    const savedSuggestion = {
+      ...result,
+      generatedAt: new Date().toISOString(),
+      anchor: topicAnchors.anchorFor(analysis, cluster.id),
+    };
     const updatedAnalysis = {
       ...analysis,
       spokeSuggestionsByCluster: {
@@ -543,9 +558,20 @@ router.post('/projects/:id/clusters/:clusterId/suggest-spokes', async (req, res)
 router.get('/projects/:id/clusters/:clusterId/keyword-research', wrap(async (req, res) => {
   const project = await store.getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
-  const items = await keywordResearchStore.listForCluster(project.id, req.params.clusterId);
+  const storedIds = await storedClusterIds(project.id, req.params.clusterId);
+  const items = (await keywordResearchStore.listForCluster(project.id, storedIds))
+    .map((item) => ({ ...item, clusterId: req.params.clusterId }));
   res.json({ items });
 }));
+
+// The stored cluster ids whose keyword research belongs to this cluster of the
+// current analysis — ids move between re-runs (topicAnchors.js, UX-159).
+async function storedClusterIds(projectId, clusterId) {
+  const analysis = await store.getFullAnalysis(projectId);
+  if (!analysis) return [clusterId];
+  const summaries = await keywordResearchStore.listSummaries(projectId);
+  return topicAnchors.storedIdsFor(clusterId, summaries, analysis);
+}
 
 // Body { topic, intent, result, selection } saves a finished run;
 // { topic, selection } alone updates the picks of one already saved.
@@ -557,9 +583,18 @@ router.put('/projects/:id/clusters/:clusterId/keyword-research', wrap(async (req
   if (result !== undefined && (typeof result !== 'object' || result === null)) {
     return res.status(400).json({ error: 'result must be an object' });
   }
+  // A new result carries the topic it was made for; a pick change finds its
+  // row under whichever id it was stored with (topicAnchors.js).
+  const analysis = result ? await store.getFullAnalysis(project.id) : null;
+  const anchor = analysis ? topicAnchors.anchorFor(analysis, req.params.clusterId) : null;
   const outcome = result
-    ? await keywordResearchStore.saveResult(project.id, req.params.clusterId, { topic: topic.trim(), intent, result, selection })
-    : await keywordResearchStore.saveSelection(project.id, req.params.clusterId, topic.trim(), selection);
+    ? await keywordResearchStore.saveResult(project.id, req.params.clusterId, {
+      topic: topic.trim(), intent, result: anchor ? { ...result, anchor } : result, selection,
+    })
+    : await keywordResearchStore.saveSelection(
+      project.id, [...new Set([req.params.clusterId, ...await storedClusterIds(project.id, req.params.clusterId)])],
+      topic.trim(), selection,
+    );
   res.json(outcome);
 }));
 
@@ -569,7 +604,8 @@ router.put('/projects/:id/clusters/:clusterId/keyword-research', wrap(async (req
 router.get('/projects/:id/work', wrap(async (req, res) => {
   const project = await store.getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
-  res.json(await work.projectWork(req, project));
+  const analysis = await store.getFullAnalysis(project.id);
+  res.json(await work.projectWork(req, project, { analysis }));
 }));
 
 router.get('/projects/:id/work/articles/:articleId', wrap(async (req, res) => {
@@ -591,13 +627,18 @@ router.get('/projects/:id/work/enhancement', wrap(async (req, res) => {
 
 router.get('/projects/:id/export', async (req, res) => {
   try {
-    const project = await store.getProject(req.params.id);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const stored = await store.getProject(req.params.id);
+    if (!stored) return res.status(404).json({ error: 'Project not found' });
     const analysis = await store.getFullAnalysis(req.params.id);
     if (!analysis) return res.status(404).json({ error: 'Run analysis first.' });
+    // Titled by the platform project and its current site, not the name the
+    // record was created with — Soteri Skin's files were named www-position2-com
+    // (UX-108).
+    const project = await store.syncWithPlatform(stored);
 
     const format = req.query.format === 'md' ? 'md' : 'xlsx';
-    const safeName = (project.name || 'content-architecture').replace(/[^a-z0-9-]+/gi, '-');
+    const safeName = (project.platformProjectName || project.name || 'content-architecture')
+      .replace(/[^a-z0-9-]+/gi, '-').replace(/^-+|-+$/g, '') || 'content-architecture';
 
     if (format === 'md') {
       const md = buildMarkdownNarrative(analysis, project);

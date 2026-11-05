@@ -62,6 +62,10 @@ function domainView(row) {
     status: row.status,
     scoreRefreshedAt: row.score_refreshed_at,
     createdAt: row.created_at,
+    // Why AI discovery picked this competitor ({ reason, competitorType, at }),
+    // kept in provider_ids so no schema change was needed. Null for one a
+    // person typed in.
+    discovery: row.provider_ids?.discovery || null,
   };
 }
 
@@ -724,7 +728,7 @@ async function updateProject({ access, patch }) {
  * a not-yet-accepted candidate — unused today because nothing here holds one
  * for review instead of accepting it immediately).
  */
-async function addCompetitor({ access, domain, status = 'active', source = 'user_entered' }) {
+async function addCompetitor({ access, domain, status = 'active', source = 'user_entered', discovery = null }) {
   if (!db.isDatabaseConfigured()) throw notConfigured();
   const project = access.project;
 
@@ -761,6 +765,7 @@ async function addCompetitor({ access, domain, status = 'active', source = 'user
     data = await db.insertOne('project_domains', {
       ...domainRow(project, access, normalized, 'competitor', source),
       status,
+      ...(discovery ? { provider_ids: { discovery } } : {}),
     });
   } catch (error) {
     // The partial unique index on (project_id, normalized_origin) where active

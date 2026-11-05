@@ -112,6 +112,12 @@ async function complete({ access, project, run, regenerate = false }) {
     if (want === 0) {
       warnings.push(`This project already has its ${MAX_PROMPTS} prompts, so none were written.`);
     }
+    // Asked for questions and kept none: not a success. SoundHound's setup
+    // closed 'completed' with zero questions and no warning, after all 16
+    // candidates were rejected.
+    const attempted = want > 0 && (regenerate || liveCount === 0);
+    const noneWritten = attempted && written.added.length === 0;
+    if (noneWritten) warnings.push(zeroWrittenWarning(generated.rejected, written.skipped));
     if (written.added.length && written.added.length < want) {
       warnings.push(
         `Asked for ${want} questions and kept ${written.added.length}. `
@@ -148,6 +154,8 @@ async function complete({ access, project, run, regenerate = false }) {
         rejected: generated.rejected,
         brandGuard: generated.brandGuard,
         warnings,
+        // Read by the page: setup ran but left nothing to measure.
+        reason: noneWritten ? 'no_prompts_written' : null,
       },
     });
   } catch (error) {
@@ -156,4 +164,29 @@ async function complete({ access, project, run, regenerate = false }) {
   }
 }
 
-module.exports = { MODULE_KEY, start, complete };
+const REJECTION_WORDS = {
+  brand_leak: 'named the business',
+  duplicate: 'repeated an existing question',
+  near_duplicate: 'repeated an existing question',
+  bad_shape: 'were not shaped like a question',
+  too_long: 'were too long',
+  too_many_words: 'were too long',
+};
+
+/** Why setup wrote no questions, in one sentence a person can act on. */
+function zeroWrittenWarning(rejected = [], skipped = []) {
+  const counts = new Map();
+  for (const r of rejected || []) {
+    const words = REJECTION_WORDS[r.code] || 'were rejected';
+    counts.set(words, (counts.get(words) || 0) + 1);
+  }
+  if ((skipped || []).length) counts.set('could not be saved', (skipped || []).length);
+  const why = [...counts.entries()].map(([words, n]) => `${n} ${words}`).join(', ');
+  return 'No questions were written, so there is nothing to measure yet. '
+    + (why ? `Of the candidates, ${why}. ` : 'The model returned no usable candidates. ')
+    + 'Try Regenerate, or add questions yourself below.';
+}
+
+module.exports = {
+  MODULE_KEY, start, complete, zeroWrittenWarning,
+};

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Badge } from '../../../ui/Badge';
-import { fmtNum, fmtCompact, seriesColor, CLIENT_COLOR, COMPETITOR_COLOR } from '../utils';
+import { fmtNum, fmtCompact, seriesColor, rankedRows, CLIENT_COLOR, COMPETITOR_COLOR } from '../utils';
 
 // Ranked horizontal bar chart for a single magnitude metric (Organic Traffic,
 // Organic Keywords, Backlinks, Ref. Domains, ...). Bar length is always
@@ -8,18 +8,21 @@ import { fmtNum, fmtCompact, seriesColor, CLIENT_COLOR, COMPETITOR_COLOR } from 
 // chart) — the "Index to leader" toggle only switches what the end-label
 // prints: the true compact value, or the 0-100 index vs. the leader. This
 // keeps geometry stable and avoids ever needing a log scale.
-export function RankedBarChart({ domains = [], valueFn, emptyText = 'No data yet.' }) {
+//
+// A row with no figure (`isUnknown`, default: the value is null) is not a 0:
+// it goes last, with no bar, and says why — `unknownText(d)` — so a rival
+// whose numbers failed to load, or a site that blocked the sitemap check,
+// never reads as the smallest in the set. The leader is the largest MEASURED
+// value.
+export function RankedBarChart({ domains = [], valueFn, emptyText = 'No data yet.', isUnknown, unknownText = () => 'not measured', formatValue = fmtCompact }) {
   const [indexed, setIndexed] = useState(false);
 
   if (!domains.length) {
     return <div style={{ padding: '24px 0', textAlign: 'center', fontSize: 12, color: 'var(--text-3)' }}>{emptyText}</div>;
   }
 
-  const rows = domains
-    .map((d) => ({ id: d.domain, label: d.label || d.domain, isClient: d.isClient, value: valueFn(d) || 0 }))
-    .sort((a, b) => b.value - a.value);
-
-  const leader = rows[0]?.value || 0;
+  const { rows, leader } = rankedRows(domains, valueFn, isUnknown);
+  const byId = new Map(domains.map((d) => [d.domain, d]));
   const hasCompetitors = rows.length > 1;
 
   return (
@@ -46,10 +49,28 @@ export function RankedBarChart({ domains = [], valueFn, emptyText = 'No data yet
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {rows.map((row) => {
+          if (row.unknown) {
+            const why = unknownText(byId.get(row.id));
+            return (
+              <div key={row.id} style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 12, alignItems: 'center' }} title={`${row.label}: ${why}`}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 6, minWidth: 0,
+                  fontSize: 13, fontWeight: row.isClient ? 700 : 400,
+                  color: row.isClient ? 'var(--text)' : 'var(--text-2)',
+                }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.label}</span>
+                  {row.isClient && <Badge variant="brand" style={{ flexShrink: 0 }}>Client</Badge>}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-3)', height: 20, display: 'flex', alignItems: 'center' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', marginRight: 8 }}>—</span>{why}
+                </div>
+              </div>
+            );
+          }
           const pct = leader > 0 ? Math.max((row.value / leader) * 100, row.value > 0 ? 1.5 : 0) : 0;
           const labelText = indexed
             ? (row.value === leader ? '100' : leader > 0 ? (row.value / leader * 100).toFixed(row.value / leader * 100 < 10 ? 1 : 0) : '0')
-            : fmtCompact(row.value);
+            : formatValue(row.value, byId.get(row.id));
           return (
             <div key={row.id} style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 12, alignItems: 'center' }} title={`${row.label}: ${fmtNum(row.value)}`}>
               <div style={{

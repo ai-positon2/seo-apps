@@ -34,6 +34,7 @@ const { identityFor } = require('./brandNames');
 const { measure } = require('./measure');
 const surfacesLib = require('./surfaces');
 const store = require('./store');
+const { healthOfRows } = require('./runHealth');
 
 const MODULE_KEY = 'ai_visibility_lite';
 
@@ -64,7 +65,39 @@ async function assertRunnable(projectId) {
     );
   }
 
+  // Checked here as well as in execute(): a run with no questions measures
+  // nothing but still spends one of the project's runs, and five of
+  // SoundHound's twenty went that way.
+  const prompts = await store.listPrompts(projectId);
+  if (!prompts.length) {
+    throw Object.assign(
+      new Error('This project has no questions to ask yet. Write them on Setup & runs before measuring.'),
+      { status: 409, code: 'no_prompts' },
+    );
+  }
+
   return { budget, ready };
+}
+
+/**
+ * The run's closing status and the findings that go with a partial one.
+ *
+ * Status stays 'completed' (the stored status set is shared by every module),
+ * and the partial flag travels on the payload: `health.partial`, plus a
+ * warning finding per model that answered nothing, so the dashboard card reads
+ * "finished with errors" rather than an ordinary run.
+ */
+function closingFor(summary, health) {
+  const status = summary.score === null ? 'insufficient_data' : 'completed';
+  const extra = health.engines.filter((e) => e.allFailed).map((e) => ({
+    ruleId: `aiv-model-failed-${e.engine}`,
+    title: `${e.label} answered nothing on this run (${e.reasons.map((r) => r.text).join('; ')})`,
+    severity: 'warning',
+    category: 'AI Visibility',
+    count: e.failed,
+    detail: { engine: e.engine, failed: e.failed, attempted: e.attempted },
+  }));
+  return { status, findings: [...(summary.findings || []), ...extra] };
 }
 
 /**
@@ -180,17 +213,22 @@ async function execute({ access, project, run }) {
     ]);
 
     const budget = await store.runBudget(projectId);
+    // Per model: how many answers failed and why, in plain words. A model that
+    // answered nothing makes this a partial run, and the page says so.
+    const health = healthOfRows(rows);
+    const closing = closingFor(summary, health);
 
     return {
       score: summary.score,
       scoreBasis: summary.scoreBasis,
-      findings: summary.findings,
+      findings: closing.findings,
       // A run that measured nothing at all is not a zero — it is a run that
       // failed to measure, and 'insufficient_data' is the status that says so
       // without putting a 0 on the dashboard.
-      status: summary.score === null ? 'insufficient_data' : 'completed',
+      status: closing.status,
       payload: {
         ...summary,
+        health,
         promptCount: prompts.length,
         surfaces: ready,
         // How many answers were actually grounded in a live search. A run whose
@@ -289,5 +327,5 @@ async function startFirstMeasurement({ access, project, trigger = 'auto_setup' }
 }
 
 module.exports = {
-  MODULE_KEY, execute, runOnce, assertRunnable, identityFor, startFirstMeasurement,
+  MODULE_KEY, execute, runOnce, assertRunnable, identityFor, startFirstMeasurement, closingFor,
 };

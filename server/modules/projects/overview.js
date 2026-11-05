@@ -238,19 +238,10 @@ async function internalHtmlPageCount(runId) {
     // v5: 2xx pages that were audited. A redirect stub or an error page is not
     // a page of content, and a URL only status-checked past the page budget
     // (`probe`) was never read (client crawlHelpers.js#isScoredPage).
-    return await db.count(
-      `select count(*) from crawl_run_results
-        where run_id = $1
-          and content_type ilike '%text/html%'
-          and data->>'scope' = 'Internal'
-          and coalesce(data->>'crawlRefused', 'false') <> 'true'
-          and coalesce(data->>'probe', 'false') <> 'true'
-          and coalesce(data->>'unrenderedShell', 'false') <> 'true'
-          -- A page that redirects with JavaScript is a redirect, not a page.
-          and coalesce(data->>'javascriptRedirectUrl', '') = ''
-          and (status is null or status between 200 and 299)`,
-      [runId]
-    );
+    //
+    // Counted by the same statement as healthAffectedPages (SCORED_PAGES_CTE,
+    // crawlHealthAggregates below), so a finished crawl reads its results once.
+    return (await crawlHealthAggregates(runId)).htmlPages;
   } catch (error) {
     console.error('[projects.overview.internalHtmlPageCount]', error.message);
     return null;
@@ -477,70 +468,303 @@ const DISMISSED_REVIEW_STATUSES = ['False positive', 'Resolved'];
  */
 async function healthAffectedPages(runId) {
   try {
-    const [hasInstances] = await db.rows(
-      'select exists(select 1 from crawl_run_finding_instances where run_id = $1) as present',
-      [runId],
-    );
-    if (!hasInstances?.present) return null;
-    // v5: per page, the distinct failing rules of each severity, weighted and
-    // capped at 100 (healthLoss below, and client crawlHelpers.js#healthLoss);
-    // summed over pages here, divided by the denominator in siteHealth. One row.
-    const [row] = await db.rows(
-      `with counted as (
-         select f.data->>'url' as url,
-                -- Today's catalog grade (currentSeverity.js), not the one
-                -- stored when the crawl was analysed.
-                coalesce(($7::jsonb)->>(f.data->>'ruleId'), f.data->>'severity') as severity,
-                coalesce(f.data->>'ruleId', '?') as rule
-           from crawl_run_finding_instances f
-           join crawl_run_results r
-             on r.run_id = f.run_id and r.url = f.data->>'url'
-           left join crawl_finding_reviews v
-             on v.run_id = f.run_id and v.finding_id = f.finding_id
-          where f.run_id = $1
-            and coalesce(f.data->>'scope', 'page') = any($2)
-            and r.content_type ilike '%text/html%'
-            and r.data->>'scope' = 'Internal'
-            and coalesce(r.data->>'crawlRefused', 'false') <> 'true'
-            and coalesce(r.data->>'probe', 'false') <> 'true'
-            and coalesce(r.data->>'unrenderedShell', 'false') <> 'true'
-            and coalesce(r.data->>'javascriptRedirectUrl', '') = ''
-            and (r.status is null or r.status between 200 and 299)
-            and coalesce(v.review_status, '') <> all($3)
-       ), per_page as (
-         select url,
-                count(distinct rule) filter (where severity = 'error') * $4::float8 as e,
-                count(distinct rule) filter (where severity = 'warning') * $5::float8 as w,
-                count(distinct rule) filter (where severity = 'notice') * $6::float8 as n
-           from counted
-          group by url
-       )
-       select count(*) filter (where e > 0)::int as error_pages,
-              count(*) filter (where w > 0)::int as warning_pages,
-              count(*) filter (where n > 0)::int as notice_pages,
-              coalesce(sum(case when e + w + n > 0 then e * least(100, e + w + n) / (e + w + n) else 0 end), 0)::float8 as error_loss,
-              coalesce(sum(case when e + w + n > 0 then w * least(100, e + w + n) / (e + w + n) else 0 end), 0)::float8 as warning_loss,
-              coalesce(sum(case when e + w + n > 0 then n * least(100, e + w + n) / (e + w + n) else 0 end), 0)::float8 as notice_loss
-         from per_page`,
-      [runId, [...PAGE_LEVEL_SCOPES], DISMISSED_REVIEW_STATUSES, HEALTH_WEIGHTS.error, HEALTH_WEIGHTS.warning, HEALTH_WEIGHTS.notice, SEVERITY_TABLE_JSON],
-    );
-    const siteRules = await siteLevelRules(runId);
-    return {
-      error: Number(row?.error_pages) || 0,
-      warning: Number(row?.warning_pages) || 0,
-      notice: Number(row?.notice_pages) || 0,
-      siteRules,
-      // Summed over pages; siteHealth divides by the page count.
-      lossTotals: {
-        error: Number(row?.error_loss) || 0,
-        warning: Number(row?.warning_loss) || 0,
-        notice: Number(row?.notice_loss) || 0,
-      },
-    };
+    return affectedFrom(await crawlHealthAggregates(runId));
   } catch (error) {
     console.error('[projects.overview.healthAffectedPages]', error.message);
     return null;
   }
+}
+
+/** healthAffectedPages' shape, from the aggregates. Null when the run stored no instances. */
+function affectedFrom(agg) {
+  if (!agg?.hasInstances) return null;
+  const row = agg.loss;
+  return {
+    error: Number(row?.error_pages) || 0,
+    warning: Number(row?.warning_pages) || 0,
+    notice: Number(row?.notice_pages) || 0,
+    siteRules: siteRulesFrom(agg.siteRuleRows),
+    // Summed over pages; siteHealth divides by the page count.
+    lossTotals: {
+      error: Number(row?.error_loss) || 0,
+      warning: Number(row?.warning_loss) || 0,
+      notice: Number(row?.notice_loss) || 0,
+    },
+  };
+}
+
+// ── The crawl-health aggregates, read once per finished crawl ───────────────
+//
+// Site Health's numerator (healthAffectedPages), its denominator
+// (internalHtmlPageCount), the v7 site-level rules and the rules that cost
+// points (costingRulePages) all ask the same question of the same rows: which
+// finding instances sit on a SCORED page. They used to ask it four times per
+// request, each joining every instance to crawl_run_results and testing seven
+// fields of the result's JSON per INSTANCE — so a result's whole stored data was
+// read once for every finding on it. IDFC's crawl (11,205 results, 68,865
+// instances) never answered inside 90 seconds, and one Overview visit asked it
+// again from /overview, /insights, /executive-summary and the previous crawl's
+// trend arrow.
+//
+// Now: one statement. The scored pages are found once (each result's JSON read
+// once, by jsonb_to_record), the instances are reduced once, and every figure
+// is aggregated off those two sets. Same filters, same grouping, same numbers —
+// siteHealthDb.test.js runs the old statements beside it on one fixture.
+//
+// The results are kept per finished run. A finished crawl's rows do not move,
+// with two exceptions that the cache key covers: a reviewer marking a finding
+// False positive or Resolved (crawl_finding_reviews), and PageSpeed findings
+// added after the crawl (crawl_run_finding_instances rows replaced). The key is
+// the run's status and finish time, its instance count and newest instance id,
+// and its review count and newest review time — one small indexed read, so a
+// review change is reflected on the very next request, in any process.
+//
+// Concurrent callers share one computation (the cache holds the promise), and
+// the statement runs under a statement_timeout (db.boundedRead), so a crawl
+// too large to aggregate costs one bounded query, not one per visitor.
+const TERMINAL_CRAWL_STATUSES = new Set(['completed', 'stopped', 'failed']);
+// How long a dashboard request waits for the aggregates before showing the Tech
+// Audit card as "still being worked out" (the computation carries on and fills
+// the cache for the next visit).
+const CRAWL_HEALTH_WAIT_MS = Number(process.env.CRAWL_HEALTH_WAIT_MS) || 15_000;
+// The bound on the statement itself.
+const CRAWL_HEALTH_STATEMENT_MS = Number(process.env.CRAWL_HEALTH_STATEMENT_TIMEOUT_MS) || 60_000;
+// After the statement times out, the run is not tried again for this long:
+// every visitor re-running a statement known to time out is the pile-up this
+// exists to stop.
+const CRAWL_HEALTH_RETRY_MS = 2 * 60_000;
+const CRAWL_HEALTH_MAX_RUNS = 16;
+const crawlHealthCache = new Map();   // runId -> { key, at, promise, failedAt, error }
+
+// Every result that is a scored page: internal, HTML, 2xx, audited (not a
+// probe, not a refusal, not an unrendered shell, not a JavaScript redirect).
+// The same predicates the old per-instance join applied; jsonb_to_record reads
+// the five JSON fields in one pass where five ->> reads detoasted the stored
+// data five times. Its text columns hold exactly what ->> returns (a JSON
+// string unquoted, true as 'true', absent as null). The object guard keeps a
+// malformed row out rather than failing the statement, as ->> did.
+const SCORED_PAGES_CTE = `scored as materialized (
+         select r.url
+           from crawl_run_results r
+          cross join lateral jsonb_to_record(
+                  case when jsonb_typeof(r.data) = 'object' then r.data end
+                ) as d(scope text, "crawlRefused" text, probe text, "unrenderedShell" text, "javascriptRedirectUrl" text)
+          where r.run_id = $1
+            and r.content_type ilike '%text/html%'
+            and (r.status is null or r.status between 200 and 299)
+            and d.scope = 'Internal'
+            and coalesce(d."crawlRefused", 'false') <> 'true'
+            and coalesce(d.probe, 'false') <> 'true'
+            and coalesce(d."unrenderedShell", 'false') <> 'true'
+            -- A page that redirects with JavaScript is a redirect, not a page.
+            and coalesce(d."javascriptRedirectUrl", '') = ''
+       )`;
+
+/** The cache key for one run, or null when the run does not exist. */
+async function crawlRunFingerprint(runId, client = db) {
+  const row = await client.maybeOne(
+    `select r.status, r.finished_at,
+            (select count(*) from crawl_run_finding_instances f where f.run_id = r.id)::int as instances,
+            (select max(f.id) from crawl_run_finding_instances f where f.run_id = r.id) as last_instance,
+            (select count(*) from crawl_finding_reviews v where v.run_id = r.id)::int as reviews,
+            (select max(v.updated_at) from crawl_finding_reviews v where v.run_id = r.id) as reviewed_at
+       from crawl_runs r
+      where r.id = $1`,
+    [runId],
+  );
+  if (!row) return null;
+  return {
+    terminal: TERMINAL_CRAWL_STATUSES.has(row.status),
+    hasInstances: Number(row.instances) > 0,
+    key: [row.status, row.finished_at, row.instances, row.last_instance, row.reviews, row.reviewed_at].join('|'),
+  };
+}
+
+/** One statement, every crawl-health figure. Plain data, so it can be cached. */
+async function computeCrawlHealth(runId, hasInstances) {
+  return db.boundedRead(CRAWL_HEALTH_STATEMENT_MS, async (t) => {
+    const row = await t.maybeOne(
+      `with ${SCORED_PAGES_CTE},
+       scored_urls as materialized (
+         select distinct url from scored
+       ),
+       inst as materialized (
+         select f.data->>'url' as url,
+                -- Today's catalog grade (currentSeverity.js), not the one
+                -- stored when the crawl was analysed.
+                coalesce(($7::jsonb)->>(f.data->>'ruleId'), f.data->>'severity') as severity,
+                coalesce(f.data->>'ruleId', '?') as rule,
+                coalesce(f.data->>'scope', 'page') = any($2) as page_scoped
+           from crawl_run_finding_instances f
+           left join crawl_finding_reviews v
+             on v.run_id = f.run_id and v.finding_id = f.finding_id
+          where f.run_id = $1
+            and coalesce(v.review_status, '') <> all($3)
+       ),
+       -- What healthAffectedPages and costingRulePages count: page- and
+       -- template-scoped findings on scored pages.
+       on_pages as materialized (
+         select i.url, i.severity, i.rule
+           from inst i
+           join scored_urls s on s.url = i.url
+          where i.page_scoped
+       ),
+       -- v5: per page, the distinct failing rules of each severity, weighted
+       -- and capped at 100 (healthLoss below, and client
+       -- crawlHelpers.js#healthLoss); summed over pages here, divided by the
+       -- denominator in siteHealth.
+       per_page as (
+         select url,
+                count(distinct rule) filter (where severity = 'error') * $4::float8 as e,
+                count(distinct rule) filter (where severity = 'warning') * $5::float8 as w,
+                count(distinct rule) filter (where severity = 'notice') * $6::float8 as n
+           from on_pages
+          group by url
+       ),
+       loss as (
+         select count(*) filter (where e > 0)::int as error_pages,
+                count(*) filter (where w > 0)::int as warning_pages,
+                count(*) filter (where n > 0)::int as notice_pages,
+                coalesce(sum(case when e + w + n > 0 then e * least(100, e + w + n) / (e + w + n) else 0 end), 0)::float8 as error_loss,
+                coalesce(sum(case when e + w + n > 0 then w * least(100, e + w + n) / (e + w + n) else 0 end), 0)::float8 as warning_loss,
+                coalesce(sum(case when e + w + n > 0 then n * least(100, e + w + n) / (e + w + n) else 0 end), 0)::float8 as notice_loss
+           from per_page
+       )
+       select (select count(*) from scored)::int as html_pages,
+              loss.*,
+              -- v7 (siteLevelRules): every rule, whether it is site-scoped
+              -- anywhere and whether any page-scoped instance is on a scored page.
+              (select coalesce(json_agg(json_build_object(
+                        'rule', x.rule, 'severity', x.severity,
+                        'site_scoped', x.site_scoped, 'on_scored', x.on_scored)), '[]'::json)
+                 from (select i.rule, i.severity,
+                              bool_or(not i.page_scoped) as site_scoped,
+                              bool_or(i.page_scoped and s.url is not null) as on_scored
+                         from inst i
+                         left join scored_urls s on s.url = i.url
+                        group by 1, 2) x) as site_rules,
+              -- costingRulePages: the scored pages each rule is on.
+              (select coalesce(json_agg(json_build_object(
+                        'rule', c.rule, 'severity', c.severity, 'urls', c.urls)), '[]'::json)
+                 from (select rule, severity, array_agg(distinct url) as urls
+                         from on_pages
+                        group by 1, 2) c) as costing
+         from loss`,
+      [runId, [...PAGE_LEVEL_SCOPES], DISMISSED_REVIEW_STATUSES, HEALTH_WEIGHTS.error, HEALTH_WEIGHTS.warning, HEALTH_WEIGHTS.notice, SEVERITY_TABLE_JSON],
+    );
+    return {
+      hasInstances,
+      htmlPages: Number(row?.html_pages) || 0,
+      loss: row ? {
+        error_pages: row.error_pages,
+        warning_pages: row.warning_pages,
+        notice_pages: row.notice_pages,
+        error_loss: row.error_loss,
+        warning_loss: row.warning_loss,
+        notice_loss: row.notice_loss,
+      } : null,
+      siteRuleRows: Array.isArray(row?.site_rules) ? row.site_rules : [],
+      costingRows: Array.isArray(row?.costing) ? row.costing : [],
+    };
+  });
+}
+
+/**
+ * Every crawl-health figure for one run, from the cache when the run is
+ * finished and unchanged. Shared by every caller asking at the same time.
+ * Rejects on a database error, including a statement timeout
+ * (db.isStatementTimeout).
+ */
+async function crawlHealthAggregates(runId) {
+  const id = String(runId);
+  const fingerprint = await crawlRunFingerprint(id);
+  // A run still going changes under the reader: computed, never kept.
+  if (!fingerprint?.terminal) return computeCrawlHealth(id, Boolean(fingerprint?.hasInstances));
+
+  const hit = crawlHealthCache.get(id);
+  if (hit && hit.key === fingerprint.key) {
+    if (!hit.failedAt) {
+      hit.at = Date.now();
+      return hit.promise;
+    }
+    if (Date.now() - hit.failedAt < CRAWL_HEALTH_RETRY_MS) throw hit.error;
+  }
+
+  const entry = { key: fingerprint.key, at: Date.now(), promise: null, failedAt: null, error: null };
+  entry.promise = computeCrawlHealth(id, fingerprint.hasInstances).catch((error) => {
+    if (crawlHealthCache.get(id) === entry) {
+      if (db.isStatementTimeout(error)) {
+        entry.failedAt = Date.now();
+        entry.error = error;
+      } else {
+        crawlHealthCache.delete(id);
+      }
+    }
+    throw error;
+  });
+  // Least recently used out first; a run's aggregates are small, but a process
+  // serving many projects would otherwise keep every crawl it was ever asked about.
+  if (!crawlHealthCache.has(id) && crawlHealthCache.size >= CRAWL_HEALTH_MAX_RUNS) {
+    const oldest = [...crawlHealthCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+    if (oldest) crawlHealthCache.delete(oldest[0]);
+  }
+  crawlHealthCache.set(id, entry);
+  return entry.promise;
+}
+
+const CRAWL_HEALTH_SLOW = Symbol('crawlHealthSlow');
+
+/**
+ * The aggregates for a dashboard request: waits at most `waitMs`.
+ *
+ * Returns the aggregates; `{ unavailable: true }` when they are not ready in
+ * time or the statement timed out (the card says the score is still being
+ * worked out, and the other cards render); or null on any other error, which
+ * is what the separate reads returned before and what the card already handles.
+ */
+async function crawlHealthWithin(runId, waitMs = CRAWL_HEALTH_WAIT_MS) {
+  let timer = null;
+  const cap = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(CRAWL_HEALTH_SLOW), waitMs);
+    timer.unref?.();
+  });
+  try {
+    const out = await Promise.race([crawlHealthAggregates(runId), cap]);
+    return out === CRAWL_HEALTH_SLOW ? { unavailable: true } : out;
+  } catch (error) {
+    if (db.isStatementTimeout(error)) return { unavailable: true };
+    console.error('[projects.overview.crawlHealth]', error.message);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** The two figures siteHealth takes, from crawlHealthWithin's answer. */
+function healthInputs(health) {
+  if (!health || health.unavailable) return { htmlPages: null, affected: null, pending: Boolean(health?.unavailable) };
+  return { htmlPages: health.htmlPages, affected: affectedFrom(health), pending: false };
+}
+
+/**
+ * The Tech Audit card while its score is still being added up. Everything the
+ * run row says (status, counts, pages crawled) stays; the score is withheld and
+ * the card says why, instead of the whole dashboard waiting on it.
+ */
+function healthPendingCard(card) {
+  if (!card || !card.runId || card.status === 'running' || card.status === 'not_run') return card;
+  return {
+    ...card,
+    scored: false,
+    score: null,
+    scoreBasis: null,
+    coverage: null,
+    healthPending: true,
+    headline: 'Site health is still being worked out',
+    detail: 'This crawl is large, so its score is taking longer than usual to add up. The other '
+      + 'cards are not affected. Reload in a minute to see it.'
+      + (card.detail ? ` · ${card.detail}` : ''),
+  };
 }
 
 /**
@@ -548,31 +772,8 @@ async function healthAffectedPages(runId) {
  * only on redirects, error pages and files — classified for siteLevelLoss.
  * Same filters as healthAffectedPages. Error and warning rules only.
  */
-async function siteLevelRules(runId) {
-  const siteRows = await db.rows(
-    `select coalesce(f.data->>'ruleId', '?') as rule,
-            coalesce(($4::jsonb)->>(f.data->>'ruleId'), f.data->>'severity') as severity,
-            bool_or(coalesce(f.data->>'scope', 'page') <> all($2)) as site_scoped,
-            bool_or(coalesce(f.data->>'scope', 'page') = any($2)
-              and r.url is not null
-              and r.content_type ilike '%text/html%'
-              and r.data->>'scope' = 'Internal'
-              and coalesce(r.data->>'crawlRefused', 'false') <> 'true'
-              and coalesce(r.data->>'probe', 'false') <> 'true'
-              and coalesce(r.data->>'unrenderedShell', 'false') <> 'true'
-              and coalesce(r.data->>'javascriptRedirectUrl', '') = ''
-              and (r.status is null or r.status between 200 and 299)) as on_scored
-       from crawl_run_finding_instances f
-       left join crawl_run_results r
-         on r.run_id = f.run_id and r.url = f.data->>'url'
-       left join crawl_finding_reviews v
-         on v.run_id = f.run_id and v.finding_id = f.finding_id
-      where f.run_id = $1
-        and coalesce(v.review_status, '') <> all($3)
-      group by 1, 2`,
-    [runId, [...PAGE_LEVEL_SCOPES], DISMISSED_REVIEW_STATUSES, SEVERITY_TABLE_JSON],
-  );
-  return siteRows
+function siteRulesFrom(siteRows) {
+  return (siteRows || [])
     .filter((x) => x.severity === 'error' || x.severity === 'warning')
     .map((x) => ({ ruleId: x.rule, severity: x.severity, kind: x.site_scoped ? 'site' : (x.on_scored ? null : 'offPage') }))
     .filter((x) => x.kind);
@@ -591,35 +792,15 @@ async function siteLevelRules(runId) {
  */
 async function costingRulePages(runId) {
   try {
-    const rows = await db.rows(
-      `select coalesce(f.data->>'ruleId', '?') as rule,
-              coalesce(($4::jsonb)->>(f.data->>'ruleId'), f.data->>'severity') as severity,
-              array_agg(distinct f.data->>'url') as urls
-         from crawl_run_finding_instances f
-         join crawl_run_results r
-           on r.run_id = f.run_id and r.url = f.data->>'url'
-         left join crawl_finding_reviews v
-           on v.run_id = f.run_id and v.finding_id = f.finding_id
-        where f.run_id = $1
-          and coalesce(f.data->>'scope', 'page') = any($2)
-          and r.content_type ilike '%text/html%'
-          and r.data->>'scope' = 'Internal'
-          and coalesce(r.data->>'crawlRefused', 'false') <> 'true'
-          and coalesce(r.data->>'probe', 'false') <> 'true'
-          and coalesce(r.data->>'unrenderedShell', 'false') <> 'true'
-          and coalesce(r.data->>'javascriptRedirectUrl', '') = ''
-          and (r.status is null or r.status between 200 and 299)
-          and coalesce(v.review_status, '') <> all($3)
-        group by 1, 2`,
-      [runId, [...PAGE_LEVEL_SCOPES], DISMISSED_REVIEW_STATUSES, SEVERITY_TABLE_JSON],
-    );
+    // Built fresh per call from the cached rows: callers own the Sets.
+    const agg = await crawlHealthAggregates(runId);
     const byRule = new Map();
-    for (const row of rows) {
+    for (const row of agg.costingRows) {
       if (!(row.severity in HEALTH_WEIGHTS)) continue;
       byRule.set(row.rule, { severity: row.severity, pages: new Set(row.urls || []) });
     }
     // v7: site-wide and off-page rules cost points once for the site.
-    for (const rule of await siteLevelRules(runId)) {
+    for (const rule of siteRulesFrom(agg.siteRuleRows)) {
       if (!byRule.has(rule.ruleId)) byRule.set(rule.ruleId, { severity: rule.severity, pages: new Set(), siteLevel: rule.kind });
     }
     return byRule;
@@ -1147,6 +1328,12 @@ function technicalCard(runs, findings, internalPages = null, internalHtmlPages =
   // alive — and two things called health in one scope is how you get a card that
   // reports liveness as a quality score.
   const siteScore = siteHealth(terminal, internalHtmlPages, findingInstances, affectedPageCounts);
+  // Nothing scored and the crawl was refused: the same sentence Hub and Spoke
+  // uses for the same block, not "2 error-level findings listed" (UX-036).
+  const blockedFinding = siteScore ? null : findings.find((f) => f.rule_id === 'crawl-blocked');
+  const blockedLine = blockedFinding
+    ? moduleEvidence.siteRefusedLine(String(JSON.stringify(blockedFinding.detail || '')).match(/\b(403|429|503)\b/)?.[1])
+    : null;
 
   return {
     ...module,
@@ -1167,6 +1354,8 @@ function technicalCard(runs, findings, internalPages = null, internalHtmlPages =
         : siteScore.affected.warning
           ? `${siteScore.affected.warning.toLocaleString('en-US')} ${siteScore.affected.warning === 1 ? 'page loses' : 'pages lose'} points to warnings`
           : 'No error or warning on an audited page')
+      : blockedLine
+      ? blockedLine
       : errors
         ? `${errors} error-level ${errors === 1 ? 'finding' : 'findings'} listed`
         : warnings
@@ -1411,6 +1600,9 @@ async function liveAiVisibilityTerminal(projectRow, terminal) {
       unit: `profile built for ${value.stale.builtFor || 'the previous domain'} — rebuild it`,
       tag: 'Profile out of date',
     };
+    // The run's findings are about that other site too; the downloads and the
+    // executive summary read this to leave them out.
+    out.profileStale = { builtFor: value.stale.builtFor || null };
     return out;
   }
   // When the report could be read, its score is the card's score \u2014 including
@@ -1681,7 +1873,10 @@ function evidenceCard(module, entry) {
     // zero-counts branch and announced "No error or warning findings" — which
     // reads as a clean bill of health for a run that never produced one.
     headline: terminal.status === 'failed'
-      ? 'Run failed'
+      ? (terminal.setupFailed ? 'Setup failed' : 'Run failed')
+      // The run finished but its report is gone (moduleEvidence.hubSpokeReportMissing).
+      : terminal.reportMissing
+      ? 'Re-run needed'
       : insufficient
       ? 'Nothing to measure yet'
       : scored
@@ -1725,7 +1920,8 @@ function evidenceCard(module, entry) {
     // as a clean bill of health for an audit that did not happen. It also made
     // `evidence` truthy, so the button promised "View report" for a report that
     // does not exist.
-    evidence: terminal.status === 'failed' || (insufficient && !findings.length) ? null : {
+    needsRerun: Boolean(terminal.reportMissing),
+    evidence: terminal.status === 'failed' || terminal.reportMissing || (insufficient && !findings.length) ? null : {
       counts: {
         error: errors, warning: warnings, notice: notices, info: Number(counts.info) || 0,
       },
@@ -1807,6 +2003,58 @@ const COMPOSITE_BASIS = 'The average of the site-quality scores — Tech Audit, 
 // means. What differs is provenance, and the card says so: `source` marks it as
 // read from the tool, and `runnable` stays true because running it against the
 // project is still what stores it as project evidence.
+// Bare host for comparing competitor sets.
+function competitorHostKey(v) {
+  return String(v || '').toLowerCase()
+    .replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/[/:?#].*$/, '').trim();
+}
+
+/**
+ * Does the Competitor Analysis page compare a different rival set from the
+ * one this card measured? The card's set is the project run's domains (or,
+ * for a card read from the tool, the project's own competitor list); the
+ * page's set is the linked tool client's competitors. Null when they match or
+ * there is nothing to compare.
+ */
+async function competitorListDrift(project, card, runId) {
+  const primaryHost = competitorHostKey(project?.primaryDomain?.host || project?.legacyUrl || project?.url);
+  if (!primaryHost) return null;
+  const caStore = require('../competitorAnalysis/store');
+  const clients = await caStore.getClients().catch(() => []);
+  const tool = clients.find((c) => competitorHostKey(c.domain) === primaryHost);
+  if (!tool) return null;
+  const toolHosts = (tool.competitors || []).map((c) => competitorHostKey(c.domain)).filter(Boolean);
+
+  let cardHosts;
+  if (card.source === 'competitor_analysis_tool') {
+    // The card shows the tool's own numbers, so it agrees with the page; it
+    // can only disagree with the project's list.
+    cardHosts = toolHosts;
+    const projectHosts = (project.competitors || []).map((d) => competitorHostKey(d.host || d.origin)).filter(Boolean);
+    if (!projectHosts.length || sameHostSet(projectHosts, toolHosts)) return null;
+    return {
+      pageCompetitors: toolHosts,
+      projectCompetitors: projectHosts,
+      note: `Measured against the Competitor Analysis page's list (${toolHosts.join(', ')}), not this project's competitors`,
+    };
+  }
+  if (!runId) return null;
+  const row = await db.maybeOne(`select payload->'domains' as domains from project_module_runs where id = $1`, [runId]);
+  cardHosts = (row?.domains || []).filter((d) => !d.isClient).map((d) => competitorHostKey(d.domain)).filter(Boolean);
+  if (!cardHosts.length || !toolHosts.length || sameHostSet(cardHosts, toolHosts)) return null;
+  return {
+    pageCompetitors: toolHosts,
+    projectCompetitors: cardHosts,
+    note: `The Competitor Analysis page compares a different list (${toolHosts.join(', ')}), so its rank differs from this card`,
+  };
+}
+
+function sameHostSet(a, b) {
+  const sa = new Set(a);
+  const sb = new Set(b);
+  return sa.size === sb.size && [...sa].every((h) => sb.has(h));
+}
+
 async function competitorCardFromTool(project) {
   const primaryHost = project?.primaryDomain?.host || project?.legacyUrl || project?.url;
   const key = (v) => String(v || '').toLowerCase()
@@ -1883,11 +2131,21 @@ function changeOf(current, previous, since, extra = {}) {
   };
 }
 
-async function technicalChange(crawlRuns, currentScore) {
+/** The finished crawl before the latest one, which technicalChange compares against. */
+function previousTerminalCrawl(crawlRuns) {
+  return crawlRuns.filter((r) => ['completed', 'stopped'].includes(r.status))[1] || null;
+}
+
+// `prevHealth` is crawlHealthWithin's answer for the previous crawl, started by
+// the caller alongside the latest crawl's rather than after it.
+async function technicalChange(crawlRuns, currentScore, prevHealth = undefined) {
   const terminals = crawlRuns.filter((r) => ['completed', 'stopped'].includes(r.status));
   const [latest, prev] = terminals;
   if (!latest || !prev || !Number.isFinite(currentScore)) return null;
-  const [pages, counts] = await Promise.all([internalHtmlPageCount(prev.id), healthAffectedPages(prev.id)]);
+  const { htmlPages: pages, affected: counts, pending } = healthInputs(
+    await (prevHealth === undefined ? crawlHealthWithin(prev.id) : prevHealth),
+  );
+  if (pending) return null;
   const health = siteHealth(prev, pages, [], counts);
   if (!health || !Number.isFinite(health.score)) return null;
   const budgetOf = (r) => Number(r?.budget?.granted ?? r?.options?.maxUrls) || null;
@@ -1933,7 +2191,60 @@ async function moduleChanges(projectId, modules, evidenceByModule) {
   return out;
 }
 
-async function buildOverview({ access }) {
+// ── One build, shared ───────────────────────────────────────────────────────
+//
+// One Overview visit used to build the overview three times: /overview, then
+// /executive-summary (which built it again beside the backlog), then the
+// report download. A caller that only READS the overview — the executive
+// summary and the report — passes `reuse: true` and is handed the build in
+// flight, or one finished within OVERVIEW_REUSE_MS. /overview itself and the
+// pollers always build fresh (a poll exists to see what changed), and register
+// that build for the readers. The role and capabilities are the caller's own.
+const OVERVIEW_REUSE_MS = 60_000;
+const overviewBuilds = new Map();   // projectId -> { promise, settledAt }
+
+function overviewBuild({ access, reuse = false }) {
+  const key = String(access.project.id);
+  const prev = overviewBuilds.get(key);
+  if (reuse && prev && (!prev.settledAt || Date.now() - prev.settledAt < OVERVIEW_REUSE_MS)) return prev.promise;
+  const entry = { promise: null, settledAt: null };
+  entry.promise = buildOverviewCore({ access }).then(
+    (built) => { entry.settledAt = Date.now(); return built; },
+    (error) => { if (overviewBuilds.get(key) === entry) overviewBuilds.delete(key); throw error; },
+  );
+  overviewBuilds.delete(key);
+  if (overviewBuilds.size >= 64) overviewBuilds.delete(overviewBuilds.keys().next().value);
+  overviewBuilds.set(key, entry);
+  return entry.promise;
+}
+
+/**
+ * The dashboard's overview.
+ *
+ * @param {object}  input
+ * @param {object}  input.access  from projectAccess.requireProject
+ * @param {boolean} [input.reuse=false]  accept a build at most a minute old
+ */
+async function buildOverview({ access, reuse = false }) {
+  const { overview } = await overviewBuild({ access, reuse });
+  return { ...overview, role: access.role, capabilities: access.capabilities };
+}
+
+/**
+ * The overview AND the per-module evidence its cards were built from — after
+ * the same freshness rules (AI Visibility's live report and stale-profile
+ * check, Hub and Spoke's Content Architect analysis). The report download
+ * reads this, so a file says what the cards say.
+ */
+async function buildOverviewWithEvidence({ access, reuse = false }) {
+  const { overview, evidenceByModule } = await overviewBuild({ access, reuse });
+  return {
+    overview: { ...overview, role: access.role, capabilities: access.capabilities },
+    evidenceByModule,
+  };
+}
+
+async function buildOverviewCore({ access }) {
   if (!db.isDatabaseConfigured()) {
     throw Object.assign(new Error('Project overview needs the database configured.'), { status: 503 });
   }
@@ -1953,16 +2264,19 @@ async function buildOverview({ access }) {
   ]);
 
   const latestTerminal = crawlRuns.find((r) => ['completed', 'stopped'].includes(r.status));
-  const [findings, crawlCounts, internalHtmlPages, affectedPageCounts, evidenceByModule] = await Promise.all([
+  // The previous crawl's figures feed only the trend arrow (technicalChange).
+  // Started now, beside the latest crawl's, rather than serially after it;
+  // crawlHealthWithin never rejects.
+  const prevTerminal = previousTerminalCrawl(crawlRuns);
+  const prevHealth = prevTerminal ? crawlHealthWithin(prevTerminal.id) : Promise.resolve(null);
+  const [findings, crawlCounts, latestHealth, evidenceByModule] = await Promise.all([
     latestTerminal ? findingsForRun(latestTerminal.id) : Promise.resolve([]),
     latestTerminal ? internalCounts(latestTerminal.id) : Promise.resolve(null),
-    latestTerminal ? internalHtmlPageCount(latestTerminal.id) : Promise.resolve(null),
-    // The only thing this feeds is siteHealth's count of distinct affected
-    // pages per severity, so it is counted in the database: three rows instead
-    // of every finding instance (the light instance shape it replaces was
-    // already the slowest read in this batch). null for a run that stored no
-    // instances, which siteHealth handles by falling back to the summary.
-    latestTerminal ? healthAffectedPages(latestTerminal.id) : Promise.resolve(null),
+    // Site Health's numerator and denominator, counted in the database and
+    // kept per finished crawl (crawlHealthAggregates). Waited for at most
+    // CRAWL_HEALTH_WAIT_MS: past that the Tech Audit card says its score is
+    // still being worked out and the rest of the dashboard renders.
+    latestTerminal ? crawlHealthWithin(latestTerminal.id) : Promise.resolve(null),
     moduleEvidence.latestByModule(projectRow.id).catch((e) => {
       // A card that can't read its evidence must fall back to "not run", never
       // to a made-up value.
@@ -1970,6 +2284,7 @@ async function buildOverview({ access }) {
       return new Map();
     }),
   ]);
+  const { htmlPages: internalHtmlPages, affected: affectedPageCounts, pending: healthPending } = healthInputs(latestHealth);
 
   // AI Visibility shows the report's own score (see liveAiVisibilityTerminal).
   const aivEntry = evidenceByModule.get('ai_visibility_lite');
@@ -2018,8 +2333,9 @@ async function buildOverview({ access }) {
       }),
   );
 
+  const techCard = technicalCard(crawlRuns, findings, crawlCounts?.pages ?? null, internalHtmlPages, [], affectedPageCounts, crawlCounts?.probes || 0);
   const modules = [
-    technicalCard(crawlRuns, findings, crawlCounts?.pages ?? null, internalHtmlPages, [], affectedPageCounts, crawlCounts?.probes || 0),
+    healthPending ? healthPendingCard(techCard) : techCard,
     ...MODULES.slice(1).map((module) => {
       const entry = evidenceByModule.get(module.key);
       if (entry && (entry.terminal || entry.inFlight)) return evidenceCard(module, entry);
@@ -2052,6 +2368,9 @@ async function buildOverview({ access }) {
     const aivTerminal = evidenceByModule.get('ai_visibility_lite').terminal;
     const ownNote = aivTerminal.cardNote || aivTerminal.note;
     modules[aivIndex] = { ...m, metric: aivMetric, headline: ownNote ? m.detail : null, detail: null };
+    // Named on the card so the executive summary and the downloads can leave
+    // out results that describe the project's previous site (UX-108).
+    if (aivTerminal.profileStale) modules[aivIndex].profileStale = aivTerminal.profileStale;
   }
   const compIndex = modules.findIndex((m) => m.key === 'competitor');
   const compEntry = evidenceByModule.get('competitor');
@@ -2095,6 +2414,26 @@ async function buildOverview({ access }) {
     if (fromTool) modules[competitorIndex] = { ...modules[competitorIndex], ...fromTool };
   }
 
+  // UX-221: the card and the Competitor Analysis page must not give two ranks
+  // for two different rival sets. Beta Bionics read "2nd of 4" here (the
+  // project's auto-picked rivals) and "#4 of 4" there (the tool client's own
+  // list). When the sets differ the rank is withheld and the card says why.
+  if (competitorIndex >= 0 && modules[competitorIndex].metric) {
+    const card = modules[competitorIndex];
+    const drift = await competitorListDrift(project, card, compEntry?.terminal?.id).catch((e) => {
+      console.error('[projects.overview.competitorDrift]', e.message);
+      return null;
+    });
+    if (drift) {
+      modules[competitorIndex] = {
+        ...card,
+        metric: { ...card.metric, rank: null },
+        competitorListDiffers: drift,
+        detail: [card.detail, drift.note].filter(Boolean).join(' · '),
+      };
+    }
+  }
+
   // No competitor at all — none tracked, none awaiting approval, nothing running.
   // The card asks for one instead of showing a stale or empty result: Competitor
   // Research has nothing to measure until somebody picks who to measure against,
@@ -2123,7 +2462,7 @@ async function buildOverview({ access }) {
 
   // D7: how each quality score moved since the previous measurement.
   const [techChange, otherChanges] = await Promise.all([
-    technicalChange(crawlRuns, modules.find((m) => m.key === 'technical')?.score).catch((e) => {
+    technicalChange(crawlRuns, modules.find((m) => m.key === 'technical')?.score, prevHealth).catch((e) => {
       console.error('[projects.overview.techChange]', e.message);
       return null;
     }),
@@ -2142,7 +2481,7 @@ async function buildOverview({ access }) {
   const followers = [...evidenceByModule.values()]
     .filter((e) => e?.inFlight && e.followedCrawl).length;
 
-  return {
+  const overview = {
     project,
     role: access.role,
     capabilities: access.capabilities,
@@ -2163,6 +2502,7 @@ async function buildOverview({ access }) {
       pendingModules: modules.filter((m) => !m.live).map((m) => ({ key: m.key, phase: m.pendingPhase })),
     },
   };
+  return { overview, evidenceByModule };
 }
 
 module.exports = {
@@ -2181,6 +2521,7 @@ module.exports = {
   technicalCard,
   siteHealth,
   siteLevelLoss,
+  competitorListDrift,
   healthAffectedPages,
   costingRulePages,
   SITE_HEALTH_BASIS,
@@ -2193,7 +2534,15 @@ module.exports = {
   evidenceCard,
   pendingCard,
   buildComposite,
+  // moduleDetail.js gives the AI Visibility detail card the same live score.
+  liveAiVisibilityTerminal,
   QUALITY_MODULES,
   changeOf,
   buildOverview,
+  buildOverviewWithEvidence,
+  // The crawl-health aggregates (one statement, cached per finished crawl).
+  crawlHealthAggregates,
+  crawlHealthWithin,
+  healthInputs,
+  healthPendingCard,
 };

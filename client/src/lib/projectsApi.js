@@ -37,6 +37,37 @@ async function req(path, options = {}) {
   return body;
 }
 
+// The dashboard's reads give up after this long. Without a bound a read the
+// server never answered (a 10,000-page crawl took over 90 seconds) left the
+// Overview on its loading state forever, with no message and no way out.
+export const OVERVIEW_TIMEOUT_MS = 30_000;
+
+/**
+ * req() that aborts after `timeoutMs`, or when the caller's own signal does.
+ * A timeout rejects with code 'timeout' and a sentence a person can act on.
+ */
+export async function reqWithTimeout(path, { timeoutMs = OVERVIEW_TIMEOUT_MS, signal, what = 'This' } = {}) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+  const onAbort = () => controller.abort();
+  signal?.addEventListener?.('abort', onAbort);
+  try {
+    return await req(path, { signal: controller.signal });
+  } catch (e) {
+    if (timedOut) {
+      const error = new Error(`${what} took longer than ${Math.round(timeoutMs / 1000)} seconds to load. `
+        + 'Large sites can be slow the first time; try again in a moment.');
+      error.code = 'timeout';
+      throw error;
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener?.('abort', onAbort);
+  }
+}
+
 export const projectsApi = {
   // ── Projects ──────────────────────────────────────────────────────────────
   list: ({ workspaceId = null, includeDeleted = false } = {}) => {
@@ -55,7 +86,10 @@ export const projectsApi = {
       method: 'POST', body: JSON.stringify({ retry }),
     }),
 
-  overview: (projectId) => req(`${BASE}/${projectId}/overview`),
+  // Bounded (reqWithTimeout): a slow read ends in an error with Retry, never
+  // in a skeleton that never resolves.
+  overview: (projectId, { signal } = {}) =>
+    reqWithTimeout(`${BASE}/${projectId}/overview`, { signal, what: 'The overview' }),
 
   // Just the live crawl. Cheap enough for the app shell to poll from any screen.
   crawlStatus: (projectId) => req(`${BASE}/${projectId}/crawl-status`),
@@ -241,6 +275,13 @@ export const projectsApi = {
       body: JSON.stringify({ url }),
     }),
 
+  /**
+   * Take a page added with addModulePage back out. Pages the audit chose
+   * itself are refused; the run's average is recomputed from what remains.
+   */
+  removeModulePage: (projectId, moduleKey, pageRunId) =>
+    req(`${BASE}/${projectId}/modules/${moduleKey}/pages/${pageRunId}`, { method: 'DELETE' }),
+
   // ── Insights: the six modules read together ───────────────────────────────
 
   /**
@@ -248,7 +289,7 @@ export const projectsApi = {
    * template change, and what it was measured over. Stored evidence only —
    * calling it runs no audits and spends nothing.
    */
-  insights: (projectId) => req(`${BASE}/${projectId}/insights`),
+  insights: (projectId) => reqWithTimeout(`${BASE}/${projectId}/insights`, { what: 'The fix list' }),
 
   /**
    * The four answers the person who signs off on the work arrives with: is the
@@ -258,7 +299,8 @@ export const projectsApi = {
    * server/modules/projects/insights/executive.js, including what it is
    * forbidden to invent. Runs no audits and spends nothing.
    */
-  executiveSummary: (projectId) => req(`${BASE}/${projectId}/executive-summary`),
+  executiveSummary: (projectId) =>
+    reqWithTimeout(`${BASE}/${projectId}/executive-summary`, { what: 'The executive summary' }),
 
   /**
    * Which way the site is moving since the previous audit.

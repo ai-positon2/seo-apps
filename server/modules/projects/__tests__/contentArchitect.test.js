@@ -471,9 +471,13 @@ test('too few informational pages is its own answer, and the crawl still counts 
     assert.equal(result.payload.crawlRunId, crawl.id);
     assert.equal(result.payload.pagesCrawled, 590);
     assert.equal(result.payload.informationalPageCount, 2);
-    assert.match(result.note, /Only 2 informational page\(s\)/);
-    assert.match(result.note, /location page \(216\)/);
+    // Plain words (UX-228): the count, the main reason, one thing to do.
+    assert.match(result.note, /Only 2 article, guide or FAQ pages could be used out of the 590 pages found/);
+    assert.match(result.note, /The main reason: 216 pages are not articles or guides \(location page\)/);
+    assert.doesNotMatch(result.note, /page\(s\)|ai check/i);
     assert.match(result.payload.cardNote, /too few to cluster/);
+    // Location pages are content, not a fault: a retry finds the same.
+    assert.equal(result.payload.retryHelps, false);
 
     tables.project_module_runs.push({
       project_id: access.project.id, module_key: 'hub_spoke', status: 'insufficient_data',
@@ -482,7 +486,9 @@ test('too few informational pages is its own answer, and the crawl still counts 
     });
     const connection = await architect.connect({ access });
     assert.equal(connection.state, 'insufficient_data');
-    assert.match(connection.note, /informational/);
+    assert.match(connection.note, /article, guide or FAQ/);
+    assert.equal(connection.reason, 'too_few_informational_pages');
+    assert.equal(connection.retryHelps, false, 'the status says Retry would not change this');
     assert.equal(tables.project_module_runs.length, 1, 'no re-queue of an attempted crawl');
   } finally {
     inputMock.mock.restore();
@@ -586,4 +592,83 @@ test('a clustered run reports informational and crawled counts separately', asyn
     inputMock.mock.restore();
     pipelineMock.mock.restore();
   }
+});
+
+// UX-227: joincabinet.com served our crawler its homepage on every article
+// address (canonical to /), and was told it "has too few to group yet".
+test('a site that serves crawlers its homepage is told so, not that it has too few articles', async () => {
+  completedCrawl();
+  const adapter = require('../crawlToArchitect');
+  const inputMock = mock.method(adapter, 'buildFromDiscovery', async () => ({
+    ...tooFewInformational(),
+    pageCount: 0,
+    crawledPageCount: 84,
+    selection: {
+      summary: {
+        method: 'rules',
+        excludedByReason: [
+          { code: 'canonical_to_homepage', label: 'Canonical points to the homepage', count: 71 },
+          { code: 'unclassified', label: 'Could not be judged without the AI check', count: 11 },
+          { code: 'homepage', label: 'The homepage', count: 1 },
+        ],
+        limitations: [],
+        aiChecks: { failed: 1, outOfTime: 0 },
+      },
+    },
+  }));
+  try {
+    const result = await runHubSpoke();
+    assert.equal(result.status, 'insufficient_data');
+    assert.equal(result.payload.reason, 'homepage_served');
+    assert.match(result.note, /71 of 83/);
+    assert.match(result.note, /returned the homepage to our crawler/);
+    assert.doesNotMatch(result.note, /too few to group/);
+    assert.equal(result.payload.retryHelps, false, 'a retry would see the same homepage');
+  } finally {
+    inputMock.mock.restore();
+  }
+});
+
+test('a technical main reason drops "too few to group", and an AI outage keeps Retry', () => {
+  const { hubSpokeTooFewResult } = require('../moduleRunners');
+  const result = hubSpokeTooFewResult({
+    input: { pageCount: 1, crawledPageCount: 40, minimum: 5, meta: {} },
+    summary: {
+      excludedByReason: [
+        { code: 'not_indexable', label: 'Not indexable (noindex)', count: 3 },
+        { code: 'unclassified', label: 'Could not be judged without the AI check', count: 20 },
+      ].sort((a, b) => b.count - a.count),
+    },
+    aiMissing: true,
+  });
+  assert.equal(result.payload.reason, 'too_few_informational_pages');
+  assert.match(result.note, /^Only 1 article, guide or FAQ page could be used out of the 40 pages found/);
+  assert.match(result.note, /our page checker was briefly unavailable for 20 pages/);
+  assert.doesNotMatch(result.note, /too few to group|ai check/i);
+  assert.equal(result.payload.retryHelps, true);
+  assert.doesNotMatch(result.payload.cardNote, /too few/);
+});
+
+test('a site that refuses us gets the shared refusal line', () => {
+  const { hubSpokeTooFewResult } = require('../moduleRunners');
+  const result = hubSpokeTooFewResult({
+    input: { pageCount: 0, crawledPageCount: 0, minimum: 5, meta: { blocked: { status: 429 } } },
+  });
+  assert.equal(result.payload.reason, 'site_blocked');
+  assert.equal(result.payload.cardNote, 'The site refused our requests (HTTP 429) — nothing could be read.');
+});
+
+// UX-108: Soteri Skin's record was made for www.position2.com and kept that
+// name after the project's primary domain changed.
+test('a linked record follows its project to a new primary domain', async () => {
+  const before = await architect.ensureProject(access.project, [{ role: 'primary', status: 'active', normalized_origin: 'https://www.position2.com' }]);
+  assert.equal(before.name, 'www.position2.com');
+  const after = await architect.ensureProject(access.project, [{ role: 'primary', status: 'active', normalized_origin: 'https://soteriskin.com' }]);
+  assert.equal(after.id, before.id, 'the same record, not a new one');
+  assert.equal(after.domain, 'https://soteriskin.com');
+  assert.equal(after.name, 'soteriskin.com');
+  assert.equal(after.previousDomain, 'https://www.position2.com');
+  assert.equal((await caStore.getProject(before.id)).name, 'soteriskin.com', 'and it is stored');
+  const same = await architect.ensureProject(access.project, [{ role: 'primary', status: 'active', normalized_origin: 'https://www.soteriskin.com' }]);
+  assert.equal(same.domain, 'https://soteriskin.com', 'www. alone is the same site and changes nothing');
 });

@@ -68,6 +68,9 @@ const SUITES = [
   // TEST_DATABASE_URL.
   'services/__tests__/deletedProjectJobsDb.test.js',
   'services/__tests__/teamWorkspace.test.js',
+  // The Admin page lists only limits a feature reads and flags the code knows,
+  // and no stale database cap.
+  'services/__tests__/adminTruth.test.js',
   'locationPageBuilder/__tests__/run.js',
   'locationPageBuilder/__tests__/lsPages.test.js',
   'middleware/__tests__/runTracking.test.js',
@@ -76,6 +79,9 @@ const SUITES = [
   'services/__tests__/projectAccessDb.test.js',
   'modules/projects/__tests__/projects.test.js',
   'modules/projects/__tests__/competitorProposals.test.js',
+  // The Overview competitor card withholds its rank when the Competitor
+  // Analysis page compares a different rival set.
+  'modules/projects/__tests__/competitorDrift.test.js',
   'modules/projects/__tests__/contentArchitect.test.js',
   'modules/projects/__tests__/homepageAutostart.test.js',
   // Site Crawler routes that attach a crawl to a project or edit one go through
@@ -88,6 +94,9 @@ const SUITES = [
   'modules/projects/__tests__/hubSpoke.test.js',
   'modules/projects/__tests__/hubSpokeAutostart.test.js',
   'modules/projects/__tests__/latestByModule.test.js',
+  // Per-page runs agree with their pages; a missing Hub and Spoke analysis is
+  // not a score; a refused site reads the same on every card.
+  'modules/projects/__tests__/pageRollup.test.js',
   'modules/projects/__tests__/auditSpread.test.js',
   'modules/projects/__tests__/scoreChange.test.js',
   'modules/contentArchitect/__tests__/clusterHealth.test.js',
@@ -105,6 +114,8 @@ const SUITES = [
   'modules/contentArchitect/__tests__/keywordResearchStore.test.js',
   // Keyword sets, drafts and enhancements gathered back onto the report.
   'modules/contentArchitect/__tests__/work.test.js',
+  // Saved work follows its topic across a re-run that renumbers the clusters.
+  'modules/contentArchitect/__tests__/topicAnchors.test.js',
   'modules/projects/__tests__/crawlToArchitect.test.js',
   'services/__tests__/llmProviders.test.js',
   'modules/projects/__tests__/moduleDetail.test.js',
@@ -112,6 +123,12 @@ const SUITES = [
   'modules/projects/__tests__/perPageAudits.test.js',
   'modules/competitorAnalysis/__tests__/pageTaxonomy.test.js',
   'modules/competitorAnalysis/__tests__/trafficScore.test.js',
+  // Every declared sitemap is read; a blocked check is "not measured", not 0.
+  'modules/competitorAnalysis/__tests__/sitemapCrawler.test.js',
+  // Unknown Semrush figures stay null; each domain is counted on its own brand.
+  'modules/competitorAnalysis/__tests__/domainData.test.js',
+  // AI-picked competitors: only direct rivals, with the reason kept.
+  'modules/competitorAnalysis/__tests__/discovery.test.js',
   'modules/projects/__tests__/insights.test.js',
   'modules/projects/__tests__/executiveSummary.test.js',
   'modules/projects/__tests__/pages.test.js',
@@ -146,6 +163,8 @@ const SUITES = [
   'modules/aiVisibilityLite/__tests__/brandNames.test.js',
   'modules/aiVisibilityLite/__tests__/answerBrands.test.js',
   'modules/aiVisibilityLite/__tests__/profileDomain.test.js',
+  // A run that lost a model says so, per model and in words.
+  'modules/aiVisibilityLite/__tests__/runHealth.test.js',
   'modules/aiVisibility/__tests__/captureScheduler.test.js',
   'modules/aiVisibility/__tests__/proxyPool.test.js',
   'modules/aiVisibility/__tests__/surfaceAvailability.test.js',
@@ -161,6 +180,9 @@ const SUITES = [
   'services/__tests__/moduleScheduler.test.js',
   'modules/projects/__tests__/recommendations.test.js',
   'modules/projects/__tests__/report.test.js',
+  // Site Health's aggregates: computed once per finished crawl, shared by
+  // concurrent callers, bounded in time, recomputed on a review.
+  'modules/projects/__tests__/crawlHealthCache.test.js',
   'config/__tests__/registry.test.js',
   'config/__tests__/moduleRuns.test.js',
   // Site Health's affected-page counts, in SQL. Skips without TEST_DATABASE_URL.

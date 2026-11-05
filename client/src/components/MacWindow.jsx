@@ -5,7 +5,10 @@ import { NAV_GROUPS, TAGS, getToolByPath } from '../toolsMeta';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from './ThemeContext';
 import { projectsApi } from '../lib/projectsApi';
-import { useActiveProjectId, useProjectsChanged } from '../lib/activeProject';
+import {
+  useActiveProjectId, useProjectsChanged, switchTarget, adoptProjectFromUrl, projectFromSearch,
+  pendingAdoption, rejectAdoptedProject, clearAdoption, withProjectParam,
+} from '../lib/activeProject';
 import SemrushBalanceBadge from './SemrushBalanceBadge';
 import CrawlStatusBar from './home/CrawlStatusBar';
 import { useCrawlStatus } from '../lib/useCrawlStatus';
@@ -247,6 +250,7 @@ function HeaderButton({ children, onClick, title, active, style }) {
 // SemrushBalanceBadge: a props comparison that cannot fail, so memo is free.
 const ClientSwitcher = memo(function ClientSwitcher() {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const [activeProjectId, setActiveProjectId] = useActiveProjectId();
   const [projects, setProjects] = useState([]);
   // Only for labelling: a client that lives in a workspace other than the
@@ -276,23 +280,28 @@ const ClientSwitcher = memo(function ClientSwitcher() {
   // menu opens (a teammate or another tab may have added a client since), and
   // once before judging an unknown selection stale (see the repair below).
   const [reloadKey, setReloadKey] = useState(0);
+  // The last read failed. The previous list is kept (a client you were just
+  // looking at did not stop existing because one request failed); with no list
+  // at all the button says so and offers a retry. This used to set an empty
+  // list, which rendered "Add a client" to someone with nineteen of them.
+  const [listError, setListError] = useState(false);
+  // Shown once when a link named a client this user cannot open.
+  const [notice, setNotice] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
     setRefreshing(true);
-    // A failure here is not worth an error state in the chrome: the dashboard
-    // below reports it properly, and the switcher simply has nothing to offer.
     projectsApi.list()
       .then((data) => {
         if (cancelled) return;
         setProjects(data.projects || []);
         setWorkspaces(data.workspaces || []);
         setHomeWorkspaceId(data.activeWorkspaceId || null);
+        setListError(false);
       })
       .catch(() => {
         if (cancelled) return;
-        setProjects([]);
-        setWorkspaces([]);
+        setListError(true);
       })
       .finally(() => {
         if (!cancelled) { setRefreshing(false); setLoadedOnce(true); }
@@ -352,20 +361,53 @@ const ClientSwitcher = memo(function ClientSwitcher() {
     listRef.current?.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest' });
   }, [open]);
   useEffect(() => {
-    if (refreshing) return;
-    if (!active || active.id === activeProjectId) return;
+    if (refreshing || listError) return;
+    if (active && active.id === activeProjectId) {
+      if (pendingAdoption()?.id === activeProjectId) clearAdoption();
+      return;
+    }
+    if (!active) return;
     if (activeProjectId && recheckedFor.current !== activeProjectId) {
       recheckedFor.current = activeProjectId;
       setReloadKey((k) => k + 1);
       return;
     }
+    // A client adopted from a link (?project=) that is not in this user's
+    // list: go back to the client the tab had, and say why, rather than
+    // silently showing a different client under the link's address.
+    const adopted = pendingAdoption();
+    if (adopted && adopted.id === activeProjectId) {
+      rejectAdoptedProject(adopted.id);
+      const back = projects.find((p) => p.id === adopted.previous) || active;
+      setNotice(`The link was for a client you don't have access to, so ${back.name} is shown instead.`);
+      setActiveProjectId(back.id);
+      return;
+    }
     setActiveProjectId(active.id);
-  }, [active, activeProjectId, setActiveProjectId, refreshing]);
+  }, [active, activeProjectId, setActiveProjectId, refreshing, listError, projects]);
 
   if (!projects.length && !loadedOnce) {
     return (
       <span style={{ fontSize: 12.5, color: 'var(--text-3)', padding: '0 10px' }} aria-live="polite">
         Loading clients…
+      </span>
+    );
+  }
+
+  if (!projects.length && listError) {
+    return (
+      <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--text-3)', padding: '0 10px', whiteSpace: 'nowrap' }} role="status">
+        Clients unavailable ·
+        <button
+          type="button"
+          onClick={() => setReloadKey((k) => k + 1)}
+          style={{
+            border: 'none', background: 'none', padding: 0, cursor: 'pointer',
+            color: 'var(--primary-text)', font: 'inherit', fontSize: 12.5,
+          }}
+        >
+          Retry
+        </button>
       </span>
     );
   }
@@ -379,19 +421,42 @@ const ClientSwitcher = memo(function ClientSwitcher() {
   }
 
   return (
-    <div ref={boxRef} style={{ position: 'relative' }}>
-      <HeaderButton title="Switch client" onClick={() => setOpen((v) => !v)} active={open}>
+    <div ref={boxRef} style={{ position: 'relative', minWidth: 0 }}>
+      <HeaderButton title="Switch client" onClick={() => setOpen((v) => !v)} active={open} style={{ maxWidth: '100%' }}>
         <span
           style={{
             width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
             background: active?.schedule?.enabled ? 'var(--primary)' : 'var(--text-3)',
           }}
         />
-        <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <span className="app-header__client-name" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {active ? active.name : 'Select a client'}
         </span>
         <ChevronDownIcon />
       </HeaderButton>
+
+      {notice && !open && (
+        <div
+          role="status"
+          style={{
+            position: 'absolute', top: 36, left: 0, width: 280, zIndex: 40,
+            background: 'var(--card)', border: '1px solid var(--border)',
+            borderRadius: 'var(--r-md)', boxShadow: 'var(--shadow-md)',
+            padding: '10px 12px', fontSize: 12.5, color: 'var(--text-2)',
+            display: 'flex', gap: 8, alignItems: 'flex-start',
+          }}
+        >
+          <span style={{ flex: 1 }}>{notice}</span>
+          <button
+            type="button"
+            aria-label="Dismiss"
+            onClick={() => setNotice(null)}
+            style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: 14, lineHeight: 1 }}
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {open && (
         <div
@@ -422,7 +487,17 @@ const ClientSwitcher = memo(function ClientSwitcher() {
                 key={project.id}
                 role="menuitem"
                 data-active={isActive || undefined}
-                onClick={() => { setActiveProjectId(project.id); setOpen(false); navigate('/'); }}
+                // Stays on this page for the new client, as its own history
+                // entry carrying ?project=, so Back returns to the previous
+                // client. Only a page about one record of the old client (a
+                // crawl run, a Content Architect project) goes to its tool's
+                // landing instead. This used to always go to the Overview.
+                onClick={() => {
+                  setActiveProjectId(project.id);
+                  setOpen(false);
+                  setNotice(null);
+                  navigate(switchTarget(pathname, project.id));
+                }}
                 style={{
                   flexShrink: 0,
                   textAlign: 'left', border: 'none', cursor: 'pointer',
@@ -470,10 +545,61 @@ const ChevronLeftIcon = () => (
 );
 
 /* ── AppShell (replaces old MacWindow) ── */
+// True while the media query matches; re-renders when it flips.
+function useMediaQuery(query) {
+  const get = () => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(query).matches : false);
+  const [matches, setMatches] = useState(get);
+  useEffect(() => {
+    if (!window.matchMedia) return undefined;
+    const mq = window.matchMedia(query);
+    const onChange = () => setMatches(mq.matches);
+    onChange();
+    mq.addEventListener?.('change', onChange);
+    return () => mq.removeEventListener?.('change', onChange);
+  }, [query]);
+  return matches;
+}
+
 export default function MacWindow() {
   const navigate = useNavigate();
-  const { pathname } = useLocation();
+  const { pathname, search: locationSearch } = useLocation();
   const [search, setSearch] = useState('');
+
+  // ── The client a link names (?project=) ──
+  // Adopted here, during render and before any page below reads the selection,
+  // so a report link opens on the client it was copied from rather than on the
+  // reader's last one. Only when the address changes: the user switching client
+  // some other way must not be overridden by a parameter they already acted on.
+  // The header (ClientSwitcher) checks the id against the user's own list and
+  // goes back, with a notice, if it is not one they can open.
+  const adoptedFor = useRef(null);
+  if (adoptedFor.current !== locationSearch) {
+    adoptedFor.current = locationSearch;
+    adoptProjectFromUrl(locationSearch);
+  }
+  const [activeProjectId, setActiveProjectId] = useActiveProjectId();
+  // Components mounted before the address changed (Back/Forward, a link
+  // within the app) learn of it through the usual same-tab event.
+  useEffect(() => {
+    const id = projectFromSearch(locationSearch);
+    const adopted = pendingAdoption();
+    if (id && adopted?.id === id) setActiveProjectId(id);
+  }, [locationSearch, setActiveProjectId]);
+  // And the other way round: when the client changes by other means (a new
+  // project created on the dashboard, a rejected link), an address that still
+  // names the old one is corrected in place, so copying it stays truthful.
+  useEffect(() => {
+    const id = projectFromSearch(locationSearch);
+    if (id && activeProjectId && id !== activeProjectId) {
+      navigate(withProjectParam(pathname + locationSearch, activeProjectId), { replace: true });
+    }
+    // Only on a change of client; the address change itself is handled above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProjectId]);
+
+  // Below this width the nav buttons move into a "More" menu, so the account
+  // menu (sign-out) and Guided mode are never pushed off the right edge.
+  const compactHeader = useMediaQuery('(max-width: 1399px)');
 
   // The live crawl for the active client, polled here so it survives navigation.
   // Server-derived on every tick, so there is no client-side crawl state that a
@@ -631,13 +757,17 @@ export default function MacWindow() {
 
           </div>
 
-          {/* Breadcrumb / page title */}
+          {/* Breadcrumb / page title. minWidth 0 is what lets it shrink: as a
+              flex item it otherwise refuses to go below its content, and the
+              header's overflow:hidden then clipped the right-hand controls —
+              the account menu was off-screen at every common laptop width. */}
           <div style={{
             flex: 1,
+            minWidth: 0,
             display: 'flex',
             alignItems: 'center',
             gap: 10,
-            padding: '0 20px',
+            padding: '0 16px 0 20px',
           }}>
             {/* Collapse the tool list. Moved out of the brand block above (a
                 fixed 60px column with no room to make this bigger without
@@ -725,49 +855,74 @@ export default function MacWindow() {
                 }}
               >
                 <ChevronLeftIcon />
-                Dashboard
+                <span className="app-header__dash-label">Dashboard</span>
               </button>
             )}
             {!isHome && (
               <span style={{ fontSize: 12, color: 'var(--text-3)' }}>/</span>
             )}
-            <span style={{
-              fontSize: 14,
-              fontWeight: 600,
-              color: 'var(--text)',
-              letterSpacing: '-0.01em',
-              userSelect: 'none',
-            }}>
+            <span
+              title={isHome ? 'Overview' : (currentTool ? currentTool.label : (pageTitleFor(pathname) || 'SEO Studio'))}
+              style={{
+                fontSize: 14,
+                fontWeight: 600,
+                color: 'var(--text)',
+                letterSpacing: '-0.01em',
+                userSelect: 'none',
+                minWidth: 40,
+                flexShrink: 1,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
               {isHome ? 'Overview' : (currentTool ? currentTool.label : (pageTitleFor(pathname) || 'SEO Studio'))}
             </span>
 
             {/* Which client the screens below are about (PRD 20.1). */}
-            <div style={{ marginLeft: 12 }}>
+            <div style={{ marginLeft: 8, minWidth: 0, flexShrink: 1 }}>
               <ClientSwitcher />
             </div>
           </div>
 
-          {/* Right controls: usage, navigation, appearance, identity */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingRight: 16 }}>
-            <SemrushBalanceBadge />
+          {/* Right controls: usage, navigation, appearance, identity. Never
+              shrinks: this is the side that must stay on screen, and the
+              breadcrumb to its left gives way instead. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingRight: 16, flexShrink: 0 }}>
+            <span className="app-header__semrush"><SemrushBalanceBadge /></span>
 
-            <HeaderButton title="Crawl and tool runs" onClick={() => navigate('/runs')}>
-              Runs
-            </HeaderButton>
-            <HeaderButton title="Projects and competitors" onClick={() => navigate('/projects')}>
-              Projects
-            </HeaderButton>
-            <HeaderButton title="Your team: members and roles" onClick={() => navigate('/workspaces')}>
-              Team
-            </HeaderButton>
+            {compactHeader ? (
+              <HeaderNavMenu
+                items={[
+                  { label: 'Runs', title: 'Crawl and tool runs', path: '/runs' },
+                  { label: 'Projects', title: 'Projects and competitors', path: '/projects' },
+                  { label: 'Team', title: 'Your team: members and roles', path: '/workspaces' },
+                  ...(isPlatformAdmin ? [{ label: 'Admin', title: 'Platform administration', path: '/admin' }] : []),
+                ]}
+                pathname={pathname}
+                onGo={(path) => navigate(path)}
+              />
+            ) : (
+              <>
+                <HeaderButton title="Crawl and tool runs" onClick={() => navigate('/runs')}>
+                  Runs
+                </HeaderButton>
+                <HeaderButton title="Projects and competitors" onClick={() => navigate('/projects')}>
+                  Projects
+                </HeaderButton>
+                <HeaderButton title="Your team: members and roles" onClick={() => navigate('/workspaces')}>
+                  Team
+                </HeaderButton>
 
-            {/* Shown on the server's say-so; /api/admin re-checks the persisted
-                grant on every request, so this is a signpost, not a gate. */}
-            {isPlatformAdmin && (
-              <HeaderButton title="Platform administration" onClick={() => navigate('/admin')}>
-                <GearIcon />
-                Admin
-              </HeaderButton>
+                {/* Shown on the server's say-so; /api/admin re-checks the persisted
+                    grant on every request, so this is a signpost, not a gate. */}
+                {isPlatformAdmin && (
+                  <HeaderButton title="Platform administration" onClick={() => navigate('/admin')}>
+                    <GearIcon />
+                    Admin
+                  </HeaderButton>
+                )}
+              </>
             )}
 
             <HeaderButton
@@ -908,6 +1063,68 @@ export default function MacWindow() {
   );
 }
 
+/* -- The header's nav, folded --------------------------------------------------
+   Below ~1400px the four nav buttons do not fit beside the client switcher,
+   Guided mode and the account menu, so they sit behind one visible menu button
+   instead of being clipped off the right edge. */
+function HeaderNavMenu({ items, pathname, onGo }) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDocClick = (e) => {
+      if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const current = items.find((i) => pathname === i.path || pathname.startsWith(i.path + '/'));
+
+  return (
+    <div ref={boxRef} style={{ position: 'relative' }}>
+      <HeaderButton title="Runs, projects, team and admin" onClick={() => setOpen((v) => !v)} active={open || Boolean(current)}>
+        {current ? current.label : 'More'}
+        <ChevronDownIcon />
+      </HeaderButton>
+      {open && (
+        <div
+          role="menu"
+          style={{
+            position: 'absolute', top: 36, right: 0, minWidth: 180, zIndex: 40,
+            background: 'var(--card)', border: '1px solid var(--border)',
+            borderRadius: 'var(--r-md)', boxShadow: 'var(--shadow-md)',
+            padding: 6, display: 'flex', flexDirection: 'column', gap: 2,
+          }}
+        >
+          {items.map((item) => (
+            <button
+              key={item.path}
+              role="menuitem"
+              title={item.title}
+              onClick={() => { setOpen(false); onGo(item.path); }}
+              style={{
+                textAlign: 'left', border: 'none', cursor: 'pointer',
+                background: current?.path === item.path ? 'var(--nav-active-bg)' : 'transparent',
+                color: 'var(--text)', padding: '7px 9px', borderRadius: 'var(--r-sm)',
+                fontSize: 13, fontFamily: 'var(--font-sans)',
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* -- Identity ---------------------------------------------------------------
    Avatar and name, with sign-out behind it. The initials come from the signed-in
    email, which is the only identity the client is given -- there is no display
@@ -960,7 +1177,7 @@ function UserChip({ email, onLogout }) {
         }}>
           {initials}
         </span>
-        <span style={{
+        <span className="app-header__user-name" style={{
           fontSize: 12, color: 'var(--text-2)', maxWidth: 120,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>

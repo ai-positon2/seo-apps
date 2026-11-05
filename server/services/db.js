@@ -170,6 +170,9 @@ function getPool() {
     // connection indefinitely, and `max` such queries exhaust the pool and stop
     // the process serving. Bounding it needs the real p99 of the module writes
     // above, which is a measurement this sweep has no way to take.
+    //
+    // Reads that can afford a bound take one per transaction instead:
+    // boundedRead() below (the dashboard's crawl-health aggregates use it).
   });
 
   // A pooled connection that dies in the background must not take the process
@@ -325,6 +328,30 @@ async function tx(fn) {
   } finally {
     client.release();
   }
+}
+
+// A read that may not run for longer than `ms`.
+//
+// The pool sets no statement_timeout (see getPool), and that stays true for
+// module writes. A dashboard READ is different: nothing is lost by stopping it,
+// and an unbounded one on a 10,000-page crawl held a pooled connection for over
+// 90 seconds while the browser had long given up. So the read runs on one
+// connection, in a read-only transaction, with SET LOCAL statement_timeout:
+// the bound ends with the transaction and never leaks onto the pooled
+// connection's next user. A statement that runs past it fails with 57014,
+// which isStatementTimeout() recognises.
+async function boundedRead(ms, fn) {
+  const limit = Math.max(1, Math.round(Number(ms) || 0));
+  return tx(async (t) => {
+    await t.query('set transaction read only');
+    await t.query("select set_config('statement_timeout', $1, true)", [String(limit)]);
+    return fn(t);
+  });
+}
+
+// query_canceled: what Postgres raises when statement_timeout fires.
+function isStatementTimeout(err) {
+  return String(err?.code || '') === '57014';
 }
 
 // ── jsonb binding ────────────────────────────────────────────────────────────
@@ -505,6 +532,8 @@ module.exports = {
   value,
   count,
   tx,
+  boundedRead,
+  isStatementTimeout,
   json,
   insertOne,
   insertMany,

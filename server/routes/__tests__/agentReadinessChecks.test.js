@@ -10,7 +10,10 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 
-const { isJsonDocument, isSitemapDocument, auditBlocked, allowsEveryCrawler, agentLinkRels, siteOnce } = require('../agentReadinessAudit')._private;
+const {
+  isJsonDocument, isSitemapDocument, auditBlocked, allowsEveryCrawler, agentLinkRels, siteOnce,
+  aiBotAccess, aiBotsCheck, describeHttpChecks, buildBriefPrompt,
+} = require('../agentReadinessAudit')._private;
 const { WEIGHTS } = require('../agentReadinessAudit');
 
 const reply = (status, type, data) => ({ status, headers: type ? { 'content-type': type } : {}, data });
@@ -44,9 +47,15 @@ test('robots.txt and the page both refused is "not measured", not a fail', () =>
   assert.match(auditBlocked(reply(503), reply(500)), /refused the audit/);
 });
 
-test('one answered request means the site was measured', () => {
-  assert.equal(auditBlocked(reply(404), reply(429)), null, 'no robots.txt is a real answer');
+test('a refused page is not measured, even when robots.txt answered', () => {
+  // Scoring it would read the error page's headers and HTML as the site's.
+  assert.match(auditBlocked(reply(404), reply(429)), /refused the audit's request for the page \(HTTP 429\)/);
+  assert.match(auditBlocked(reply(200, 'text/plain', ''), reply(403)), /could not be measured/);
+});
+
+test('an answered page means the site was measured', () => {
   assert.equal(auditBlocked(reply(429), reply(200)), null);
+  assert.equal(auditBlocked(reply(404), reply(404)), null, 'a 404 page is an answer');
 });
 
 // ── Fix 4.2: checks that could not pass, or passed for the wrong reason ──────
@@ -77,4 +86,73 @@ test('a site file is fetched once for every page of a run', async () => {
   await Promise.all([siteOnce(fakeFetch, 'https://once.test/robots.txt'), siteOnce(fakeFetch, 'https://once.test/robots.txt')]);
   await siteOnce(fakeFetch, 'https://once.test/robots.txt');
   assert.equal(calls, 1);
+});
+
+// ── UX-211 / UX-222: AI crawler access is read from the rules ───────────────
+
+test('naming an AI crawler only to block it is a block, not a pass', () => {
+  const robots = 'User-agent: GPTBot\nDisallow: /\n\nUser-agent: *\nDisallow: /admin\n';
+  assert.deepEqual(aiBotAccess(robots).blocked, ['GPTBot']);
+  const check = aiBotsCheck(true, robots, 200);
+  assert.equal(check.status, 'fail');
+  assert.equal(check.blocking, true);
+  assert.match(check.tech, /blocks AI crawlers: GPTBot/);
+});
+
+test('a crawler named with Allow: / is let in, and grouped agents share rules', () => {
+  const robots = 'User-agent: GPTBot\nUser-agent: ClaudeBot\nAllow: /\n\nUser-agent: *\nDisallow: /\n';
+  const access = aiBotAccess(robots);
+  assert.deepEqual(access.named, ['GPTBot', 'ClaudeBot']);
+  // Everyone else falls back to `*`, which shuts the site.
+  assert.ok(!access.blocked.includes('GPTBot'));
+  assert.ok(!access.blocked.includes('ClaudeBot'));
+  assert.ok(access.blocked.includes('PerplexityBot'));
+});
+
+test('path-only Disallows under * let every AI crawler in (Beta Bionics, LogicGate)', () => {
+  const robots = 'User-agent: *\nDisallow: /wp-json/\nDisallow: /?rest_route=\nCrawl-delay: 10\nSitemap: https://x.test/sitemap.xml\n';
+  const check = aiBotsCheck(true, robots, 200);
+  assert.equal(check.status, 'pass');
+  assert.equal(check.blocking, undefined);
+  assert.match(check.tech, /lets every crawler in/);
+});
+
+test('Disallow: / under * blocks every AI crawler that is not named', () => {
+  const check = aiBotsCheck(true, 'User-agent: *\nDisallow: /\n', 200);
+  assert.equal(check.status, 'fail');
+  assert.equal(check.blocking, true);
+});
+
+test('an unreadable robots.txt fails without being called a block', () => {
+  const check = aiBotsCheck(false, '', 404);
+  assert.equal(check.status, 'fail');
+  assert.equal(check.blocking, undefined);
+});
+
+test('the stored check carries the blocking flag only when there is one', () => {
+  const [blocked] = describeHttpChecks({ aibots: { status: 'fail', blocking: true, tech: 'x' } });
+  assert.equal(blocked.blocking, true);
+  assert.equal(blocked.cat, 'Bot Access');
+  const [plain] = describeHttpChecks({ contentsignals: { status: 'fail', tech: 'y' } });
+  assert.equal('blocking' in plain, false);
+});
+
+test('the brief is told crawlers are allowed, and forbidden to say otherwise', () => {
+  const checks = {
+    aibots: aiBotsCheck(true, 'User-agent: *\nDisallow: /wp-json/\n', 200),
+    contentsignals: { status: 'fail', tech: 'No Content-Signal directives in robots.txt' },
+  };
+  const cats = [{ id: 'Bot Access', score: 55, passed: 1, total: 3 }, { id: 'API / Auth / MCP', score: 0, passed: 0, total: 6 }];
+  const prompt = buildBriefPrompt('https://www.betabionics.com/', 20, 'Level 0 — Not started', checks, cats);
+  assert.match(prompt, /crawlersAllowed = true/);
+  assert.match(prompt, /Never say or imply the site is invisible, closed off, blocked/);
+  assert.doesNotMatch(prompt, /lead with AI discoverability risk/);
+  assert.doesNotMatch(prompt, /Invisible to AI assistants|Open bot access/);
+});
+
+test('a real robots.txt block is stated to the brief as one', () => {
+  const checks = { aibots: aiBotsCheck(true, 'User-agent: GPTBot\nDisallow: /\n', 200) };
+  const prompt = buildBriefPrompt('https://x.test/', 10, 'Level 0 — Not started', checks, []);
+  assert.match(prompt, /crawlersAllowed = false\. robots\.txt blocks AI crawlers: GPTBot/);
+  assert.doesNotMatch(prompt, /Never say or imply/);
 });

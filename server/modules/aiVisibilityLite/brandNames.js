@@ -159,14 +159,7 @@ async function identityFor(project, profile) {
 
   const aliases = [...always.filter((a) => String(a).toLowerCase() !== String(name).toLowerCase()), ...vetted.kept];
 
-  const configured = competitorsFrom(project);
-  const known = new Set(configured.map((c) => String(c.name).toLowerCase()));
-  const competitors = [...configured];
-  for (const competitor of profile?.competitors || []) {
-    if (known.has(String(competitor).toLowerCase())) continue;
-    known.add(String(competitor).toLowerCase());
-    competitors.push({ name: competitor, domain: null, aliases: [] });
-  }
+  const competitors = mergeCompetitors(competitorsFrom(project), profile?.competitors || []);
 
   return {
     brand: { name, domain: base.domain, aliases },
@@ -175,6 +168,42 @@ async function identityFor(project, profile) {
   };
 }
 
+/** "Roadway Moving", "roadwaymoving", "Roadway-Moving" -> "roadwaymoving". */
+const compact = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/**
+ * The project's configured competitors plus the ones the profile found on the
+ * site, each business once.
+ *
+ * Compared on the de-spaced, de-punctuated name and against each configured
+ * competitor's domain stem, not on the lowercased name: 'roadwaymoving' (from
+ * roadwaymoving.com) and 'Roadway Moving' (from the site) were listed as two
+ * competitors, and the configured one never matched an answer. A profile name
+ * that matches a configured competitor gives it its real name instead.
+ */
+function mergeCompetitors(configured, profileNames) {
+  const out = configured.map((c) => ({ ...c, aliases: [...(c.aliases || [])] }));
+  const keysOf = (c) => [c.name, ...(c.aliases || []), c.domain ? c.domain.split('.')[0] : null]
+    .map(compact).filter(Boolean);
+  for (const raw of profileNames) {
+    const k = compact(raw);
+    if (!k) continue;
+    const hit = out.find((c) => keysOf(c).includes(k));
+    if (hit) {
+      // The site's spelling is the one answers use. It replaces a name we
+      // only derived from the domain, and is matched either way.
+      const stem = hit.domain ? hit.domain.split('.')[0] : null;
+      const derived = stem && compact(hit.name) === compact(stem);
+      if (derived && hit.name !== raw) hit.aliases = [...new Set([...hit.aliases, hit.name])];
+      if (derived) hit.name = raw;
+      else if (!hit.aliases.includes(raw) && hit.name !== raw) hit.aliases.push(raw);
+      continue;
+    }
+    out.push({ name: raw, domain: null, aliases: [] });
+  }
+  return out;
+}
+
 module.exports = {
-  identityFor, vetAliases, interpretVetting, isShortCode, KINDS,
+  identityFor, vetAliases, interpretVetting, isShortCode, KINDS, mergeCompetitors,
 };

@@ -47,6 +47,22 @@ const repo = require("../db/repo");
       assert.equal(meta.total, 3);
     });
 
+    await test("a capped read takes errors stored last before notices, and counts every rule", async () => {
+      for (let n = 1; n <= 2; n += 1) {
+        await db.query(
+          `insert into crawl_run_finding_instances (run_id, owner, finding_id, rule_id, data)
+             values ($1, $2, $3, 'broken-internal-links', $4)`,
+          [run.id, user.id, `e${n}`, JSON.stringify({ id: `e${n}`, ruleId: "broken-internal-links", severity: "error", url: `https://cap.invalid/e${n}` })],
+        );
+      }
+      const meta = {};
+      const rows = await repo.listAllRunFindingInstances(db, run.id, { cap: 3, meta });
+      assert.equal(rows.length, 3);
+      assert.equal(rows.filter((f) => f.ruleId === "broken-internal-links").length, 2);
+      assert.equal(meta.rollup.reduce((s, r) => s + r.count, 0), 5);
+      await db.query("delete from crawl_run_finding_instances where run_id = $1 and rule_id = 'broken-internal-links'", [run.id]);
+    });
+
     await test("without a meta object the read is unchanged", async () => {
       const rows = await repo.listAllRunFindingInstances(db, run.id);
       assert.equal(rows.length, 3);

@@ -3,7 +3,13 @@ import ModuleRuns from '../components/ModuleRuns';
 import { InfoTip } from '../components/seoGeo/report/reportKit';
 import ProjectReportBar from '../components/project/ProjectReportBar';
 import ReportResolving from '../components/project/ReportResolving';
+import ReportUnavailable from '../components/project/ReportUnavailable';
 import { useActiveProjectId } from '../lib/activeProject';
+import { useUrlState } from '../lib/useUrlState';
+import { useToast } from '../ui/Toast';
+import {
+  encodeSharePayload, sharePayload, reconcileStoredReport, glanceGroups,
+} from '../lib/agentReadinessReport';
 import { scoreBandColor, scoreTone } from '../lib/scoreVerdict';
 import { InfoDot, Legend } from '../components/explain';
 import { agentWorking } from '../components/chat/screenWorking';
@@ -314,13 +320,13 @@ const firstSentence = (t) => {
   return m ? m[0].trim() : String(t || '');
 };
 
-function BriefView({ brief, cats = [] }) {
+function BriefView({ brief, cats = [], checks = [] }) {
   const [more, setMore] = useState(false);
   const lead = firstSentence(brief.summary);
   const rest = String(brief.summary || '').slice(lead.length).trim();
-  const working = cats.filter((c) => scoreTone(c.score) === 'success');
-  const middle = cats.filter((c) => scoreTone(c.score) === 'warning');
-  const blocking = cats.filter((c) => c.score < 45);
+  // "Blocking" only where a check records a real refusal (robots.txt shutting
+  // AI crawlers out); a weak category is otherwise "not yet set up" (UX-222).
+  const { working, middle, notSetUp, blocking } = glanceGroups(cats, checks, scoreTone);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -344,7 +350,8 @@ function BriefView({ brief, cats = [] }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
           <GlanceGroup tone="success" mark="✓" title="Working" cats={working} empty="Nothing scoring 70+ yet" />
           {middle.length > 0 && <GlanceGroup tone="warning" mark="!" title="Needs work" cats={middle} />}
-          <GlanceGroup tone="danger" mark="✕" title="Blocking AI agents" cats={blocking} empty="Nothing blocking" />
+          {notSetUp.length > 0 && <GlanceGroup tone="warning" mark="○" title="Not yet set up for AI agents" cats={notSetUp} />}
+          {blocking.length > 0 && <GlanceGroup tone="danger" mark="✕" title="Blocking AI agents" cats={blocking} />}
         </div>
       )}
 
@@ -673,6 +680,13 @@ export default function AgentReadinessAuditPage() {
   // at 'loading' is the point — the input form used to render on mount and be
   // replaced a moment later.
   const [reportState, setReportState] = useState('loading');
+  // What ProjectReportBar said when the selected page cannot be shown
+  // ('page_failed' / 'error'): the URL, the reason in plain words, a retry.
+  const [reportIssue, setReportIssue] = useState(null);
+  // The stored page on screen, for the share link and for resetting the view
+  // when a different page is picked.
+  const [openedPage, setOpenedPage] = useState(null);
+  const toast = useToast();
   // Opened within a project, the project's own bar above (ProjectReportBar) is
   // how you run or re-run an audit — "Run it now", page picker, "Analyze
   // another page". The manual URL form below is for standalone use only; inside
@@ -695,7 +709,9 @@ export default function AgentReadinessAuditPage() {
   // The report answers to two readers. 'summary' is the one a CXO needs —
   // score, what it costs, what a week of work buys. 'details' is the same
   // audit for whoever has to do the work: every check, and the roadmap.
-  const [view, setView] = useState('summary');
+  // In the address (?view=details), so a reload or Back keeps it (UX-151).
+  const [rawView, setView] = useUrlState('view', 'summary');
+  const view = rawView === 'details' ? 'details' : 'summary';
   const [delta, setDelta]                     = useState(null);
   const [actionSuggestions, setActionSuggestions] = useState([]);
   const [formSuggestions, setFormSuggestions] = useState([]);
@@ -748,7 +764,7 @@ export default function AgentReadinessAuditPage() {
     setLoading(true);
     setError('');
     setResult(null);
-    setView('summary');
+    setView('summary', { replace: true });
     setExpanded(null);
     setFilterCat('all');
     setDelta(null);
@@ -856,21 +872,25 @@ export default function AgentReadinessAuditPage() {
   }
 
   // ── shareSummary ──────────────────────────────────────────────────────────
-  function shareSummary() {
+  // UTF-8 safe (lib/agentReadinessReport): btoa alone threw on the em dash in
+  // every level label, inside a click handler, so nothing was copied and nothing
+  // said so. Failures now say so too.
+  async function shareSummary() {
     if (!result?.cmoBrief) return;
-    const payload = {
-      brief: result.cmoBrief,
-      url: result.site.url,
-      full: result.site.full,
-      score: result.site.score,
-      level: result.site.level,
-      date: result.site.date,
-    };
-    const encoded = btoa(JSON.stringify(payload));
-    const shareUrl = `${window.location.origin}/agent-readiness-audit/summary?d=${encoded}`;
-    navigator.clipboard.writeText(shareUrl);
-    setSharedBrief(true);
-    setTimeout(() => setSharedBrief(false), 2000);
+    try {
+      const encoded = encodeSharePayload(sharePayload(result, {
+        projectId: activeProjectId || null,
+        pageRunId: openedPage?.id || null,
+        olderRules: Boolean(result.olderRules?.length),
+      }));
+      const shareUrl = `${window.location.origin}/agent-readiness-audit/summary?d=${encoded}`;
+      await navigator.clipboard.writeText(shareUrl);
+      setSharedBrief(true);
+      setTimeout(() => setSharedBrief(false), 2000);
+      toast.add({ title: 'Link copied', description: 'Anyone with the link can read this summary — no sign-in needed.' });
+    } catch (e) {
+      toast.add({ title: 'Couldn’t copy the share link', description: e?.message || 'The browser refused clipboard access.', variant: 'error' });
+    }
   }
 
   // ── copyRoadmap ───────────────────────────────────────────────────────────
@@ -950,8 +970,20 @@ export default function AgentReadinessAuditPage() {
             to setResult reproduces an individual run exactly. */}
         <ProjectReportBar
           moduleKey="agent_readiness"
-          onOpenReport={(native) => setResult(native)}
-          onResolved={setReportState}
+          onOpenReport={(native, _detail, page) => {
+            // Brought up to the current rules as far as the stored data allows.
+            setResult(reconcileStoredReport(native));
+            // A different page starts on its Summary; the first one opened keeps
+            // whatever view the address asked for.
+            if (openedPage && page && openedPage.id !== page.id) setView('summary', { replace: true });
+            setOpenedPage(page || null);
+          }}
+          onResolved={(state, info) => {
+            setReportState(state);
+            setReportIssue(info || null);
+            // Never leave another page's report under this page's name.
+            if (state === 'page_failed' || state === 'error') setResult(null);
+          }}
         />
 
         {/* Agent importance one-liner — the report's summary tab makes this
@@ -1099,6 +1131,12 @@ export default function AgentReadinessAuditPage() {
         {/* Resolved before drawn — see ReportResolving. */}
         {reportState === 'loading' && !result && !loading && <ReportResolving maxWidth={960} />}
 
+        {/* The selected page failed, or its stored report would not load: say
+            so in its place (UX-104). */}
+        {(reportState === 'page_failed' || reportState === 'error') && !result && !loading && (
+          <ReportUnavailable state={reportState} info={reportIssue} maxWidth={960} />
+        )}
+
         {/* Within a project with nothing stored yet, ProjectReportBar's own bar
             above already says so and offers "Run it now" — this empty state is
             only for standalone use, where there is a form to point at. */}
@@ -1111,7 +1149,15 @@ export default function AgentReadinessAuditPage() {
         )}
 
         {result && (
-          <div style={{ paddingBottom: '1.5rem' }}>
+          // Dimmed while a different page's report is on its way, so this one is
+          // not read as that page's.
+          <div
+            aria-busy={reportState === 'loading' || undefined}
+            style={{
+              paddingBottom: '1.5rem',
+              ...(reportState === 'loading' ? { opacity: 0.35, pointerEvents: 'none', transition: 'opacity 0.15s' } : null),
+            }}
+          >
             {/* Site header — the audit's identity, and the two things you do
                 with a finished one: take it elsewhere, or open the page. */}
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }} className="ara-header-row">
@@ -1293,8 +1339,20 @@ export default function AgentReadinessAuditPage() {
                       </button>
                     )}
                   </div>
+                  {/* A stored report from before two checks changed rules: say
+                      what was not re-checked rather than repeat it (UX-211). */}
+                  {result.olderRules?.length > 0 && (
+                    <div role="note" style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--text-2)', padding: '10px 12px', borderRadius: 8, background: 'var(--warning-soft)', border: '1px solid color-mix(in srgb, var(--warning) 35%, var(--border))' }}>
+                      <strong style={{ color: 'var(--text)' }}>Scored with older rules — re-run to update.</strong>{' '}
+                      {result.olderRules.includes('aibots')
+                        ? 'This report was scored when the AI bot check failed any robots.txt that did not name AI crawlers, even one letting every crawler in, and this summary was written from that. It does not show that AI crawlers are blocked. '
+                        : ''}
+                      {result.olderRules.includes('webmcp') ? 'WebMCP could not be detected at the time, so it failed on every site. ' : ''}
+                      {result.olderRulesPoints ? `The score may be up to ${result.olderRulesPoints} points low.` : ''}
+                    </div>
+                  )}
                   {result.cmoBrief ? (
-                    <BriefView brief={result.cmoBrief} cats={result.cats} />
+                    <BriefView brief={result.cmoBrief} cats={result.cats} checks={allChecks} />
                   ) : (
                     <div>
                       <SkeletonLine w="55%" />

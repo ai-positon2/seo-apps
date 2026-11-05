@@ -372,7 +372,11 @@ function buildConfidence({ modules: all, totals, lastAt }) {
   const modules = onDashboard(all);
   const neverRun = modules.filter((m) => m.status === 'not_run');
   const failed = modules.filter((m) => m.status === 'failed');
-  const covered = modules.length - neverRun.length;
+  // AI Visibility measured against the project's PREVIOUS site (its profile is
+  // out of date): it ran, but nothing it holds describes this one, so it does
+  // not count as covered (UX-108).
+  const offProfile = modules.filter((m) => m.status !== 'not_run' && m.profileStale);
+  const covered = modules.length - neverRun.length - offProfile.length;
   const crawledPages = totals?.crawledPages || null;
   // Judged per scored module, not on the newest evidence: one fresh run (even a
   // failed one) hid that everything else was old — SoundHound's scores were all
@@ -395,6 +399,12 @@ function buildConfidence({ modules: all, totals, lastAt }) {
   }
   if (failed.length) {
     caveats.push(`${failed.map((m) => m.label).join(', ')} failed on the last attempt.`);
+  }
+  for (const m of offProfile) {
+    caveats.push(
+      `${m.label}'s profile is out of date${m.profileStale?.builtFor ? ` (built for ${m.profileStale.builtFor})` : ''}, `
+      + 'so its results are left out until it is rebuilt.',
+    );
   }
   if (stale) {
     caveats.push(

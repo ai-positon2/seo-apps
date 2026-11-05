@@ -23,6 +23,7 @@ import { ca } from '../../lib/contentArchitectApi';
 import { indexWork } from '../../lib/hubSpokeWork';
 import TopicWork from './work/TopicWork';
 import WorkTally from './work/WorkTally';
+import EarlierWork from './work/EarlierWork';
 import { EnhancementBadge, EnhancementPanel } from './work/PageEnhancement';
 import { InfoDot, Legend } from '../explain';
 import { hubWorking } from '../chat/screenWorking';
@@ -720,6 +721,11 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
   const clusters = analysis.clusters || [];
   const unassigned = analysis.unassignedPages || [];
   const spokeSuggestionsByCluster = analysis.spokeSuggestionsByCluster || {};
+  // Saved work whose topic or page this analysis no longer has (UX-159).
+  const earlierWork = useMemo(
+    () => workIndex.orphans(clusters.map((c) => c.id), (analysis.pages || []).map((p) => p.url)),
+    [workIndex, clusters, analysis.pages],
+  );
 
   const gaps = clusters.filter((c) => c.isGap);
   const unclear = clusters.filter((c) => !c.isGap && c.ambiguous);
@@ -893,6 +899,8 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
           No clusters were found for this selection.
         </p>
       )}
+
+      <EarlierWork orphans={earlierWork} earlierSuggestions={analysis.earlierSpokeSuggestions || []} navigate={navigate} />
 
       <Legend screen="hub" ctx={explainCtx} working={() => hubWorking({ clusters, pageById })} />
     </div>
