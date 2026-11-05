@@ -13,6 +13,8 @@ import {
 import { scoreBandColor, scoreTone } from '../lib/scoreVerdict';
 import { InfoDot, Legend } from '../components/explain';
 import { agentWorking } from '../components/chat/screenWorking';
+import { useMinimalView } from '../components/minimal/MinimalViewContext';
+import { HIDE } from '../components/minimal/hide';
 
 const SC = {
   pass: { label: 'Pass', bg: 'var(--success-soft)', color: 'var(--success)', icon: '✓' },
@@ -712,6 +714,10 @@ export default function AgentReadinessAuditPage() {
   // In the address (?view=details), so a reload or Back keeps it (UX-151).
   const [rawView, setView] = useUrlState('view', 'summary');
   const view = rawView === 'details' ? 'details' : 'summary';
+  // Minimal (CMO) view shows the Summary only.
+  const { minimal } = useMinimalView();
+  // Replace, not push: a forced view must not leave a Back entry that bounces.
+  useEffect(() => { if (minimal && view !== 'summary') setView('summary', { replace: true }); }, [minimal, view, setView]);
   const [delta, setDelta]                     = useState(null);
   const [actionSuggestions, setActionSuggestions] = useState([]);
   const [formSuggestions, setFormSuggestions] = useState([]);
@@ -1176,10 +1182,10 @@ export default function AgentReadinessAuditPage() {
                   >
                     {result.site.level}
                   </span>
-                  &nbsp;&middot;&nbsp; Scanned {result.site.date}
-                  {hasOnPage && <span style={{ marginLeft: 6, fontSize: 11, background: 'var(--primary-soft)', color: 'var(--primary-text)', padding: '1px 7px', borderRadius: 10 }}>+10 on-page checks</span>}
+                  <span {...HIDE} style={{ display: 'contents' }}>&nbsp;&middot;&nbsp; Scanned {result.site.date}</span>
+                  {hasOnPage && <span {...HIDE} style={{ marginLeft: 6, fontSize: 11, background: 'var(--primary-soft)', color: 'var(--primary-text)', padding: '1px 7px', borderRadius: 10 }}>+10 on-page checks</span>}
                   {levelTooltipOpen && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, background: 'var(--card)', border: '0.5px solid var(--border)', borderRadius: 8, padding: '8px 12px', zIndex: 50, boxShadow: 'var(--shadow-md)', minWidth: 220 }}>
+                    <div {...HIDE} style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, background: 'var(--card)', border: '0.5px solid var(--border)', borderRadius: 8, padding: '8px 12px', zIndex: 50, boxShadow: 'var(--shadow-md)', minWidth: 220 }}>
                       {LEVELS.map(l => (
                         <div key={l.level} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: result.site.level.includes(l.label) ? 'var(--primary)' : 'var(--text-2)', fontWeight: result.site.level.includes(l.label) ? 600 : 400 }}>
                           <span>Level {l.level} &mdash; {l.label}</span>
@@ -1215,7 +1221,7 @@ export default function AgentReadinessAuditPage() {
             </div>
 
             {/* One audit, two readers. */}
-            <div role="tablist" style={{ display: 'flex', gap: 22, borderBottom: '1px solid var(--border)', marginBottom: 22 }}>
+            <div {...HIDE} role="tablist" style={{ display: 'flex', gap: 22, borderBottom: '1px solid var(--border)', marginBottom: 22 }}>
               {[['summary', 'Summary'], ['details', 'More Tech Details']].map(([id, label]) => (
                 <button
                   key={id}
@@ -1240,7 +1246,9 @@ export default function AgentReadinessAuditPage() {
             </div>
 
             {/* ══════════════════════ SUMMARY ══════════════════════ */}
-            <Legend screen="agent" ctx={explainCtx} working={() => agentWorking(result)} />
+            <span {...HIDE} style={{ display: 'contents' }}>
+              <Legend screen="agent" ctx={explainCtx} working={() => agentWorking(result)} />
+            </span>
 
             {view === 'summary' && (
               <div role="tabpanel" aria-labelledby="view-summary" style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
@@ -1258,7 +1266,7 @@ export default function AgentReadinessAuditPage() {
                     <ScoreRing score={result.site.score} checkCount={checkCount} size={140} />
                     <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{result.site.level}</span>
                     <LevelLadder score={result.site.score} />
-                    <span style={{ fontSize: 11, color: 'var(--text-3)', textAlign: 'center' }}>
+                    <span {...HIDE} style={{ fontSize: 11, color: 'var(--text-3)', textAlign: 'center' }}>
                       Based on {hasOnPage ? '23 checks across 6 categories' : '13 HTTP checks across 4 categories'}
                     </span>
                     {/* Movement since the last audit of this host. */}
@@ -1358,7 +1366,7 @@ export default function AgentReadinessAuditPage() {
                       <SkeletonLine w="55%" />
                       <div style={{ height: 8 }} />
                       <SkeletonLine w="100%" /><SkeletonLine w="90%" /><SkeletonLine w="70%" />
-                      <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 8 }}>Executive Summary unavailable (check OPENAI_API_KEY)</div>
+                      <div {...HIDE} style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 8 }}>Executive Summary unavailable (check OPENAI_API_KEY)</div>
                     </div>
                   )}
                 </div>
@@ -1379,14 +1387,14 @@ export default function AgentReadinessAuditPage() {
                         {result.site.quickWinCount} {result.site.quickWinCount === 1 ? 'fix' : 'fixes'}, each under 2 hours &mdash; see More Tech Details for the roadmap.
                       </span>
                     </div>
-                    <button type="button" onClick={() => setView('details')}
+                    <button {...HIDE} type="button" onClick={() => setView('details')}
                       style={{ flexShrink: 0, height: 40, padding: '0 18px', fontFamily: 'var(--font-sans)', fontSize: 13.5, fontWeight: 600, color: 'var(--primary-text)', background: 'transparent', border: '1px solid var(--primary)', borderRadius: 8, cursor: 'pointer' }}>
                       See the technical detail &rarr;
                     </button>
                   </div>
                 )}
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }} className="ara-sub-scores">
+                <div {...HIDE} style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }} className="ara-sub-scores">
                   {[
                     { label: 'Checks passed', value: passCount, color: 'var(--primary-text)' },
                     { label: 'Checks failed', value: failCount, color: 'var(--danger)' },
@@ -1611,7 +1619,9 @@ export default function AgentReadinessAuditPage() {
             )}
           </div>
         )}
-        <ModuleRuns toolId="agent-readiness-audit" />
+        <span {...HIDE} style={{ display: 'contents' }}>
+          <ModuleRuns toolId="agent-readiness-audit" />
+        </span>
       </main>
 
       {/* The 640px rules that used to live here now sit with the other report

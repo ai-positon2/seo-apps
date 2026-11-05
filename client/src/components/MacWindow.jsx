@@ -1,6 +1,9 @@
 import { Suspense, memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import GuidedModeToggle from './explain/GuidedModeToggle';
+import MinimalViewToggle from './minimal/MinimalViewToggle';
+import { useMinimalView } from './minimal/MinimalViewContext';
+import { HIDE } from './minimal/hide';
 import { NAV_GROUPS, TAGS, getToolByPath } from '../toolsMeta';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from './ThemeContext';
@@ -589,6 +592,17 @@ function useMediaQuery(query) {
   return matches;
 }
 
+// The sidebar entries kept in the Minimal version: the reports behind the
+// Overview's module cards. Everything else in NAV_GROUPS is a working tool.
+const MINIMAL_NAV_TOOLS = new Set([
+  'competitor-analysis',
+  'ai-visibility-lite',
+  'seo-geo-audit',
+  'agent-readiness-audit',
+  'content-architect',
+  'crawl-scope',
+]);
+
 export default function MacWindow() {
   const navigate = useNavigate();
   const { pathname, search: locationSearch } = useLocation();
@@ -752,13 +766,22 @@ export default function MacWindow() {
   // today. That is preserved deliberately — hoisting search.trim().toLowerCase()
   // here would quietly change which results appear, which is a behaviour change
   // dressed up as a performance one.
+  // The Minimal version lists only the reports a CMO reads; the working tools
+  // are still a click away with the switch off, and every route stays live.
+  const { minimal } = useMinimalView();
+  const navGroups = useMemo(() => (minimal
+    ? NAV_GROUPS
+      .map(g => ({ ...g, tools: g.tools.filter(t => MINIMAL_NAV_TOOLS.has(t.id)) }))
+      .filter(g => g.tools.length > 0)
+    : NAV_GROUPS), [minimal]);
+
   const filteredGroups = useMemo(() => {
-    if (!search.trim()) return NAV_GROUPS;
+    if (!search.trim()) return navGroups;
     const needle = search.toLowerCase();
-    return NAV_GROUPS
+    return navGroups
       .map(g => ({ ...g, tools: g.tools.filter(t => t.label.toLowerCase().includes(needle)) }))
       .filter(g => g.tools.length > 0);
-  }, [search]);
+  }, [search, navGroups]);
 
   // Chrome-less embed: only the tool content, for public framed use.
   if (EMBED_MODE) {
@@ -958,12 +981,14 @@ export default function MacWindow() {
               shrinks: this is the side that must stay on screen, and the
               breadcrumb to its left gives way instead. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingRight: 16, flexShrink: 0 }}>
-            <span className="app-header__semrush"><SemrushBalanceBadge /></span>
+            {/* Usage and run history are operator concerns: out of the
+                Minimal version (HIDE here, and Runs drops from the menu). */}
+            <span className="app-header__semrush" {...HIDE}><SemrushBalanceBadge /></span>
 
             {compactHeader ? (
               <HeaderNavMenu
                 items={[
-                  { label: 'Runs', title: 'Crawl and tool runs', path: '/runs' },
+                  ...(minimal ? [] : [{ label: 'Runs', title: 'Crawl and tool runs', path: '/runs' }]),
                   { label: 'Projects', title: 'Projects and competitors', path: '/projects' },
                   { label: 'Team', title: 'Your team: members and roles', path: '/workspaces' },
                   ...(isPlatformAdmin ? [{ label: 'Admin', title: 'Platform administration', path: '/admin' }] : []),
@@ -973,9 +998,13 @@ export default function MacWindow() {
               />
             ) : (
               <>
-                <HeaderButton title="Crawl and tool runs" onClick={() => navigate('/runs')}>
-                  Runs
-                </HeaderButton>
+                {/* `display: contents` keeps the header's flex layout exactly
+                    as it was with the Minimal version off. */}
+                <span {...HIDE} style={{ display: 'contents' }}>
+                  <HeaderButton title="Crawl and tool runs" onClick={() => navigate('/runs')}>
+                    Runs
+                  </HeaderButton>
+                </span>
                 <HeaderButton title="Projects and competitors" onClick={() => navigate('/projects')}>
                   Projects
                 </HeaderButton>
@@ -1004,6 +1033,11 @@ export default function MacWindow() {
 
             {/* Click-for-detail or hover-for-a-line, for every info icon. Last
                 before the user chip; its helper text drops out first. */}
+            {/* Advanced mode: off (the default) is the CMO view, which hides
+                practitioner detail on the Overview and reports
+                (components/minimal); on shows every section. */}
+            <MinimalViewToggle />
+
             <GuidedModeToggle />
 
             <UserChip email={email} onLogout={logout} />
@@ -1119,7 +1153,7 @@ export default function MacWindow() {
               // Same column geometry as the dashboard beneath it (32px gutters,
               // 1520 max, centred), so the bar's edges line up with the cards
               // rather than sitting proud of them by eight pixels.
-              <div style={{ padding: '24px 32px 0', maxWidth: 1520, margin: '0 auto' }}>
+              <div {...HIDE} style={{ padding: '24px 32px 0', maxWidth: 1520, margin: '0 auto' }}>
                 <CrawlStatusBar
                   status={crawl.status}
                   onWatch={(runId) => navigate(withProjectParam(`/crawl-scope/runs/${runId}`, activeProjectId))}

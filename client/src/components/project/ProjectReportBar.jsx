@@ -6,6 +6,7 @@ import { useUrlState } from '../../lib/useUrlState';
 import {
   bandTone, isScored, orderWorstFirst, pathOf, pendingPage, pickSelection, plainFailure, runDidNotFinish,
 } from '../../lib/pageReportPicker';
+import { HIDE } from '../minimal/hide';
 
 // ── The bar above a module's own report ──────────────────────────────────────
 //
@@ -602,6 +603,7 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
       {/* Coverage, because a page budget over a bigger crawl is not "the site" —
           and which pages were picked matters as much as how many. */}
       {perPageRun && payload && (
+        <span {...HIDE} style={{ display: 'contents' }}>
         <Group>
           <Eyebrow>Coverage</Eyebrow>
           <Text title={payload.pageSelection ? `Pages chosen: ${payload.pageSelection}` : undefined}>
@@ -619,6 +621,7 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
             {payload.pagesFailed ? <Dim>{' · '}{payload.pagesFailed} failed</Dim> : null}
           </Text>
         </Group>
+        </span>
       )}
 
       <Spacer />
@@ -677,7 +680,7 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
       {loadingPage && <Dim>loading…</Dim>}
 
       {isPerPage && !detail.inFlightRun && (
-        <div style={{ position: 'relative' }}>
+        <div {...HIDE} style={{ position: 'relative' }}>
           <Action onClick={openAdd} busy={adding}>
             {adding ? 'Analyzing…' : 'Analyze another page'}
           </Action>
@@ -695,7 +698,7 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
         </div>
       )}
 
-      {!detail.inFlightRun && <Action onClick={rerun} busy={busy}>{busy ? 'Re-running…' : 'Re-run'}</Action>}
+      {!detail.inFlightRun && <span {...HIDE} style={{ display: 'contents' }}><Action onClick={rerun} busy={busy}>{busy ? 'Re-running…' : 'Re-run'}</Action></span>}
       <Link to="/" style={linkStyle}>Dashboard</Link>
       {error && <ErrorText>{error.message}</ErrorText>}
     </Bar>

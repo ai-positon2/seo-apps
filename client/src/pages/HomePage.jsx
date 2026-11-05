@@ -19,6 +19,7 @@ import HomeSkeleton, { HomeCardsSkeleton } from '../components/home/HomeSkeleton
 import { overviewCache } from '../components/home/overviewCache';
 import AnalysisProgress from '../components/home/AnalysisProgress';
 import { takePrefetch } from '../lib/homePrefetch';
+import { HIDE } from '../components/minimal/hide';
 
 // How often the dashboard re-reads itself while a crawl is running. The crawl
 // BAR is not this — that lives in the app shell and polls a cheap endpoint of its
@@ -730,9 +731,11 @@ export default function HomePage() {
                         <Tag tone="warn">Set country →</Tag>
                       </button>
                     )}
+                  <span {...HIDE} style={{ display: 'contents' }}>
                   <Muted size={12}>
                     · {activeProject.schedule.enabled ? 'Weekly crawl on' : 'No schedule'}
                   </Muted>
+                  </span>
                   {activeProject.competitors.length > 0 && (
                     <Muted size={12}>
                       · vs {activeProject.competitors.map((c) => c.host).join(', ')}
@@ -740,6 +743,7 @@ export default function HomePage() {
                   )}
                   {canEdit && (
                     <button
+                      {...HIDE}
                       type="button"
                       onClick={() => navigate('/projects')}
                       style={{
@@ -756,10 +760,12 @@ export default function HomePage() {
             </div>
 
             {activeProject.countryMissing && (
+              <span {...HIDE} style={{ display: 'contents' }}>
               <Muted size={12} style={{ color: 'var(--viz-warn)' }}>
                 This project predates the country requirement. Rank and Search Console comparisons
                 need a market before they can run — set it in project settings.
               </Muted>
+              </span>
             )}
 
           </div>
@@ -770,6 +776,7 @@ export default function HomePage() {
               column used to. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
             <Btn
+              {...HIDE}
               variant="primary"
               onClick={() => { setAuditError(null); setAuditSheet('open'); }}
               title={'Crawls the site, then audits its pages for SEO & GEO, On-Page and Agent '
@@ -790,6 +797,7 @@ export default function HomePage() {
                 the site every week, and the number appeared nowhere on this
                 screen. Editable here because the moment you want to change it
                 is the moment you are about to press Run. */}
+            <span {...HIDE} style={{ display: 'contents' }}>
             <CrawlBudget
               /* Keyed, so switching client REMOUNTS it. Without this the
                  editor's own state belonged to whichever project was open
@@ -802,6 +810,7 @@ export default function HomePage() {
               canEdit={canEdit}
               onSaved={loadProjects}
             />
+            </span>
             {/* The explanations moved to tooltips. They described the app's own
                 mechanics — which modules run in what order — to a reader who wants
                 to know whether their site is in trouble.
@@ -836,6 +845,7 @@ export default function HomePage() {
                   ].map(([format, label, hint]) => (
                     <button
                       key={format}
+                      {...(format === 'pdf' ? {} : HIDE)}
                       type="button"
                       role="menuitem"
                       onClick={() => {
@@ -870,6 +880,7 @@ export default function HomePage() {
           failure has nowhere to appear unless it appears here. */}
       {auditError && (
         <Card
+          {...HIDE}
           role="alert"
           style={{
             padding: '12px 16px', flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -892,7 +903,7 @@ export default function HomePage() {
           did — and what it costs — is reported here rather than discovered
           later in a run history. */}
       {competitorBanner && (
-        <Card style={{ padding: '12px 16px', flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <Card {...HIDE} style={{ padding: '12px 16px', flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
             <Kicker>Project created</Kicker>
             <span style={{ fontSize: 13.5, color: 'var(--text)' }}>{competitorBanner.text}</span>
@@ -903,7 +914,7 @@ export default function HomePage() {
 
       {/* What the full audit did, reported where the user already is. */}
       {auditBanner && (
-        <Card style={{ padding: '12px 16px', flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <Card {...HIDE} style={{ padding: '12px 16px', flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
             <Kicker>Full audit complete</Kicker>
             <span style={{ fontSize: 13.5, color: 'var(--text)' }}>
@@ -1023,7 +1034,7 @@ export default function HomePage() {
           </div>
         )}
         {/* How to read this screen. Only once there are numbers to read. */}
-        {data && <Legend screen="overview" ctx={explainCtx} />}
+        {data && <div {...HIDE} style={{ display: 'contents' }}><Legend screen="overview" ctx={explainCtx} /></div>}
       </section>
 
       {/* ── The answer, after the instrumentation ────────────────────────────

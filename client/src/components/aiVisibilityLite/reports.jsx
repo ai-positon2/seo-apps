@@ -35,6 +35,7 @@ import {
 import { InfoDot, Legend } from '../explain';
 import { aivisLiteWorking } from '../chat/screenWorking';
 import { standingOf, emptyHeadline } from './standing';
+import { HIDE } from '../minimal/hide';
 
 // ── Shared pieces ──────────────────────────────────────────────────────────
 
@@ -774,11 +775,13 @@ export function OverviewReport({ report }) {
           <div style={{ flex: 1, minWidth: 320 }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               {verdict ? <Tag tone={verdict === 'BEHIND' ? 'neg' : (verdict === 'TIED' ? 'muted' : 'accent')}>{verdict}</Tag> : null}
-              <Muted size={11} style={{ fontFamily: 'var(--font-mono)', letterSpacing: '.1em' }}>
-                {report.meta.answersMeasured} ANSWERS MEASURED
-                {report.meta.answers !== report.meta.answersMeasured
-                  ? ` OF ${report.meta.answers} ATTEMPTED` : ''}
-              </Muted>
+              <span {...HIDE} style={{ display: 'contents' }}>
+                <Muted size={11} style={{ fontFamily: 'var(--font-mono)', letterSpacing: '.1em' }}>
+                  {report.meta.answersMeasured} ANSWERS MEASURED
+                  {report.meta.answers !== report.meta.answersMeasured
+                    ? ` OF ${report.meta.answers} ATTEMPTED` : ''}
+                </Muted>
+              </span>
             </div>
 
             {/* The one sentence a first-time reader needs, as the headline:
@@ -842,7 +845,7 @@ export function OverviewReport({ report }) {
               )}
             </div>
             {interval && (
-              <span style={{ fontSize: 12.5, color: 'var(--text-2)', textAlign: 'center' }}>
+              <span {...HIDE} style={{ fontSize: 12.5, color: 'var(--text-2)', textAlign: 'center' }}>
                 ±{interval.margin} pts · likely between {Math.round(interval.low)}% and {Math.round(interval.high)}%
               </span>
             )}
@@ -875,8 +878,10 @@ export function OverviewReport({ report }) {
           />
         </div>
 
-        <Basis>{report.meta.basis}</Basis>
-        {report.headline.score.note ? <Basis>{report.headline.score.note}</Basis> : null}
+        <span {...HIDE} style={{ display: 'contents' }}>
+          <Basis>{report.meta.basis}</Basis>
+          {report.headline.score.note ? <Basis>{report.headline.score.note}</Basis> : null}
+        </span>
       </Card>
 
       {ranked.length >= 2 ? (
@@ -952,7 +957,9 @@ export function OverviewReport({ report }) {
           </div>
         </Card>
       </div>
-      <Legend screen="aivisLite" ctx={explainCtx} working={() => aivisLiteWorking(report)} />
+      <span {...HIDE} style={{ display: 'contents' }}>
+        <Legend screen="aivisLite" ctx={explainCtx} working={() => aivisLiteWorking(report)} />
+      </span>
     </div>
   );
 }
@@ -1581,7 +1588,7 @@ export function SentimentReport({
 
       {/* ── How the score is worked out ── */}
       {s.analysed > 0 && (
-        <Card style={{ padding: 18 }}>
+        <Card {...HIDE} style={{ padding: 18 }}>
           <SectionHead title="How the score is worked out" />
           <Muted size={11}>
             Each answer gets a score from its tone and where it placed you. Being recommended first
@@ -1678,7 +1685,7 @@ export function SentimentReport({
 
       {/* ── By prompt ── */}
       {s.byPrompt.some((p) => p.analysed) && (
-        <Card style={{ padding: 18 }}>
+        <Card {...HIDE} style={{ padding: 18 }}>
           <SectionHead title="By prompt" />
           <Muted size={11}>
             Weakest first — the prompts where AI speaks least warmly about you. Click a prompt to see
@@ -1697,7 +1704,7 @@ export function SentimentReport({
 
       {/* ── Every answer ── */}
       {s.answers.length > 0 && (
-        <Card style={{ padding: 18 }}>
+        <Card {...HIDE} style={{ padding: 18 }}>
           <SectionHead title="Every answer, with its evidence" />
           <Muted size={11}>
             The words each answer used about you, copied exactly — the quote is what decided its tone.
@@ -2185,7 +2192,7 @@ export function GapsReport({ report, analysing = false, onTrack }) {
 
       <RecommendedInstead report={report} analysing={analysing} onTrack={onTrack} />
 
-      <Card style={{ padding: 18 }}>
+      <Card {...HIDE} style={{ padding: 18 }}>
         <SectionHead title="Sources behind those answers, ranked by gap score" />
         <Muted size={11}>
           Gap score weights how often a source is read against how much of a gap it represents, and

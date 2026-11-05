@@ -9,6 +9,7 @@ import { CompositionBar } from './charts/CompositionBar';
 import { CollapsibleTable } from './charts/CollapsibleTable';
 import { InfoDot, Legend, competitiveScoreSentence } from '../explain';
 import { compWorking } from '../chat/screenWorking';
+import { HIDE } from '../minimal/hide';
 
 // ── Market position: context, not a grade ──────────────────────────────────
 //
@@ -204,10 +205,14 @@ export default function OverviewTab({ snapshot }) {
         )}
       </Card>
 
-      <CollapsibleTable>
-        <DataTable title="Domain Comparison" columns={columns} rows={rows} emptyText="No data yet — run an analysis." />
-      </CollapsibleTable>
-      <Legend screen="comp" ctx={explainCtx} working={() => compWorking({ snapshot })} />
+      <div {...HIDE} style={{ display: 'contents' }}>
+        <CollapsibleTable>
+          <DataTable title="Domain Comparison" columns={columns} rows={rows} emptyText="No data yet — run an analysis." />
+        </CollapsibleTable>
+      </div>
+      <div {...HIDE} style={{ display: 'contents' }}>
+        <Legend screen="comp" ctx={explainCtx} working={() => compWorking({ snapshot })} />
+      </div>
     </div>
   );
 }

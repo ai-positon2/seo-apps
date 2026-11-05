@@ -18,6 +18,7 @@ import ModuleRuns from '../components/ModuleRuns';
 import { useActiveProjectId } from '../lib/activeProject';
 import { projectsApi, countryLabel, isModuleInFlight } from '../lib/projectsApi';
 import { useUrlState } from '../lib/useUrlState';
+import { HIDE } from '../components/minimal/hide';
 
 const TAB_KEYS = ['overview', 'backlinks', 'contentAnalysis', 'pagespeed'];
 
@@ -921,8 +922,8 @@ export default function CompetitorAnalysisDashboardPage() {
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <>
-            {client && <Button variant="secondary" onClick={openEditClient}>Manage Client</Button>}
-            <Button variant="secondary" onClick={openAddClient}>Add Client</Button>
+            {client && <Button {...HIDE} variant="secondary" onClick={openEditClient}>Manage Client</Button>}
+            <Button {...HIDE} variant="secondary" onClick={openAddClient}>Add Client</Button>
             {client && (
               <Button
                 variant="secondary"
@@ -934,6 +935,7 @@ export default function CompetitorAnalysisDashboardPage() {
               </Button>
             )}
             <Button
+              {...HIDE}
               variant="primary"
               onClick={handleRun}
               loading={running && runningClientId === selectedClientId}
@@ -951,6 +953,9 @@ export default function CompetitorAnalysisDashboardPage() {
           green read as one. The band is the first thing above the figures
           because on a simulated run every figure below it is invented. */}
       <div
+        // The Minimal version drops the "Live data" note but never the
+        // "Simulated data" one: on a simulated run every figure is invented.
+        {...(meta?.liveDataSource ? HIDE : {})}
         style={{
           display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px',
           borderRadius: 10,
@@ -1013,7 +1018,7 @@ export default function CompetitorAnalysisDashboardPage() {
         </div>
 
         {client && (
-          <div style={{ fontSize: 13, color: 'var(--text-2)', paddingBottom: 8 }}>
+          <div {...HIDE} style={{ fontSize: 13, color: 'var(--text-2)', paddingBottom: 8 }}>
             {client.domain} · {client.competitors.length}/{maxCompetitors} competitors
             {meta && ` · ${meta.estimatedCostPerDomain.toLocaleString()} ${meta.liveDataSource ? 'SEMrush' : 'simulated'} units/domain (10,000-unit cap per run)`}
           </div>
@@ -1047,7 +1052,7 @@ export default function CompetitorAnalysisDashboardPage() {
       )}
 
       {snapshot && (
-        <div className="ca-runstats">
+        <div {...HIDE} className="ca-runstats">
           <RunStat label="Last Run" value={new Date(snapshot.capturedAt).toLocaleString()} />
           <RunStat
             label={meta?.liveDataSource ? 'SEMrush Units Used' : 'Simulated Units Used'}
@@ -1188,11 +1193,13 @@ export default function CompetitorAnalysisDashboardPage() {
 
       {/* Run history: scoped to the selected client when there is one, so the
           panel answers "what have we run for this client, and when?" */}
-      <ModuleRuns
-        toolId="competitor-analysis"
-        search={selectedClientId ? `client ${selectedClientId}` : ''}
-        scopeNote={selectedClientName ? `Runs for ${selectedClientName}` : ''}
-      />
+      <div {...HIDE} style={{ display: 'contents' }}>
+        <ModuleRuns
+          toolId="competitor-analysis"
+          search={selectedClientId ? `client ${selectedClientId}` : ''}
+          scopeNote={selectedClientName ? `Runs for ${selectedClientName}` : ''}
+        />
+      </div>
 
       <Drawer
         open={drawerOpen}

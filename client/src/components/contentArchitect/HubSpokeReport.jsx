@@ -28,6 +28,7 @@ import { EnhancementBadge, EnhancementPanel } from './work/PageEnhancement';
 import { InfoDot, Legend } from '../explain';
 import { hubWorking } from '../chat/screenWorking';
 import { scoreTone } from '../../lib/scoreVerdict';
+import { HIDE } from '../minimal/hide';
 
 /**
  * Health bands, shared with the page's donut so the two cannot disagree — and
@@ -506,7 +507,7 @@ function ClusterRow({ cluster, pageById, navigate, projectId, kbClient, suggesti
         {/* An established hub offers the action; a missing or unclear one states
             the verdict, because "create hub" is not something this screen can
             do for you. */}
-        <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+        <span {...HIDE} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10 }}>
           <WorkTally tally={tally} />
           {healthy && hub ? (
             <EnhanceButton
@@ -535,7 +536,7 @@ function ClusterRow({ cluster, pageById, navigate, projectId, kbClient, suggesti
           )}
 
           {cluster.isGap ? (
-            <div style={{ padding: 14, borderRadius: 'var(--r-md)', border: '1px solid var(--danger)', background: 'var(--danger-soft)' }}>
+            <div {...HIDE} style={{ padding: 14, borderRadius: 'var(--r-md)', border: '1px solid var(--danger)', background: 'var(--danger-soft)' }}>
               <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', color: 'var(--text-3)' }}>SUGGESTED NEW PAGE</div>
               <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)', marginTop: 4 }}>
                 {cluster.gapSuggestion?.title || cluster.name}
@@ -575,7 +576,7 @@ function ClusterRow({ cluster, pageById, navigate, projectId, kbClient, suggesti
                 >
                   {hub.title || hub.url}
                 </a>
-                <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                <span {...HIDE} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
                   <EnhancementBadge enhancement={workIndex.forPage(hub.url)} open={hubOpen} onToggle={() => setHubOpen((v) => !v)} />
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-3)' }}>
                     {hub.wordCount ? `${hub.wordCount.toLocaleString()} words` : '—'}
@@ -583,11 +584,13 @@ function ClusterRow({ cluster, pageById, navigate, projectId, kbClient, suggesti
                 </span>
               </div>
               {hubOpen && workIndex.forPage(hub.url) && (
-                <EnhancementPanel
-                  projectId={projectId}
-                  url={workIndex.forPage(hub.url).url}
-                  onReEnhance={() => navigate(enhanceHref(hub.url, 'hub', origin))}
-                />
+                <div {...HIDE} style={{ display: 'contents' }}>
+                  <EnhancementPanel
+                    projectId={projectId}
+                    url={workIndex.forPage(hub.url).url}
+                    onReEnhance={() => navigate(enhanceHref(hub.url, 'hub', origin))}
+                  />
+                </div>
               )}
             </div>
           )}
@@ -607,21 +610,23 @@ function ClusterRow({ cluster, pageById, navigate, projectId, kbClient, suggesti
 
           <SpokeTable spokes={spokes} navigate={navigate} enhancedUrls={enhancedUrls} workIndex={workIndex} origin={origin} />
 
-          <SuggestedSpokesPanel
-            cluster={cluster}
-            projectId={projectId}
-            kbClient={kbClient}
-            suggestions={suggestions}
-            onSuggestions={onSuggestions}
-            navigate={navigate}
-            recommendedTopics={recommendedTopics}
-            keywordResearch={keywordResearch}
-            workIndex={workIndex}
-            onWorkChanged={onWorkChanged}
-          />
+          <div {...HIDE} style={{ display: 'contents' }}>
+            <SuggestedSpokesPanel
+              cluster={cluster}
+              projectId={projectId}
+              kbClient={kbClient}
+              suggestions={suggestions}
+              onSuggestions={onSuggestions}
+              navigate={navigate}
+              recommendedTopics={recommendedTopics}
+              keywordResearch={keywordResearch}
+              workIndex={workIndex}
+              onWorkChanged={onWorkChanged}
+            />
+          </div>
 
           {earlier.length > 0 && (
-            <div>
+            <div {...HIDE}>
               <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.05em', color: 'var(--text-3)' }}>
                 EARLIER TOPICS · {earlier.length}
               </span>
@@ -852,14 +857,18 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
       )}
 
       {(needsAttention.length > 0 || unassigned.length > 0) && (
-        <div data-explain-box style={{ display: 'flex', flexDirection: 'column', gap: 12, borderRadius: 'var(--r-lg)' }}>
+        <div {...(needsAttention.length === 0 ? HIDE : {})} data-explain-box style={{ display: 'flex', flexDirection: 'column', gap: 12, borderRadius: 'var(--r-lg)' }}>
           <span className="explain-label-row">
             <SectionLabel color="var(--danger)">Needs attention</SectionLabel>
             <InfoDot explainKey="h_table" ctx={explainCtx} />
           </span>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {needsAttention.map(rowFor)}
-            {unassigned.length > 0 && <UnassignedRow pages={unassigned} />}
+            {unassigned.length > 0 && (
+              <div {...HIDE} style={{ display: 'contents' }}>
+                <UnassignedRow pages={unassigned} />
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -900,9 +909,13 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
         </p>
       )}
 
-      <EarlierWork orphans={earlierWork} earlierSuggestions={analysis.earlierSpokeSuggestions || []} navigate={navigate} />
+      <div {...HIDE} style={{ display: 'contents' }}>
+        <EarlierWork orphans={earlierWork} earlierSuggestions={analysis.earlierSpokeSuggestions || []} navigate={navigate} />
+      </div>
 
-      <Legend screen="hub" ctx={explainCtx} working={() => hubWorking({ clusters, pageById })} />
+      <div {...HIDE} style={{ display: 'contents' }}>
+        <Legend screen="hub" ctx={explainCtx} working={() => hubWorking({ clusters, pageById })} />
+      </div>
     </div>
   );
 }

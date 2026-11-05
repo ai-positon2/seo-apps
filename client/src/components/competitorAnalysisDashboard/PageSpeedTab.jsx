@@ -3,6 +3,7 @@ import { ScoreRing } from '../../ui/ScoreRing';
 import { Badge } from '../../ui/Badge';
 import { EmptyState } from '../../ui/EmptyState';
 import { domainLabel, isPageSpeedUsable } from './utils';
+import { HIDE } from '../minimal/hide';
 
 function hasUsableScore(strategy) {
   return !!strategy && typeof strategy.score === 'number';
@@ -179,7 +180,7 @@ export default function PageSpeedTab({ snapshot, running = false, disabled = fal
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <style>{'@keyframes spin { to { transform: rotate(360deg); } }'}</style>
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <div {...HIDE} style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <RefreshButton running={running} disabled={disabled} onRun={onRun} />
         </div>
         {empty}
@@ -190,7 +191,7 @@ export default function PageSpeedTab({ snapshot, running = false, disabled = fal
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <style>{'@keyframes spin { to { transform: rotate(360deg); } }'}</style>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div {...HIDE} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Refreshing Page Speed does not spend SEMrush units.</span>
         <RefreshButton running={running} disabled={disabled} onRun={onRun} />
       </div>
@@ -212,7 +213,7 @@ export default function PageSpeedTab({ snapshot, running = false, disabled = fal
                   </div>
                   <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
                     <CwvVerdict pageSpeed={d.pageSpeed} />
-                    {ago && <span style={{ fontSize: 10, color: 'var(--text-3)' }}>Checked {ago}</span>}
+                    {ago && <span {...HIDE} style={{ fontSize: 10, color: 'var(--text-3)' }}>Checked {ago}</span>}
                   </div>
                 </>
               ) : (
@@ -228,7 +229,7 @@ export default function PageSpeedTab({ snapshot, running = false, disabled = fal
         })}
       </div>
 
-      <div>
+      <div {...HIDE}>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 10 }}>Fixes & Recommendations</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {domains.filter((d) => isPageSpeedUsable(d.pageSpeed)).map((d) => (

@@ -71,6 +71,8 @@ import { InfoTip } from '../components/seoGeo/report/reportKit';
 import {
   uniqueByUrl, applyRuleRollup, reconcileFindings, crawledLine, reportSearch, pageIssueCount,
 } from '../components/crawlScope/runReportData';
+import { useMinimalView } from '../components/minimal/MinimalViewContext';
+import { HIDE } from '../components/minimal/hide';
 
 // How long a crawl may go without a heartbeat before this page stops calling it
 // running. A CLIENT-SIDE heuristic, deliberately generous: it has to exceed the
@@ -173,6 +175,10 @@ export default function CrawlScopeRunPage() {
   const tab = TABS.some((t) => t.id === tabParam) ? tabParam : 'overview';
   const [openIssueId] = useUrlState('issue', null);
   const [openUrl] = useUrlState('page', null);
+  // Minimal (CMO) view keeps only the Overview tab.
+  const { minimal } = useMinimalView();
+  // Replace, not push: a forced tab must not leave a Back entry that bounces.
+  useEffect(() => { if (minimal && tab !== 'overview') setTab('overview', { replace: true }); }, [minimal, tab, setTab]);
   // Opening a problem from further down the page (the overview's "What to fix
   // first") brings its view into sight rather than changing content off-screen.
   const issueTopRef = useRef(null);
@@ -899,10 +905,12 @@ export default function CrawlScopeRunPage() {
             {host} — site health
           </h1>
           {/* A finished crawl: when, and how long ago, in plain words. The
-              plumbing (time taken, page limit, robots.txt) is behind the "i". */}
+              plumbing (time taken, page limit, robots.txt) is behind the "i",
+              which the Minimal version leaves out. */}
           {crawledLine(run, status) && !stalled ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-3)' }}>
               {crawledLine(run, status)}
+              <span {...HIDE} style={{ display: 'contents' }}>
               <InfoTip label="About this crawl" align="left">
                 <strong style={{ color: 'var(--text)', fontSize: 13.5 }}>About this crawl</strong>
                 <span>Finished {new Date(run.finished_at).toLocaleString()}</span>
@@ -918,16 +926,17 @@ export default function CrawlScopeRunPage() {
                 ) : null}
                 {run?.summary?.robotsStatus ? <span>robots.txt: {run.summary.robotsStatus}</span> : null}
               </InfoTip>
+              </span>
             </span>
           ) : (
-            <span style={{ fontSize: 13, color: 'var(--text-3)' }}>
+            <span {...HIDE} style={{ fontSize: 13, color: 'var(--text-3)' }}>
               Crawl of {host} {stalled ? 'stopped responding' : finishedWord}
               {elapsed ? ` · ${formatDuration(elapsed)} elapsed` : ''}
               {coverage.limit ? ` · page limit ${coverage.limit.toLocaleString('en-US')}` : ''}
             </span>
           )}
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div {...HIDE} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {/* '/crawl-scope' is the standalone tool's own run history — useful
               when this run was a one-off, but a project's Tech Audit already
               has its own way back (the project page, via the module's report
@@ -1009,7 +1018,7 @@ export default function CrawlScopeRunPage() {
           empty table for the two minutes it takes, which reads as a catastrophic
           site rather than as a crawl that has not finished. */}
       {running && (
-        <Panel style={{ gap: 10 }}>
+        <Panel {...HIDE} style={{ gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <span
               style={{
@@ -1122,7 +1131,7 @@ export default function CrawlScopeRunPage() {
             )}
           </span>
           {findingsError && (
-            <span style={{ fontSize: 11.5, color: 'var(--viz-neg)', fontFamily: 'var(--font-mono)' }}>
+            <span {...HIDE} style={{ fontSize: 11.5, color: 'var(--viz-neg)', fontFamily: 'var(--font-mono)' }}>
               {findingsError}
             </span>
           )}
@@ -1134,6 +1143,7 @@ export default function CrawlScopeRunPage() {
             >
               Try again
             </OutlineButton>
+            <span {...HIDE} style={{ display: 'contents' }}>
             <OutlineButton
               disabled={downloading}
               onClick={downloadWorkbook}
@@ -1141,6 +1151,7 @@ export default function CrawlScopeRunPage() {
             >
               {downloading ? 'Building…' : 'Download the Excel audit instead'}
             </OutlineButton>
+            </span>
           </div>
         </Panel>
       )}
@@ -1213,7 +1224,7 @@ export default function CrawlScopeRunPage() {
           <RuledHead title={heading} note={note} />
 
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {TABS.map((t) => (
+            {(minimal ? TABS.filter((t) => t.id === 'overview') : TABS).map((t) => (
               <Pill key={t.id} active={tab === t.id} onClick={() => { if (t.id !== tab) setTab(t.id); }}>
                 {t.label}
                 {/* All Pages keeps its count throughout: a crawled page is a
@@ -1279,7 +1290,7 @@ export default function CrawlScopeRunPage() {
         // Both exclusions, said out loud. Otherwise the crawl reports 1,700
         // fetched at the top of the page and this table holds 1,200 rows, with
         // nothing on screen accounting for the other 500.
-        <span style={{ fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.45 }}>
+        <span {...HIDE} style={{ fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.45 }}>
           The crawler fetched {(externalChecked + nonHtmlInternal).toLocaleString()} more URL
           {externalChecked + nonHtmlInternal === 1 ? '' : 's'} that are not listed here:
           {nonHtmlInternal > 0 && (

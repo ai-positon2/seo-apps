@@ -7,6 +7,7 @@ import { fmtNum, fmtCompact, domainLabel, sitemapStatusText, sitemapFootnote, is
 import { RankedBarChart } from './charts/RankedBarChart';
 import { CompositionBar } from './charts/CompositionBar';
 import { CollapsibleTable } from './charts/CollapsibleTable';
+import { HIDE } from '../minimal/hide';
 
 // Deliberately broad — brands span very different industries (local/
 // multi-location services, e-commerce, B2B SaaS, marketplaces, franchises),
@@ -363,7 +364,7 @@ export default function ContentAnalysisTab({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+      <div {...HIDE} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
           Part 1 (top pages) uses SEMrush units; Part 2 (sitemap) does not.
           {contentAnalysis.capturedAt && ` Last run ${new Date(contentAnalysis.capturedAt).toLocaleString()}.`}
@@ -403,6 +404,7 @@ export default function ContentAnalysisTab({
               disabled={running || regeneratingSitemap}
             />
             <Card
+              {...HIDE}
               title="Content Type Counts"
               actions={onReclassify ? (
                 <button
@@ -438,7 +440,7 @@ export default function ContentAnalysisTab({
                 </div>
               )}
             </Card>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div {...HIDE} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {topPagesDomains.map((d) => (
                 <Card key={d.domain} title={domainLabel(d)} actions={d.isClient ? <Badge variant="brand">Client</Badge> : null}>
                   <CollapsibleTable label={`View top ${d.pages.length} pages`}>
@@ -503,7 +505,7 @@ export default function ContentAnalysisTab({
             <Card title="Page Type Distribution">
               <CompositionBar domains={sitemapDomains} segments={buildTypeSegments(sitemapDomains, 'pageTypeCounts')} rowEmptyText="No sitemap found" rowNote={(d) => (d.sitemapStatus === 'blocked' ? sitemapStatusText(d) : null)} />
               {(noSitemap.length > 0 || cappedSitemaps.length > 0) && (
-                <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div {...HIDE} style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
                   {noSitemap.map((d) => (
                     <span key={d.domain} style={{ fontSize: 11, color: 'var(--text-3)' }}>{domainLabel(d)}: {sitemapFootnote(d)}</span>
                   ))}
@@ -526,7 +528,9 @@ export default function ContentAnalysisTab({
 
       {/* ── Editable folder → type mapping (collapsed by default; drives both parts above) ── */}
       {contentAnalysis.folderMap?.length > 0 && (
-        <FolderMappingCard folderMap={contentAnalysis.folderMap} onSave={onSaveMapping} saving={savingMapping} disabled={running} />
+        <div {...HIDE} style={{ display: 'contents' }}>
+          <FolderMappingCard folderMap={contentAnalysis.folderMap} onSave={onSaveMapping} saving={savingMapping} disabled={running} />
+        </div>
       )}
     </div>
   );

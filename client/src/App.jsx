@@ -6,6 +6,7 @@ import { notifyRouteChange } from './lib/agentRunSignal';
 import { ThemeProvider } from './components/ThemeContext';
 import { ToastProvider } from './ui/Toast';
 import { GuidedModeProvider } from './components/explain/GuidedModeContext';
+import { MinimalViewProvider } from './components/minimal/MinimalViewContext';
 import { ChatScreenProvider } from './components/chat/ChatContext';
 import ChatBubble from './components/chat/ChatBubble';
 import { useAuth } from './context/AuthContext';
@@ -195,6 +196,9 @@ export default function App() {
       {/* How every info icon behaves (components/explain). Inside the router,
           because an open explanation closes when the route changes. */}
       <GuidedModeProvider>
+      {/* The CMO view: hides practitioner detail on the Overview and reports
+          without unmounting anything (components/minimal). */}
+      <MinimalViewProvider>
       {/* The report assistant learns which report is on screen from each
           report's Legend (components/chat/ChatContext). */}
       <ChatScreenProvider>
@@ -266,6 +270,7 @@ export default function App() {
         </Route>
       </Routes>
       </ChatScreenProvider>
+      </MinimalViewProvider>
       </GuidedModeProvider>
       </ToastProvider>
     </ThemeProvider>

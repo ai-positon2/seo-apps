@@ -5,6 +5,7 @@ import { projectsApi, relativeTime } from '../../lib/projectsApi';
 import { overviewCache } from './overviewCache';
 import { InfoDot } from '../explain';
 import { moduleReportRoute } from '../../lib/moduleReportRoute';
+import { HIDE } from '../minimal/hide';
 
 // "Add to plan" (PriorityCard, below) turned out to lead nowhere from the
 // reader's seat — its only destination is the Recommendations sheet of the
@@ -435,7 +436,7 @@ function PriorityCard({ item, to, onPromote }) {
       </div>
       <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', lineHeight: 1.35 }}>{item.title}</span>
       <span style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{item.reach}</span>
-      {state === 'error' && <Muted size={11.5} style={{ color: 'var(--viz-neg)' }}>{error}</Muted>}
+      {state === 'error' && <span {...HIDE} style={{ display: 'contents' }}><Muted size={11.5} style={{ color: 'var(--viz-neg)' }}>{error}</Muted></span>}
       <div style={{ marginTop: 'auto', paddingTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{item.moduleLabel}</span>
         {to && (
@@ -448,11 +449,14 @@ function PriorityCard({ item, to, onPromote }) {
       {/* "Add to plan" — see ADD_TO_PLAN_ENABLED at the top of this file. */}
       {ADD_TO_PLAN_ENABLED && onPromote && item.kind !== 'area' && (
         state === 'done' ? (
+          <span {...HIDE} style={{ display: 'contents' }}>
           <Muted size={12} title="It is on the Recommendations sheet of the workbook behind Download report.">
             ✓ Added to the report
           </Muted>
+          </span>
         ) : (
           <Btn
+            {...HIDE}
             onClick={promote}
             disabled={state === 'saving'}
             title={'Adds this finding, with its evidence, to the project’s recommendations. '

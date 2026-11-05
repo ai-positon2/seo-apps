@@ -6,6 +6,7 @@ import { RankedBarChart } from './charts/RankedBarChart';
 import { ScoreCompare } from './charts/ScoreCompare';
 import { CompositionBar } from './charts/CompositionBar';
 import { CollapsibleTable } from './charts/CollapsibleTable';
+import { HIDE } from '../minimal/hide';
 
 // Client's follow-ratio vs. whichever competitor has the most raw backlinks —
 // usually the one whose sheer size looks most intimidating on the surface, so
@@ -86,7 +87,7 @@ export default function BacklinkTab({ snapshot }) {
         </Card>
       </div>
 
-      <Card title="Follow vs. Nofollow — Link Quality">
+      <Card {...HIDE} title="Follow vs. Nofollow — Link Quality">
         <CompositionBar
           domains={domains}
           segments={[
@@ -103,9 +104,11 @@ export default function BacklinkTab({ snapshot }) {
         )}
       </Card>
 
-      <CollapsibleTable>
-        <DataTable title="Authority" columns={overviewColumns} rows={overviewRows} emptyText="No data yet — run an analysis." />
-      </CollapsibleTable>
+      <div {...HIDE} style={{ display: 'contents' }}>
+        <CollapsibleTable>
+          <DataTable title="Authority" columns={overviewColumns} rows={overviewRows} emptyText="No data yet — run an analysis." />
+        </CollapsibleTable>
+      </div>
     </div>
   );
 }

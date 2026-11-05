@@ -5,6 +5,8 @@ import { InfoTip } from '../../seoGeo/report/reportKit';
 import { scoreVerdict } from '../../../lib/scoreVerdict';
 import { InfoDot, Legend } from '../../explain';
 import { techWorking } from '../../chat/screenWorking';
+import { useMinimalView } from '../../minimal/MinimalViewContext';
+import { HIDE } from '../../minimal/hide';
 
 // ── The crawl report's Overview ─────────────────────────────────────────────
 //
@@ -52,6 +54,8 @@ export default function OverviewPanel({
   diagnostics = null, capped = null, coverage = null, comparison = null, onOpenIssue = null,
   issueHref = null,
 }) {
+  // Minimal (CMO) view: the HTML-pages tile is hidden, so the tile row closes up to two.
+  const { minimal } = useMinimalView();
   const breakdown = healthScoreBreakdown(metrics);
   const lost = breakdown.reduce((sum, b) => sum + b.points, 0);
   // Withheld while the crawl runs.
@@ -204,7 +208,8 @@ export default function OverviewPanel({
       </Panel>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <div className="crawl-tiles">
+        <div className="crawl-tiles" style={minimal ? { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } : undefined}>
+          <span {...HIDE} style={{ display: 'contents' }}>
           <StatTile
             icon="page"
             label="HTML pages"
@@ -215,6 +220,7 @@ export default function OverviewPanel({
               ? `The audit universe — ${metrics.refusedCount.toLocaleString()} URL${metrics.refusedCount === 1 ? '' : 's'} refused the crawler and ${metrics.refusedCount === 1 ? 'is' : 'are'} not counted`
               : 'The audit universe — the rest are files and feeds'}
           />
+          </span>
           {/* An em dash, not a zero. "0 pages with an error" is a claim, and
               while the crawl runs nothing has checked. */}
           <StatTile
@@ -251,6 +257,7 @@ export default function OverviewPanel({
             summary. The crawler records why; this is where it gets said. */}
         {coverage?.partial && (
           <div
+            {...HIDE}
             style={{
               display: 'flex', flexDirection: 'column', gap: 6, padding: '12px 16px',
               borderRadius: 10,
@@ -302,7 +309,7 @@ export default function OverviewPanel({
           || coverage?.pagesNotAudited?.length > 0) && (
           // A quiet footnote, folded: it qualifies the findings rather than
           // being one, so it should not compete with them for attention.
-          <details className="crawl-unrun">
+          <details {...HIDE} className="crawl-unrun">
             <summary>
               Some checks couldn’t run on this crawl — they found nothing because they weren’t evaluated, not because they passed.
             </summary>
@@ -356,6 +363,7 @@ export default function OverviewPanel({
             per-severity line that contradicted it. */}
         {diagnostics && (
           <div
+            {...HIDE}
             style={{
               display: 'flex', flexDirection: 'column', gap: 6, padding: '12px 16px',
               borderRadius: 10,

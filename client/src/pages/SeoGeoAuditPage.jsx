@@ -12,6 +12,8 @@ import ReportResolving from '../components/project/ReportResolving';
 import ReportUnavailable from '../components/project/ReportUnavailable';
 import { useUrlState } from '../lib/useUrlState';
 import { useOnPageTab } from '../hooks/useOnPageTab';
+import { useMinimalView } from '../components/minimal/MinimalViewContext';
+import { HIDE } from '../components/minimal/hide';
 
 // ── downloadReport (7 sheets) ─────────────────────────────────────────────────
 // xlsx is ~282 kB minified and is reachable from exactly one button on one
@@ -280,6 +282,10 @@ export default function SeoGeoAuditPage() {
   // The stored page last opened: a different one starts on its Summary, the
   // first keeps the view the address asked for.
   const openedPageId = useRef(null);
+  // Minimal (CMO) view shows the Summary only.
+  const { minimal } = useMinimalView();
+  // Replace, not push: a forced view must not leave a Back entry that bounces.
+  useEffect(() => { if (minimal && view !== 'summary') setView('summary', { replace: true }); }, [minimal, view, setView]);
   // Set only when someone runs an audit on this screen. Opening a stored report
   // (restored, or read from the project) must not start paid work on its own.
   const [freshRun, setFreshRun] = useState(false);
@@ -418,7 +424,7 @@ export default function SeoGeoAuditPage() {
                   readiness hero. These four are the ones that were about to
                   vanish: what kind of page this is, what it was audited
                   against, whether the fetch even succeeded, and its size. */}
-              <span style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.5 }}>
+              <span {...HIDE} style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.5 }}>
                 {[
                   findings.meta?.page_type,
                   findings.meta?.is_ymyl ? 'YMYL' : null,
@@ -434,7 +440,7 @@ export default function SeoGeoAuditPage() {
                 ].filter(Boolean).join(' · ')}
               </span>
             </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <div {...HIDE} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {/* This workbook builder has existed, complete, with seven sheets,
                   and was never wired to anything. The design puts a Download
                   Excel button in the header, so here it is. */}
@@ -455,7 +461,9 @@ export default function SeoGeoAuditPage() {
           {/* Two-way, unlike the design's one-way "See the technical detail →".
               The prototype computes this strip and renders it; the button at the
               bottom of the Summary is the second route into the same place. */}
-          <UnderlineTabs tabs={VIEWS} active={view} onSelect={setView} />
+          <span {...HIDE} style={{ display: 'contents' }}>
+          <UnderlineTabs tabs={minimal ? VIEWS.filter((v) => v.id === 'summary') : VIEWS} active={view} onSelect={setView} />
+          </span>
 
           {view === 'summary' && (
             <SummaryView
@@ -473,14 +481,14 @@ export default function SeoGeoAuditPage() {
         </>
       )}
 
-      <ModuleRuns toolId="seo-geo-audit" />
+      <span {...HIDE} style={{ display: 'contents' }}><ModuleRuns toolId="seo-geo-audit" /></span>
       {/* On-Page runs surface here too. They used to be listed on the standalone
           /on-page-audit page, which was removed as a duplicate of the On-Page
           panel. The panel still starts real jobs through /api/on-page-audit and
           those are still tracked, so without this they would be recorded and
           never shown anywhere — which config/__tests__/moduleRuns.test.js exists
           to catch. */}
-      <ModuleRuns toolId="on-page-audit" />
+      <span {...HIDE} style={{ display: 'contents' }}><ModuleRuns toolId="on-page-audit" /></span>
     </main>
   );
 }

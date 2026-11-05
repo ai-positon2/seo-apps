@@ -5,6 +5,7 @@ import {
 import { InfoDot, Legend } from '../../explain';
 import { seoGeoWorking } from '../../chat/screenWorking';
 import { resolveBreakdown } from '../primitives';
+import { HIDE } from '../../minimal/hide';
 // The page picker's own label ("/ (home)", "/pricing"), so the report and the
 // picker above it never name the same page two ways.
 import { pathOf } from '../../../lib/pageReportPicker';
@@ -182,7 +183,7 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
                 {hero.blurb}
               </span>
             )}
-            <span style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.5, maxWidth: 460 }}>
+            <span {...HIDE} style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.5, maxWidth: 460 }}>
               {siteView
                 ? `The mean of the ${scoredCount} scored pages — the same figure as the dashboard card.`
                   + (unscoredCount ? ` ${unscoredCount} page${unscoredCount === 1 ? '' : 's'} returned an error and ${unscoredCount === 1 ? 'is' : 'are'} not scored.` : '')
@@ -191,7 +192,7 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
             {/* Fix 4.1: answerability as its own figure, and the GEO hold said
                 beside the headline rather than only inside the GEO side. */}
             {!siteView && scores.answerability && (
-              <span style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5, maxWidth: 460 }}>
+              <span {...HIDE} style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5, maxWidth: 460 }}>
                 <strong style={{ color: 'var(--text)' }}>Answerability {scores.answerability.score}/10</strong>
                 {' · '}{scores.answerability.label}
                 {scores.geoHold
@@ -230,6 +231,7 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
             only, and each page's own score is in the page list above. */}
         {siteView && (
           <div
+            {...HIDE}
             style={{
               display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '10px 14px',
               borderRadius: 10, background: 'var(--surface-2)', border: '1px solid var(--border)',
@@ -436,7 +438,7 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
       {/* ── The check counts ─────────────────────────────────────────────── */}
       {/* Labelled with how many checks apply, so the four counts read as parts
           of a whole rather than four unrelated numbers. */}
-      <div data-explain-box style={{ display: 'flex', flexDirection: 'column', gap: 10, borderRadius: 'var(--r-md)' }}>
+      <div {...HIDE} data-explain-box style={{ display: 'flex', flexDirection: 'column', gap: 10, borderRadius: 'var(--r-md)' }}>
         <span className="explain-label-row">
           <Eyebrow>Check results · {counted.length} {counted.length === 1 ? 'check applies' : 'checks apply'}</Eyebrow>
           <InfoDot explainKey="g_counts" ctx={explainCtx} />
@@ -449,7 +451,7 @@ export default function SummaryView({ findings, ai, onOpenDetails, scope = null 
         </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+      <div {...HIDE} style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
         <button
           type="button"
           onClick={onOpenDetails}

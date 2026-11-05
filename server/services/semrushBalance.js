@@ -16,7 +16,9 @@ async function getApiUnitsBalance() {
     if (err.code === 'ECONNABORTED') throw new Error('Semrush balance request timed out');
     throw new Error(`Semrush balance request failed: ${err.message}`);
   }
-  const raw = (res.data || '').toString().trim();
+  // `??`, not `||`: axios parses a body of "0" into the number 0, and `|| ''`
+  // turned an empty account into "unexpected response", which hid the badge.
+  const raw = String(res.data ?? '').trim();
   const balance = parseInt(raw, 10);
   if (Number.isNaN(balance)) throw new Error(`Unexpected Semrush balance response: "${raw}"`);
   return balance;

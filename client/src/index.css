@@ -1107,6 +1107,17 @@ textarea:focus-visible {
 html.embedded header { display: none !important; }
 html.embedded main  { padding-top: 0 !important; }
 
+/* ── Minimal version (CMO view) ──
+   The header switch sets <html data-view="minimal">; anything marked
+   data-minimal="hide" (components/minimal/hide.js) drops out. Hidden, not
+   unmounted, so polling, downloads and Ask Vimi's screen context carry on. */
+html[data-view='minimal'] [data-minimal='hide'] { display: none !important; }
+/* The Legend renders into document.body through a portal, so a hidden wrapper
+   cannot reach it. Hidden by its own classes; it stays mounted, which is what
+   keeps each report registered with Ask Vimi. */
+html[data-view='minimal'] .explain-legend-btn,
+html[data-view='minimal'] .explain-legend { display: none !important; }
+
 /* ── Dark mode: surface/border/text overrides for old Tailwind classes ──
    Screens written before the token system used literal Tailwind colors
    (bg-white, text-gray-900). These map them onto the tokens so those screens

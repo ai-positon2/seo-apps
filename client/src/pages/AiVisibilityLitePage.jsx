@@ -35,6 +35,11 @@ import {
   OverviewReport, InsightsReport, SentimentReport, QuestionsReport,
   GapsReport, DomainsReport, UrlsReport, AnswersReport,
 } from '../components/aiVisibilityLite/reports';
+import { useMinimalView } from '../components/minimal/MinimalViewContext';
+import { HIDE } from '../components/minimal/hide';
+
+// Reports a CMO sees in the Minimal version; the rest drop out of the rail.
+const MINIMAL_REPORTS = new Set(['overview', 'insights', 'perception', 'gaps']);
 
 // How often to re-read while setup or a measurement is in flight. Both are
 // minutes at most, so this is a progress poll, not a background watcher.
@@ -340,11 +345,12 @@ function BudgetPie({ used, cap, size = 18 }) {
 function Rail({
   active, onPick, report, described, budget,
 }) {
+  const { minimal } = useMinimalView();
   const statOf = (id) => (report ? byId(id).stat(report, described) : null);
   const groups = REPORT_GROUPS
-    .map((g) => ({ ...g, ids: g.ids.filter((id) => id !== 'run') }))
+    .map((g) => ({ ...g, ids: g.ids.filter((id) => id !== 'run' && (!minimal || MINIMAL_REPORTS.has(id))) }))
     .filter((g) => g.ids.length);
-  const order = REPORTS.map((r) => r.id);
+  const order = REPORTS.map((r) => r.id).filter((id) => !minimal || MINIMAL_REPORTS.has(id));
   const progress = Math.max(0, order.indexOf(active) + 1) / order.length;
 
   return (
@@ -411,6 +417,9 @@ function Rail({
         })}
 
         <button
+          // Out of the Minimal version once there is a report to read; before
+          // that it is the only way to set the project up, so it stays.
+          {...(report ? HIDE : {})}
           type="button"
           onClick={() => onPick('run')}
           aria-current={active === 'run' ? 'page' : undefined}
@@ -463,6 +472,12 @@ export default function AiVisibilityLitePage() {
   const [reportParam, setReportParam] = useUrlState('report', 'overview');
   const active = REPORTS.some((r) => r.id === reportParam) ? reportParam : 'overview';
   const setActive = useCallback((id) => setReportParam(id), [setReportParam]);
+  const { minimal } = useMinimalView();
+  // Replace, not push: a forced report must not leave a Back entry that bounces.
+  useEffect(() => {
+    // 'run' (Setup & runs) stays reachable: a new project is set up there.
+    if (minimal && active !== 'run' && !MINIMAL_REPORTS.has(active)) setReportParam('overview', { replace: true });
+  }, [minimal, active, setReportParam]);
   const pollRef = useRef(null);
   const paneRef = useRef(null);
   // The project the page is showing NOW. Every response checks it after its
@@ -552,12 +567,14 @@ export default function AiVisibilityLitePage() {
   }, [working, load]);
 
   const step = useCallback((dir) => {
-    const i = REPORTS.findIndex((r) => r.id === active);
+    // The Minimal version walks only the reports its rail shows.
+    const list = minimal ? REPORTS.filter((r) => MINIMAL_REPORTS.has(r.id)) : REPORTS;
+    const i = list.findIndex((r) => r.id === active);
     const nextIndex = i + dir;
     // No wrap-around: the ends are ends, and the buttons read Start / End.
-    if (nextIndex < 0 || nextIndex >= REPORTS.length) return;
-    setActive(REPORTS[nextIndex].id);
-  }, [active, setActive]);
+    if (nextIndex < 0 || nextIndex >= list.length) return;
+    setActive(list[nextIndex].id);
+  }, [active, setActive, minimal]);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -871,7 +888,7 @@ export default function AiVisibilityLitePage() {
             </Muted>
           ) : null}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div {...HIDE} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Muted size={11} style={{ fontFamily: 'var(--font-mono)' }}>
             {index + 1} OF {REPORTS.length}
           </Muted>
@@ -885,7 +902,8 @@ export default function AiVisibilityLitePage() {
       </div>
 
       {notice ? (
-        <Card style={{
+        // A failure stays visible in the Minimal version; routine notices do not.
+        <Card {...(notice.tone === 'error' ? {} : HIDE)} style={{
           padding: 12,
           marginBottom: 14,
           borderLeft: `3px solid ${notice.tone === 'error' ? 'var(--viz-warn)' : 'var(--primary)'}`,
@@ -948,7 +966,7 @@ export default function AiVisibilityLitePage() {
           were the first three things a reader saw — a missing-assistant notice,
           "the question set changed", "no earlier period" — before the answer. */}
       {(unavailable.length || (report && active !== 'run')) ? (
-        <div style={{ marginTop: 18 }}>
+        <div {...HIDE} style={{ marginTop: 18 }}>
           {unavailable.length ? (
             <Card style={{ padding: 12, marginBottom: 14 }}>
               <Muted size={12}>{unavailable.map((s) => s.reason).join(' ')}</Muted>

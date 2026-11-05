@@ -17,6 +17,7 @@ import { useActiveProjectId } from '../lib/activeProject';
 import { useActiveProject } from '../lib/useActiveProject';
 import { projectsApi } from '../lib/projectsApi';
 import { matchClientSlug, KB_CLIENT_SLUGS } from '../lib/clientMatch';
+import { HIDE } from '../components/minimal/hide';
 
 const DISCOVER_STEPS = [
   { id: 'sitemap', label: 'Find sitemap' },
@@ -547,7 +548,7 @@ export default function ContentArchitectProjectPage() {
                   )}
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <div {...HIDE} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {!project?.platformProjectId && <Button variant="secondary" size="sm" onClick={() => setScreen('patterns')}>Edit Pattern Selection</Button>}
                 <Button variant="secondary" size="sm" onClick={project?.platformProjectId ? refreshProjectAnalysis : startAnalysis} loading={screen === 'analyzing'}>Re-run Analysis</Button>
                 <Button size="sm" onClick={() => downloadExport('xlsx')} loading={exportingFormat === 'xlsx'} disabled={!!exportingFormat}>
@@ -564,7 +565,7 @@ export default function ContentArchitectProjectPage() {
             <ClusterHealthBar clusters={analysis.clusters} />
 
             {/* Notes about what this analysis covered. */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
+            <div {...HIDE} style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
               {!selectionSummary && project?.platformProjectId ? (
                 <Note kind="warn">This analysis includes every crawled page. Re-run it to cluster informational pages only.</Note>
               ) : null}
@@ -575,7 +576,7 @@ export default function ContentArchitectProjectPage() {
               </Note>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
+            <div {...HIDE} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Competitor domains:</span>
               <input
                 type="text"
@@ -594,7 +595,7 @@ export default function ContentArchitectProjectPage() {
           </Card>
 
           {analysis.crawlMeta?.sampled && (
-            <Card style={{ background: 'var(--warning-soft)' }}>
+            <Card {...HIDE} style={{ background: 'var(--warning-soft)' }}>
               <div style={{ fontSize: 12 }}>
                 This site's confirmed selection was large enough to trigger sampling — only {analysis.crawlMeta.sampleSize} pages were fully crawled for real content;
                 the rest were grouped by URL alone. See the Summary tab in the download for the exact breakdown.
@@ -617,19 +618,21 @@ export default function ContentArchitectProjectPage() {
             }))}
           />
 
-          <div style={{ fontSize: 11, color: 'var(--text-3)', textAlign: 'center' }}>
+          <div {...HIDE} style={{ fontSize: 11, color: 'var(--text-3)', textAlign: 'center' }}>
             For the full retire/refresh reasoning, excluded-page detail, and every column, download the Excel above.
           </div>
         </div>
       )}
 
       {/* Scoped to this project: the run label the server records is `project <id>`. */}
-      <ModuleRuns
-        toolId="content-architect"
-        title="Runs for this project"
-        search={`project ${id}`}
-        scopeNote="URL discovery, draft clustering, full analysis and exports for this project"
-      />
+      <div {...HIDE} style={{ display: 'contents' }}>
+        <ModuleRuns
+          toolId="content-architect"
+          title="Runs for this project"
+          search={`project ${id}`}
+          scopeNote="URL discovery, draft clustering, full analysis and exports for this project"
+        />
+      </div>
     </div>
   );
 }

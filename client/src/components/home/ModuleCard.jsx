@@ -10,6 +10,7 @@ import { moduleReportRoute } from '../../lib/moduleReportRoute';
 import { TAGS } from '../../toolsMeta';
 import { InfoDot } from '../explain';
 import { scoreBandColor } from '../../lib/scoreVerdict';
+import { HIDE } from '../minimal/hide';
 
 // Which explainer each module's card carries. The two AI Visibility modules
 // answer the same question, so they share one.
@@ -321,7 +322,7 @@ export default function ModuleCard({ module, onRun, crawlLive = false }) {
               nav entry — so "this is new/still settling" reads the same way
               wherever a reader meets it. */}
           {module.tag && TAGS[module.tag] && (
-            <span title={TAGS[module.tag].label} style={{
+            <span {...HIDE} title={TAGS[module.tag].label} style={{
               fontSize: 9,
               fontWeight: 700,
               letterSpacing: '.04em',
@@ -412,6 +413,7 @@ export default function ModuleCard({ module, onRun, crawlLive = false }) {
         )}
         {blurb.support && (
           <span
+            {...HIDE}
             style={{
               fontSize: 11, color: 'var(--text-3)', lineHeight: 1.45,
               display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
@@ -428,6 +430,7 @@ export default function ModuleCard({ module, onRun, crawlLive = false }) {
           "Failed" and nothing else sends the reader to the server logs. */}
       {(module.error || runError) && (
         <div
+          {...HIDE}
           style={{
             padding: '9px 11px', borderRadius: 'var(--r-sm)', fontSize: 11.5, lineHeight: 1.5,
             background: 'color-mix(in srgb, var(--viz-neg) 10%, transparent)',
@@ -440,6 +443,9 @@ export default function ModuleCard({ module, onRun, crawlLive = false }) {
       )}
 
       <div
+        // Out of the Minimal version, except on a card that still needs
+        // setting up: its "Set up →" link is the only way forward from here.
+        {...(module.setupLink ? {} : HIDE)}
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           gap: 8, marginTop: 'auto',
