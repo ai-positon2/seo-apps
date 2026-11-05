@@ -7,7 +7,7 @@ import {
   Card, Kicker, Muted, Tag, Btn, FadingRule, SectionHead, Spinner,
 } from '../components/studio/primitives';
 import ProjectSetupCard from '../components/home/ProjectSetupCard';
-import { createdBanner } from '../lib/projectCreated';
+import { createdBanner, reviewPrompt } from '../lib/projectCreated';
 import ModuleRuns from '../components/ModuleRuns';
 
 // ── Projects — settings (PRD §20.9) ─────────────────────────────────────────
@@ -31,12 +31,19 @@ const inputStyle = {
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 // The tooltip on an AI-picked competitor: why discovery kept it.
+// Suggestions are accepted by a person now (UX-112); older AI picks on existing
+// projects were attached without review, and still say so.
 function aiPickTitle(domain) {
   const why = domain.discovery?.reason;
   const type = domain.discovery?.competitorType;
-  return ['Suggested by SEMrush + AI and added without review.', why, type ? `Type: ${type}.` : null]
-    .filter(Boolean).join(' ');
+  const lead = domain.status === 'proposed'
+    ? 'Suggested by SEMrush + AI — not compared until accepted.'
+    : 'Suggested by SEMrush + AI.';
+  return [lead, why, type ? `Type: ${type}.` : null].filter(Boolean).join(' ');
 }
+
+// An AI suggestion with no AI verdict (validation unavailable): keyword overlap only.
+const isUnverifiedPick = (domain) => domain.source === 'accepted' && domain.discovery?.verified === false;
 
 export default function ProjectsPage() {
   const navigate = useNavigate();
@@ -134,6 +141,7 @@ export default function ProjectsPage() {
       {showSetup && (
         <ProjectSetupCard
           limits={state.data?.limits}
+          autostarts={state.data?.autostarts || null}
           workspaces={state.data?.workspaces || []}
           activeWorkspaceId={state.data?.activeWorkspaceId || null}
           onCreated={async (project, competitorResearch, result) => {
@@ -182,6 +190,11 @@ export default function ProjectsPage() {
                     {project.primaryDomain?.host || project.legacyUrl}
                     {deleted && ' · deleted'}
                   </Muted>
+                  {(project.proposedCompetitors || []).length > 0 && (
+                    <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--viz-warn, #d97706)' }}>
+                      {reviewPrompt(project.proposedCompetitors)}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -558,10 +571,13 @@ function ProjectDetail({ project, capabilities, viewerUserId, onMutate, onOpenDa
               border: '1px solid color-mix(in srgb, var(--viz-warn, #d97706) 35%, transparent)',
               background: 'color-mix(in srgb, var(--viz-warn, #d97706) 8%, transparent)',
             }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+                {reviewPrompt(proposedCompetitors)}
+              </span>
               <Muted size={12}>
                 {canDecideProposals
-                  ? `Awaiting your decision — ${proposedCompetitors.length} proposed competitor${proposedCompetitors.length === 1 ? '' : 's'}. Accepting one starts a comparison against it, which spends SEMrush units.`
-                  : `Proposed — waiting for an approver or administrator to accept. ${proposedCompetitors.length === 1 ? 'It is' : 'They are'} not tracked yet.`}
+                  ? 'Accept the real rivals and reject the rest. Accepting one starts a comparison against it, which spends SEMrush units; nothing is compared until you accept.'
+                  : `Waiting for an approver or administrator to accept. ${proposedCompetitors.length === 1 ? 'It is' : 'They are'} not tracked yet.`}
               </Muted>
 
               {proposedCompetitors.map((domain) => (
@@ -569,6 +585,15 @@ function ProjectDetail({ project, capabilities, viewerUserId, onMutate, onOpenDa
                   display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
                 }}>
                   <Tag tone="warn">{domain.host}</Tag>
+                  {domain.source === 'accepted' && (
+                    <span title={aiPickTitle(domain)} style={{ cursor: 'help' }}>
+                      <Tag tone="accent">AI pick</Tag>
+                    </span>
+                  )}
+                  {isUnverifiedPick(domain) && <Tag tone="warn">not verified</Tag>}
+                  {domain.discovery?.reason && (
+                    <Muted size={11.5}>{domain.discovery.reason}</Muted>
+                  )}
                   {canDecideProposals && (
                     <>
                       <Btn
@@ -599,14 +624,15 @@ function ProjectDetail({ project, capabilities, viewerUserId, onMutate, onOpenDa
             {project.competitors.map((domain) => (
               <span key={domain.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <Tag tone="muted">{domain.host}</Tag>
-                {/* 'accepted' = picked by SEMrush + AI discovery and attached without a
-                    person reviewing it. Marked, with the model's reason when stored, so
-                    an unreviewed pick is not mistaken for a rival someone chose. */}
+                {/* 'accepted' = picked by SEMrush + AI discovery. Marked, with the
+                    model's reason when stored, so a pick is not mistaken for a rival
+                    someone typed in. */}
                 {domain.source === 'accepted' && (
                   <span title={aiPickTitle(domain)} style={{ cursor: 'help' }}>
                     <Tag tone="accent">AI pick</Tag>
                   </span>
                 )}
+                {isUnverifiedPick(domain) && <Tag tone="warn">not verified</Tag>}
                 {canManageCompetitors && !proposeOnly && (
                   <button
                     type="button"
@@ -671,10 +697,10 @@ function ProjectDetail({ project, capabilities, viewerUserId, onMutate, onOpenDa
                 {discovering ? 'Finding…' : 'Find competitors with AI'}
               </Btn>
               <Muted>
-                SEMrush + AI suggest domains for this site and add them the same way a typed-in
-                competitor is added{proposeOnly
-                  ? ' (proposed, pending approval)'
-                  : ', which starts a comparison against them'}.
+                SEMrush + AI suggest domains for this site (about 200 SEMrush units). They are listed
+                above as suggestions{proposeOnly
+                  ? ', pending an approver'
+                  : ' for you to accept or reject'}; a comparison starts only once one is accepted.
               </Muted>
             </div>
           )}

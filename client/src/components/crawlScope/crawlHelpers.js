@@ -1306,13 +1306,22 @@ export function buildExecutiveSummaryText({ run, metrics, counts, seoSnapshot, g
 // the on-screen summary, then a prioritized fix list instead of just the top
 // 3. Tone follows the scheduled-crawl email (worker/email.js) — terse and
 // data-first, no "Dear team," greeting or sign-off invented for it.
+// The run's report address as shared outside the app. It names the run's own
+// client (?project=), so a recipient whose last client was another one still
+// opens it on this one. A one-off crawl with no client gets the bare address.
+export function runDashboardUrl(origin, id, run) {
+  if (!id) return '';
+  const pid = run?.project_id;
+  return `${origin || ''}/crawl-scope/runs/${id}${pid ? `?project=${encodeURIComponent(pid)}` : ''}`;
+}
+
 export function buildEmailShareText({
   run, id, metrics, counts, backlog, groups = [], siteGroups = [], email,
 }) {
   if (!metrics || !counts) return '';
   const host = hostOf(run?.url);
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const dashboardUrl = id ? `${origin}/crawl-scope/runs/${id}` : '';
+  const dashboardUrl = runDashboardUrl(origin, id, run);
   const excelUrl = id ? `${origin}/api/crawl-scope/runs/${id}/report.xlsx` : '';
   const lines = [];
 
@@ -1372,7 +1381,7 @@ export function buildChannelShareText({
   if (!metrics || !counts) return '';
   const host = hostOf(run?.url);
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const dashboardUrl = id ? `${origin}/crawl-scope/runs/${id}` : '';
+  const dashboardUrl = runDashboardUrl(origin, id, run);
   const lines = [];
 
   lines.push(`CrawlScope — ${host}`);

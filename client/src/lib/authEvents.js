@@ -20,6 +20,8 @@ export const SESSION_HEADER = 'x-session-ended';
 const CHANNEL = 'seo-studio-auth';
 const STORAGE_KEY = 'seo-studio:signed-out';
 const RETURN_KEY = 'seo-studio:return-path';
+const SIGNED_IN_KEY = 'seo-studio:signed-in';
+const HAD_SESSION_KEY = 'seo-studio:had-session';
 
 const listeners = new Set();
 let fired = false;
@@ -135,6 +137,56 @@ export function broadcastSignOut() {
   try { localStorage.setItem(STORAGE_KEY, String(Date.now())); } catch { /* private mode */ }
 }
 
+/**
+ * Tells this browser's other tabs that a session now exists (someone signed in
+ * here). A tab left on the sign-in screen re-checks and leaves it; a signed-in
+ * tab ignores it.
+ */
+export function broadcastSignIn() {
+  try {
+    if (typeof BroadcastChannel === 'function') {
+      const ch = new BroadcastChannel(CHANNEL);
+      ch.postMessage({ type: 'signed-in', at: Date.now() });
+      ch.close();
+    }
+  } catch { /* fall through to the storage event */ }
+  try { localStorage.setItem(SIGNED_IN_KEY, String(Date.now())); } catch { /* private mode */ }
+}
+
+/** Calls fn when another tab of this browser signs in. Returns an unsubscribe. */
+export function onCrossTabSignIn(fn) {
+  const cleanups = [];
+  try {
+    if (typeof BroadcastChannel === 'function') {
+      const ch = new BroadcastChannel(CHANNEL);
+      ch.onmessage = (e) => { if (e?.data?.type === 'signed-in') fn(); };
+      cleanups.push(() => ch.close());
+    }
+  } catch { /* storage fallback below */ }
+  const onStorage = (e) => { if (e.key === SIGNED_IN_KEY && e.newValue) fn(); };
+  window.addEventListener('storage', onStorage);
+  cleanups.push(() => window.removeEventListener('storage', onStorage));
+  return () => cleanups.forEach((c) => c());
+}
+
+// ── "Was signed in here" ────────────────────────────────────────────────────
+// Set on every successful session check, cleared only by choosing to sign out.
+// A reload that finds no session while this is set means the session ended
+// under the user (expiry, revoked elsewhere), not that they never signed in —
+// so the sign-in screen says so and signing in returns to the same page.
+
+export function markHadSession() {
+  try { localStorage.setItem(HAD_SESSION_KEY, '1'); } catch { /* private mode */ }
+}
+
+export function clearHadSession() {
+  try { localStorage.removeItem(HAD_SESSION_KEY); } catch { /* private mode */ }
+}
+
+export function hadSession() {
+  try { return localStorage.getItem(HAD_SESSION_KEY) === '1'; } catch { return false; }
+}
+
 /** Calls fn when another tab of this browser signs out. Returns an unsubscribe. */
 export function onCrossTabSignOut(fn) {
   const cleanups = [];
@@ -172,4 +224,23 @@ export function takeReturnPath() {
 
 export function clearReturnPath() {
   try { sessionStorage.removeItem(RETURN_KEY); } catch { /* ignore */ }
+}
+
+// Routes drawn without the sign-in gate (or the sign-in page itself). Never a
+// place to come back to after signing in: a shared Agent Readiness summary
+// opened signed out would otherwise claim the return path, and "Open full
+// report" -> sign in landed back on the summary.
+const PUBLIC_PATHS = new Set(['/agent-readiness-audit/summary', '/login']);
+
+export function isPublicPath(pathname) {
+  return PUBLIC_PATHS.has(pathname || '');
+}
+
+/**
+ * The return path to keep when the sign-in screen is shown at `pathname`, or
+ * null for a public route or the root. Pure, for the tests.
+ */
+export function gateReturnPath(pathname, search = '') {
+  if (!pathname || !pathname.startsWith('/') || pathname === '/' || isPublicPath(pathname)) return null;
+  return pathname + (search || '');
 }

@@ -98,20 +98,38 @@ async function evidenceBackedDetail({
   const TERMINAL = ['completed', 'failed', 'cancelled', 'insufficient_data'];
   // Reconciled with its own page list, as the dashboard's card is (UX-138).
   let terminal = moduleEvidence.reconcilePageRun(runs.find((r) => TERMINAL.includes(r.status)) || null);
+  // Its top findings too, when it was stored without them (UX-138).
+  if (terminal && typeof moduleEvidence.withPageFindings === 'function') {
+    terminal = (await moduleEvidence.withPageFindings([terminal])).get(terminal.id) || terminal;
+  }
   const inFlight = runs.find((r) => !TERMINAL.includes(r.status)) || null;
 
   // AI Visibility: the same live-report score the dashboard card shows
   // (overview.liveAiVisibilityTerminal), not the score stored when the run
-  // closed — otherwise the card read '—' while this read 3/100.
-  if (module.key === 'ai_visibility_lite' && terminal && !inFlight && projectRow
+  // closed — otherwise the card read '—' while this read 3/100. Also while a
+  // run is in flight, exactly as the dashboard does, so the two agree mid-run:
+  // both show the last finished figures (the live report leaves the unfinished
+  // run's answers out).
+  if (module.key === 'ai_visibility_lite' && terminal && projectRow
       && typeof overview.liveAiVisibilityTerminal === 'function') {
-    terminal = await overview.liveAiVisibilityTerminal(projectRow, terminal).catch((e) => {
+    terminal = await overview.liveAiVisibilityTerminal(projectRow, terminal, { inFlight }).catch((e) => {
       console.warn('[moduleDetail] live AI Visibility score unavailable:', e.message);
       return terminal;
     });
   }
+  // The profile was built for the project's previous site (UX-108): its
+  // findings, counts and stored report describe that site, so none of them is
+  // shown here — the same rule the dashboard, the downloads and the executive
+  // summary apply (overview.liveAiVisibilityTerminal sets profileStale).
+  const profileStale = module.key === 'ai_visibility_lite' ? terminal?.profileStale || null : null;
+  if (profileStale) {
+    terminal = { ...terminal, score: null, findings: [], counts: {}, payload: null, payload_truncated: false };
+  }
 
-  const card = overview.evidenceCard(module, (terminal || inFlight) ? { terminal, inFlight } : null);
+  const built = overview.evidenceCard(module, (terminal || inFlight) ? { terminal, inFlight } : null);
+  // The dashboard's own out-of-date card, not "No error or warning findings"
+  // for results that were left out.
+  const card = profileStale ? overview.aivProfileStaleCard(built, terminal) : built;
 
   // The pages this run covered, without their reports — the picker needs a list
   // of URLs and scores, not several megabytes of stored reports.
@@ -318,11 +336,9 @@ async function buildModuleDetail({ access, moduleKey, domains = [] }) {
 
   // Auto-discovery runs INSIDE the competitor run itself whenever it starts
   // with none tracked and none awaiting approval — see
-  // moduleRunners.runCompetitor. The Run button's price is read straight off
-  // this count, so pricing it at zero here would quote the cost of comparing
-  // against nobody for a run that is about to go find some (§16.11: no
-  // invented evidence, and understating a real cost is its own version of
-  // that).
+  // moduleRunners.runCompetitor. Such a run only searches for competitors (it
+  // saves what it finds as suggestions), so its price is replaced below with
+  // the discovery search's own estimate rather than quoted as zero.
   const pendingAutoDiscovery = module.key === 'competitor' && !competitorCount
     && !domains.some((d) => d.role === 'competitor' && d.status === 'proposed');
   const pricedCompetitorCount = pendingAutoDiscovery
@@ -346,10 +362,15 @@ async function buildModuleDetail({ access, moduleKey, domains = [] }) {
   }
 
   if (pendingAutoDiscovery && detail.cost) {
-    // Flagged rather than silently repriced, so the client can say "up to" —
-    // the ceiling is real (discovery finds at most this many), but so is the
-    // chance discovery finds fewer, or none, and the run spends less.
-    detail.cost = { ...detail.cost, assumesAutoDiscovery: true };
+    // A run with no competitor only searches for some: what it finds is saved
+    // as suggestions, and the paid comparison starts when one is accepted. So
+    // the price is the discovery search alone (the same estimate the setup
+    // autostart quotes), flagged "up to" because the search can return less.
+    detail.cost = {
+      ...detail.cost,
+      ...require('./competitorAutostart').discoveryEstimate(),
+      assumesAutoDiscovery: true,
+    };
   }
 
   return {

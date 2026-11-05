@@ -8,7 +8,9 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { pickDirectRivals, DIRECT_RIVAL_CRITERION } = require('../discovery');
+const {
+  pickDirectRivals, DIRECT_RIVAL_CRITERION, unverifiedVerdicts, NOT_VERIFIED_REASON,
+} = require('../discovery');
 
 const candidates = [
   { domain: 'footlocker.com', competitionLevel: 0.9 },
@@ -33,6 +35,21 @@ test('retailers, publishers and indirect picks are dropped; direct rivals kept w
 test('excluded verdicts and unmentioned candidates are never attached', () => {
   const kept = pickDirectRivals(candidates, [{ domain: 'adidas.com', status: 'exclude', competitorType: 'direct' }], 3);
   assert.deepStrictEqual(kept, []);
+});
+
+test('without an AI verdict, candidates are kept only as NOT VERIFIED suggestions, never as direct rivals', () => {
+  const kept = pickDirectRivals(candidates, unverifiedVerdicts(candidates), 3);
+  assert.deepStrictEqual(kept.map((c) => c.domain), ['unmentioned.com', 'footlocker.com', 'runnersworld.com']);
+  for (const c of kept) {
+    assert.strictEqual(c.verified, false);
+    assert.strictEqual(c.competitorType, null, 'not labelled "direct"');
+    assert.strictEqual(c.reason, NOT_VERIFIED_REASON);
+  }
+});
+
+test('a real verdict marks kept rivals verified', () => {
+  const kept = pickDirectRivals(candidates, [{ domain: 'adidas.com', status: 'keep', competitorType: 'direct' }], 3);
+  assert.strictEqual(kept[0].verified, true);
 });
 
 test('the prompt asks for companies selling the same kind of product', () => {

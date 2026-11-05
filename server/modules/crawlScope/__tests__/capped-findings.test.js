@@ -140,3 +140,52 @@ test('a finished run’s stored rows are read in keyset pages, all of them', asy
   const rows = await repo.listAllResults(client, 'run', { page: 2 });
   assert.deepEqual(rows.map((r) => r.url), stored.map((r) => r.data.url));
 });
+
+test('per-page counts over every finding come back as { url: [table, list] } (UX-192)', async () => {
+  let bound = null;
+  const client = {
+    async boundedRead(ms, fn, opts) {
+      bound = { ms, signal: opts?.signal ?? null };
+      return fn({
+        async rows(sql, params) {
+          assert.match(sql, /group by url/);
+          assert.deepEqual(params[1], ['False positive', 'Resolved']);
+          return [
+            { url: 'https://x.test/a', page_n: 3, all_n: 4 },
+            { url: 'https://x.test/b', page_n: 0, all_n: 1 },
+          ];
+        },
+      });
+    },
+  };
+  const signal = new AbortController().signal;
+  const counts = await repo.listRunFindingUrlCounts(client, 'run', { signal });
+  assert.deepEqual(counts, { 'https://x.test/a': [3, 4], 'https://x.test/b': [0, 1] });
+  // Bounded, and cancellable by the request that asked.
+  assert.equal(bound.ms, 15_000);
+  assert.equal(bound.signal, signal);
+});
+
+test('a capped read stops asking for pages once its request has gone', async () => {
+  const controller = new AbortController();
+  let pageReads = 0;
+  const client = {
+    async rows(sql, params) {
+      if (sql.includes('row_number()')) {
+        return [{ id: 1, n: 1, total: 20 }, { id: 11, n: 11, total: 20 }];
+      }
+      if (sql.includes('select distinct')) return [];
+      if (sql.includes('group by rule_id')) {
+        return [{ rule_id: 'r', severity: 'notice', count: 20, pages: 20 }];
+      }
+      pageReads += 1;
+      controller.abort();
+      return [{ id: params[2] ? 1 : 1, d: { id: 'f', ruleId: 'r' }, rk: 'x', dk: 'y' }];
+    },
+  };
+  await assert.rejects(
+    repo.listAllRunFindingInstances(client, 'run', { cap: 5, signal: controller.signal }),
+    (err) => err.aborted === true,
+  );
+  assert.equal(pageReads, 1);
+});

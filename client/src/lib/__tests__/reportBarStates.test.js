@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 
-import { plainFailure, runDidNotFinish, pickSelection } from '../pageReportPicker.js';
+import { plainFailure, runDidNotFinish, pickSelection, pendingPage } from '../pageReportPicker.js';
 
 test('a refusal by the site is said plainly', () => {
   assert.match(plainFailure('Fetch failed: HTTP 429 Too Many Requests'), /site blocked our check/);
@@ -37,4 +37,22 @@ test('the page in the address wins, when it belongs to this run', () => {
   assert.strictEqual(pickSelection(pages, { wanted: 'zzz', current: 'b' }), 'b');
   assert.strictEqual(pickSelection(pages, { wanted: 'zzz' }), 'a', 'falls back to the homepage');
   assert.strictEqual(pickSelection([], { wanted: 'b' }), null);
+});
+
+test('a page still in its audit gets its own state, not the previous report', () => {
+  assert.strictEqual(pendingPage({ status: 'completed', url: 'https://x.test/a' }), null);
+  assert.strictEqual(pendingPage({ status: 'failed' }), null);
+  assert.strictEqual(pendingPage(null), null);
+  const queued = pendingPage({ status: 'queued', url: 'https://x.test/a' });
+  assert.deepStrictEqual([queued.status, queued.url], ['queued', 'https://x.test/a']);
+  assert.match(queued.reason, /queued/);
+  assert.match(pendingPage({ status: 'running' }).reason, /being audited now/);
+});
+
+test('?page= round trip: a picked page reopens on reload, Back goes to the one before', () => {
+  const pages = [{ pageRunId: 'home', ordinal: 0 }, { pageRunId: 'b', ordinal: 1 }, { pageRunId: 'c', ordinal: 2 }];
+  // pick b (writes ?page=b), reload: b; pick c, Back to ?page=b: b; Back to no param: the homepage
+  assert.strictEqual(pickSelection(pages, { wanted: 'b' }), 'b');
+  assert.strictEqual(pickSelection(pages, { wanted: 'b', current: 'c' }), 'b');
+  assert.strictEqual(pickSelection(pages, { wanted: null }), 'home');
 });

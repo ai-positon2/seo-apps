@@ -12,7 +12,28 @@ import assert from 'node:assert';
 import {
   computeClientStat, rankedRows, unlessFailed, brandedCountText, hasBrandedShare,
   sitemapStatusText, sitemapFootnote, isSitemapPartial,
+  bumpClientLoad, isClientLoading,
 } from '../utils.js';
+
+test('a reload for a client the reader left never leaves the selected one loading', () => {
+  // Reader on A starts a read, switches to B (B's read starts), then A's run
+  // finishes and reloads A. Every read settles; B must end not loading.
+  let loads = {};
+  loads = bumpClientLoad(loads, 'A', 1);
+  loads = bumpClientLoad(loads, 'B', 1);
+  assert.strictEqual(isClientLoading(loads, 'B'), true);
+  loads = bumpClientLoad(loads, 'A', 1);   // A's run finished → reload A
+  loads = bumpClientLoad(loads, 'B', -1);  // B answered
+  assert.strictEqual(isClientLoading(loads, 'B'), false);
+  assert.strictEqual(isClientLoading(loads, 'A'), true);
+  loads = bumpClientLoad(loads, 'A', -1);
+  loads = bumpClientLoad(loads, 'A', -1);
+  assert.deepStrictEqual(loads, {});
+  // No client, no state; never negative.
+  assert.strictEqual(isClientLoading(loads, ''), false);
+  assert.deepStrictEqual(bumpClientLoad({}, 'A', -1), {});
+  assert.deepStrictEqual(bumpClientLoad(undefined, '', 1), {});
+});
 
 const client = { domain: 'me.com', isClient: true, v: 50 };
 

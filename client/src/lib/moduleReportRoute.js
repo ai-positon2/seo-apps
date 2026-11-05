@@ -71,3 +71,14 @@ function baseRoute(module) {
 }
 
 export default moduleReportRoute;
+
+/**
+ * A crawl run's report, carrying the client it belongs to. `projectId` is the
+ * run's own client when the caller has it (run.project_id); otherwise this
+ * tab's client, which is the one every list of runs here is about. The run page
+ * also switches the header to the run's own client once it has loaded.
+ */
+export function runReportPath(runId, projectId) {
+  if (!runId) return '/crawl-scope';
+  return withProjectParam(`/crawl-scope/runs/${runId}`, projectId || readActiveProjectId());
+}

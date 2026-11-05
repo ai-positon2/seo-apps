@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { lazy, Suspense, useEffect } from 'react';
-import { takeReturnPath } from './lib/authEvents';
+import { takeReturnPath, gateReturnPath, rememberReturnPath } from './lib/authEvents';
 import { getToolByPath } from './toolsMeta';
 import { notifyRouteChange } from './lib/agentRunSignal';
 import { ThemeProvider } from './components/ThemeContext';
@@ -96,6 +96,21 @@ function ReturnAfterSignIn() {
   return null;
 }
 
+// The sign-in screen is showing for a protected route: signing in comes back
+// to THIS route, replacing any older return path (e.g. "Open full report" from
+// a shared summary opened signed out). Not after choosing to sign out — that
+// has nowhere to return to.
+function RememberGatedRoute() {
+  const { pathname, search } = useLocation();
+  const { isChosenSignOut } = useAuth();
+  useEffect(() => {
+    if (isChosenSignOut?.()) return;
+    const path = gateReturnPath(pathname, search);
+    if (path) rememberReturnPath(path);
+  }, [pathname, search, isChosenSignOut]);
+  return null;
+}
+
 // /api/auth/verify answered 5xx or not at all. That says nothing about the
 // session, so this is a retrying screen, not the sign-in card: a fifteen-second
 // database blip used to sign every open tab out.
@@ -160,6 +175,7 @@ export default function App() {
   if (authState === 'unauthenticated') {
     return (
       <ThemeProvider>
+        <RememberGatedRoute />
         <LoginPage />
       </ThemeProvider>
     );

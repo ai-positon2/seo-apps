@@ -65,10 +65,11 @@ import { useRegisterChatScreen } from '../components/chat/ChatContext';
 import { techWorking } from '../components/chat/screenWorking';
 import { cs, saveBlob } from '../lib/crawlScopeApi';
 import { useUrlState } from '../lib/useUrlState';
+import { recordClientAddress, useKnownProjectsVersion } from '../lib/activeProject';
 import { useAuth } from '../context/AuthContext';
 import { InfoTip } from '../components/seoGeo/report/reportKit';
 import {
-  uniqueByUrl, applyRuleRollup, reconcileFindings, crawledLine, reportSearch,
+  uniqueByUrl, applyRuleRollup, reconcileFindings, crawledLine, reportSearch, pageIssueCount,
 } from '../components/crawlScope/runReportData';
 
 // How long a crawl may go without a heartbeat before this page stops calling it
@@ -122,12 +123,16 @@ export default function CrawlScopeRunPage() {
   // was capped: the list is filled most serious first, and the counts come
   // from this so they do not shrink with it (runReportData.applyRuleRollup).
   const [ruleRollup, setRuleRollup] = useState(null);
+  // Per page, over EVERY finding, when the list was capped (UX-192):
+  // { url: [All Pages count, page-view count] }. Null otherwise.
+  const [urlCounts, setUrlCounts] = useState(null);
   const takeFindings = (response) => {
     const list = response?.findings || [];
     setFindings(list);
     setFindingsCap(response?.capped ? { shown: list.length, total: Number(response.total) || list.length } : null);
     setServerHealth(response?.capped ? response.serverHealth || null : null);
     setRuleRollup(response?.capped && Array.isArray(response.ruleRollup) ? response.ruleRollup : null);
+    setUrlCounts(response?.capped && response.urlCounts && typeof response.urlCounts === 'object' ? response.urlCounts : null);
   };
   // Whether the AUDIT — the full rule catalog's finding set — has actually been loaded.
   //
@@ -196,6 +201,23 @@ export default function CrawlScopeRunPage() {
     if (location.state?.inReport) navigate(-1);
     else navigate(hrefWith(changes));
   }, [location.state, navigate, hrefWith]);
+
+  // The header follows the run's own client. A link without ?project= (or
+  // naming another client) otherwise left the header on whatever client the
+  // reader last had while this showed another client's crawl. The address is
+  // corrected in place; the shell adopts it only if the user can open that
+  // client (lib/activeProject.js). Only once the header's list is known and
+  // has the run's client: then the shell adopts it at once. Rewriting before
+  // that made the link "pending", and the shell unmounted and remounted this
+  // whole page (stream, state, fetches) while it checked. A client the user
+  // cannot open is never in the list, so it is not asked for.
+  const runProjectId = run?.project_id || null;
+  const knownProjectsVersion = useKnownProjectsVersion();
+  useEffect(() => {
+    const fixed = recordClientAddress(location.pathname, location.search, runProjectId);
+    if (fixed) navigate(fixed, { replace: true, state: location.state });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runProjectId, knownProjectsVersion]);
 
   // Results arrive one event at a time and a large crawl is thousands of rows,
   // so they accumulate in a ref and are flushed to state on a timer. Setting
@@ -830,6 +852,11 @@ export default function CrawlScopeRunPage() {
   const openPage = !openGroup && openUrl
     ? effectivePages.find((p) => p.url === openUrl) || null
     : null;
+  const openPageIssues = openPage ? pageIssueCards(findings, openPage.url, catalogById, pagesByRule) : [];
+  // On a capped run the loaded list can hold only some of a page's findings.
+  const openPageCount = openPage
+    ? pageIssueCount(openPage.url, openPageIssues.length, urlCounts, 'list')
+    : null;
 
   const heading = openGroup || openPage ? null
     : tab === 'overview' ? 'Overview'
@@ -1173,7 +1200,8 @@ export default function CrawlScopeRunPage() {
         <UrlDetail
           key={openPage.url}
           page={openPage}
-          issues={pageIssueCards(findings, openPage.url, catalogById, pagesByRule)}
+          issues={openPageIssues}
+          totalCount={openPageCount?.partial ? openPageCount.count : null}
           onBack={() => backOneLevel({ page: null })}
           onOpenIssue={openIssue}
         />
@@ -1242,7 +1270,7 @@ export default function CrawlScopeRunPage() {
           )}
 
           {tab === 'urls' && (
-            <UrlsTable pages={htmlPages} onOpen={(url) => openView({ page: url })} />
+            <UrlsTable pages={htmlPages} urlCounts={urlCounts} onOpen={(url) => openView({ page: url })} />
           )}
         </div>
       )}

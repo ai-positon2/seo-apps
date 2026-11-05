@@ -52,8 +52,32 @@ export function isShareableSummary(data) {
   return hasText && typeof data.url === 'string' && Boolean(data.url);
 }
 
-/** What a share link carries: the summary, plus where the full report lives. */
-export function sharePayload(result, { projectId = null, pageRunId = null, olderRules = false } = {}) {
+// The checks reconcileStoredReport can mark as scored with older rules.
+const OLDER_RULE_IDS = ['aibots', 'webmcp'];
+
+/**
+ * Which checks a share link says were scored with older rules.
+ *
+ * Links now carry the list (['webmcp'], ['aibots', 'webmcp']). Links copied
+ * before that carry `olderRules: true`, which was set for either check, so it
+ * reads as ['unknown']: the notice then names neither rule.
+ */
+export function sharedOlderRules(data) {
+  const value = data?.olderRules;
+  if (value === true) return ['unknown'];
+  if (!Array.isArray(value)) return [];
+  return OLDER_RULE_IDS.filter((id) => value.includes(id));
+}
+
+/**
+ * What a share link carries: the summary, plus where the full report lives.
+ * `olderRules` is the list of re-read checks (result.olderRules); a boolean
+ * true is still accepted and kept as the old flag.
+ */
+export function sharePayload(result, { projectId = null, pageRunId = null, olderRules = null } = {}) {
+  const older = Array.isArray(olderRules)
+    ? OLDER_RULE_IDS.filter((id) => olderRules.includes(id))
+    : (olderRules === true ? true : null);
   return {
     brief: result.cmoBrief,
     url: result.site.url,
@@ -63,7 +87,7 @@ export function sharePayload(result, { projectId = null, pageRunId = null, older
     date: result.site.date,
     ...(projectId ? { projectId } : {}),
     ...(pageRunId ? { pageRunId } : {}),
-    ...(olderRules ? { olderRules: true } : {}),
+    ...((older === true || older?.length) ? { olderRules: older } : {}),
   };
 }
 

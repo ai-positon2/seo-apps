@@ -358,7 +358,11 @@ export default function SeoGeoAuditPage() {
           setReportIssue(info || null);
           // A failed page or an unreadable report replaces the one on screen:
           // never another page's report under this page's name (UX-181).
-          if (state === 'page_failed' || state === 'error') { ctl.reset(); setStoredScope(null); }
+          // A page still being audited (UX-151 follow-up) likewise takes the
+          // previous page's report off screen, but never an audit running here.
+          if (state === 'page_failed' || state === 'error' || (state === 'page_pending' && !ctl.running)) {
+            ctl.reset(); setStoredScope(null);
+          }
         }}
       />
       <style>{'@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }'}</style>
@@ -371,11 +375,11 @@ export default function SeoGeoAuditPage() {
 
       {/* A stored report exists but cannot be shown: say why, with a retry —
           not the blank new-audit form below. */}
-      {(reportState === 'page_failed' || reportState === 'error') && !findings && !ctl.running && (
+      {(reportState === 'page_failed' || reportState === 'page_pending' || reportState === 'error') && !findings && !ctl.running && (
         <ReportUnavailable state={reportState} info={reportIssue} maxWidth={960} />
       )}
 
-      {reportState !== 'loading' && reportState !== 'page_failed' && reportState !== 'error' && !findings && (
+      {reportState !== 'loading' && reportState !== 'page_failed' && reportState !== 'page_pending' && reportState !== 'error' && !findings && (
         <div style={{ maxWidth: 672, margin: '0 auto' }}>
           <AuditInputPanel
             ctl={ctl}

@@ -341,6 +341,29 @@ const saveClusters = (id, clusters) => saveArtifact(id, 'clusters', clusters);
 const getFullAnalysis = (id) => getArtifact(id, 'full_analysis');
 const saveFullAnalysis = (id, analysis) => saveArtifact(id, 'full_analysis', analysis);
 
+/**
+ * When the project's stored analysis was produced, for an analysis saved
+ * before it carried `generatedAt`: the finish of the platform project's latest
+ * completed Hub & Spoke run (the run that saves it). Null when unknown.
+ */
+async function analysisRunAt(project) {
+  if (!project?.platformProjectId) return null;
+  try {
+    const row = await db.maybeOne(
+      `select finished_at from project_module_runs
+        where project_id = $1 and module_key = 'hub_spoke' and status = 'completed'
+          and finished_at is not null
+        order by finished_at desc limit 1`,
+      [project.platformProjectId]
+    );
+    const at = row?.finished_at;
+    return at instanceof Date ? at.toISOString() : at || null;
+  } catch (error) {
+    console.error('[contentArchitect.store.analysisRunAt]', error.message);
+    return null;
+  }
+}
+
 // Removes a stored analysis that no longer describes what the tool produces.
 // Used by the project-linked run when an analysis built from EVERY crawled page
 // (before informational-only selection) would otherwise stay on offer next to a
@@ -356,5 +379,5 @@ module.exports = {
   listProjects, getProject, createProject, ensureProject, updateProject, deleteProject,
   retarget, syncWithPlatform,
   getPatterns, savePatterns, getUrls, saveUrls, getClusters, saveClusters,
-  getFullAnalysis, saveFullAnalysis, deleteFullAnalysis,
+  getFullAnalysis, saveFullAnalysis, deleteFullAnalysis, analysisRunAt,
 };

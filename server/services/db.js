@@ -296,6 +296,22 @@ async function count(text, params) {
 // client exposing the same helpers, so nested calls stay on that connection.
 async function tx(fn) {
   const client = await connect();
+  const scoped = scopedClient(client);
+  try {
+    await client.query('begin');
+    const out = await fn(scoped);
+    await client.query('commit');
+    return out;
+  } catch (err) {
+    await client.query('rollback').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// The helpers, bound to one checked-out connection.
+function scopedClient(client) {
   const scoped = {
     query: (t, p) => client.query(t, p),
     rows: async (t, p) => (await client.query(t, p)).rows,
@@ -317,17 +333,7 @@ async function tx(fn) {
     insertMany: (table, list, opts = {}) => insertMany(table, list, { ...opts, client: scoped }),
     upsert: (table, list, conflictCols, opts = {}) => upsert(table, list, conflictCols, { ...opts, client: scoped }),
   };
-  try {
-    await client.query('begin');
-    const out = await fn(scoped);
-    await client.query('commit');
-    return out;
-  } catch (err) {
-    await client.query('rollback').catch(() => {});
-    throw err;
-  } finally {
-    client.release();
-  }
+  return scoped;
 }
 
 // A read that may not run for longer than `ms`.
@@ -340,13 +346,83 @@ async function tx(fn) {
 // the bound ends with the transaction and never leaks onto the pooled
 // connection's next user. A statement that runs past it fails with 57014,
 // which isStatementTimeout() recognises.
-async function boundedRead(ms, fn) {
+//
+// `signal` (optional, an AbortSignal): the read belongs to ONE request, and when
+// that request goes away (signalOnClose) the statement running on this
+// connection is cancelled with pg_cancel_backend rather than left to finish for
+// nobody. Only for a read nothing else is waiting on — a computation shared by
+// several callers (the crawl-health cache) must not take one. A cancelled
+// connection is discarded, not returned to the pool, so a cancel that arrives
+// late can never land on the next user's query.
+async function boundedRead(ms, fn, { signal = null } = {}) {
   const limit = Math.max(1, Math.round(Number(ms) || 0));
-  return tx(async (t) => {
-    await t.query('set transaction read only');
-    await t.query("select set_config('statement_timeout', $1, true)", [String(limit)]);
-    return fn(t);
+  if (signal?.aborted) throw abortedError();
+  const client = await connect();
+  // The request may have gone away while we waited for the pool: the abort
+  // fired before the listener below existed, so check again before BEGIN.
+  // Nothing ran on this connection, so it goes back to the pool as is.
+  if (signal?.aborted) {
+    client.release();
+    throw abortedError();
+  }
+  let cancelled = false;
+  let running = false;
+  const onAbort = () => {
+    if (cancelled) return;
+    cancelled = true;
+    // Only a statement in flight needs cancelling; otherwise the next step
+    // sees `cancelled` and stops. Sent on another pooled connection.
+    if (running && client.processID) {
+      query('select pg_cancel_backend($1)', [client.processID]).catch(() => {});
+    }
+  };
+  signal?.addEventListener?.('abort', onAbort, { once: true });
+  try {
+    // One round trip: BEGIN READ ONLY plus the local bound. `limit` is an
+    // integer computed above, never caller text.
+    await client.query(`begin read only; set local statement_timeout = ${limit}`);
+    if (cancelled) throw abortedError();
+    running = true;
+    const out = await fn(scopedClient(client));
+    running = false;
+    if (cancelled) throw abortedError();
+    await client.query('commit');
+    return out;
+  } catch (err) {
+    running = false;
+    await client.query('rollback').catch(() => {});
+    throw cancelled && !isAborted(err) ? Object.assign(abortedError(), { cause: err }) : err;
+  } finally {
+    signal?.removeEventListener?.('abort', onAbort);
+    // A connection a cancel was sent to is not handed to anyone else.
+    if (cancelled) client.release(true);
+    else client.release();
+  }
+}
+
+function abortedError() {
+  return Object.assign(new Error('The request was closed before this read finished.'), { code: 'ABORT_ERR', aborted: true });
+}
+
+/** True for the error boundedRead throws when its request went away. */
+function isAborted(err) {
+  return Boolean(err?.aborted) || String(err?.code || '') === 'ABORT_ERR';
+}
+
+/**
+ * An AbortSignal that fires when the client goes away before `res` was sent.
+ *
+ * res 'close' (not req 'close', which Node emits as soon as the request body
+ * has been read) — and only while the response is unfinished, so a normal end
+ * never aborts anything.
+ */
+function signalOnClose(res) {
+  const controller = new AbortController();
+  if (!res || typeof res.once !== 'function') return controller.signal;
+  res.once('close', () => {
+    if (!res.writableEnded) controller.abort();
   });
+  return controller.signal;
 }
 
 // query_canceled: what Postgres raises when statement_timeout fires.
@@ -534,6 +610,8 @@ module.exports = {
   tx,
   boundedRead,
   isStatementTimeout,
+  isAborted,
+  signalOnClose,
   json,
   insertOne,
   insertMany,

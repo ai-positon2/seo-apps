@@ -140,6 +140,23 @@ function projectView(project, domains = []) {
 // for it; callers that ACT on domains keep the default.
 const ACTIVE_ONLY = ['active'];
 const ACTIVE_AND_PROPOSED = ['active', 'proposed'];
+// Adds retired rows, for the callers that must remember what was turned down
+// (competitor auto-discovery must not re-suggest a rejected suggestion).
+const WITH_REMOVED = ['active', 'proposed', 'removed'];
+
+/**
+ * A competitor suggestion somebody turned down: rejected from 'proposed'
+ * (provider_ids.rejected, written by decideCompetitorProposal), or an AI pick
+ * (provider_ids.discovery) that has since been removed — rows rejected before
+ * the marker existed carry only the latter. Auto-discovery never offers these
+ * again; a person typing the domain in by hand still can.
+ */
+function isRejectedSuggestion(row) {
+  return Boolean(row)
+    && row.role === 'competitor'
+    && row.status === 'removed'
+    && Boolean(row.provider_ids?.rejected || row.provider_ids?.discovery);
+}
 
 async function domainsForProjects(projectIds, { statuses = ACTIVE_ONLY } = {}) {
   if (!projectIds.length) return new Map();
@@ -736,7 +753,11 @@ async function addCompetitor({ access, domain, status = 'active', source = 'user
   // duplicate add a no-op is `where status = 'active'`, so it does not see a
   // pending proposal: without this, proposing the same domain twice wrote two
   // rows, and an approver was shown the same competitor waiting for them twice.
-  const current = await domainsForProjects([project.id], { statuses: ACTIVE_AND_PROPOSED });
+  // An AI pick ('accepted') also reads retired rows, so a suggestion somebody
+  // already rejected is not proposed again. A person's own entry does not:
+  // typing a once-rejected domain in by hand is a deliberate choice.
+  const aiPick = source === 'accepted';
+  const current = await domainsForProjects([project.id], { statuses: aiPick ? WITH_REMOVED : ACTIVE_AND_PROPOSED });
   const rows = current.get(project.id) || [];
   const primary = rows.find((d) => d.role === 'primary' && d.status === 'active');
 
@@ -754,6 +775,12 @@ async function addCompetitor({ access, domain, status = 'active', source = 'user
     throw Object.assign(
       new Error(`${normalized.host} has already been proposed on this project and is waiting for approval.`),
       { status: 409, code: 'already_proposed' },
+    );
+  }
+  if (aiPick && rows.some((d) => isRejectedSuggestion(d) && d.normalized_origin === normalized.normalizedOrigin)) {
+    throw Object.assign(
+      new Error(`${normalized.host} was suggested before and turned down, so it is not suggested again.`),
+      { status: 409, code: 'previously_rejected' },
     );
   }
 
@@ -859,12 +886,22 @@ async function decideCompetitorProposal({ access, domainId, decision, reason }) 
     // answer who accepted this competitor. Making the UPDATE conditional means
     // exactly one caller changes the row; the loser matches zero rows and is
     // told the decision was already made.
-    data = await db.one(
-      `update project_domains set status = $2
-        where id = $1 and status = 'proposed'
-        returning *`,
-      [domainId, nextStatus]
-    );
+    // A rejection is also stamped into provider_ids, so auto-discovery can tell
+    // a turned-down suggestion from a competitor removed after being tracked
+    // and never offers it again (isRejectedSuggestion).
+    data = approving
+      ? await db.one(
+        `update project_domains set status = $2
+          where id = $1 and status = 'proposed'
+          returning *`,
+        [domainId, nextStatus]
+      )
+      : await db.one(
+        `update project_domains set status = $2, provider_ids = provider_ids || $3::jsonb
+          where id = $1 and status = 'proposed'
+          returning *`,
+        [domainId, nextStatus, db.json({ rejected: { at: new Date().toISOString(), by: access.userId || null } })]
+      );
   } catch (error) {
     if (/expected exactly one row, got 0/.test(error.message || '')) {
       throw Object.assign(
@@ -1362,6 +1399,8 @@ module.exports = {
   removeDomain,
   ACTIVE_ONLY,
   ACTIVE_AND_PROPOSED,
+  WITH_REMOVED,
+  isRejectedSuggestion,
   setPrimaryDomain,
   setRobotsOverride,
   deleteProject,

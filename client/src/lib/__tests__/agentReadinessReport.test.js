@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 
 import {
-  encodeSharePayload, decodeSharePayload, isShareableSummary, sharePayload,
+  encodeSharePayload, decodeSharePayload, isShareableSummary, sharePayload, sharedOlderRules,
   reconcileStoredReport, glanceGroups, isBlockingCheck, OLD_AIBOTS_FAIL,
 } from '../agentReadinessReport.js';
 import { scoreTone } from '../scoreVerdict.js';
@@ -95,4 +95,20 @@ test('Bot Access 0 is "not yet set up" unless a crawler is actually refused', ()
 
   const shut = glanceGroups(cats, [{ id: 'aibots', cat: 'Bot Access', status: 'fail', blocking: true, tech: 'robots.txt blocks AI crawlers: GPTBot' }], scoreTone);
   assert.deepStrictEqual(shut.blocking.map((c) => c.id), ['Bot Access']);
+});
+
+test('a share link names which checks were re-read, and old links still decode', () => {
+  const result = { cmoBrief: { headline: 'h' }, site: { url: 'x.test', full: 'https://x.test/', score: 30, level: 'L', date: 'd' } };
+  // Only WebMCP re-read: the shared notice must not blame the AI-bot rule.
+  const onlyWebmcp = decodeSharePayload(encodeSharePayload(sharePayload(result, { olderRules: ['webmcp'] })));
+  assert.deepStrictEqual(onlyWebmcp.olderRules, ['webmcp']);
+  assert.deepStrictEqual(sharedOlderRules(onlyWebmcp), ['webmcp']);
+  const both = sharePayload(result, { olderRules: ['aibots', 'webmcp', 'junk'] });
+  assert.deepStrictEqual(both.olderRules, ['aibots', 'webmcp']);
+  assert.ok(!('olderRules' in sharePayload(result, { olderRules: [] })));
+  // A link copied before the list carried `olderRules: true` for either check.
+  assert.deepStrictEqual(sharedOlderRules({ olderRules: true }), ['unknown']);
+  assert.strictEqual(sharePayload(result, { olderRules: true }).olderRules, true);
+  assert.deepStrictEqual(sharedOlderRules({}), []);
+  assert.deepStrictEqual(sharedOlderRules({ olderRules: 'yes' }), []);
 });

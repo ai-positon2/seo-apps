@@ -30,23 +30,44 @@ const runs = new Map();
 let computeCalls = 0;
 let computeDelayMs = 0;
 let computeError = null;
+// The on-demand URL statement (computeCostingUrls) and the page count
+// (internalCounts), counted apart from the aggregates.
+let urlCalls = 0;
+let countsCalls = 0;
+let countsError = null;
 
 db.maybeOne = async (sql, params) => {
   if (/from crawl_runs r/.test(sql)) return runs.get(params[0]) || null;
   throw new Error(`unexpected maybeOne: ${sql}`);
 };
 db.boundedRead = async (ms, fn) => {
-  computeCalls += 1;
-  if (computeDelayMs) await new Promise((r) => setTimeout(r, computeDelayMs));
-  if (computeError) throw computeError;
   return fn({
-    maybeOne: async () => ({
-      html_pages: 4,
-      error_pages: 1, warning_pages: 3, notice_pages: 1,
-      error_loss: 40, warning_loss: 30, notice_loss: 0,
-      site_rules: [{ rule: 'robots', severity: 'warning', site_scoped: true, on_scored: false }],
-      costing: [{ rule: 'rule', severity: 'error', urls: ['https://h.invalid/p0'] }],
-    }),
+    maybeOne: async (sql) => {
+      if (/scope' = 'Internal'/.test(sql)) {
+        countsCalls += 1;
+        if (countsError) throw countsError;
+        return { internal: 12, max_urls: 10 };
+      }
+      computeCalls += 1;
+      if (computeDelayMs) await new Promise((r) => setTimeout(r, computeDelayMs));
+      if (computeError) throw computeError;
+      return {
+        html_pages: 4,
+        error_pages: 1, warning_pages: 3, notice_pages: 1,
+        error_loss: 40, warning_loss: 30, notice_loss: 0,
+        site_rules: [{ rule: 'robots', severity: 'warning', site_scoped: true, on_scored: false }],
+        // Counts only: the URL lists are not built on every load (item 3).
+        costing: [
+          { rule: 'rule', severity: 'error', pages: 1 },
+          { rule: 'thin', severity: 'warning', pages: 2 },
+        ],
+      };
+    },
+    rows: async (sql) => {
+      assert.match(sql, /array_agg\(distinct i\.url\)/);
+      urlCalls += 1;
+      return [{ rule: 'rule', severity: 'error', urls: ['https://h.invalid/p0'] }];
+    },
   });
 };
 
@@ -79,7 +100,32 @@ function finishedRun(id, extra = {}) {
       siteRules: [{ ruleId: 'robots', severity: 'warning', kind: 'site' }],
       lossTotals: { error: 40, warning: 30, notice: 0 },
     });
-    assert.deepEqual([...costing.keys()], ['rule', 'robots']);
+    assert.deepEqual([...costing.keys()], ['rule', 'thin', 'robots']);
+    // Counts without the URL lists: the dashboard's card and the report need
+    // only how many pages, so no list was built (item 3).
+    assert.equal(costing.get('rule').pageCount, 1);
+    assert.equal(costing.get('thin').pageCount, 2);
+    assert.equal(costing.get('rule').pages.size, 0);
+    assert.equal(costing.get('rule').urlsListed, false);
+    assert.equal(urlCalls, 0);
+  });
+
+  await test('the URL lists are read on demand, once per finished run, for the fix list', async () => {
+    urlCalls = 0;
+    const [a, b] = await Promise.all([
+      overview.costingRules('r1', { urls: true }),
+      overview.costingRules('r1', { urls: true }),
+    ]);
+    assert.equal(urlCalls, 1);
+    assert.equal(a.pending, false);
+    assert.deepEqual([...a.byRule.get('rule').pages], ['https://h.invalid/p0']);
+    assert.equal(a.byRule.get('rule').urlsListed, true);
+    // A rule the fix list cannot call an error has no list, and says so.
+    assert.equal(b.byRule.get('thin').urlsListed, false);
+    // Site-level rules are on no page: their empty list is complete.
+    assert.equal(b.byRule.get('robots').urlsListed, true);
+    await overview.costingRules('r1', { urls: true });
+    assert.equal(urlCalls, 1);
   });
 
   await test('a finished, unchanged run is not computed again', async () => {
@@ -90,9 +136,9 @@ function finishedRun(id, extra = {}) {
   });
 
   await test('callers get their own Sets, so one cannot change another\'s', async () => {
-    const a = await overview.costingRulePages('r1');
+    const a = await overview.costingRulePages('r1', { urls: true });
     a.get('rule').pages.add('x');
-    const b = await overview.costingRulePages('r1');
+    const b = await overview.costingRulePages('r1', { urls: true });
     assert.equal(b.get('rule').pages.size, 1);
   });
 
@@ -171,6 +217,128 @@ function finishedRun(id, extra = {}) {
     // A card with nothing to score is left alone.
     const notRun = { status: 'not_run', runId: null };
     assert.equal(overview.healthPendingCard(notRun), notRun);
+  });
+
+  await test('the fix list waits for costing no longer than the card does (item 2)', async () => {
+    finishedRun('slowCost');
+    computeDelayMs = 80;
+    const answer = await overview.costingRules('slowCost', { urls: true, waitMs: 10 });
+    assert.deepEqual(answer, { byRule: null, pending: true });
+    // costingRulePages keeps its old shape: null, which callers read as unknown.
+    assert.equal(await overview.costingRulePages('slowCost', { waitMs: 10 }), null);
+    await new Promise((r) => setTimeout(r, 120));
+    computeDelayMs = 0;
+    const later = await overview.costingRules('slowCost', { urls: true, waitMs: 10 });
+    assert.equal(later.pending, false);
+    assert.ok(later.byRule.has('rule'));
+  });
+
+  await test('a costing statement that ran out of time reads as pending, not as an error', async () => {
+    finishedRun('hugeCost');
+    computeError = Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' });
+    assert.deepEqual(await overview.costingRules('hugeCost'), { byRule: null, pending: true });
+    computeError = null;
+    finishedRun('brokenCost');
+    computeError = new Error('relation does not exist');
+    assert.deepEqual(await overview.costingRules('brokenCost'), { byRule: null, pending: false });
+    computeError = null;
+  });
+
+  await test('the internal page count is a bounded read and degrades to null on timeout', async () => {
+    countsCalls = 0;
+    assert.deepEqual(await overview.internalCounts('r1'), { internal: 12, pages: 10, probes: 2 });
+    countsError = Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' });
+    assert.equal(await overview.internalCounts('r1'), null);
+    assert.equal(await overview.internalPageCount('r1'), null);
+    countsError = null;
+    assert.equal(countsCalls, 3);
+  });
+
+  await test('the pending card tells the reader to come back when the server will have retried', async () => {
+    const card = overview.healthPendingCard({ key: 'technical', status: 'completed', runId: 'r1', detail: '' });
+    assert.match(card.detail, /Reload in 2 minutes/);
+    assert.doesNotMatch(card.detail, /in a minute/);
+  });
+
+  await test('concurrent /overview requests share one build; a settled one is not reused', async () => {
+    const configured = db.isDatabaseConfigured;
+    db.isDatabaseConfigured = () => false;   // the build fails fast, with one error object per build
+    const access = { project: { id: 'join-test' }, role: 'owner', capabilities: {} };
+    const errors = await Promise.all([
+      overview.buildOverview({ access }).catch((e) => e),
+      overview.buildOverview({ access }).catch((e) => e),
+    ]);
+    assert.equal(errors[0], errors[1]);
+    const after = await overview.buildOverview({ access }).catch((e) => e);
+    assert.notEqual(after, errors[0]);
+    db.isDatabaseConfigured = configured;
+  });
+
+  await test('a build started before a change to the project is never joined or reused', async () => {
+    const configured = db.isDatabaseConfigured;
+    let calls = 0;
+    // Each build fails with its own error object, so which build a caller got is visible.
+    db.isDatabaseConfigured = () => { calls += 1; return false; };
+    const access = { project: { id: 'changed-test' }, role: 'owner', capabilities: {} };
+    const before = overview.buildOverview({ access }).catch((e) => e);
+    overview.markProjectChanged('changed-test');   // e.g. a module run was started
+    const fresh = overview.buildOverview({ access }).catch((e) => e);
+    const reader = overview.buildOverview({ access, reuse: true }).catch((e) => e);
+    const [a, b, c] = await Promise.all([before, fresh, reader]);
+    assert.notEqual(a, b);
+    // A reader after the change gets the post-change build, not the stale one.
+    assert.equal(b, c);
+    assert.equal(calls, 2);
+    db.isDatabaseConfigured = configured;
+  });
+
+  await test('fix list: costing is not pending once the aggregates are ready, even when the URL lists are slow', async () => {
+    finishedRun('slowUrls');
+    await overview.crawlHealthAggregates('slowUrls');   // the card has its score
+    const realRows = db.boundedRead;
+    let urlRuns = 0;
+    db.boundedRead = async (ms, fn) => fn({
+      rows: async () => { urlRuns += 1; await new Promise((r) => setTimeout(r, 80)); return [{ rule: 'rule', severity: 'error', urls: ['https://h.invalid/p0'] }]; },
+    });
+    const answer = await overview.costingRules('slowUrls', { urls: true, waitMs: 10 });
+    assert.equal(answer.pending, false);
+    assert.equal(answer.urlsPending, true);
+    assert.equal(answer.byRule.get('rule').pageCount, 1);
+    assert.equal(answer.byRule.get('rule').urlsListed, false);
+    await new Promise((r) => setTimeout(r, 120));
+    const later = await overview.costingRules('slowUrls', { urls: true, waitMs: 10 });
+    assert.equal(later.urlsPending, false);
+    assert.equal(later.byRule.get('rule').urlsListed, true);
+    assert.equal(urlRuns, 1);
+    db.boundedRead = realRows;
+  });
+
+  await test('a URL-list statement that timed out is backed off, not re-run by every request', async () => {
+    finishedRun('hugeUrls');
+    await overview.crawlHealthAggregates('hugeUrls');
+    const realRows = db.boundedRead;
+    let urlRuns = 0;
+    db.boundedRead = async (ms, fn) => fn({
+      rows: async () => {
+        urlRuns += 1;
+        throw Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' });
+      },
+    });
+    const first = await overview.costingRules('hugeUrls', { urls: true });
+    const second = await overview.costingRules('hugeUrls', { urls: true });
+    assert.equal(first.pending, false);
+    assert.equal(first.urlsPending, true);
+    assert.equal(second.urlsPending, true);
+    assert.equal(urlRuns, 1);
+    db.boundedRead = realRows;
+  });
+
+  await test('the report path waits past the dashboard wait (waitMs: null)', async () => {
+    finishedRun('reportWait');
+    computeDelayMs = 40;
+    const costing = await overview.costingRulePages('reportWait', { waitMs: null });
+    computeDelayMs = 0;
+    assert.ok(costing && costing.has('rule'));
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

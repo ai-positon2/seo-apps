@@ -47,6 +47,10 @@ const STATE_TONE = {
   // near-white and the edge rule vanished, so the one state that MOST needs to
   // look deliberately blank looked like an unfinished card.
   not_measured: { color: 'var(--text-3)', tint: 'var(--border-strong)' },
+  // The site refused our checks: nothing else is true until it is unblocked.
+  blocked: { color: 'var(--viz-neg)', tint: 'var(--viz-neg)' },
+  // The crawl's costing is still being added up.
+  pending: { color: 'var(--text-3)', tint: 'var(--border-strong)' },
 };
 
 const TREND_TONE = {
@@ -299,7 +303,7 @@ const SEVERITY_LABEL = { error: 'Critical', warning: 'Important', notice: 'Minor
 
 /** A round mark beside the headline: ! for trouble, ✓ for fine, – for unmeasured. */
 function StateMark({ state, color }) {
-  const glyph = state === 'healthy' ? '✓' : state === 'not_measured' ? '–' : '!';
+  const glyph = state === 'healthy' ? '✓' : (state === 'not_measured' || state === 'pending') ? '–' : '!';
   return (
     <span
       aria-hidden="true"

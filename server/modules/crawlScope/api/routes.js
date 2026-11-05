@@ -57,6 +57,7 @@ const { staggerMinute } = require("../shared/schedule");
 const report = require("../run/report");
 const repo = require("../db/repo");
 const { shareFindingTexts } = require("./findingTexts");
+const { signalOnClose, isAborted } = require("../../../services/db");
 const catalog = require("../issue-catalog.json");
 const { getPageSpeedForAllDomains } = require("../../../services/pageSpeedCA");
 const { refreshPageSpeedFindings } = require("../run/pagespeed-findings");
@@ -363,8 +364,8 @@ const REVIEW_STATUSES = new Set([
 // location, run.summary.findings. Falling back there (rather than showing
 // zero findings for every run that predates the migration) costs nothing:
 // `run` is already fetched, so this reads a field already in memory.
-async function loadRunFindings(db, run, meta = null) {
-  const stored = await repo.listAllRunFindingInstances(db, run.id, { meta });
+async function loadRunFindings(db, run, meta = null, signal = null) {
+  const stored = await repo.listAllRunFindingInstances(db, run.id, { meta, signal });
   if (stored.length) return stored;
   return Array.isArray(run.summary?.findings) ? run.summary.findings : [];
 }
@@ -437,7 +438,16 @@ router.get(
     }
 
     const meta = {};
-    const findings = await loadRunFindings(req.db, run, meta);
+    // This read belongs to this request alone, so it stops when the browser
+    // goes away (UX-054) instead of paging on for nobody.
+    const signal = signalOnClose(res);
+    let findings;
+    try {
+      findings = await loadRunFindings(req.db, run, meta, signal);
+    } catch (error) {
+      if (isAborted(error)) return undefined;
+      throw error;
+    }
     const reviews = await repo.listFindingReviews(req.db, run.id);
     const total = Math.max(Number(meta.total) || 0, findings.length);
     const capped = total > findings.length;
@@ -471,6 +481,18 @@ router.get(
     // rule's full count and distinct pages, for the tab counts, the tiles and
     // the issue list to use while the instance list is short.
     const ruleRollup = capped ? meta.rollup || null : null;
+    // ...and per page (UX-192): the All Pages "Issues" column and a page's own
+    // view count every finding, not only the ones loaded. Null when it cannot
+    // be read in time; the report then says the per-page counts are partial.
+    let urlCounts = null;
+    if (capped) {
+      try {
+        urlCounts = await repo.listRunFindingUrlCounts(req.db, run.id, { signal });
+      } catch (error) {
+        if (isAborted(error)) return undefined;
+        console.error("[crawlScope.findings.urlCounts]", error.message);
+      }
+    }
     const merged = mergeReviews(findings, reviews);
     const body = String(req.query.texts || "") === "shared"
       ? shareFindingTexts(merged)
@@ -484,6 +506,8 @@ router.get(
       capped,
       serverHealth,
       ruleRollup,
+      // { url: [issues counted in All Pages, findings on the page's own list] }
+      urlCounts,
     });
   }),
 );

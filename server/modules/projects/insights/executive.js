@@ -96,11 +96,19 @@ function buildAreas(modules) {
 }
 
 /** The percentage modules, as the cards print them: "5.4% of vanta.com's traffic". */
+// A figure the Overview withheld (the competitor card while its rival list
+// differs from the Competitor Analysis page's, UX-221) is listed as "—
+// competitor lists differ" rather than as a % the page contradicts.
 function buildMarket(modules) {
   return onDashboard(modules)
-    .filter((m) => m.metric && Number.isFinite(m.metric.value))
+    .filter((m) => m.metric && (Number.isFinite(m.metric.value) || m.metric.withheld === true))
     .map((m) => ({ key: m.key, label: m.label, display: m.metric.display, unit: m.metric.unit }));
 }
+
+// The same "Reload in N minutes" the pending Tech Audit card shows, derived
+// from how the server retries (overview.HEALTH_PENDING_RELOAD). Read lazily so
+// this module stays free of database reads at load.
+const pendingReload = () => require('../overview').HEALTH_PENDING_RELOAD;
 
 /** " Agent Readiness is the weakest area, at 22/100." — or nothing. */
 // Agent Readiness measures how future-ready a site is for AI agents: low scores
@@ -113,6 +121,29 @@ function weakestClause(areas) {
   const weakest = weakestArea(areas);
   if (!weakest || weakest.score >= WATCH_AT) return '';
   return ` ${weakest.label} is the weakest area, at ${weakest.score}/100.`;
+}
+
+// The one sentence every card uses for a site that refused our requests
+// (moduleEvidence.siteRefusedLine): "The site refused our requests (HTTP 429)".
+const REFUSED_LINE = /The site refused our requests(?: \(HTTP (\d{3})\))?/;
+
+/**
+ * Whether the site blocked our checks, as the dashboard's own cards report it
+ * (UX-036): `{ status, modules }` — the HTTP code when one was recorded, and
+ * the modules that said so — or null when no card reports a refusal.
+ */
+function siteBlocked(modules) {
+  const hits = [];
+  let status = null;
+  for (const m of onDashboard(modules || [])) {
+    if (m.status === 'not_run' || m.status === 'running') continue;
+    const text = [m.headline, m.detail, m.error, m.note].filter((v) => typeof v === 'string').join(' \n ');
+    const match = REFUSED_LINE.exec(text);
+    if (!match) continue;
+    hits.push(m.label || m.key);
+    if (!status && match[1]) status = Number(match[1]);
+  }
+  return hits.length ? { status, modules: hits } : null;
 }
 
 function lastEvidenceAt(modules) {
@@ -129,7 +160,22 @@ function lastEvidenceAt(modules) {
 // is a mean and a mean hides a broken thing. A site scoring 84 with eleven pages
 // returning 5xx is not "healthy", and a summary that said so would be worse than
 // no summary.
-function buildVerdict({ composite, totals, everRun, areas = [] }) {
+function buildVerdict({ composite, totals, everRun, areas = [], blocked = null }) {
+  // The site refused our requests (UX-036): every figure below describes an
+  // error page, not the site, so the one thing worth saying is how to unblock.
+  if (blocked) {
+    return {
+      state: 'blocked',
+      headline: 'Our checks were blocked',
+      sentence: `Our checks were blocked by the site${blocked.status ? ` (HTTP ${blocked.status})` : ''}. `
+        + 'Allow our crawler, then re-run.'
+        + (blocked.modules?.length
+          ? ` ${blocked.modules.join(', ')} could not read the site, so ${blocked.modules.length === 1 ? 'its results describe' : 'their results describe'} the refusal, not the site.`
+          : ''),
+      basis: 'A module or the site crawl reported that the site refused our requests.',
+    };
+  }
+
   if (!everRun) {
     return {
       state: NOT_MEASURED,
@@ -154,8 +200,26 @@ function buildVerdict({ composite, totals, everRun, areas = [] }) {
       + `${listedOnly === 1 ? 'does' : 'do'} not affect any score.`
     : '';
 
+  // Which of the crawl's errors lower the score was not worked out within the
+  // dashboard's wait (a very large crawl, UX-054). Counting them all as
+  // critical would overstate it, calling none would understate it: say that.
+  if (errors && totals?.costingPending) {
+    return {
+      state: 'pending',
+      headline: 'Still being worked out',
+      sentence: 'This crawl is large, so which of its error-level findings lower the site’s scores is '
+        + `still being worked out. ${pendingReload()}`
+        + weakestClause(areas),
+      basis: 'The site crawl’s health figures were not ready within the dashboard’s wait.',
+    };
+  }
+
   if (errors) {
-    const pages = Number.isFinite(totals?.pagesWithCostingErrors) ? totals.pagesWithCostingErrors : (totals?.pagesWithErrors || 0);
+    // While the crawl's URL lists are still being read the page count is
+    // unknown (null): the sentence leaves it out rather than fall back to every
+    // page an error was found on.
+    const pages = Number.isFinite(totals?.pagesWithCostingErrors) ? totals.pagesWithCostingErrors
+      : (totals?.costingPagesPending ? 0 : (totals?.pagesWithErrors || 0));
     return {
       state: 'at_risk',
       headline: 'Action needed',
@@ -564,7 +628,7 @@ function buildExecutiveSummary({ overview, backlog }) {
   const areas = buildAreas(modules);
 
   return {
-    verdict: buildVerdict({ composite, totals, everRun, areas }),
+    verdict: buildVerdict({ composite, totals, everRun, areas, blocked: siteBlocked(modules) }),
     issues: buildIssues(totals),
     areas,
     market: buildMarket(modules),
@@ -601,6 +665,7 @@ module.exports = {
   buildAreas,
   buildIssues,
   lastEvidenceAt,
+  siteBlocked,
   HEALTHY_AT,
   WATCH_AT,
   STALE_AFTER_MS,

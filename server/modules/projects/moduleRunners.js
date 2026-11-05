@@ -268,9 +268,9 @@ async function runAgentReadiness({ access, run, project, keywords, isStillOurs }
 // a metered budget.
 /**
  * Runs the same SEMrush + AI discovery "Find Competitors For Me" offers on the
- * standalone Competitor Research screen (competitorAnalysis/discovery.js), but
- * unattended: the top candidates are persisted as tracked competitors
- * directly, with no review step, instead of held for a human to confirm.
+ * standalone Competitor Research screen (competitorAnalysis/discovery.js). The
+ * top candidates are persisted as PROPOSED competitors (UX-112) for a person
+ * to accept or reject; only accepted ones are ever compared (and billed).
  * Called two ways: automatically inside runCompetitor (only when a project
  * has zero tracked competitors and none awaiting approval), and on demand
  * from the Domains panel's "Find competitors with AI" button regardless of
@@ -334,10 +334,15 @@ async function autoDiscoverCompetitors({ access, project, primary, existingCompe
     };
   }
 
-  // 'accepted': this candidate was suggested by discovery AND accepted, just
-  // accepted by the setup toggle rather than by a person reviewing it — the
-  // distinction project_domains_source_check exists to preserve.
-  const status = verdict === 'propose' ? 'proposed' : 'active';
+  // UX-112: AI picks are ALWAYS stored as proposals, whoever asked — never as
+  // tracked competitors. They used to go straight to 'active' for anyone who
+  // could manage competitors, and the paid comparison (≈1,955 SEMrush units a
+  // domain) ran against them with nobody confirming they were real rivals
+  // (Nike got Foot Locker). A person accepts them with the existing
+  // approve/reject flow (routes.js POST /domains/:id/approve), and approving
+  // is what starts the comparison. source stays 'accepted' (= came from AI
+  // discovery) so the chips keep their "AI pick" marker after acceptance.
+  const status = 'proposed';
   const added = [];
   const failures = [];
   for (const candidate of discovery.candidates) {
@@ -348,6 +353,9 @@ async function autoDiscoverCompetitors({ access, project, primary, existingCompe
         discovery: {
           reason: candidate.reason || null,
           competitorType: candidate.competitorType || null,
+          // false when the AI validation was unavailable: a Semrush keyword
+          // overlap only, shown as "not verified".
+          verified: candidate.verified !== false,
           at: new Date().toISOString(),
         },
       }));
@@ -371,28 +379,52 @@ async function autoDiscoverCompetitors({ access, project, primary, existingCompe
     };
   }
 
-  if (status === 'proposed') {
-    // Proposed, not active: nothing for THIS run to compare against yet, same
-    // as if a contributor had typed these domains in by hand — an approver or
-    // administrator still has to accept them (§7.2).
-    return {
-      competitors: [],
-      reason: 'competitors_pending_approval',
-      note: `Auto-discovery proposed ${added.length} competitor(s) — ${added.map((d) => d.host).join(', ')} — `
-        + 'on this project. An approver or administrator has to accept them before a comparison can run. ',
-    };
-  }
-
+  // Proposed, not active: nothing for THIS run to compare against yet. Whoever
+  // can manage competitors reviews them on the Projects page; a contributor's
+  // view says an approver has to.
+  const unverified = Math.min(added.length, discovery.candidates.filter((c) => c.verified === false).length);
+  const n = added.length;
   return {
-    competitors: added,
-    note: `Auto-discovered and added ${added.length} competitor${added.length === 1 ? '' : 's'} for this comparison — `
-      + `${added.map((d) => d.host).join(', ')}. Edit them anytime in project settings. `,
+    competitors: [],
+    proposed: added,
+    reason: 'competitors_pending_approval',
+    note: `AI found ${n} suggested competitor${n === 1 ? '' : 's'} — ${added.map((d) => d.host).join(', ')}`
+      + `${unverified ? ` (${unverified} not verified: AI validation was unavailable)` : ''}. `
+      + (verdict === 'propose'
+        ? 'An approver or administrator has to accept them before a comparison can run. '
+        : 'Review them in project settings: the comparison (SEMrush units) starts only once you accept them. '),
   };
+}
+
+/**
+ * The project's competitor rows including proposals and rejected suggestions.
+ *
+ * Every caller of runModule passes store.listDomains()'s default — ACTIVE rows
+ * only — so a proposal waiting for review was invisible here: each later run
+ * (Overview Run, primary-domain autostart, the schedule) paid for discovery
+ * again, re-proposed the same domains, and failed every save as a duplicate.
+ * Read here rather than at each caller so no caller can forget it. Falls back to
+ * what was passed in when the read fails.
+ */
+async function competitorRows(project, domains) {
+  const passed = Array.isArray(domains) ? domains : [];
+  let fetched = [];
+  try {
+    const store = require('./store');
+    fetched = project?.id ? await store.listDomains(project.id, { statuses: store.WITH_REMOVED }) : [];
+  } catch (e) {
+    console.warn(`[competitor] could not read proposed/rejected competitors: ${e.message}`);
+  }
+  const seen = new Set(passed.map((d) => d.id).filter(Boolean));
+  return [...passed, ...fetched.filter((d) => !d.id || !seen.has(d.id))];
 }
 
 async function runCompetitor({ access, run, project, domains }) {
   let competitors = (domains || []).filter((d) => d.role === 'competitor' && d.status === 'active');
   const primary = (domains || []).find((d) => d.role === 'primary' && d.status === 'active');
+  const { isRejectedSuggestion } = require('./store');
+  const history = competitors.length ? [] : await competitorRows(project, domains);
+  const proposedCount = history.filter((d) => d.role === 'competitor' && d.status === 'proposed').length;
 
   // A project with no competitors finds its own, HERE, inside the metered run
   // rather than at setup — discovery spends SEMrush units too, so it happens
@@ -401,7 +433,7 @@ async function runCompetitor({ access, run, project, domains }) {
   // this never overrides what the analyst has since curated. Also held back
   // while a contributor's proposals await approval, so it cannot pre-empt the
   // approver's decision about them.
-  const hasProposed = (domains || []).some((d) => d.role === 'competitor' && d.status === 'proposed');
+  const hasProposed = proposedCount > 0;
   let autoDiscoveryNote = '';
 
   // Competitors the analyst already picked on the standalone Competitor
@@ -422,17 +454,25 @@ async function runCompetitor({ access, run, project, domains }) {
   }
 
   if (!competitors.length && !hasProposed) {
-    const knownCompetitors = (domains || [])
-      .filter((d) => d.role === 'competitor')
+    // Tracked, proposed AND previously rejected: discovery must not offer a
+    // suggestion somebody already turned down.
+    const knownCompetitors = history
+      .filter((d) => d.role === 'competitor' && (d.status === 'active' || d.status === 'proposed' || isRejectedSuggestion(d)))
       .map((d) => d.host || d.normalized_origin)
       .filter(Boolean);
+    // Discovery only PROPOSES (UX-112): this run spends the discovery units and
+    // stops; the comparison runs once somebody accepts the suggestions.
     const discovered = await autoDiscoverCompetitors({ access, project, primary, existingCompetitors: knownCompetitors });
     if (!discovered.competitors.length) {
       return {
         status: 'insufficient_data',
         score: null,
         findings: [],
-        payload: { competitorCount: 0, reason: discovered.reason },
+        payload: {
+          competitorCount: 0,
+          reason: discovered.reason,
+          ...(discovered.proposed?.length ? { proposedCount: discovered.proposed.length } : {}),
+        },
         note: discovered.note,
       };
     }
@@ -441,15 +481,16 @@ async function runCompetitor({ access, run, project, domains }) {
   }
 
   // Only reachable with proposals pending — every other empty list discovered
-  // its own above.
+  // its own above. Nothing was searched or compared, so nothing is billed.
   if (!competitors.length) {
     return {
       status: 'insufficient_data',
       score: null,
       findings: [],
-      payload: { competitorCount: 0, reason: 'competitors_pending_approval' },
-      note: 'The competitors on this project are proposed, not tracked. An approver has to accept '
-        + 'them before a comparison can run.',
+      payload: { competitorCount: 0, reason: 'competitors_pending_approval', proposedCount },
+      note: `Waiting for you to review ${proposedCount} suggested competitor${proposedCount === 1 ? '' : 's'}. `
+        + 'Accept them in project settings (someone who can manage competitors) before a comparison can run; '
+        + 'no new search was run and no SEMrush units were spent.',
     };
   }
 

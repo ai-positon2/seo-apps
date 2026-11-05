@@ -95,6 +95,32 @@ test('surfacesWithHealth marks a key that was rejected as not ready', () => {
   assert.match(out[1].reason, /Claude answered none of its 1 questions on the last run \(2026-11-03\)/);
 });
 
+section('healthForRun — captures before wording');
+
+test('an older run is attributed from its captures, even when the error never names the model', () => {
+  const payload = {
+    surfaces: ['openai:api', 'google:api'],
+    coverage: { total: 2, measured: 1, failed: 1, failureReasons: [{ reason: '400 API key not valid', count: 1 }] },
+  };
+  // The wording alone cannot place it.
+  assert.ok(!h.healthFromPayload(payload).engines.find((e) => e.engine === 'google').failed);
+  const out = h.healthForRun(payload, [row('openai', 'captured'), row('google', 'failed', '400 API key not valid')]);
+  const gemini = out.engines.find((e) => e.engine === 'google');
+  assert.strictEqual(gemini.failed, 1);
+  assert.strictEqual(gemini.allFailed, true);
+  assert.deepStrictEqual(out.failedEngines, ['Gemini']);
+  assert.strictEqual(out.partial, true);
+});
+
+test('stored health wins; no captures falls back to the wording; nothing gives null', () => {
+  const stored = { partial: false, engines: [] };
+  assert.strictEqual(h.healthForRun({ health: stored }, [row('google', 'failed', 'x')]), stored);
+  const payload = { surfaces: ['google:api'], coverage: { total: 1, failed: 1, failureReasons: [{ reason: GEMINI_KEY, count: 1 }] } };
+  assert.strictEqual(h.healthForRun(payload, []).engines[0].failed, 1);
+  assert.strictEqual(h.healthForRun(null, null), null);
+  assert.strictEqual(h.healthForRun(null, []), null);
+});
+
 section('run closing and setup warnings');
 
 test('a run with a fully failed model adds a warning finding and keeps its status', () => {

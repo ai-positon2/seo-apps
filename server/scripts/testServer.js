@@ -82,6 +82,8 @@ const SUITES = [
   // The Overview competitor card withholds its rank when the Competitor
   // Analysis page compares a different rival set.
   'modules/projects/__tests__/competitorDrift.test.js',
+  // AI-found competitors are stored as suggestions to accept, never tracked.
+  'modules/projects/__tests__/competitorSuggestions.test.js',
   'modules/projects/__tests__/contentArchitect.test.js',
   'modules/projects/__tests__/homepageAutostart.test.js',
   // Site Crawler routes that attach a crawl to a project or edit one go through
@@ -165,6 +167,8 @@ const SUITES = [
   'modules/aiVisibilityLite/__tests__/profileDomain.test.js',
   // A run that lost a model says so, per model and in words.
   'modules/aiVisibilityLite/__tests__/runHealth.test.js',
+  // The dashboard card's cached live score follows the report.
+  'modules/aiVisibilityLite/__tests__/liveVersion.test.js',
   'modules/aiVisibility/__tests__/captureScheduler.test.js',
   'modules/aiVisibility/__tests__/proxyPool.test.js',
   'modules/aiVisibility/__tests__/surfaceAvailability.test.js',
@@ -183,6 +187,12 @@ const SUITES = [
   // Site Health's aggregates: computed once per finished crawl, shared by
   // concurrent callers, bounded in time, recomputed on a review.
   'modules/projects/__tests__/crawlHealthCache.test.js',
+  // A dashboard read stops when its request goes away (UX-054).
+  'services/__tests__/boundedRead.test.js',
+  // The executive summary's blocked-site and still-being-worked-out verdicts,
+  // the AI Visibility panel on a stale profile, and per-page counts on a
+  // capped crawl.
+  'modules/projects/__tests__/round2Fixes.test.js',
   'config/__tests__/registry.test.js',
   'config/__tests__/moduleRuns.test.js',
   // Site Health's affected-page counts, in SQL. Skips without TEST_DATABASE_URL.

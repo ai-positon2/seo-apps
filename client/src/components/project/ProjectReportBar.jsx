@@ -4,7 +4,7 @@ import { projectsApi, relativeTime } from '../../lib/projectsApi';
 import { useActiveProjectId } from '../../lib/activeProject';
 import { useUrlState } from '../../lib/useUrlState';
 import {
-  bandTone, isScored, orderWorstFirst, pathOf, pickSelection, plainFailure, runDidNotFinish,
+  bandTone, isScored, orderWorstFirst, pathOf, pendingPage, pickSelection, plainFailure, runDidNotFinish,
 } from '../../lib/pageReportPicker';
 
 // ── The bar above a module's own report ──────────────────────────────────────
@@ -35,7 +35,7 @@ import {
 // later, once the stored run had loaded. Anyone opening a client with a report
 // saw the form flash first — the app appearing to forget what it already knew.
 //
-// So the page no longer guesses. `onResolved(state, info)` reports one of five
+// So the page no longer guesses. `onResolved(state, info)` reports one of six
 // states, and the page draws a skeleton until it is not 'loading':
 //
 //   'loading'      still finding out whether a stored report exists, or a
@@ -44,10 +44,12 @@ import {
 //   'report'       one exists and has been handed over
 //   'none'         there is nothing stored; show the input form
 //   'page_failed'  the selected page has no report: its audit failed
+//   'page_pending' the selected page is still queued or being audited
 //   'error'        a stored report exists but could not be read
 //
-// The last two carry `info` — { url, reason (plain words), detail (the raw
-// error), finishedAt, retry } — and replace whatever report was on screen. They
+// The last three carry `info` — { url, reason (plain words), detail (the raw
+// error), finishedAt, retry; 'page_pending' adds status } — and replace
+// whatever report was on screen. The failures
 // used to be 'none', which left the previous page's report up under the new
 // page's name (Agent Readiness) or showed a blank new-audit form (SEO & GEO).
 //
@@ -246,11 +248,16 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
   // An audit in flight adds a page every minute or two. Without this the picker
   // shows whatever existed when the page was opened and looks stuck, which is the
   // same lie the dashboard card used to tell.
+  //
+  // A single page still being audited polls too (one added with "Analyze another
+  // page" belongs to a finished run), so its 'page_pending' state gives way to
+  // the report once it lands instead of waiting for a reload.
+  const selectedPending = Boolean(pendingPage((detail?.pages || []).find((p) => p.pageRunId === selectedId)));
   useEffect(() => {
-    if (!detail?.pagesFromInFlightRun) return undefined;
+    if (!detail?.pagesFromInFlightRun && !selectedPending) return undefined;
     const timer = setInterval(() => { load(); }, 15000);
     return () => clearInterval(timer);
-  }, [detail?.pagesFromInFlightRun, load]);
+  }, [detail?.pagesFromInFlightRun, selectedPending, load]);
 
   useEffect(() => {
     if (!pickerOpen) return undefined;
@@ -319,9 +326,19 @@ export default function ProjectReportBar({ moduleKey, onOpenReport, onResolved }
     }
 
     if (!selectedId) return;
-    // A page row exists before its report does. Do not consume the once-per-page
-    // guard until it finishes, or the first homepage report never opens.
-    if (selected && ['queued', 'running'].includes(selected.status)) return;
+    // A page row exists before its report does. It has its own key, so the
+    // once-per-page guard is not consumed until it finishes (or the first
+    // homepage report never opens) — but picking it must still take the
+    // previous page's report off screen: it used to return here with no state
+    // at all, leaving that report undimmed under this page's name.
+    const pending = pendingPage(selected);
+    if (pending) {
+      const pendingKey = `${runId}:${selectedId}:pending`;
+      if (openedKey.current === pendingKey) return;
+      openedKey.current = pendingKey;
+      emitResolved('page_pending', pending, { force: true });
+      return;
+    }
     const key = `${runId}:${selectedId}`;
     if (openedKey.current === key) return;
     // A different page than the one on screen: until its report lands, the old

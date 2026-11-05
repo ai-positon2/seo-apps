@@ -811,6 +811,7 @@ test('a fully failed engine is asked, unavailable, warned about and explained in
   });
   assert.strictEqual(out.meta.enginesAsked, 2);
   assert.deepStrictEqual(out.meta.enginesUnavailable, ['Claude (API · web search)']);
+  assert.deepStrictEqual(out.meta.latestRunFailed, [], 'already named as unavailable in this period');
   assert.ok(out.warnings.includes('engine_unavailable'));
   assert.ok(out.warnings.includes('latest_run_partial'));
   const claude = out.byEngine.find((e) => e.engine === 'anthropic');
@@ -822,7 +823,135 @@ test('a fully failed engine is asked, unavailable, warned about and explained in
   assert.ok(!/request_id|\{/.test(card.failureReason), 'no raw provider JSON in the answer card');
 });
 
+test('a newest run that failed outright, after the window, names the model as failed on the latest run', () => {
+  // r1 answered on both models two days ago; r2 today lost Gemini entirely.
+  // The window ends on r1's day, so r2 sits outside it.
+  const failedGemini = (promptId) => cap({
+    engine: 'google', surfaceLabel: 'Gemini (API · Google Search grounding)', status: 'failed', mentioned: null,
+    cited: null, answerText: null, promptId, runId: 'r2', capturedAt: ago(0),
+    failureReason: '400 INVALID_ARGUMENT',
+  });
+  const out = report.build({
+    captures: [
+      cap({ runId: 'r1', capturedAt: ago(2) }),
+      cap({ runId: 'r1', engine: 'google', surfaceLabel: 'Gemini (API · Google Search grounding)', capturedAt: ago(2) }),
+      failedGemini('p1'), failedGemini('p2'),
+    ],
+    prompts: PROMPTS,
+    brand: BRAND,
+  });
+  assert.strictEqual(out.meta.latestRun.runId, 'r2');
+  // Gemini answered in this period, so it is measured — not unavailable — and
+  // its failure on the latest run is said separately.
+  assert.strictEqual(out.meta.enginesMeasured, 2);
+  assert.deepStrictEqual(out.meta.enginesUnavailable, []);
+  assert.deepStrictEqual(out.meta.latestRunFailed, ['Gemini']);
+  assert.ok(!out.warnings.includes('engine_unavailable'));
+  assert.ok(out.warnings.includes('latest_run_partial'));
+});
+
+test('every model failing on the latest run is never "3 of 3 measured" AND unavailable', () => {
+  const engines = [
+    ['openai', 'ChatGPT (API · web search)'],
+    ['anthropic', 'Claude (API · web search)'],
+    ['google', 'Gemini (API · Google Search grounding)'],
+  ];
+  const captures = [];
+  for (const [engine, surfaceLabel] of engines) {
+    captures.push(cap({ runId: 'r1', engine, surfaceLabel, capturedAt: ago(2) }));
+    captures.push(cap({
+      runId: 'r2', engine, surfaceLabel, capturedAt: ago(0), status: 'failed', mentioned: null,
+      cited: null, answerText: null, failureReason: '500 server error',
+    }));
+  }
+  const out = report.build({ captures, prompts: PROMPTS, brand: BRAND });
+  assert.strictEqual(out.meta.enginesMeasured, 3);
+  assert.deepStrictEqual(out.meta.enginesUnavailable, []);
+  assert.deepStrictEqual([...out.meta.latestRunFailed].sort(), ['ChatGPT', 'Claude', 'Gemini']);
+});
+
+test('a latest run where every model answered is not reported as unavailable', () => {
+  const out = report.build({
+    captures: [cap({ runId: 'r1', capturedAt: ago(2) }), cap({ runId: 'r2', capturedAt: ago(0) })],
+    prompts: PROMPTS,
+    brand: BRAND,
+  });
+  assert.deepStrictEqual(out.meta.enginesUnavailable, []);
+  assert.ok(!out.warnings.includes('engine_unavailable'));
+});
+
 section('A competitor stored by domain matches its real name (UX-174)');
+
+test('an unsplittable stem is found in the answers written as words (UX-174 residual)', () => {
+  const captures = [
+    cap({ runId: 'r1', answerText: 'Gentle Giant and Acme Dental both do long-distance moves.' }),
+    cap({ runId: 'r1', promptId: 'p2', answerText: 'Many people pick Gentle Giant for pianos.' }),
+    cap({ runId: 'r1', engine: 'google', answerText: 'Avoid Gentle Giants of the industry; Gentlegiant is fine.' }),
+    cap({ runId: 'r1', engine: 'anthropic', status: 'failed', answerText: null }),
+  ];
+  const [gg] = report.enrichCompetitors(
+    [{ name: 'Gentlegiant', domain: 'gentlegiant.com', aliases: ['gentlegiant', 'Gentlegiant'] }],
+    captures,
+    [],
+  );
+  assert.strictEqual(gg.name, 'Gentle Giant');
+  assert.ok(gg.aliases.includes('Gentle Giant'));
+  assert.ok(!gg.aliases.some((a) => /giants/i.test(a)), 'a longer word is not the stem');
+  assert.ok(gg.aliases.includes('gentlegiant'), 'the stem alias is kept');
+});
+
+test('a lower-case or single-answer spelling is not taken; a real configured name is kept', () => {
+  const lowerOnly = [
+    cap({ runId: 'r1', answerText: 'try gentle giant movers' }),
+    cap({ runId: 'r1', promptId: 'p2', answerText: 'gentle giant is fine too' }),
+  ];
+  const [lower] = report.enrichCompetitors(
+    [{ name: 'Gentlegiant', domain: 'gentlegiant.com', aliases: ['gentlegiant'] }], lowerOnly, [],
+  );
+  assert.strictEqual(lower.name, 'Gentlegiant');
+  assert.deepStrictEqual(lower.aliases, ['gentlegiant']);
+  const [once] = report.enrichCompetitors(
+    [{ name: 'Gentlegiant', domain: 'gentlegiant.com', aliases: [] }],
+    [cap({ runId: 'r1', answerText: 'Gentle Giant moves pianos.' })], [],
+  );
+  assert.deepStrictEqual(once.aliases, [], 'one answer is not enough');
+  const twice = [
+    cap({ runId: 'r1', answerText: 'Gentle Giant moves pianos.' }),
+    cap({ runId: 'r1', promptId: 'p2', answerText: 'Ask Gentle Giant.' }),
+  ];
+  const [named] = report.enrichCompetitors(
+    [{ name: 'GG Moving Co', domain: 'gentlegiant.com', aliases: [] }], twice, [],
+  );
+  assert.strictEqual(named.name, 'GG Moving Co');
+  assert.deepStrictEqual(named.aliases, []);
+});
+
+test('generic service domains never take a trade phrase as their name (pestcontrol.com, localmovers.com)', () => {
+  const captures = [
+    cap({ runId: 'r1', answerText: 'For pest control, call a local pro. Local Movers are cheaper; Pest Control matters.' }),
+    cap({ runId: 'r1', promptId: 'p2', answerText: 'Pest Control and Local Movers: compare local movers and pest control quotes.' }),
+    cap({ runId: 'r1', engine: 'google', answerText: 'Moving Company Denver lists. Moving Company Denver again.' }),
+    cap({ runId: 'r1', engine: 'google', promptId: 'p2', answerText: 'Pest control is seasonal.' }),
+  ];
+  const out = report.enrichCompetitors([
+    { name: 'pestcontrol', domain: 'pestcontrol.com', aliases: ['pestcontrol'] },
+    { name: 'localmovers', domain: 'localmovers.com', aliases: ['localmovers'] },
+    { name: 'movingcompany', domain: 'movingcompany.com', aliases: ['movingcompany'] },
+  ], captures, []);
+  for (const c of out) {
+    assert.deepStrictEqual(c.aliases, [c.name], `${c.domain} got ${JSON.stringify(c.aliases)}`);
+  }
+});
+
+test('no spaced spelling in the answers leaves the competitor as it was', () => {
+  const [gg] = report.enrichCompetitors(
+    [{ name: 'Gentlegiant', domain: 'gentlegiant.com', aliases: ['gentlegiant'] }],
+    [cap({ runId: 'r1', answerText: 'Nothing relevant here.' })],
+    [],
+  );
+  assert.strictEqual(gg.name, 'Gentlegiant');
+  assert.deepStrictEqual(gg.aliases, ['gentlegiant']);
+});
 
 test('roadwaymoving.com is matched as "Roadway Moving" and is tracked in the others list', () => {
   const { BRANDS_VERSION } = require('../answerBrands');

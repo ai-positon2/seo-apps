@@ -21,7 +21,7 @@ import { projectsApi, relativeTime, MODULE_STATUS_LABEL, MODULE_STATUS_TONE, isM
 import { useActiveProjectId } from '../../lib/activeProject';
 import { cs } from '../../lib/crawlScopeApi';
 import ModuleDetailSection, { Caveats } from './moduleDetailSections';
-import { moduleReportRoute } from '../../lib/moduleReportRoute';
+import { moduleReportRoute, runReportPath } from '../../lib/moduleReportRoute';
 
 // ── One module's project evidence, on the module's own page ──────────────────
 //
@@ -141,7 +141,7 @@ export default function ModuleDetailPanel({ moduleKey, onOpenReport }) {
         // A crawl is minutes of work on the crawl worker, so this hands off to
         // the run page rather than waiting here.
         const { run: crawlRun } = await cs.runProjectNow(project.id);
-        navigate(`/crawl-scope/runs/${crawlRun.id}`);
+        navigate(runReportPath(crawlRun.id, project.id));
         return;
       }
       await projectsApi.runModule(project.id, moduleKey);
@@ -194,6 +194,8 @@ export default function ModuleDetailPanel({ moduleKey, onOpenReport }) {
   const visibleFindings = showAllFindings ? findings : findings.slice(0, 25);
   // The same helper the dashboard card uses, fed the payload's ref so the panel
   // and the card always agree about where this module's report is.
+  // Named explicitly: the panel's client (resolved against the list) is the
+  // one this report belongs to, even if the tab's stored id is stale.
   const routeInfo = moduleReportRoute({
     key: moduleKey,
     toolPath: module.toolPath,
@@ -201,7 +203,7 @@ export default function ModuleDetailPanel({ moduleKey, onOpenReport }) {
     reportRef: payload?.reportRef || null,
     evidence: card.evidence,
     status: card.status,
-  });
+  }, { projectId: project?.id });
   // Only a route AWAY from here is worth a button; the in-page modules have
   // already hydrated by the time this renders.
   // Compared without the query: the route now carries ?project=.

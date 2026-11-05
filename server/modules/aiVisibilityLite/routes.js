@@ -37,7 +37,8 @@ const setup = require('./setup');
 const runner = require('./run');
 const report = require('./report');
 const surfacesLib = require('./surfaces');
-const { healthFromPayload, surfacesWithHealth } = require('./runHealth');
+const { healthForRun, surfacesWithHealth } = require('./runHealth');
+const liveVersion = require('./liveVersion');
 const { MAX_PROMPTS, AUTO_PROMPT_COUNT } = require('./models');
 const { classifyTones, TONE_VERSION } = require('./describe');
 const { extractAnswerBrands, BRANDS_VERSION } = require('./answerBrands');
@@ -94,8 +95,8 @@ async function projectViewFor(access) {
  * `errorSummary` say in words what a run that lost a model lost — the stored
  * status alone reads 'completed' for those.
  */
-function runView(run) {
-  const health = healthFromPayload(run.payload);
+function runView(run, captureRows = null) {
+  const health = healthForRun(run.payload, captureRows?.get(String(run.id)) || null);
   return {
     runId: run.id,
     status: run.status,
@@ -109,12 +110,53 @@ function runView(run) {
   };
 }
 
+const IN_FLIGHT_STATUSES = new Set(['queued', 'running']);
+
+// A finished run's captures never change, so its rows are read once per
+// process — /runs and latestRun are polled. Bounded; oldest dropped first.
+const healthRowsCache = new Map(); // `${projectId}:${runId}` -> rows
+const HEALTH_ROWS_CACHE_MAX = 500;
+
+/**
+ * The capture rows of the finished measurement runs that predate stored
+ * health, so their failures are pinned on the model that failed rather than
+ * guessed from the error's wording. One small read; an empty Map on any error
+ * (the wording fallback still applies).
+ */
+async function healthRowsFor(projectId, runs, moduleKey = runner.MODULE_KEY) {
+  const out = new Map();
+  if (moduleKey !== runner.MODULE_KEY) return out;
+  const ids = (runs || [])
+    .filter((r) => r && !r.payload?.health && !IN_FLIGHT_STATUSES.has(r.status))
+    .map((r) => String(r.id));
+  const missing = [];
+  for (const id of ids) {
+    const hit = healthRowsCache.get(`${projectId}:${id}`);
+    if (hit) out.set(id, hit); else missing.push(id);
+  }
+  if (!missing.length) return out;
+  let read;
+  try {
+    read = await store.captureHealthRows(projectId, missing);
+  } catch {
+    return out; // not cached: the next call tries again
+  }
+  for (const id of missing) {
+    const rows = read.get(id) || [];
+    if (rows.length) out.set(id, rows);
+    healthRowsCache.set(`${projectId}:${id}`, rows);
+    if (healthRowsCache.size > HEALTH_ROWS_CACHE_MAX) healthRowsCache.delete(healthRowsCache.keys().next().value);
+  }
+  return out;
+}
+
 /** The latest run of one module key, flattened for polling. */
 async function latestRun(projectId, moduleKey) {
   const runs = await moduleEvidence.listRuns(projectId, moduleKey, { limit: 1 }).catch(() => []);
   const run = runs[0];
   if (!run) return null;
-  return { ...runView(run), payload: run.payload || null };
+  const rows = await healthRowsFor(projectId, [run], moduleKey);
+  return { ...runView(run, rows), payload: run.payload || null };
 }
 
 /**
@@ -161,8 +203,15 @@ async function describedHistory(projectId, { panelLook = 5, look = 100 } = {}) {
     sentimentByRun.set(run.id, { score, at: run.finished_at || run.created_at || null });
   }
 
+  // Runs still measuring: their answers are saved before they are read for
+  // tone and names and before the run closes, so the live report leaves them
+  // out until the run is finished.
+  const unfinishedRunIds = new Set(runs
+    .filter((r) => IN_FLIGHT_STATUSES.has(r.status))
+    .map((r) => String(r.id)));
+
   return {
-    latest, sentimentByRun, answerTones, answerBrands,
+    latest, sentimentByRun, answerTones, answerBrands, unfinishedRunIds,
   };
 }
 
@@ -195,7 +244,10 @@ router.get('/:projectId', async (req, res) => {
     const finished = measureRun?.health
       ? measureRun
       : await moduleEvidence.listRuns(projectId, runner.MODULE_KEY, { limit: 5 })
-        .then((rows) => rows.map(runView).find((r) => r.health) || null)
+        .then(async (rows) => {
+          const captureRows = await healthRowsFor(projectId, rows);
+          return rows.map((r) => runView(r, captureRows)).find((r) => r.health) || null;
+        })
         .catch(() => null);
 
     res.json({
@@ -240,6 +292,7 @@ router.post('/:projectId/setup', async (req, res) => {
     const run = await setup.start({ access });
 
     setup.complete({ access, project, run, regenerate })
+      .then(() => liveVersion.bump(access.project.id))
       .then(() => (
         // The first measurement follows setup without anyone pressing anything
         // — saving the project is meant to be the whole interaction. Starts
@@ -289,6 +342,7 @@ router.post('/:projectId/prompts', async (req, res) => {
     }
 
     const result = await store.addPrompts({ access, prompts: body, source: 'custom' });
+    if (result.added?.length) liveVersion.bump(access.project.id);
     res.status(result.added.length ? 201 : 200).json(result);
   } catch (e) { handleError(res, e, 'prompts.add'); }
 });
@@ -304,6 +358,7 @@ router.patch('/:projectId/prompts/:promptId', async (req, res) => {
       text: req.body?.text,
       intent: req.body?.intent,
     });
+    liveVersion.bump(access.project.id);
     res.json({ prompt });
   } catch (e) { handleError(res, e, 'prompts.update'); }
 });
@@ -314,6 +369,7 @@ router.delete('/:projectId/prompts/:promptId', async (req, res) => {
       req, req.params.projectId, 'editProjectSettings',
     );
     const prompt = await store.deletePrompt({ access, promptId: req.params.promptId });
+    liveVersion.bump(access.project.id);
     // null means it was already deleted. Not an error — the only way to get
     // here twice is a double-click.
     res.json({ deleted: true, prompt });
@@ -356,10 +412,12 @@ router.get('/:projectId/runs', async (req, res) => {
       store.runBudget(projectId),
     ]);
 
+    const captureRows = await healthRowsFor(projectId, runs);
+
     res.json({
       budget,
       runs: runs.map((r) => {
-        const view = runView(r);
+        const view = runView(r, captureRows);
         const cov = r.payload?.coverage || null;
         return {
           id: r.id,
@@ -403,12 +461,18 @@ async function buildLiveReport(projectRow, { from = null, to = null, budget: wan
   const domains = await projectsStore.listDomains(projectId);
   const project = projectsStore.projectView(projectRow, domains);
 
-  const [captures, prompts, profile, budget] = await Promise.all([
+  const [allCaptures, prompts, profile, budget, history] = await Promise.all([
     store.capturesForProject(projectId),
     store.listPrompts(projectId),
     store.getProfile(projectId),
     wantBudget ? store.runBudget(projectId) : Promise.resolve(null),
+    describedHistory(projectId),
   ]);
+  // Only finished runs' answers: a run still measuring has saved answers it
+  // has not yet read for tone or names, and has not closed. Mid-run, the
+  // report (and the dashboard card and module panel built from it) keeps
+  // showing the last finished figures.
+  const captures = allCaptures.filter((c) => !c.runId || !history.unfinishedRunIds.has(String(c.runId)));
   if (!captures.length) return { built: null, budget, prompts, captures };
 
   // A profile built for a different domain: the project moved, and every answer
@@ -436,7 +500,7 @@ async function buildLiveReport(projectRow, { from = null, to = null, budget: wan
   // report.build's composite score needs.
   const {
     latest: described, sentimentByRun, answerTones, answerBrands,
-  } = await describedHistory(projectId);
+  } = history;
 
   // Configured competitors under the names the answers actually use for
   // them ("Foot Locker" for footlocker.com), then every stored answer
@@ -582,7 +646,11 @@ function startBackfill({
       : null,
   ])
     .catch((e) => console.warn(`[aiVisibilityLite] project ${projectId}: backfill failed (${e.message})`))
-    .finally(() => backfillJobs.delete(projectId));
+    .finally(() => {
+      backfillJobs.delete(projectId);
+      // New tones and brand readings change the report's figures.
+      liveVersion.bump(projectId);
+    });
 
   backfillJobs.set(projectId, { job, state });
   return state;
@@ -591,3 +659,5 @@ function startBackfill({
 module.exports = router;
 // The live report, for the dashboard card (projects/overview.js).
 module.exports.buildLiveReport = buildLiveReport;
+// For tests.
+module.exports.healthRowsFor = healthRowsFor;

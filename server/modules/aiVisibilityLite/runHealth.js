@@ -167,6 +167,22 @@ function healthFromPayload(payload) {
 }
 
 /**
+ * A run's health, from the best evidence there is: the health run.js stored;
+ * else the run's own capture rows, which carry the engine of every failure
+ * (a Gemini error that never says 'gemini' is still Gemini's); else, for a run
+ * with no captures on file, the stored error text read for model names.
+ *
+ * @param {object|null} payload  the run's stored payload
+ * @param {object[]|null} [rows] the run's captures {engine, surfaceLabel, status, failureReason}
+ */
+function healthForRun(payload, rows = null) {
+  if (payload?.health) return payload.health;
+  const own = (rows || []).filter((r) => r && r.engine);
+  if (own.length) return healthOfRows(own);
+  return healthFromPayload(payload);
+}
+
+/**
  * The page's provider list, corrected by what the last run actually saw.
  *
  * `availability()` can only say a key is SET. A key that is set and rejected
@@ -198,6 +214,6 @@ function surfacesWithHealth(surfaces, health, at = null) {
 }
 
 module.exports = {
-  normaliseFailure, plainFailure, healthOfRows, healthFromPayload, surfacesWithHealth, modelName,
+  normaliseFailure, plainFailure, healthOfRows, healthFromPayload, healthForRun, surfacesWithHealth, modelName,
   PARTIAL_FAILURE_SHARE,
 };

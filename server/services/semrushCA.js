@@ -201,6 +201,23 @@ async function getBrandedKeywordCount(domain, database, brandName, limit = 10000
   return parseRows(raw).length;
 }
 
+// The branded keyword PHRASES (lowercased) rather than their count, so a
+// caller matching several spellings of one brand ("foot locker" and
+// "footlocker") can union them without counting a keyword twice. Same report,
+// same per-line cost as getBrandedKeywordCount.
+async function getBrandedKeywordPhrases(domain, database, brandName, limit = 10000) {
+  const raw = await semrushGet({
+    type: 'domain_organic',
+    domain,
+    database,
+    display_filter: `+|Ph|Co|${String(brandName).toLowerCase()}`,
+    export_columns: 'Ph,Po,Nq',
+    display_limit: limit,
+  });
+  if (isSemrushError(raw)) return [];
+  return parseRows(raw).map((p) => String(p[0] || '').toLowerCase()).filter(Boolean);
+}
+
 // ── AI Overview keywords ──────────────────────────────────────────────────────
 // Filters for SERP features containing ai_overview.
 // Falls back to empty if the plan doesn't support this filter.
@@ -284,6 +301,7 @@ module.exports = {
   getKeywordsByPositionBucket,
   getKeywordsFull,
   getBrandedKeywordCount,
+  getBrandedKeywordPhrases,
   getAIOKeywords,
   getTopPages,
 };

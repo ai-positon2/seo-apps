@@ -68,6 +68,19 @@ const { withAxisScores } = require('../../checks/seoGeoChecks');
 
 const router = express.Router();
 
+// Any request that may change a project (a run started, a domain or competitor
+// changed, settings saved, a page excluded…) marks it changed, when it arrives
+// and again once its response is sent, so an /overview asked for after it never
+// joins a build that started before it (overview.markProjectChanged).
+router.use('/:projectId', (req, res, next) => {
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    const { projectId } = req.params;
+    overview.markProjectChanged(projectId);
+    res.once('finish', () => overview.markProjectChanged(projectId));
+  }
+  next();
+});
+
 // Errors carry { status, code } from the services. Anything without a status is
 // a bug, not a user mistake, so it answers 500 and is logged in full.
 function handleError(res, e, where) {
@@ -98,6 +111,21 @@ async function autostartAfterDomainChange(access, delayMs) {
     console.error('[projects] competitor autostart skipped:', e.message);
     return { scheduled: false, reason: 'not_started', runId: null, note: null };
   }
+}
+
+/**
+ * Which autostarts POST / will attempt, per the deployment's flags
+ * (CRAWL_AUTOSTART, AI_VISIBILITY_LITE_AUTOSTART, COMPETITOR_RESEARCH_AUTOSTART).
+ * The homepage audits have no switch. Whether one then actually starts for a
+ * given project is still reported per job in the 201 response.
+ */
+function autostartsEnabled() {
+  return {
+    crawl: crawlAutostart.isEnabled(),
+    homepageAudits: true,
+    aiVisibilityLite: aiVisibilityLiteAutostart.enabled(),
+    competitorResearch: competitorAutostart.isEnabled(),
+  };
 }
 
 function requireConfigured(res) {
@@ -172,6 +200,10 @@ router.get('/', async (req, res) => {
         ? (await adminLimits.effectiveLimits({ workspaceId: activeWorkspaceId })).limits
         : adminLimits.DEFAULT_LIMITS,
       countryRequired: true,
+      // Which jobs creating a project starts by itself on THIS deployment, read
+      // from the same flags the autostart modules read, so the setup form lists
+      // only what will really start (UX-041).
+      autostarts: autostartsEnabled(),
     });
   } catch (e) { handleError(res, e, 'list'); }
 });
@@ -523,10 +555,11 @@ router.post('/:projectId/domains/competitors/discover', async (req, res) => {
     // active rows only — so a domain already waiting for approval was offered
     // up again as a fresh discovery, and the second copy was refused by the
     // duplicate check after the SEMrush units for it had already been spent.
-    const rows = await store.listDomains(access.project.id, { statuses: store.ACTIVE_AND_PROPOSED });
+    // Rejected suggestions too, so discovery does not offer one again.
+    const rows = await store.listDomains(access.project.id, { statuses: store.WITH_REMOVED });
     const primary = rows.find((d) => d.role === 'primary' && d.status === 'active');
     const existingCompetitors = rows
-      .filter((d) => d.role === 'competitor')
+      .filter((d) => d.role === 'competitor' && (d.status !== 'removed' || store.isRejectedSuggestion(d)))
       .map((d) => d.host || d.normalized_origin)
       .filter(Boolean);
 
@@ -1748,3 +1781,5 @@ router.get('/:projectId/report.pdf', async (req, res) => {
 });
 
 module.exports = router;
+// For tests: what GET / reports as `autostarts`.
+module.exports.autostartsEnabled = autostartsEnabled;

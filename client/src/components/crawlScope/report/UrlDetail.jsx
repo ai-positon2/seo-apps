@@ -16,8 +16,11 @@ import {
 // the Excel audit, which is one button away at the top of the report.
 
 export default function UrlDetail({
-  page, issues, onBack, onOpenIssue, loading = false, error = null,
+  page, issues, onBack, onOpenIssue, loading = false, error = null, totalCount = null,
 }) {
+  // On a capped crawl (UX-192) the report loads only some findings, so this
+  // page's list can be shorter than what the crawl found on it.
+  const partial = Number.isFinite(totalCount) && totalCount > issues.length;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -51,8 +54,17 @@ export default function UrlDetail({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <RuledHead
           title="Issues on this page"
-          note={loading ? 'reading…' : error ? 'could not be read' : `${issues.length} found`}
+          note={loading ? 'reading…' : error ? 'could not be read'
+            : partial ? `${totalCount.toLocaleString()} found · ${issues.length.toLocaleString()} shown`
+              : `${issues.length} found`}
         />
+
+        {partial && !loading && !error && (
+          <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--text-3)' }}>
+            This crawl has more findings than the report loads at once, most serious first, so
+            {' '}{(totalCount - issues.length).toLocaleString()} of this page&apos;s are not listed here.
+          </p>
+        )}
 
         {issues.map((i) => {
           const s = sevOf(i.severity);

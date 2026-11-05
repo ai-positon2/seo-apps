@@ -54,21 +54,27 @@ function hasOpenAIKey() {
 // is missing, so its internal fallback never fires in that case — these
 // wrappers give discovery the same graceful-degradation behavior the rest
 // of this module has for a missing SEMrush key.
+//
+// Without a model verdict nothing says a candidate is a rival rather than a
+// shop or a blog, so it is NOT labelled "direct" any more (that put every
+// Semrush keyword-overlap site on the project as a direct competitor). It is
+// returned as an unverified suggestion — `unverified: true`, no type — which
+// pickDirectRivals keeps only as such, for a person to accept or reject.
+const NOT_VERIFIED_REASON = 'Not verified — AI validation was unavailable, so this is only a site that ranks for the same keywords (Semrush). Check it is a real rival before accepting.';
+
+function unverifiedVerdicts(candidates) {
+  return candidates.map((r) => ({
+    domain: r.domain, status: 'keep', competitorType: null, unverified: true, reason: NOT_VERIFIED_REASON,
+  }));
+}
+
 async function safeValidate(brandName, targetUrl, country, candidates) {
-  if (!hasOpenAIKey()) {
-    return candidates.map((r) => ({
-      domain: r.domain, status: 'keep', competitorType: 'direct',
-      reason: 'GPT validation unavailable (OPENAI_API_KEY not configured) — included based on Semrush competition score.',
-    }));
-  }
+  if (!hasOpenAIKey()) return unverifiedVerdicts(candidates);
   try {
     return await gptAnalysis.validateCompetitors(brandName, targetUrl, country, candidates, `${LOCATION_SERVICE_CRITERION}\n${DIRECT_RIVAL_CRITERION}`);
   } catch (err) {
     console.error('[discovery] validateCompetitors failed:', err.message);
-    return candidates.map((r) => ({
-      domain: r.domain, status: 'keep', competitorType: 'direct',
-      reason: 'GPT validation unavailable — included based on Semrush competition score.',
-    }));
+    return unverifiedVerdicts(candidates);
   }
 }
 
@@ -83,16 +89,23 @@ async function safeSummary(brandName, country, kept) {
 
 // Joins the model's verdicts onto Semrush's candidates and keeps the direct
 // rivals, strongest overlap first. A candidate the model did not mention is
-// excluded (it used to default to a kept "direct" rival).
+// excluded (it used to default to a kept "direct" rival). An unverified
+// verdict (no model answer at all) is kept but marked `verified: false`.
 function pickDirectRivals(candidates, validation, limit) {
   const norm = (d) => String(d || '').replace(/^www\./, '').toLowerCase();
   const verdicts = Array.isArray(validation) ? validation : [];
   return candidates
     .map((c) => {
       const v = verdicts.find((x) => norm(x?.domain) === norm(c.domain)) || {};
-      return { ...c, status: v.status || 'exclude', reason: v.reason || '', competitorType: v.competitorType || null };
+      return {
+        ...c,
+        status: v.status || 'exclude',
+        reason: v.reason || '',
+        competitorType: v.competitorType || null,
+        verified: v.unverified !== true,
+      };
     })
-    .filter(isDirectRival)
+    .filter((c) => isDirectRival(c) || (!c.verified && c.status === 'keep'))
     .sort((a, b) => b.competitionLevel - a.competitionLevel)
     .slice(0, limit);
 }
@@ -133,4 +146,7 @@ async function discoverCompetitorsForClient(client, { limit = DEFAULT_DISCOVERY_
   return { candidates: kept, gptSummary, database, unitsUsed };
 }
 
-module.exports = { discoverCompetitorsForClient, pickDirectRivals, DEFAULT_DISCOVERY_LIMIT, DIRECT_RIVAL_CRITERION };
+module.exports = {
+  discoverCompetitorsForClient, pickDirectRivals, unverifiedVerdicts,
+  DEFAULT_DISCOVERY_LIMIT, DIRECT_RIVAL_CRITERION, NOT_VERIFIED_REASON,
+};

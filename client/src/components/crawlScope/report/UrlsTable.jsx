@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import {
   TableFrame, Th, Pager, SearchField,
 } from './reportPrimitives';
+import { pageIssueCount } from '../runReportData';
 
 // ── Every HTML page crawled ─────────────────────────────────────────────────
 //
@@ -33,7 +34,7 @@ const statusColor = (status) => {
   return 'var(--text-2)';
 };
 
-export default function UrlsTable({ pages, onOpen }) {
+export default function UrlsTable({ pages, onOpen, urlCounts = null }) {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
 
@@ -79,7 +80,10 @@ export default function UrlsTable({ pages, onOpen }) {
             // replaces `.issues` with the page-scoped findings once they exist,
             // so this column counts real findings and reads 0 while a crawl is
             // still running — which is what the provisional gate is for.
-            const count = (p.issues || []).length;
+            // On a capped run the loaded findings are only some of them, so
+            // the page's count over EVERY finding (urlCounts) is shown, with a
+            // mark that its own list is partial (UX-192).
+            const { count, partial } = pageIssueCount(p.url, (p.issues || []).length, urlCounts, 'table');
             return (
               <tr key={p.url} style={{ borderBottom: '1px solid var(--border)' }}>
                 <td
@@ -125,6 +129,14 @@ export default function UrlsTable({ pages, onOpen }) {
                       }}
                     >
                       {count}
+                      {partial && (
+                        <span
+                          title="This report loaded only some of this page's findings; the number counts all of them."
+                          style={{ fontWeight: 400, color: 'var(--text-3)' }}
+                        >
+                          *
+                        </span>
+                      )}
                     </button>
                   )}
                 </td>
@@ -151,6 +163,7 @@ export default function UrlsTable({ pages, onOpen }) {
           ? `Showing ${start + 1}–${start + shown.length} of ${filtered.length.toLocaleString()}`
             + `${query.trim() ? ` matching page${filtered.length === 1 ? '' : 's'}` : ` HTML page${filtered.length === 1 ? '' : 's'}`}`
             + ' · every column, and the files this site serves, are in the Excel audit'
+            + (urlCounts ? ' · * this crawl has more findings than the report loads; the count covers all of them' : '')
           : 'Nothing to show'}
       />
     </div>

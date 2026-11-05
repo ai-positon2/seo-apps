@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
 import { Card, Kicker, Btn, Muted, Tag, FadingRule } from '../studio/primitives';
 import { projectsApi } from '../../lib/projectsApi';
-import { competitorEstimate, startsOnCreate, MAX_COMPARED_COMPETITORS } from '../../lib/projectCreated';
+import {
+  competitorEstimate, startsOnCreate, autostartOn, MAX_COMPARED_COMPETITORS,
+} from '../../lib/projectCreated';
 
 // ── Project setup (PRD §20.2) ───────────────────────────────────────────────
 // Required: project name, primary domain, country. Optional at setup:
@@ -56,6 +58,9 @@ const Field = ({ label, hint, children, required }) => (
 
 export default function ProjectSetupCard({
   limits, onCreated, onCancel,
+  // Which jobs creating a project starts on this deployment (GET /api/projects
+  // `autostarts`); null from an older server means all of them.
+  autostarts = null,
   // The workspaces this caller belongs to, and which one is active. Both come
   // straight from GET /api/projects, which already returns them.
   workspaces = [], activeWorkspaceId = null,
@@ -87,7 +92,9 @@ export default function ProjectSetupCard({
   const estimate = competitorEstimate(competitors);
   const { autoDiscovers, compared, skipped } = estimate;
   const estimatedUnits = estimate.units;
-  const startList = startsOnCreate({ maxUrls, competitors });
+  const startList = startsOnCreate({ maxUrls, competitors, autostarts });
+  const competitorAutostarts = autostartOn(autostarts, 'competitorResearch');
+  const crawlAutostarts = autostartOn(autostarts, 'crawl');
 
   async function submit(event) {
     event?.preventDefault();
@@ -209,8 +216,8 @@ export default function ProjectSetupCard({
           />
           <Muted size={11}>
             Optional, and editable later. One per line or comma separated. Leave it empty and
-            SEMrush + AI find competitors for you, adding them to the project automatically
-            (marked as AI picks, with the reason, on the project's settings).
+            SEMrush + AI suggest competitors for you (marked as AI picks, with the reason, on the
+            project's settings). Nothing is compared against them until you accept them there.
             Competitors are used for competitive evidence only — their sites are never crawled.
           </Muted>
 
@@ -227,20 +234,32 @@ export default function ProjectSetupCard({
             }}
           >
             <span style={{ fontSize: 12.5, color: 'var(--text)' }}>
-              Competitor Research starts as soon as this project is created.
+              {competitorAutostarts
+                ? 'Competitor Research starts as soon as this project is created.'
+                : 'Competitor Research does not start by itself on this deployment — run it from its card.'}
             </span>
-            <Muted size={11}>
-              It compares your domain against {autoDiscovers
-                ? `the ${compared} competitors it finds`
-                : `${compared} competitor${compared === 1 ? '' : 's'}`}{' '}
-              and costs roughly{' '}
-              <strong style={{ color: 'var(--text-2)' }}>
-                {estimatedUnits.toLocaleString('en-US')} SEMrush units
-              </strong>{' '}
-              {autoDiscovers ? '(estimated, including the competitor search) ' : ''}
-              for the run. A run compares at most {MAX_COMPARED_COMPETITORS} competitors (10,000-unit cap).
-              Adding competitors later starts another one.
-            </Muted>
+            {autoDiscovers ? (
+              <Muted size={11}>
+                With none typed, it searches for up to {estimate.suggests} competitors and saves them as
+                suggestions (about{' '}
+                <strong style={{ color: 'var(--text-2)' }}>
+                  {estimatedUnits.toLocaleString('en-US')} SEMrush units
+                </strong>
+                ). You review them in project settings; the comparison — roughly{' '}
+                {estimate.unitsIfAccepted.toLocaleString('en-US')} units for {estimate.suggests} — runs only
+                after you accept them.
+              </Muted>
+            ) : (
+              <Muted size={11}>
+                It compares your domain against {compared} competitor{compared === 1 ? '' : 's'}{' '}
+                and costs roughly{' '}
+                <strong style={{ color: 'var(--text-2)' }}>
+                  {estimatedUnits.toLocaleString('en-US')} SEMrush units
+                </strong>{' '}
+                for the run. A run compares at most {MAX_COMPARED_COMPETITORS} competitors (10,000-unit cap).
+                Adding competitors later starts another one.
+              </Muted>
+            )}
             {skipped.length > 0 && (
               <Muted size={11}>
                 Only the first {MAX_COMPARED_COMPETITORS} are compared. Saved on the project but not compared:{' '}
@@ -265,15 +284,21 @@ export default function ProjectSetupCard({
           </Muted>
           <Muted size={12}>
             Crawls are capped at <strong style={{ color: 'var(--text-2)' }}>{maxUrls.toLocaleString('en-US')} URLs</strong>,
-            a cap set by a platform administrator. The first crawl starts as soon as the project
-            is created; only the weekly repeat waits until you enable a schedule.
+            a cap set by a platform administrator.{' '}
+            {crawlAutostarts
+              ? 'The first crawl starts as soon as the project is created; only the weekly repeat waits until you enable a schedule.'
+              : 'No crawl starts by itself on this deployment: start one from Tech Audit, or enable a schedule.'}
           </Muted>
           <Kicker tone="muted">Starts on Create</Kicker>
-          <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 3 }}>
-            {startList.map((line) => (
-              <li key={line} style={{ fontSize: 12, color: 'var(--text-3)' }}>{line}</li>
-            ))}
-          </ul>
+          {startList.length ? (
+            <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {startList.map((line) => (
+                <li key={line} style={{ fontSize: 12, color: 'var(--text-3)' }}>{line}</li>
+              ))}
+            </ul>
+          ) : (
+            <Muted size={12}>Nothing — every automatic start is off on this deployment.</Muted>
+          )}
         </div>
 
         {duplicate && (

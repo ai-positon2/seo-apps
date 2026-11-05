@@ -12,6 +12,7 @@ import PageSpeedTab from '../components/competitorAnalysisDashboard/PageSpeedTab
 import BacklinkTab from '../components/competitorAnalysisDashboard/BacklinkTab';
 import ContentAnalysisTab from '../components/competitorAnalysisDashboard/ContentAnalysisTab';
 import DiscoverCompetitorsModal from '../components/competitorAnalysisDashboard/DiscoverCompetitorsModal';
+import { bumpClientLoad, isClientLoading } from '../components/competitorAnalysisDashboard/utils';
 import { useSearchParams } from 'react-router-dom';
 import ModuleRuns from '../components/ModuleRuns';
 import { useActiveProjectId } from '../lib/activeProject';
@@ -179,8 +180,13 @@ export default function CompetitorAnalysisDashboardPage() {
   const requestedClientId = searchParams.get('client');
   const [client, setClient] = useState(null);
   const [snapshot, setSnapshot] = useState(null);
-  const [loadingDashboard, setLoadingDashboard] = useState(false);
-  const [loadingContent, setLoadingContent] = useState(false);
+  // Reads in flight, counted PER CLIENT id. A single boolean got stuck: a run
+  // for client A finishing after the reader had switched to B set the flag on
+  // A's reload, and only cleared it when A was still selected — so B sat on
+  // "Loading B…" forever. Each read now always undoes its own count, and the
+  // page only asks whether the SELECTED client has one pending.
+  const [dashboardLoads, setDashboardLoads] = useState({});
+  const [contentLoads, setContentLoads] = useState({});
   const [running, setRunning] = useState(false);
   const [runningClientId, setRunningClientId] = useState(null);
   const [pageSpeedRunning, setPageSpeedRunning] = useState(false);
@@ -358,9 +364,12 @@ export default function CompetitorAnalysisDashboardPage() {
   selectedRef.current = selectedClientId;
   const isCurrent = (clientId) => selectedRef.current === clientId;
 
+  const loadingDashboard = isClientLoading(dashboardLoads, selectedClientId);
+  const loadingContent = isClientLoading(contentLoads, selectedClientId);
+
   const loadDashboard = useCallback(async (clientId) => {
-    if (!clientId) { setClient(null); setSnapshot(null); setDashboardError(null); setLoadingDashboard(false); return; }
-    setLoadingDashboard(true);
+    if (!clientId) { setClient(null); setSnapshot(null); setDashboardError(null); return; }
+    setDashboardLoads((l) => bumpClientLoad(l, clientId, 1));
     try {
       const data = await ct.dashboard(clientId);
       if (!isCurrent(clientId)) return;
@@ -371,14 +380,15 @@ export default function CompetitorAnalysisDashboardPage() {
       if (!isCurrent(clientId)) return;
       setDashboardError(e?.message || 'request failed');
     } finally {
-      if (isCurrent(clientId)) setLoadingDashboard(false);
+      // Always, whichever client is selected now — see dashboardLoads.
+      setDashboardLoads((l) => bumpClientLoad(l, clientId, -1));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadContentAnalysis = useCallback(async (clientId) => {
-    if (!clientId) { setContentAnalysis(null); setContentError(null); setLoadingContent(false); return; }
-    setLoadingContent(true);
+    if (!clientId) { setContentAnalysis(null); setContentError(null); return; }
+    setContentLoads((l) => bumpClientLoad(l, clientId, 1));
     try {
       const data = await ct.contentAnalysis(clientId);
       if (!isCurrent(clientId)) return;
@@ -389,7 +399,7 @@ export default function CompetitorAnalysisDashboardPage() {
       setContentAnalysis(null);
       setContentError(e?.message || 'request failed');
     } finally {
-      if (isCurrent(clientId)) setLoadingContent(false);
+      setContentLoads((l) => bumpClientLoad(l, clientId, -1));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -604,9 +614,13 @@ export default function CompetitorAnalysisDashboardPage() {
 
   async function handleReclassifyTopPages() {
     if (!selectedClientId || reclassifying) return;
+    const clientId = selectedClientId;
     setReclassifying(true);
     try {
-      const data = await ct.reclassifyTopPages(selectedClientId);
+      const data = await ct.reclassifyTopPages(clientId);
+      // The reader may have switched client while this ran (UX-098): the
+      // answer is the OLD client's analysis and must not land on the new one.
+      if (!isCurrent(clientId)) return;
       setContentAnalysis(data.contentAnalysis);
       const c = data.contentAnalysis?.topPages?.classifier;
       toast.add({
@@ -623,9 +637,11 @@ export default function CompetitorAnalysisDashboardPage() {
 
   async function handleRegenerateTopPagesSummary() {
     if (!selectedClientId || regeneratingTopPages) return;
+    const clientId = selectedClientId;
     setRegeneratingTopPages(true);
     try {
-      const data = await ct.regenerateTopPagesSummary(selectedClientId);
+      const data = await ct.regenerateTopPagesSummary(clientId);
+      if (!isCurrent(clientId)) return; // switched client meanwhile (UX-098)
       setContentAnalysis(data.contentAnalysis);
     } catch (e) {
       toast.add({ title: 'Could not regenerate summary', description: e.message, variant: 'danger' });
@@ -636,9 +652,11 @@ export default function CompetitorAnalysisDashboardPage() {
 
   async function handleRegenerateSitemapSummary() {
     if (!selectedClientId || regeneratingSitemap) return;
+    const clientId = selectedClientId;
     setRegeneratingSitemap(true);
     try {
-      const data = await ct.regenerateSitemapSummary(selectedClientId);
+      const data = await ct.regenerateSitemapSummary(clientId);
+      if (!isCurrent(clientId)) return; // switched client meanwhile (UX-098)
       setContentAnalysis(data.contentAnalysis);
     } catch (e) {
       toast.add({ title: 'Could not regenerate summary', description: e.message, variant: 'danger' });
@@ -651,10 +669,12 @@ export default function CompetitorAnalysisDashboardPage() {
   // and returns the updated analysis, which we swap in so charts refresh.
   async function handleSaveMapping(edits) {
     if (!selectedClientId || savingMapping) return;
+    const clientId = selectedClientId;
     setSavingMapping(true);
     try {
-      const data = await ct.updateContentAnalysisMapping(selectedClientId, edits);
-      setContentAnalysis(data.contentAnalysis);
+      const data = await ct.updateContentAnalysisMapping(clientId, edits);
+      // Saved either way; only shown if that client is still the one on screen.
+      if (isCurrent(clientId)) setContentAnalysis(data.contentAnalysis);
       toast.add({ title: 'Folder mapping updated', variant: 'success' });
     } catch (e) {
       toast.add({ title: 'Could not update mapping', description: e.message, variant: 'danger' });
@@ -1016,8 +1036,9 @@ export default function CompetitorAnalysisDashboardPage() {
           <span style={{ flex: '1 1 320px', color: 'var(--text-2)' }}>
             These competitors differ from {activeProject?.name}’s own list
             ({projectCompetitors.slice(0, maxCompetitors).join(', ')}), which the dashboard and other tools use.
-            {' '}So the market position and ranks below will not match the Overview card, which withholds
-            its rank until the lists agree. Switch to the project’s list and run the analysis to line them up.
+            {' '}Until the lists agree, the Overview card and executive summary hide any market figure
+            measured against the project’s list, so they never show a different number from this page.
+            Switch to the project’s list and run the analysis to line them up.
           </span>
           <Button size="sm" variant="secondary" loading={syncingCompetitors} onClick={syncCompetitorsFromProject}>
             Use the project’s competitors

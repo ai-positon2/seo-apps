@@ -14,11 +14,25 @@ function homepageUrl(project, domains = []) {
   return `${url.origin}/`;
 }
 
+/**
+ * Which audit started, per module: { seo_geo: { scheduled, runId, error },
+ * agent_readiness: {...} }. `scheduled` on the result stays true only when both
+ * did; this is what lets the banner name the one that did (UX: a single queued
+ * audit used to read as "Not started" for both).
+ */
+function perModule(runs = [], errors = []) {
+  return Object.fromEntries(MODULE_KEYS.map((moduleKey) => {
+    const run = runs.find((r) => r.module_key === moduleKey);
+    const error = errors.find((e) => e.moduleKey === moduleKey);
+    return [moduleKey, { scheduled: Boolean(run), runId: run?.id || null, error: run ? null : error?.message || null }];
+  }));
+}
+
 /** One initial homepage run per module. Repeated setup events reuse those runs. */
 async function scheduleHomepageAudits({ access, domains = [] }) {
-  if (!db.isDatabaseConfigured()) return { scheduled: false, reason: 'not_configured', runs: [] };
+  if (!db.isDatabaseConfigured()) return { scheduled: false, reason: 'not_configured', runs: [], modules: perModule() };
   if (!access?.project?.id || access.can?.('startRun') !== true) {
-    return { scheduled: false, reason: 'not_authorized', runs: [] };
+    return { scheduled: false, reason: 'not_authorized', runs: [], modules: perModule() };
   }
   const project = access.project;
   if (scheduling.has(project.id)) return scheduling.get(project.id);
@@ -51,7 +65,7 @@ async function scheduleHomepageAudits({ access, domains = [] }) {
         console.error(`[homepageAutostart] could not queue ${moduleKey}:`, e.message);
       }
     }
-    return { scheduled: runs.length === MODULE_KEYS.length, targetUrl, runs, errors };
+    return { scheduled: runs.length === MODULE_KEYS.length, targetUrl, runs, errors, modules: perModule(runs, errors) };
   })();
   scheduling.set(project.id, work);
   try { return await work; } finally { scheduling.delete(project.id); }
@@ -65,8 +79,8 @@ async function scheduleForProject(req, projectId) {
     return await scheduleHomepageAudits({ access, domains });
   } catch (e) {
     console.error('[homepageAutostart] setup skipped:', e.message);
-    return { scheduled: false, reason: 'not_started', runs: [] };
+    return { scheduled: false, reason: 'not_started', runs: [], modules: perModule() };
   }
 }
 
-module.exports = { MODULE_KEYS, TRIGGER, homepageUrl, scheduleHomepageAudits, scheduleForProject };
+module.exports = { MODULE_KEYS, TRIGGER, homepageUrl, perModule, scheduleHomepageAudits, scheduleForProject };

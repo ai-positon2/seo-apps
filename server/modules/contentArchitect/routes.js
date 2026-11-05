@@ -424,7 +424,10 @@ router.get('/projects/:id/full-analysis', wrap(async (req, res) => {
   // Placed by the topic each was made for, not by its stored cluster id, which
   // a re-run reassigns (UX-159). Those whose topic is gone are listed apart.
   const dbSuggestions = await spokeSuggestionsStore.getSpokeSuggestions(req.params.id);
-  const { byCluster, earlier } = topicAnchors.remapSuggestions(dbSuggestions, analysis);
+  const placement = Object.keys(dbSuggestions || {}).length
+    ? await placementOptions(await store.getProject(req.params.id), analysis)
+    : {};
+  const { byCluster, earlier } = topicAnchors.remapSuggestions(dbSuggestions, analysis, placement);
   res.json({
     ...spokeSuggestionsStore.mergeInto(analysis, byCluster),
     earlierSpokeSuggestions: earlier,
@@ -570,7 +573,15 @@ async function storedClusterIds(projectId, clusterId) {
   const analysis = await store.getFullAnalysis(projectId);
   if (!analysis) return [clusterId];
   const summaries = await keywordResearchStore.listSummaries(projectId);
-  return topicAnchors.storedIdsFor(clusterId, summaries, analysis);
+  const placement = await placementOptions(await store.getProject(projectId), analysis);
+  return topicAnchors.storedIdsFor(clusterId, summaries, analysis, placement);
+}
+
+// An analysis saved before it carried generatedAt is dated by the run that
+// produced it, so unanchored saved work can still be told apart as older.
+async function placementOptions(project, analysis) {
+  if (!analysis || analysis.generatedAt || !project) return {};
+  return { analysedAt: await store.analysisRunAt(project) };
 }
 
 // Body { topic, intent, result, selection } saves a finished run;
@@ -605,7 +616,7 @@ router.get('/projects/:id/work', wrap(async (req, res) => {
   const project = await store.getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
   const analysis = await store.getFullAnalysis(project.id);
-  res.json(await work.projectWork(req, project, { analysis }));
+  res.json(await work.projectWork(req, project, { analysis, placement: await placementOptions(project, analysis) }));
 }));
 
 router.get('/projects/:id/work/articles/:articleId', wrap(async (req, res) => {

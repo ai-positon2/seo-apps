@@ -35,6 +35,7 @@ const { measure } = require('./measure');
 const surfacesLib = require('./surfaces');
 const store = require('./store');
 const { healthOfRows } = require('./runHealth');
+const liveVersion = require('./liveVersion');
 
 const MODULE_KEY = 'ai_visibility_lite';
 
@@ -274,6 +275,9 @@ async function runOnce({ access, project, trigger = 'manual' }) {
   } catch (error) {
     await moduleEvidence.failRun({ access, runId: run.id, error }).catch(() => {});
     throw error;
+  } finally {
+    // The dashboard card's cached live score is stale now, whatever came of it.
+    liveVersion.bump(access.project.id);
   }
 }
 

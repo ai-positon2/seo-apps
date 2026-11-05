@@ -136,3 +136,20 @@ export function hasBrandedShare(d) {
     && !isUnmeasured(d?.brandedKeywordCount)
     && !isUnmeasured(d?.nonBrandedKeywordCount);
 }
+
+// ── Reads in flight, per client ─────────────────────────────────────────────
+// { [clientId]: pendingCount }. Every read adds 1 for its own client and takes
+// 1 off when it settles, whichever client is selected by then, so a reload of
+// a client the reader has left can never leave the selected one "loading".
+export function bumpClientLoad(loads, clientId, delta) {
+  if (!clientId) return loads || {};
+  const next = { ...(loads || {}) };
+  const n = (next[clientId] || 0) + delta;
+  if (n > 0) next[clientId] = n;
+  else delete next[clientId];
+  return next;
+}
+
+export function isClientLoading(loads, clientId) {
+  return Boolean(clientId && loads && loads[clientId] > 0);
+}

@@ -881,7 +881,7 @@ export default function AgentReadinessAuditPage() {
       const encoded = encodeSharePayload(sharePayload(result, {
         projectId: activeProjectId || null,
         pageRunId: openedPage?.id || null,
-        olderRules: Boolean(result.olderRules?.length),
+        olderRules: Array.isArray(result.olderRules) ? result.olderRules : null,
       }));
       const shareUrl = `${window.location.origin}/agent-readiness-audit/summary?d=${encoded}`;
       await navigator.clipboard.writeText(shareUrl);
@@ -982,7 +982,7 @@ export default function AgentReadinessAuditPage() {
             setReportState(state);
             setReportIssue(info || null);
             // Never leave another page's report under this page's name.
-            if (state === 'page_failed' || state === 'error') setResult(null);
+            if (state === 'page_failed' || state === 'page_pending' || state === 'error') setResult(null);
           }}
         />
 
@@ -1133,7 +1133,7 @@ export default function AgentReadinessAuditPage() {
 
         {/* The selected page failed, or its stored report would not load: say
             so in its place (UX-104). */}
-        {(reportState === 'page_failed' || reportState === 'error') && !result && !loading && (
+        {(reportState === 'page_failed' || reportState === 'page_pending' || reportState === 'error') && !result && !loading && (
           <ReportUnavailable state={reportState} info={reportIssue} maxWidth={960} />
         )}
 

@@ -101,6 +101,36 @@ test('rejecting retires the row rather than deleting it', async () => {
   assert.equal(tables.audit_events[0].action, 'project_domain.proposal_rejected');
 });
 
+// A rejected suggestion used to come straight back: discovery excluded only
+// active/proposed rows, and addCompetitor checked only pending proposals.
+test('a rejected suggestion is marked, and AI discovery cannot propose it again', async () => {
+  seed({ source: 'accepted', provider_ids: { discovery: { reason: 'AI pick' } } });
+  await store.decideCompetitorProposal({ access, domainId: 'domain-1', decision: 'reject' });
+  const row = tables.project_domains[0];
+  assert.ok(row.provider_ids.rejected, 'rejection is stamped');
+  assert.ok(row.provider_ids.discovery, 'existing provider_ids kept');
+  assert.equal(store.isRejectedSuggestion(row), true);
+
+  await assert.rejects(
+    store.addCompetitor({ access, domain: 'rival.example', status: 'proposed', source: 'accepted' }),
+    (e) => e.status === 409 && e.code === 'previously_rejected',
+  );
+});
+
+test('a person can still add a once-rejected domain by hand', async (t) => {
+  t.mock.method(require('../../../services/adminLimits'), 'effectiveLimits', async () => ({ limits: {} }));
+  seed({ status: 'removed', provider_ids: { rejected: { at: 'x' } } });
+  const added = await store.addCompetitor({ access, domain: 'rival.example' });
+  assert.equal(added.status, 'active');
+});
+
+test('approving does not stamp a rejection', async () => {
+  seed();
+  await store.decideCompetitorProposal({ access, domainId: 'domain-1', decision: 'approve' });
+  assert.equal(store.isRejectedSuggestion(tables.project_domains[0]), false);
+  assert.equal(tables.project_domains[0].provider_ids?.rejected, undefined);
+});
+
 // ── Guards ──────────────────────────────────────────────────────────────────
 
 test('a domain that is already tracked is not awaiting a decision', async () => {

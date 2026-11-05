@@ -167,3 +167,51 @@ test('an SEO & GEO page that answered 429 keeps no findings and no AI text, and 
     if (previous) require.cache[routePath] = previous; else delete require.cache[routePath];
   }
 });
+
+// UX-138 residual: the parent's top findings were empty "until re-run".
+test('a stored parent with no findings takes its top findings from its pages on read', async () => {
+  const { findingsFromPages, withPageFindings } = moduleEvidence;
+  const pages = [
+    { run_id: 'run-1', url: '/', status: 'completed', findings: [
+      { ruleId: 'meta', title: 'Missing meta description', severity: 'warning', count: 1 },
+      { ruleId: 'h1', title: 'No usable H1', severity: 'error', count: 1 },
+    ] },
+    { run_id: 'run-1', url: '/pages/shop', status: 'completed', findings: [
+      { ruleId: 'h1', title: 'No usable H1', severity: 'error', count: 2 },
+    ] },
+    { run_id: 'run-1', url: '/blogs/x', status: 'failed', findings: [] },
+  ];
+  const row = findingsFromPages(reconcilePageRun(soteri()), pages);
+  assert.deepEqual(row.findings.map((f) => [f.ruleId, f.severity, f.count]), [['h1', 'error', 3], ['meta', 'warning', 1]]);
+  const card = overview.evidenceCard(SEO, { terminal: row, inFlight: null });
+  assert.equal(card.evidence.topFindings[0].title, 'No usable H1', 'the card leads with the error');
+  assert.match(card.detail, /21 error/, 'counts still come from the page sums');
+
+  // Left alone: a parent that has findings, a site-level module, pages with none.
+  const has = { ...soteri(), findings: [{ ruleId: 'x', title: 'X', severity: 'notice', count: 1 }] };
+  assert.equal(findingsFromPages(has, pages), has);
+  const hub = { id: 'h', module_key: 'hub_spoke', findings: [] };
+  assert.equal(findingsFromPages(hub, pages), hub);
+  const bare = soteri();
+  assert.equal(findingsFromPages(bare, [{ url: '/', findings: [] }]), bare);
+
+  // The batch read asks only for the rows that need it, and a failed read changes nothing.
+  const db = require('../../../services/db');
+  const saved = { rows: db.rows, configured: db.isDatabaseConfigured };
+  const asked = [];
+  db.isDatabaseConfigured = () => true;
+  db.rows = async (sql, params) => { asked.push(params[0]); return pages; };
+  try {
+    const out = await withPageFindings([soteri(), has, hub]);
+    assert.deepEqual(asked, [['run-1']]);
+    assert.equal(out.get('run-1').findings.length, 2);
+    assert.equal(out.size, 1);
+    db.rows = async () => { throw new Error('relation does not exist'); };
+    const warn = console.warn;
+    console.warn = () => {};
+    try { assert.equal((await withPageFindings([soteri()])).size, 0); } finally { console.warn = warn; }
+  } finally {
+    db.rows = saved.rows;
+    db.isDatabaseConfigured = saved.configured;
+  }
+});

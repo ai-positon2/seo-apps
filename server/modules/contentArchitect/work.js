@@ -113,7 +113,7 @@ async function listArticles(req, project) {
  * placed on the topic of that analysis it was made for, and work whose topic it
  * no longer has comes back marked `orphaned` (topicAnchors.remapWork, UX-159).
  */
-async function projectWork(req, project, { analysis = null } = {}) {
+async function projectWork(req, project, { analysis = null, placement = {} } = {}) {
   const [keywordResearch, articles, enhancements] = await Promise.all([
     keywordResearchStore.listSummaries(project.id),
     listArticles(req, project),
@@ -124,7 +124,7 @@ async function projectWork(req, project, { analysis = null } = {}) {
     articles: linkArticles(articles, keywordResearch, { caProjectId: project.id, platformProjectId: project.platformProjectId }),
     enhancements,
   };
-  return analysis ? remapWork(work, analysis) : work;
+  return analysis ? remapWork(work, analysis, placement || {}) : work;
 }
 
 /** One article, in full, if it belongs to this project's report. */

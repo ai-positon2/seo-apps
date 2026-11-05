@@ -149,6 +149,14 @@ function auditRun(access, action, extra) {
     source:       'projects.moduleEvidence',
     ...extra,
   });
+  // A run opened or closed changes the project's overview: no /overview after
+  // this joins a build that started before it. Required lazily (overview
+  // requires this module).
+  try {
+    require('./overview').markProjectChanged(access?.project?.id);
+  } catch (error) {
+    console.error('[projects.moduleEvidence.markProjectChanged]', error.message);
+  }
 }
 
 function assertModuleKey(moduleKey) {
@@ -496,6 +504,14 @@ async function latestByModule(projectId) {
       entry.inFlight = row;
     }
     byModule.set(row.module_key, entry);
+  }
+
+  // A parent closed with no findings over pages that carry them reads its top
+  // findings from those pages, as its counts are above (UX-138).
+  const terminals = [...byModule.values()].map((e) => e.terminal).filter(Boolean);
+  const filled = await withPageFindings(terminals);
+  for (const entry of byModule.values()) {
+    if (entry.terminal) entry.terminal = filled.get(entry.terminal.id) || entry.terminal;
   }
 
   const setup = byModule.get('ai_visibility_lite_setup');
@@ -1185,6 +1201,55 @@ function reconcilePageRun(row, rollup = null) {
   return out;
 }
 
+/** A per-page parent stored with no findings: older code closed Soteri's that way (UX-138). */
+function lacksFindings(row) {
+  return Boolean(row) && PAGE_MODULE_KEYS.includes(row.module_key)
+    && !(Array.isArray(row.findings) && row.findings.length);
+}
+
+/**
+ * The parent's top findings merged from its pages' own, when the parent was
+ * stored without any — the same merge refreshRunAggregate writes for new runs.
+ * `pageRows` are { url, status, findings }. Returns a new row, or the same one.
+ */
+function findingsFromPages(row, pageRows) {
+  if (!lacksFindings(row) || !Array.isArray(pageRows)) return row;
+  const withFindings = pageRows.filter((p) => Array.isArray(p?.findings) && p.findings.length);
+  if (!withFindings.length) return row;
+  const merged = aggregatePages(withFindings.map((p) => ({ ...p, counts: {}, score: null }))).findings;
+  return { ...row, findings: merged.map(normalizeFinding) };
+}
+
+/**
+ * findingsFromPages for several stored runs at once, reading their page rows in
+ * one query. Returns Map(runId → corrected row) for the rows it changed; on any
+ * read failure, an empty map (the rows are shown as stored).
+ */
+async function withPageFindings(rows) {
+  const out = new Map();
+  const needing = (rows || []).filter((r) => r?.id && lacksFindings(r));
+  if (!needing.length || !db.isDatabaseConfigured()) return out;
+  let pageRows;
+  try {
+    pageRows = await db.rows(
+      `select run_id, url, status, findings
+         from project_module_page_runs
+        where run_id = any($1::uuid[])
+          and jsonb_typeof(findings) = 'array' and jsonb_array_length(findings) > 0
+        order by ordinal asc`,
+      [needing.map((r) => r.id)]
+    );
+  } catch (error) {
+    console.warn('[moduleEvidence] page findings unavailable:', error.message);
+    return out;
+  }
+  for (const row of needing) {
+    const fixed = findingsFromPages(row, pageRows.filter((p) => p.run_id === row.id));
+    if (fixed !== row) out.set(row.id, fixed);
+  }
+  return out;
+}
+
 /**
  * The card line for a site that refused our requests. One sentence, shared, so
  * Hub and Spoke, Tech Audit, SEO & GEO and AI Visibility tell the same story
@@ -1295,6 +1360,8 @@ module.exports = {
   basisTail,
   rollupFromPayloadPages,
   reconcilePageRun,
+  findingsFromPages,
+  withPageFindings,
   hubSpokeReportMissing,
   aiVisibilitySetupFailure,
   siteRefusedLine,

@@ -17,6 +17,7 @@ import {
   TERMINAL_STATUSES, WORKER_EXECUTED_TRIGGERS, formatDuration, describeBudgetSource,
 } from '../components/crawlScope/crawlHelpers';
 import { cs } from '../lib/crawlScopeApi';
+import { runReportPath } from '../lib/moduleReportRoute';
 
 const TABS = [
   { id: 'crawl', label: 'New crawl' },
@@ -260,7 +261,7 @@ function Projects({
                     variant="secondary" size="sm" disabled={busy === p.id}
                     onClick={() => act(p, async () => {
                       const { run } = await cs.runProjectNow(p.id);
-                      if (run) onOpenRun(run.id);
+                      if (run) onOpenRun(run.id, run.project_id || p.id);
                     }, 'Crawl queued.')}
                   >
                     Run now
@@ -329,7 +330,7 @@ function History({ runs, loading, onOpenRun }) {
             return (
               <tr
                 key={run.id}
-                onClick={() => onOpenRun(run.id)}
+                onClick={() => onOpenRun(run.id, run.project_id)}
                 style={{ cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
               >
                 <td style={{ padding: '8px 10px', whiteSpace: 'nowrap', color: 'var(--text-2)' }}>
@@ -350,7 +351,7 @@ function History({ runs, loading, onOpenRun }) {
                 <td style={{ padding: '8px 10px', color: 'var(--text-2)' }}>{duration}</td>
                 <td style={{ padding: '8px 10px', textAlign: 'right' }}>
                   {TERMINAL_STATUSES.includes(run.status) && (
-                    <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); onOpenRun(run.id); }}>
+                    <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); onOpenRun(run.id, run.project_id); }}>
                       Open
                     </Button>
                   )}
@@ -421,7 +422,8 @@ export default function CrawlScopePage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const openRun = (id) => navigate(`/crawl-scope/runs/${id}`);
+  // Carries the run's own client (else this tab's) so the report opens on it.
+  const openRun = (id, projectId) => navigate(runReportPath(id, projectId));
 
   return (
     <main style={{ padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -456,7 +458,7 @@ export default function CrawlScopePage() {
 
       {tab === 'crawl' && (
         <NewCrawl
-          onStarted={(run) => { toast.add({ title: 'Crawl started.' }); openRun(run.id); }}
+          onStarted={(run) => { toast.add({ title: 'Crawl started.' }); openRun(run.id, run.project_id); }}
           onScheduleInstead={openScheduleForm}
         />
       )}

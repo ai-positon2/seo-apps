@@ -160,3 +160,18 @@ export function pickSelection(pages, { wanted = null, current = null } = {}) {
   if (current && list.some((p) => p.pageRunId === current)) return current;
   return defaultPage(list)?.pageRunId || null;
 }
+
+/**
+ * What to show for a page still in its audit, or null for one that is done.
+ * Picking such a page used to leave the previous page's report on screen.
+ */
+export function pendingPage(page) {
+  if (!page || !['queued', 'running'].includes(page.status)) return null;
+  return {
+    url: page.url || null,
+    status: page.status,
+    reason: page.status === 'queued'
+      ? 'This page is queued for its audit. Its report appears here when it finishes.'
+      : 'This page is being audited now. Its report appears here when it finishes.',
+  };
+}

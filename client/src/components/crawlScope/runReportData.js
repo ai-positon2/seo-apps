@@ -171,3 +171,26 @@ export function reportSearch(search, changes) {
   const s = params.toString();
   return s ? `?${s}` : '';
 }
+
+/**
+ * One page's issue counts on a capped run (UX-192).
+ *
+ * `urlCounts` is the findings route's per-URL counts over EVERY finding,
+ * `{ url: [tableCount, listCount] }`, sent only when the loaded list was
+ * capped. `which` is 'table' (the All Pages Issues column) or 'list' (the
+ * page's own view). Returns the full count and whether the loaded list shows
+ * fewer than it; without counts, the loaded number as before.
+ *
+ * @param {number} loaded  how many the loaded findings give this page
+ */
+export function pageIssueCount(url, loaded, urlCounts, which = 'table') {
+  const shown = Number(loaded) || 0;
+  const entry = urlCounts && typeof urlCounts === 'object' ? urlCounts[url] : undefined;
+  if (!Array.isArray(entry)) {
+    // Capped, but this page carries nothing beyond what was loaded.
+    return { count: shown, partial: false };
+  }
+  const full = Number(entry[which === 'list' ? 1 : 0]);
+  if (!Number.isFinite(full) || full <= shown) return { count: shown, partial: false };
+  return { count: full, partial: true };
+}

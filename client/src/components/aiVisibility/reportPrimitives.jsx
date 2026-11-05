@@ -246,6 +246,8 @@ export function EmptyMetric({ reason }) {
 const WARNING_COPY = {
   engine_unavailable: {
     tone: 'warning',
+    // This period only: a model that failed on the latest run but answered
+    // earlier in the period is latest_run_partial's to say, not this one's.
     text: 'Some AI engines answered nothing this period (every request failed), so the figures here '
       + 'rest on the engines that did answer.',
   },

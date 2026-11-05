@@ -11,6 +11,7 @@ const { discoverLinks } = require('../utils/linkDiscovery');
 // is imported here rather than reimplemented — see the note at its call site.
 const { assertPublicHost } = require('../modules/contentArchitect/urlSafety');
 const { safeGet } = require('../services/safeEgress');
+const { challengeReason } = require('../checks/challengePage');
 
 function findLocalBrowser() {
   const candidates = [
@@ -189,6 +190,33 @@ function auditBlocked(robotsResp, homeResp) {
     + 'so nothing could be measured. This usually means bot protection or rate limiting.';
 }
 
+// A bot-check page answered with HTTP 200 ("Just a moment…", "Security
+// Checkpoint") passed refused() and was scored as the site (UX-036). The page's
+// title and word count go through the same detector SEO & GEO uses.
+function pageTextFacts(html) {
+  const text = typeof html === 'string' ? html : '';
+  const titleMatch = text.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const title = titleMatch
+    ? titleMatch[1].replace(/&hellip;/gi, '…').replace(/&amp;/gi, '&').replace(/\s+/g, ' ').trim()
+    : null;
+  const body = text
+    .replace(/<(script|style|noscript|template)\b[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ');
+  const wordCount = (body.match(/[\p{L}\p{N}]+/gu) || []).length;
+  return { title, wordCount };
+}
+
+/** Why the page is a bot wall rather than the site's page, or null. */
+function homeChallenge(homeResp) {
+  if (!homeResp || typeof homeResp.data !== 'string') return null;
+  const reason = challengeReason({
+    ...pageTextFacts(homeResp.data), status: homeResp.status, html: homeResp.data, headers: homeResp.headers,
+  });
+  return reason
+    ? `${reason} The audit was shown a bot check instead of the page, so it could not be measured.`
+    : null;
+}
+
 // rel values that point an agent at something it can use.
 const AGENT_LINK_RELS = new Set([
   'api-catalog', 'service-desc', 'service-doc', 'service-meta', 'describedby',
@@ -290,9 +318,23 @@ function aiBotAccess(robotsText) {
 
 /** The aibots check result from robots.txt. `blocking` marks a real refusal. */
 function aiBotsCheck(robotsOk, robotsText, robotsStatus) {
+  // Under the robots standard (RFC 9309) a missing robots.txt — 404 or 410 —
+  // means every crawler may read everything, AI crawlers included. It used to
+  // fail here and cost the full 11 points. A refusal (401/403/429), a server
+  // error or no answer stays "could not be read": nothing was stated.
+  if (!robotsOk && (robotsStatus === 404 || robotsStatus === 410)) {
+    return {
+      status: 'pass',
+      tech: `No robots.txt (HTTP ${robotsStatus}). Under the robots standard a missing robots.txt lets every crawler in, AI crawlers included`,
+    };
+  }
   if (!robotsOk) {
     return {
       status: 'fail',
+      // A refusal of robots.txt itself usually means a firewall or bot
+      // protection turning automated clients away, AI crawlers among them —
+      // so the brief may not be told crawlers are let in (crawlerFacts).
+      ...([401, 403, 429].includes(robotsStatus) ? { refused: true } : {}),
       tech: `robots.txt could not be read (${robotsStatus || 'no response'}), so it states no rules for AI crawlers`,
     };
   }
@@ -345,7 +387,7 @@ async function runHttpChecks(inputUrl) {
     safeFetch(inputUrl, { headers: { Accept: 'text/markdown, text/plain;q=0.9, */*;q=0.1' } }),
   ]);
 
-  const blocked = auditBlocked(robotsResp, homeResp);
+  const blocked = auditBlocked(robotsResp, homeResp) || homeChallenge(homeResp);
   if (blocked) return { checks: {}, httpScore: null, blocked };
 
   const robotsText = typeof robotsResp.data === 'string' ? robotsResp.data : '';
@@ -548,13 +590,20 @@ function briefClient() {
 /** Whether AI crawlers can read the site, from the aibots check. */
 function crawlerFacts(checks) {
   const aibots = checks?.aibots;
-  const crawlersAllowed = !aibots?.blocking;
-  return {
-    crawlersAllowed,
-    line: crawlersAllowed
-      ? 'crawlersAllowed = true. robots.txt does not refuse AI crawlers: ChatGPT, Claude, Perplexity and Google AI can read and cite this site today.'
-      : `crawlersAllowed = false. ${aibots?.tech || 'robots.txt refuses AI crawlers'}.`,
-  };
+  // robots.txt answered 401/403/429: the site's firewall may be refusing AI
+  // crawlers, so "crawlers are let in" is not known — and a brief saying the
+  // firewall blocks AI bots may be accurate, so it is not rewritten.
+  const unknown = Boolean(aibots?.refused);
+  const crawlersAllowed = !aibots?.blocking && !unknown;
+  let line;
+  if (crawlersAllowed) {
+    line = 'crawlersAllowed = true. robots.txt does not refuse AI crawlers: ChatGPT, Claude, Perplexity and Google AI can read and cite this site today.';
+  } else if (unknown) {
+    line = `crawlersAllowed = unknown. ${aibots?.tech || 'robots.txt could not be read'}; the site refused the request, which usually means a firewall or bot protection that may turn AI crawlers away too.`;
+  } else {
+    line = `crawlersAllowed = false. ${aibots?.tech || 'robots.txt refuses AI crawlers'}.`;
+  }
+  return { crawlersAllowed, unknown, line };
 }
 
 function buildBriefPrompt(siteUrl, score, level, checks, cats, now = new Date()) {
@@ -565,7 +614,9 @@ function buildBriefPrompt(siteUrl, score, level, checks, cats, now = new Date())
   const accessRules = access.crawlersAllowed
     ? `- AI crawlers are NOT blocked. Never say or imply the site is invisible, closed off, blocked, shut out, inaccessible or unreadable to AI agents or assistants, and never say they cannot access, find or read it. What is missing are optional, newer signals (content-use declarations, API and agent files): describe those as "not yet set up", not as a block.
 - If Bot Access and API/Auth/MCP are both low: lead with being early on agent-ready signals, not with discoverability risk`
-    : `- AI crawlers ARE refused by robots.txt (see the fact above). Lead with that discoverability risk, naming it as a robots.txt rule the site controls.`;
+    : access.unknown
+      ? `- The site refused the audit's request for robots.txt (see the fact above). You may say a firewall or bot protection may be turning AI crawlers away and is worth checking; do not call it a robots.txt rule.`
+      : `- AI crawlers ARE refused by robots.txt (see the fact above). Lead with that discoverability risk, naming it as a robots.txt rule the site controls.`;
 
   return `You are a senior digital strategist advising CMOs on AI readiness.
 
@@ -601,9 +652,74 @@ Generate an executive summary. Be specific to this site's industry based on its 
 }`;
 }
 
-async function generateCmoBrief(siteUrl, score, level, checks, openai, cats) {
-  const prompt = buildBriefPrompt(siteUrl, score, level, checks, cats);
+// ── The brief may not call an open site closed (UX-211) ─────────────────────
+//
+// The prompt forbids it, but a prompt is a request, not a guarantee. When
+// crawlersAllowed is true the written brief is checked: a field claiming AI
+// agents are blocked or cannot reach the site is asked for once more, and if
+// the second answer still says it, the offending sentences are replaced with
+// neutral wording.
 
+const BRIEF_FIELDS = ['headline', 'summary', 'riskTitle', 'risk', 'opportunityTitle', 'opportunity', 'competitiveTitle', 'competitive'];
+const SHORT_BRIEF_FIELDS = new Set(['headline', 'riskTitle', 'opportunityTitle', 'competitiveTitle']);
+
+// "Not blocked", "isn't invisible": a denial is not the claim.
+const DENIED_CLAIM = /\b(?:not|never|no longer|isn['’]t|aren['’]t|wasn['’]t|weren['’]t)\s+(?:been\s+|be\s+|being\s+)?(?:blocked|invisible|inaccessible|unreadable|closed[- ]off|shut out|locked out)\b/gi;
+// Only claims about SITE-level access: AI crawlers/agents blocked from, or
+// unable to access/read/crawl/reach, the site. "Without an API catalog, agents
+// cannot discover your booking services" and "stays hidden from assistants
+// until you add schema" are true statements about missing signals.
+const AI_WHO = '(?:ai|agents?|crawlers?|bots?|assistants?|chatgpt|claude|perplexity|gemini|llms?|gptbot|claudebot)';
+const SITE_WHAT = '(?:site|website|pages?|content|domain)';
+const BLOCKED_CLAIM = new RegExp([
+  `\\binvisible\\s+(?:to|for)\\s+(?:\\w+\\s+){0,2}${AI_WHO}\\b`,
+  '\\bclosed[- ](?:off|to)\\b',
+  '\\b(?:shut|locked|kept|keeps|keeping|keep)\\s+(?:\\w+\\s+){0,3}out\\b',
+  // AI crawlers "are blocked", "blocking AI agents", "blocks AI…" — not
+  // "building blocks", nor a blocked checkout step.
+  `\\b${AI_WHO}\\b[^.!?]{0,40}\\bblock(?:ed|ing)\\b`,
+  `\\bblock(?:ed|ing)\\s+(?:\\w+\\s+){0,2}${AI_WHO}\\b`,
+  `\\bblocks\\s+(?:all\\s+|most\\s+|some\\s+)?${AI_WHO}\\b`,
+  `\\b(?:inaccessible|unreadable)\\s+(?:to|for)\\s+(?:\\w+\\s+){0,2}${AI_WHO}\\b`,
+  `\\b(?:cannot|can['’]t|can not|could not|couldn['’]t|unable to|fail(?:s|ing)? to)\\s+(?:access|read|crawl|reach|index)(?:\\s+or\\s+\\w+)?\\s+(?:\\w+\\s+){0,2}${SITE_WHAT}\\b`,
+].join('|'), 'i');
+
+/** True when the text claims AI agents are refused or cannot reach the site. */
+function claimsBlocked(text) {
+  if (typeof text !== 'string' || !text) return false;
+  return BLOCKED_CLAIM.test(text.replace(DENIED_CLAIM, ' '));
+}
+
+/** The brief fields that make such a claim. */
+function blockedClaimFields(brief) {
+  if (!brief || typeof brief !== 'object') return [];
+  return BRIEF_FIELDS.filter((k) => claimsBlocked(brief[k]));
+}
+
+// What a field says when everything it said was a false block claim.
+const NEUTRAL_BRIEF = {
+  headline: 'AI crawlers can read your site; agent signals come next',
+  summary: 'AI crawlers can read and cite your site today. The newer agent-ready signals are not yet set up.',
+  riskTitle: 'Behind on agent signals',
+  risk: 'Competitors that publish agent-ready signals first may be easier for AI agents to act on.',
+  opportunityTitle: 'Publish agent signals',
+  opportunity: 'Add content-use signals and agent files so AI agents can do more with your site.',
+  competitiveTitle: 'Early-mover advantage',
+  competitive: 'Few sites have adopted these signals yet, so acting now sets you apart.',
+};
+
+/** The brief with every false block claim replaced by neutral wording. */
+function neutraliseBrief(brief) {
+  const out = { ...brief };
+  for (const k of blockedClaimFields(brief)) {
+    if (SHORT_BRIEF_FIELDS.has(k)) { out[k] = NEUTRAL_BRIEF[k]; continue; }
+    const kept = String(brief[k]).split(/(?<=[.!?])\s+/).filter((s) => s.trim() && !claimsBlocked(s));
+    out[k] = kept.length ? kept.join(' ') : NEUTRAL_BRIEF[k];
+  }
+  return out;
+}
+
+async function askForBrief(openai, prompt) {
   const response = await openai.chat.completions.create({
     model: 'claude-sonnet-5',
     // 600 tokens of prose is plenty, but a reasoning model would spend the whole
@@ -614,6 +730,27 @@ async function generateCmoBrief(siteUrl, score, level, checks, openai, cats) {
     response_format: { type: 'json_object' },
   });
   return JSON.parse(response.choices[0].message.content);
+}
+
+async function generateCmoBrief(siteUrl, score, level, checks, openai, cats) {
+  const prompt = buildBriefPrompt(siteUrl, score, level, checks, cats);
+  const brief = await askForBrief(openai, prompt);
+  if (!crawlerFacts(checks).crawlersAllowed) return brief;
+
+  const bad = blockedClaimFields(brief);
+  if (!bad.length) return brief;
+
+  // One more try, naming what was wrong; then neutral wording.
+  let retry = null;
+  try {
+    retry = await askForBrief(openai, `${prompt}
+
+Your previous answer said AI agents are blocked from, or cannot reach, this site (in: ${bad.join(', ')}). That is false: crawlersAllowed = true. Rewrite without any such claim.`);
+  } catch (e) {
+    console.warn('[agent-readiness] CMO brief retry failed:', e.message);
+  }
+  if (retry && typeof retry === 'object' && !blockedClaimFields(retry).length) return retry;
+  return neutraliseBrief(retry && typeof retry === 'object' ? retry : brief);
 }
 
 // ── PDF generation ────────────────────────────────────────────────────────────
@@ -1300,4 +1437,5 @@ module.exports.WEIGHTS = WEIGHTS;
 module.exports._private = {
   safeFetch, buildPdfHtml, isJsonDocument, isSitemapDocument, auditBlocked, allowsEveryCrawler, agentLinkRels, siteOnce,
   aiBotAccess, aiBotsCheck, describeHttpChecks, buildBriefPrompt, crawlerFacts,
+  claimsBlocked, blockedClaimFields, neutraliseBrief, generateCmoBrief, pageTextFacts, homeChallenge,
 };

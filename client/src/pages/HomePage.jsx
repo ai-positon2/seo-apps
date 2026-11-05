@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { projectsApi, relativeTime, countryLabel, isModuleInFlight } from '../lib/projectsApi';
-import { useActiveProjectId, useProjectsChanged } from '../lib/activeProject';
+import { useActiveProjectId, useProjectsChanged, withProjectParam } from '../lib/activeProject';
 import { cs } from '../lib/crawlScopeApi';
+import { createdBanner } from '../lib/projectCreated';
 import {
   Card, Kicker, Muted, Tag, Btn, FadingRule, SectionHead,
 } from '../components/studio/primitives';
@@ -582,16 +583,15 @@ export default function HomePage() {
         )}
         <ProjectSetupCard
           limits={listState.data?.limits}
+          autostarts={listState.data?.autostarts || null}
           workspaces={listState.data?.workspaces || []}
           activeWorkspaceId={listState.data?.activeWorkspaceId || null}
-          onCreated={async (project, competitorResearch) => {
+          onCreated={async (project, competitorResearch, result) => {
             setShowSetup(false);
-            // Only worth a banner when there is something to say: a project
-            // created with no competitors and no auto-discovery was never going
-            // to start a comparison, and saying so would be noise.
-            setCompetitorBanner(
-              competitorResearch?.note ? competitorResearch : null,
-            );
+            // The same banner the Projects page shows (UX-041): what creating
+            // it actually started — crawl, homepage audits, AI Visibility and
+            // Competitor Research — not only the competitor note.
+            setCompetitorBanner({ text: createdBanner(result || { project, competitorResearch }) });
             // Load the fresh list BEFORE switching to the new project, not
             // after. The "resolve against what actually came back" effect
             // above (line ~141) treats an active id it can't find in `projects`
@@ -894,18 +894,8 @@ export default function HomePage() {
       {competitorBanner && (
         <Card style={{ padding: '12px 16px', flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <Kicker>
-              {competitorBanner.scheduled ? 'Competitor Research started' : 'Competitor Research not started'}
-            </Kicker>
-            <span style={{ fontSize: 13.5, color: 'var(--text)' }}>{competitorBanner.note}</span>
-            {competitorBanner.scheduled && competitorBanner.estimate && (
-              <Muted size={11.5}>
-                About {competitorBanner.estimate.estimate.toLocaleString('en-US')}{' '}
-                {competitorBanner.estimate.unit} across{' '}
-                {competitorBanner.estimate.domains} domain
-                {competitorBanner.estimate.domains === 1 ? '' : 's'}, including this project&rsquo;s own.
-              </Muted>
-            )}
+            <Kicker>Project created</Kicker>
+            <span style={{ fontSize: 13.5, color: 'var(--text)' }}>{competitorBanner.text}</span>
           </div>
           <Btn onClick={() => setCompetitorBanner(null)}>Dismiss</Btn>
         </Card>
@@ -930,7 +920,7 @@ export default function HomePage() {
                 : 'No live crawl to follow, so the page audits read the last completed crawl.'}
             </Muted>
           </div>
-          <Btn onClick={() => navigate(`/crawl-scope/runs/${auditBanner.crawlRunId}`)}>
+          <Btn onClick={() => navigate(withProjectParam(`/crawl-scope/runs/${auditBanner.crawlRunId}`, activeProject?.id))}>
             Watch the crawl
           </Btn>
           <Btn onClick={() => setAuditBanner(null)}>Dismiss</Btn>

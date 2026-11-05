@@ -2,8 +2,10 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import {
   broadcastSignOut, classifyVerify, clearReturnPath, installFetchWatcher,
   onCrossTabSignOut, onSessionEnded, rememberReturnPath, resetSessionEnded, retryDelay,
+  broadcastSignIn, onCrossTabSignIn, markHadSession, clearHadSession, hadSession, isPublicPath,
 } from '../lib/authEvents';
 import { resetActiveProjectCache } from '../lib/useActiveProject';
+import { resetKnownProjectIds } from '../lib/activeProject';
 
 const AuthContext = createContext(null);
 
@@ -47,6 +49,7 @@ export function AuthProvider({ children }) {
     // Per-tab caches of the signed-in user's data go with them, so a next
     // person signing in on this tab never sees the previous list for a moment.
     resetActiveProjectCache();
+    resetKnownProjectIds();
   }, []);
 
   // The session ended under this tab (a 401 from requireAuth, or a sign-out in
@@ -79,6 +82,11 @@ export function AuthProvider({ children }) {
       attempts.current = 0;
       signingOut.current = false;
       resetSessionEnded();
+      markHadSession();
+      // A tab arriving signed in (back from Google, or a reload) tells this
+      // browser's other tabs, so one left on the sign-in screen re-checks and
+      // leaves it. Not on a background re-check of an already signed-in tab.
+      if (stateRef.current !== 'authenticated') broadcastSignIn();
       setRole(data.role);
       setEmail(data.email);
       setUserId(data.userId);
@@ -90,6 +98,18 @@ export function AuthProvider({ children }) {
     }
     if (verdict === 'unauthenticated') {
       if (quiet) { endSession('session_expired'); return; }
+      // No session on load, but this browser had one that the user did not
+      // sign out of: it ended under them (expired while the tab was closed).
+      // Same as a 401 mid-use — say so, and come back here after signing in.
+      // Only from the first check: a tab already on the sign-in screen keeps
+      // the note and return path it has.
+      // Not on a public route (the shared summary, /login): nothing ended there,
+      // and it must not claim the return path.
+      if (stateRef.current !== 'unauthenticated' && hadSession()
+          && !isPublicPath(window.location.pathname)) {
+        rememberReturnPath(window.location.pathname + window.location.search);
+        setSignedOutReason('session_expired');
+      }
       clearIdentity();
       setAuthState('unauthenticated');
       return;
@@ -112,6 +132,13 @@ export function AuthProvider({ children }) {
     const uninstall = installFetchWatcher();
     const offEnded = onSessionEnded((reason) => endSession(reason));
     const offCrossTab = onCrossTabSignOut(() => endSession('session_expired'));
+    // Signed in again in another tab: a tab on the sign-in (or retrying)
+    // screen checks the shared cookie and leaves it. A signed-in tab ignores it,
+    // including this tab's own announcement.
+    const offCrossTabIn = onCrossTabSignIn(() => {
+      if (stateRef.current === 'authenticated' || stateRef.current === 'loading') return;
+      checkAuth();
+    });
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
       if (stateRef.current !== 'authenticated') return;
@@ -123,6 +150,7 @@ export function AuthProvider({ children }) {
       uninstall();
       offEnded();
       offCrossTab();
+      offCrossTabIn();
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [endSession, checkAuth]);
@@ -132,11 +160,16 @@ export function AuthProvider({ children }) {
     setAuthState('authenticated');
   }
 
+  // True from a chosen sign-out until the next sign-in (the gate then keeps no
+  // return path). Stable, so it can sit in effect deps.
+  const isChosenSignOut = useCallback(() => signingOut.current, []);
+
   async function logout() {
     signingOut.current = true;
     await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
     // The user chose to leave: no "session ended" note, nowhere to return to.
     clearReturnPath();
+    clearHadSession();
     broadcastSignOut();
     clearIdentity();
     setSignedOutReason(null);
@@ -146,7 +179,7 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={{
       authState, signedOutReason, role, email, userId, hasProfile, isPlatformAdmin,
-      markAuthenticated, logout, checkAuth,
+      markAuthenticated, logout, checkAuth, isChosenSignOut,
     }}>
       {children}
     </AuthContext.Provider>

@@ -447,7 +447,9 @@ export default function ModuleCard({ module, onRun, crawlLive = false }) {
       >
         <Muted>
           {module.status === 'needs_setup'
-            ? 'No competitors on this project'
+            ? (module.competitorReview?.count
+              ? 'Suggested competitors are waiting for review'
+              : 'No competitors on this project')
             : step === 'running' ? 'In progress — updates on its own'
             : step === 'queued' ? 'In line — starts on its own'
             : step === 'waiting' ? 'Starts when the crawl finishes'

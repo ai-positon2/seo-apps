@@ -152,13 +152,27 @@ function item(fields) {
 // there itself for any run finalized before the migration shipped, so this
 // adapter doesn't need to know which era a given run is from.)
 
-async function crawlAdapter(crawl, crawledCount) {
+// `meta`, when given, is told whether the costing figures are still being
+// worked out (`costingPending`): read under the dashboard's own wait
+// (overview.costingRules), so a crawl too large to add up in time leaves every
+// crawl item's costsPoints unknown instead of holding /insights and
+// /executive-summary for a minute while the browser gives up at thirty seconds.
+async function crawlAdapter(crawl, crawledCount, meta = null) {
   if (!crawl) return [];
 
-  const [instances, costing] = await Promise.all([
+  const [instances, costingAnswer] = await Promise.all([
     overview.findingInstancesForRun(crawl.id),
-    overview.costingRulePages(crawl.id),
+    // The URL lists ride along only here: the fix list counts pages losing
+    // visibility from them, and nothing else on the Overview reads them.
+    overview.costingRules(crawl.id, { urls: true }),
   ]);
+  const costing = costingAnswer?.byRule || null;
+  if (meta) {
+    meta.costingPending = Boolean(costingAnswer?.pending);
+    // Costing known, but the URL lists behind "pages losing visibility" are
+    // not ready yet: the backlog leaves that count unknown rather than guess.
+    meta.costingPagesPending = Boolean(costingAnswer?.urlsPending);
+  }
   const byRule = new Map();
 
   for (const inst of instances) {
@@ -174,7 +188,10 @@ async function crawlAdapter(crawl, crawledCount) {
     moduleKey: 'technical',
     ruleId,
     costsPoints: costing ? costing.has(ruleId) : undefined,
-    costingPages: costing?.has(ruleId) ? [...costing.get(ruleId).pages] : null,
+    // Listed only for the rules the backlog can count as errors
+    // (overview.costingRules, `urlsListed`): pagesWithCostingErrors is the one
+    // reader. Null otherwise, exactly as for a rule that costs nothing.
+    costingPages: costing?.get(ruleId)?.urlsListed ? [...costing.get(ruleId).pages] : null,
     title: bucket.first.title,
     severity: bucket.first.severity,
     priority: bucket.first.priority,
@@ -440,9 +457,10 @@ async function buildFindingIndex({ access }) {
   // produced. The backlog ranks by its own score, but coverage is read top to
   // bottom by a person, and a list that reordered itself per request would be
   // a different answer to the same question every time.
+  const crawlMeta = { costingPending: false, costingPagesPending: false };
   const crawlWork = !crawl
     ? Promise.resolve(null)
-    : crawlAdapter(crawl, crawledCount).then((crawlItems) => ({ crawlItems }));
+    : crawlAdapter(crawl, crawledCount, crawlMeta).then((crawlItems) => ({ crawlItems }));
 
   const moduleWork = overview.MODULES
     .filter((module) => module.key !== 'technical')
@@ -580,6 +598,13 @@ async function buildFindingIndex({ access }) {
         crawledCount && crawl.options?.maxUrls
         && crawledCount >= Number(crawl.options.maxUrls),
       ),
+      // Which of the crawl's findings cost points is still being worked out
+      // (a crawl too large to add up within the dashboard's wait): its items'
+      // costsPoints are unknown, and the summary says so (UX-054).
+      healthPending: Boolean(crawlMeta.costingPending),
+      // Costing is known but its URL lists are not ready yet (overview.costingRules
+      // `urlsPending`): only the count of pages losing visibility waits on them.
+      costingPagesPending: Boolean(crawlMeta.costingPagesPending),
     } : null,
     structure,
     generatedAt: new Date().toISOString(),

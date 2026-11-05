@@ -912,22 +912,119 @@ function enrichCompetitors(competitors, captures, answerBrands) {
     .filter((b) => b.v === BRANDS_VERSION)
     .map((b) => [toneKey(b.runId, b.promptId, b.engine), b]));
   const { list } = othersNamedTable(captures, brandMap, null, []);
-  return competitors.map((c) => {
+  const rows = competitors.map((c) => {
     const d = c.domain && (domainClassify.registrableDomain(c.domain) || c.domain);
     const keys = new Set(competitorKeys(c));
     // Spellings whose cited site is this competitor's, or whose de-spaced
     // name IS its domain stem ('Roadway Moving' for roadwaymoving.com, often
     // named with no link at all).
-    const extra = list
+    const fromBrands = list
       .filter((o) => (d && o.domain === d) || keys.has(brandKey(o.name)))
       .flatMap((o) => o.spellings);
-    const aliases = [...new Set([...(c.aliases || []), ...extra])];
-    // Replace a name we only derived from the domain with how answers write it.
     const stem = d ? brandKey(d.split('.')[0]) : null;
     const derived = !c.name || /^[a-z0-9-]+$/.test(c.name) || (stem && brandKey(c.name) === stem);
+    return {
+      c, fromBrands, stem, derived, searchAnswers: !fromBrands.length && derived,
+    };
+  });
+  // A stem no word list could split ('gentlegiant' -> 'Gentlegiant') and no
+  // brand reading to go on: the answers themselves are searched for it
+  // written as a proper name ('Gentle Giant') — one pass over the answers for
+  // every such competitor.
+  const spaced = spacedSpellings(captures, rows.filter((r) => r.searchAnswers).map((r) => r.stem));
+  return rows.map(({
+    c, fromBrands, stem, derived, searchAnswers,
+  }) => {
+    const extra = searchAnswers ? (spaced.get(stem) || []) : fromBrands;
+    const aliases = [...new Set([...(c.aliases || []), ...extra])];
+    // Replace a name we only derived from the domain with how answers write it.
     const name = extra.length && derived ? extra[0] : c.name;
     return { ...c, name, aliases };
   });
+}
+
+// Words that make a domain stem a description of a trade rather than a name:
+// pestcontrol.com reads 'Pest Control' in answers about pests, localmovers.com
+// 'Local Movers' in answers about moving. A spelling made only of these is
+// never taken as a competitor's name.
+const GENERIC_NAME_WORDS = new Set([
+  // stop-words, corporate forms, filler
+  'the', 'and', 'of', 'for', 'a', 'an', 'to', 'in', 'on', 'at', 'by', 'with', 'your', 'our', 'my',
+  'best', 'top', 'new', 'all', 'one', 'inc', 'llc', 'ltd', 'co', 'company', 'companies', 'corp',
+  'group', 'associates', 'partners', 'services', 'service', 'solutions', 'pros', 'pro', 'experts',
+  'expert', 'professional', 'professionals', 'specialists', 'local', 'near', 'me', 'usa', 'us',
+  'national', 'american', 'america', 'city', 'online', 'express', 'quality', 'affordable', 'cheap',
+  'premier', 'elite', 'family', 'home', 'homes', 'house', 'center', 'centre', 'shop', 'store',
+  // trades
+  'pest', 'control', 'bug', 'bugs', 'termite', 'termites', 'exterminator', 'exterminators',
+  'exterminating', 'movers', 'mover', 'moving', 'move', 'moves', 'relocation', 'storage', 'van',
+  'lines', 'long', 'distance', 'hauling', 'junk', 'removal', 'towing', 'dental', 'dentist', 'dentists',
+  'dentistry', 'orthodontics', 'plumbing', 'plumber', 'plumbers', 'roofing', 'roofer', 'roofers',
+  'roof', 'cleaning', 'cleaners', 'cleaner', 'maid', 'maids', 'carpet', 'law', 'lawyer', 'lawyers',
+  'attorney', 'attorneys', 'legal', 'firm', 'insurance', 'agency', 'auto', 'car', 'cars', 'repair',
+  'repairs', 'hvac', 'heating', 'cooling', 'air', 'electric', 'electrical', 'electrician',
+  'electricians', 'landscaping', 'lawn', 'tree', 'painting', 'painters', 'construction', 'contractor',
+  'contractors', 'remodeling', 'restoration', 'water', 'damage', 'locksmith', 'medical', 'health',
+  'care', 'clinic', 'realty', 'real', 'estate', 'mortgage', 'loans', 'tax', 'accounting', 'marketing',
+  'digital', 'seo', 'web', 'design', 'pet', 'vet', 'salon', 'spa',
+]);
+
+/** How many different answers must write a spelling as a proper name. */
+const MIN_SPACED_ANSWERS = 2;
+
+/**
+ * How the answers write run-together domain stems as separate words:
+ * 'gentlegiant' -> ['Gentle Giant'], most used first. One pass over the
+ * answers for every stem asked about.
+ *
+ * A spelling counts only when it is written as a proper name — EVERY word
+ * capitalised, so 'pest control', or a sentence that merely starts 'Gentle
+ * giant…', never does — in at least two different answers, in two to four
+ * words of two letters or more that de-space to exactly the stem, and not
+ * made only of trade words ('Local Movers', 'Pest Control'). The run-together
+ * form itself is left out: the stem alias already matches it.
+ *
+ * @param {object[]} captures
+ * @param {string[]} stems  de-spaced domain stems ('gentlegiant')
+ * @returns {Map<string, string[]>} stem -> spellings
+ */
+function spacedSpellings(captures, stems) {
+  const out = new Map();
+  const wanted = new Set((stems || []).map((s) => String(s || '')).filter((s) => /^[a-z0-9]{6,}$/.test(s)));
+  if (!wanted.size) return out;
+  // Runs of two or more capitalised words joined by a space or a hyphen.
+  const runRe = /(?<![A-Za-z0-9])[A-Z0-9][A-Za-z0-9]*(?:[ -][A-Z0-9][A-Za-z0-9]*)+(?![A-Za-z0-9])/g;
+  const seen = new Map(); // spelling -> {stem, answers: Set}
+  (captures || []).forEach((c, i) => {
+    if (!c?.answerText) return;
+    const answer = c.id || `#${i}`;
+    for (const m of String(c.answerText).matchAll(runRe)) {
+      const tokens = m[0].split(/([ -])/); // [word, sep, word, sep, word…]
+      const n = (tokens.length + 1) / 2;
+      for (let a = 0; a < n; a += 1) {
+        for (let len = 2; len <= 4 && a + len <= n; len += 1) {
+          const words = [];
+          for (let k = a; k < a + len; k += 1) words.push(tokens[k * 2]);
+          if (words.some((w) => w.length < 2)) continue;
+          const stem = words.join('').toLowerCase();
+          if (!wanted.has(stem)) continue;
+          if (words.every((w) => GENERIC_NAME_WORDS.has(w.toLowerCase()))) continue;
+          const spelling = tokens.slice(a * 2, (a + len) * 2 - 1).join('');
+          const e = seen.get(spelling) || { stem, answers: new Set() };
+          e.answers.add(answer);
+          seen.set(spelling, e);
+        }
+      }
+    }
+  });
+  [...seen.entries()]
+    .filter(([, e]) => e.answers.size >= MIN_SPACED_ANSWERS)
+    .sort((x, y) => (y[1].answers.size - x[1].answers.size) || x[0].localeCompare(y[0]))
+    .forEach(([spelling, e]) => {
+      if (!out.has(e.stem)) out.set(e.stem, []);
+      out.get(e.stem).push(spelling);
+    });
+  return out;
 }
 
 /** A competitor's de-spaced names and domain stem, as brandKey writes them. */
@@ -1469,6 +1566,16 @@ function build({
   // API key, and the score quietly became ChatGPT-only. Said, not hidden.
   const enginesUnavailable = engines.filter((e) => e.answers > 0 && e.measured === 0).map((e) => e.surfaceLabel);
 
+  // Kept apart from that: a model that answered in this period but heard
+  // nothing back on the latest run. The window ends on the newest SUCCESSFUL
+  // answer, so that run can sit after it — read regardless of the window. A
+  // model already unavailable for the whole period is not named twice, and a
+  // model counted as measured is never called unavailable.
+  const unavailableKeys = new Set(engines.filter((e) => e.answers > 0 && e.measured === 0).map((e) => e.engine));
+  const latestRunFailed = (latestRun?.engines || [])
+    .filter((e) => e.allFailed && e.engine !== 'unknown' && !unavailableKeys.has(e.engine))
+    .map((e) => e.label);
+
   const warnings = [...(split.warnings || [])];
   if (enginesUnavailable.length) warnings.push('engine_unavailable');
   if (latestRun?.failedEngines?.length) warnings.push('latest_run_partial');
@@ -1539,6 +1646,9 @@ function build({
       enginesMeasured: engines.filter((e) => e.measured > 0).length,
       enginesAsked: engines.length,
       enginesUnavailable,
+      // Models that failed outright on the latest run but are not in
+      // enginesUnavailable (short names: 'Claude'); latestRun.at is its date.
+      latestRunFailed,
       // The newest run's own per-model health (runHealth.healthOfRows), for
       // the "latest run was partial" notice.
       latestRun,

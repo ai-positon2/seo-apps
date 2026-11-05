@@ -8,6 +8,8 @@ import { projectsApi } from '../lib/projectsApi';
 import {
   useActiveProjectId, useProjectsChanged, switchTarget, adoptProjectFromUrl, projectFromSearch,
   pendingAdoption, rejectAdoptedProject, clearAdoption, withProjectParam,
+  setKnownProjectIds, judgeAdoption, acceptAdoption, useAdoptionPending, readActiveProjectId,
+  retryClearedAdoption,
 } from '../lib/activeProject';
 import SemrushBalanceBadge from './SemrushBalanceBadge';
 import CrawlStatusBar from './home/CrawlStatusBar';
@@ -250,8 +252,13 @@ function HeaderButton({ children, onClick, title, active, style }) {
 // SemrushBalanceBadge: a props comparison that cannot fail, so memo is free.
 const ClientSwitcher = memo(function ClientSwitcher() {
   const navigate = useNavigate();
-  const { pathname } = useLocation();
+  const { pathname, search: locationSearch } = useLocation();
   const [activeProjectId, setActiveProjectId] = useActiveProjectId();
+  // A client named by the address (?project=) that the shell is holding until
+  // this list confirms the user can open it (lib/activeProject.js). Subscribed,
+  // so a link held again from here (retryClearedAdoption) re-renders this too.
+  useAdoptionPending();
+  const pendingId = pendingAdoption()?.id || null;
   const [projects, setProjects] = useState([]);
   // Only for labelling: a client that lives in a workspace other than the
   // caller's home one (the Position2 team workspace, for staff) says which.
@@ -295,6 +302,7 @@ const ClientSwitcher = memo(function ClientSwitcher() {
       .then((data) => {
         if (cancelled) return;
         setProjects(data.projects || []);
+        setKnownProjectIds((data.projects || []).map((p) => p.id));
         setWorkspaces(data.workspaces || []);
         setHomeWorkspaceId(data.activeWorkspaceId || null);
         setListError(false);
@@ -352,6 +360,7 @@ const ClientSwitcher = memo(function ClientSwitcher() {
   // crawl is still running). Repairing that at once bounced the header back to
   // the first client, so such a project could not be selected.
   const recheckedFor = useRef(null);
+  const adoptionRecheckedFor = useRef(null);
 
   // Opening the menu brings the selected client into view, so with a long list
   // the reader starts from where they are rather than from the top.
@@ -361,30 +370,50 @@ const ClientSwitcher = memo(function ClientSwitcher() {
     listRef.current?.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest' });
   }, [open]);
   useEffect(() => {
-    if (refreshing || listError) return;
-    if (active && active.id === activeProjectId) {
-      if (pendingAdoption()?.id === activeProjectId) clearAdoption();
+    if (refreshing) return;
+    // A client named by a link (?project=), held until checked here. The tab
+    // stays on its current client until then, so nothing is requested under a
+    // client the user may not be able to open.
+    if (pendingId) {
+      // The list could not be read: nothing to check against, so stay put.
+      if (listError) { clearAdoption(); return; }
+      const verdict = judgeAdoption(pendingId, projects.map((p) => p.id), {
+        rechecked: adoptionRecheckedFor.current === pendingId,
+      });
+      if (verdict === 'adopt') { acceptAdoption(pendingId); return; }
+      if (verdict === 'recheck') {
+        // The list may predate the client (created in another tab since).
+        adoptionRecheckedFor.current = pendingId;
+        setReloadKey((k) => k + 1);
+        return;
+      }
+      // Not one of theirs: stay on the client the tab had, say why, and make
+      // the address name that client rather than the one it could not open.
+      rejectAdoptedProject(pendingId);
+      setNotice(active
+        ? `The link was for a client you don't have access to, so ${active.name} is shown instead.`
+        : "The link was for a client you don't have access to.");
+      const fixed = active ? withProjectParam(pathname + locationSearch, active.id) : null;
+      if (fixed && fixed !== pathname + locationSearch) navigate(fixed, { replace: true });
       return;
     }
+    if (listError) return;
+    // A link given up on while the list could not be read (an error, or the
+    // 15s hold ran out): now that a list is in hand, judge the address's client
+    // again, so the tab does not show one client under an address naming another.
+    if (loadedOnce && retryClearedAdoption(locationSearch)) return;
+    if (active && active.id === activeProjectId) return;
     if (!active) return;
     if (activeProjectId && recheckedFor.current !== activeProjectId) {
       recheckedFor.current = activeProjectId;
       setReloadKey((k) => k + 1);
       return;
     }
-    // A client adopted from a link (?project=) that is not in this user's
-    // list: go back to the client the tab had, and say why, rather than
-    // silently showing a different client under the link's address.
-    const adopted = pendingAdoption();
-    if (adopted && adopted.id === activeProjectId) {
-      rejectAdoptedProject(adopted.id);
-      const back = projects.find((p) => p.id === adopted.previous) || active;
-      setNotice(`The link was for a client you don't have access to, so ${back.name} is shown instead.`);
-      setActiveProjectId(back.id);
-      return;
-    }
     setActiveProjectId(active.id);
-  }, [active, activeProjectId, setActiveProjectId, refreshing, listError, projects]);
+    // pathname/locationSearch are read only when rejecting a link, which is
+    // keyed by pendingId; an address change alone must not re-run the repair.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, activeProjectId, setActiveProjectId, refreshing, listError, projects, pendingId, loadedOnce]);
 
   if (!projects.length && !loadedOnce) {
     return (
@@ -570,32 +599,70 @@ export default function MacWindow() {
   // so a report link opens on the client it was copied from rather than on the
   // reader's last one. Only when the address changes: the user switching client
   // some other way must not be overridden by a parameter they already acted on.
-  // The header (ClientSwitcher) checks the id against the user's own list and
-  // goes back, with a notice, if it is not one they can open.
+  // Only a client the header's list already has is adopted here; any other is
+  // held (the page below waits) until the header (ClientSwitcher) has checked
+  // it against the user's own list — adopted if it is theirs, otherwise the tab
+  // stays on its client with a notice. See adoptProjectFromUrl.
   const adoptedFor = useRef(null);
   if (adoptedFor.current !== locationSearch) {
     adoptedFor.current = locationSearch;
     adoptProjectFromUrl(locationSearch);
   }
+  const awaitingClient = useAdoptionPending();
   const [activeProjectId, setActiveProjectId] = useActiveProjectId();
   // Components mounted before the address changed (Back/Forward, a link
-  // within the app) learn of it through the usual same-tab event.
+  // within the app) learn of an adopted client through the usual same-tab event.
   useEffect(() => {
     const id = projectFromSearch(locationSearch);
-    const adopted = pendingAdoption();
-    if (id && adopted?.id === id) setActiveProjectId(id);
+    if (id && !pendingAdoption() && readActiveProjectId() === id && id !== activeProjectId) {
+      setActiveProjectId(id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locationSearch, setActiveProjectId]);
   // And the other way round: when the client changes by other means (a new
   // project created on the dashboard, a rejected link), an address that still
   // names the old one is corrected in place, so copying it stays truthful.
   useEffect(() => {
     const id = projectFromSearch(locationSearch);
+    // A link still being checked names a client the tab is not on yet, on purpose.
+    if (pendingAdoption()?.id === id) return;
     if (id && activeProjectId && id !== activeProjectId) {
       navigate(withProjectParam(pathname + locationSearch, activeProjectId), { replace: true });
     }
     // Only on a change of client; the address change itself is handled above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProjectId]);
+
+  // The chrome-less embed has no header to check a link's client, so it checks
+  // here, the same way.
+  useEffect(() => {
+    if (!EMBED_MODE) return undefined;
+    const adopted = pendingAdoption();
+    if (!adopted) return undefined;
+    let alive = true;
+    projectsApi.list()
+      .then((data) => {
+        if (!alive) return;
+        const ids = (data.projects || []).map((p) => p.id);
+        setKnownProjectIds(ids);
+        if (judgeAdoption(adopted.id, ids, { rechecked: true }) === 'adopt') acceptAdoption(adopted.id);
+        else rejectAdoptedProject(adopted.id);
+      })
+      .catch(() => { if (alive) clearAdoption(); });
+    return () => { alive = false; };
+  }, [locationSearch]);
+  // A list read that never answers must not hold the page forever: after a
+  // while it opens on the tab's current client, as if the link had no client.
+  // Keyed on the pending client, so a newer link is not cut short by the
+  // timer an earlier one started.
+  const pendingClientId = awaitingClient ? (pendingAdoption()?.id || null) : null;
+  useEffect(() => {
+    if (!pendingClientId) return undefined;
+    const t = setTimeout(() => {
+      if (pendingAdoption()?.id === pendingClientId) clearAdoption();
+    }, 15000);
+    return () => clearTimeout(t);
+  }, [pendingClientId]);
 
   // Below this width the nav buttons move into a "More" menu, so the account
   // menu (sign-out) and Guided mode are never pushed off the right edge.
@@ -697,7 +764,9 @@ export default function MacWindow() {
   if (EMBED_MODE) {
     return (
       <div style={{ minHeight: '100vh', overflowY: 'auto', background: 'var(--bg)' }}>
-        <ChunkErrorBoundary fallback={RouteFallback}><Suspense fallback={<RouteFallback />}><Outlet context={crawl} /></Suspense></ChunkErrorBoundary>
+        {awaitingClient ? <RouteFallback /> : (
+          <ChunkErrorBoundary fallback={RouteFallback}><Suspense fallback={<RouteFallback />}><Outlet context={crawl} /></Suspense></ChunkErrorBoundary>
+        )}
       </div>
     );
   }
@@ -1023,7 +1092,9 @@ export default function MacWindow() {
                         tool={tool}
                         icon={TOOL_ICONS[tool.id]}
                         isActive={isActive}
-                        onClick={() => navigate(tool.path)}
+                        // Carries this tab's client, so the tool opens on it
+                        // and the address can be copied as it stands.
+                        onClick={() => navigate(withProjectParam(tool.path, activeProjectId))}
                       />
                     );
                   })}
@@ -1051,11 +1122,13 @@ export default function MacWindow() {
               <div style={{ padding: '24px 32px 0', maxWidth: 1520, margin: '0 auto' }}>
                 <CrawlStatusBar
                   status={crawl.status}
-                  onWatch={(runId) => navigate(`/crawl-scope/runs/${runId}`)}
+                  onWatch={(runId) => navigate(withProjectParam(`/crawl-scope/runs/${runId}`, activeProjectId))}
                 />
               </div>
             )}
-            <ChunkErrorBoundary fallback={RouteFallback}><Suspense fallback={<RouteFallback />}><Outlet context={crawl} /></Suspense></ChunkErrorBoundary>
+            {awaitingClient ? <RouteFallback /> : (
+              <ChunkErrorBoundary fallback={RouteFallback}><Suspense fallback={<RouteFallback />}><Outlet context={crawl} /></Suspense></ChunkErrorBoundary>
+            )}
           </div>
         </div>
       </div>
@@ -1089,8 +1162,15 @@ function HeaderNavMenu({ items, pathname, onGo }) {
 
   return (
     <div ref={boxRef} style={{ position: 'relative' }}>
-      <HeaderButton title="Runs, projects, team and admin" onClick={() => setOpen((v) => !v)} active={open || Boolean(current)}>
-        {current ? current.label : 'More'}
+      {/* Always says "More", so it reads as a menu: it used to show the page
+          you were on (Runs, Projects, Team), which looked like a page title.
+          That page is highlighted inside the menu instead. */}
+      <HeaderButton
+        title={current ? `More: runs, projects, team and admin (you are on ${current.label})` : 'More: runs, projects, team and admin'}
+        onClick={() => setOpen((v) => !v)}
+        active={open || Boolean(current)}
+      >
+        More
         <ChevronDownIcon />
       </HeaderButton>
       {open && (
@@ -1108,12 +1188,14 @@ function HeaderNavMenu({ items, pathname, onGo }) {
               key={item.path}
               role="menuitem"
               title={item.title}
+              aria-current={current?.path === item.path ? 'page' : undefined}
               onClick={() => { setOpen(false); onGo(item.path); }}
               style={{
                 textAlign: 'left', border: 'none', cursor: 'pointer',
                 background: current?.path === item.path ? 'var(--nav-active-bg)' : 'transparent',
                 color: 'var(--text)', padding: '7px 9px', borderRadius: 'var(--r-sm)',
                 fontSize: 13, fontFamily: 'var(--font-sans)',
+                fontWeight: current?.path === item.path ? 600 : 400,
               }}
             >
               {item.label}

@@ -103,8 +103,8 @@ const NOTES = {
     'This project has no primary domain, so there is nothing to compare. '
     + 'Set one and the comparison starts by itself.',
   competitors_pending_approval:
-    'The competitors on this project are proposed, not tracked. An approver has to accept '
-    + 'them before a comparison can run.',
+    'The competitors on this project are suggestions awaiting review, not tracked. Accept them '
+    + 'in project settings before a comparison can run.',
   no_semrush_key:
     'SEMRUSH_API_KEY is not configured, so no comparison was started. Simulated numbers are '
     + 'never stored as project evidence — they would appear in the dashboard and the exported '
@@ -163,6 +163,15 @@ function decide({
     start: true,
     reason: pending.running ? 'queued_behind_running' : 'queued',
   };
+}
+
+/**
+ * The price of a run with no tracked competitor: the discovery search only
+ * (unitCosts.DISCOVERY_COST, worst case). Same shape as estimateCost.
+ */
+function discoveryEstimate() {
+  const { DISCOVERY_COST } = require('../competitorAnalysis/unitCosts');
+  return { unit: 'SEMrush units', domains: 0, estimate: DISCOVERY_COST, discoveryOnly: true };
 }
 
 /** True when the error is "0019 has not been applied yet". */
@@ -267,8 +276,21 @@ async function scheduleCompetitorResearch({ access, domains = [], delayMs: delay
     return answer({ reason: 'not_configured', competitorCount: 0, note: NOTES.not_configured });
   }
 
-  const rows = Array.isArray(domains) ? domains : [];
+  let rows = Array.isArray(domains) ? domains : [];
   const active = rows.filter((d) => d.role === 'competitor' && d.status === 'active');
+  // Callers pass store.listDomains()'s default — active rows only — so pending
+  // proposals were invisible and decide() never held back for them: the run it
+  // queued re-paid discovery and re-proposed the same domains. Read them here.
+  if (!active.length && !rows.some((d) => d.role === 'competitor' && d.status === 'proposed')) {
+    try {
+      const store = require('./store');
+      const fetched = await store.listDomains(project.id, { statuses: store.ACTIVE_AND_PROPOSED });
+      const seen = new Set(rows.map((d) => d.id).filter(Boolean));
+      rows = [...rows, ...fetched.filter((d) => !d.id || !seen.has(d.id))];
+    } catch (e) {
+      console.warn('[competitorAutostart] could not read proposed competitors:', e.message);
+    }
+  }
   const proposed = rows.filter((d) => d.role === 'competitor' && d.status === 'proposed');
   const primary = rows.find((d) => d.role === 'primary' && d.status === 'active');
 
@@ -298,12 +320,15 @@ async function scheduleCompetitorResearch({ access, domains = [], delayMs: delay
   const moduleRunners = require('./moduleRunners');
   // What this run bills, stated whether or not it was queued: a caller that
   // decides not to autostart still deserves to know the price of pressing Run.
-  // With none tracked the run discovers up to DEFAULT_DISCOVERY_LIMIT, so
-  // pricing it at zero competitors would understate what it is about to spend.
-  const estimate = moduleRunners.estimateCost(MODULE_KEY, {
-    competitorCount: active.length
-      || require('../competitorAnalysis/discovery').DEFAULT_DISCOVERY_LIMIT,
-  });
+  // With none tracked the run only SEARCHES for competitors and stores them as
+  // suggestions to review (UX-112) — it compares nothing, so it costs the
+  // discovery call alone; the comparison is billed when they are accepted.
+  const estimate = active.length
+    ? moduleRunners.estimateCost(MODULE_KEY, { competitorCount: active.length })
+    : discoveryEstimate();
+  const what = active.length
+    ? `against ${active.length} competitor${active.length === 1 ? '' : 's'}`
+    : 'by searching for competitors to suggest (you accept them before any comparison is paid for)';
 
   if (!verdict.start) {
     return answer({
@@ -329,8 +354,7 @@ async function scheduleCompetitorResearch({ access, domains = [], delayMs: delay
       startsInSeconds: Math.round(wait / 1000),
       competitorCount: active.length,
       estimate,
-      note: `Competitor Research starts in about ${Math.round(wait / 1000)}s against `
-        + `${active.length || 'auto-discovered'} competitor${active.length === 1 ? '' : 's'}.`,
+      note: `Competitor Research starts in about ${Math.round(wait / 1000)}s ${what}.`,
     });
   }
 
@@ -393,8 +417,7 @@ async function scheduleCompetitorResearch({ access, domains = [], delayMs: delay
       note: verdict.reason === 'queued_behind_running'
         ? 'A comparison is already running without this domain, so another was queued behind it '
           + 'that includes it.'
-        : `Competitor Research starts in about ${startsInSeconds}s against `
-          + `${active.length || 'auto-discovered'} competitor${active.length === 1 ? '' : 's'}.`,
+        : `Competitor Research starts in about ${startsInSeconds}s ${what}.`,
     });
   } catch (e) {
     // `moduleQueue.enqueue` rethrows a plain Error for a missing column, so the
@@ -486,6 +509,7 @@ module.exports = {
   isEnabled,
   delayMs,
   decide,
+  discoveryEstimate,
   coalescedStart,
   scheduleCompetitorResearch,
 };

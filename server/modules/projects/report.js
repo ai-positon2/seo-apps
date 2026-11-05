@@ -209,7 +209,10 @@ async function techAuditData(modules) {
       console.error('[projects.report.techFindings]', e.message);
       return [];
     }),
-    overview.costingRulePages(runId),
+    // A download waits for the aggregates up to their statement bound, as it
+    // always did: under the dashboard's 15s wait an uncached run would lose
+    // costsPoints and the "costs points first" order.
+    overview.costingRulePages(runId, { waitMs: null }),
   ]);
   return techAuditRows(card, rollup, costing);
 }
@@ -227,7 +230,7 @@ function techAuditRows(card, rollup, costing) {
         category: f.category || '',
         findings: Number(f.count) || 0,
         costsPoints: costing ? Boolean(cost) : null,
-        pages: cost ? (cost.siteLevel ? null : cost.pages.size) : null,
+        pages: cost ? (cost.siteLevel ? null : (Number.isFinite(cost.pageCount) ? cost.pageCount : cost.pages?.size ?? null)) : null,
         siteLevel: cost?.siteLevel || null,
       };
     })
@@ -975,7 +978,11 @@ function htmlTable(headers, rows, { className = '' } = {}) {
 // appears — the same red/amber/green a reader already learned from the
 // dashboard (insights/executive.js's HEALTHY_AT/WATCH_AT bands).
 const TONE = { risk: '#B3261E', warn: '#9A6B00', good: '#1F6F5C', neutral: '#5B5B63' };
-const VERDICT_TONE = { at_risk: TONE.risk, needs_attention: TONE.warn, healthy: TONE.good, not_measured: TONE.neutral };
+const VERDICT_TONE = {
+  at_risk: TONE.risk, needs_attention: TONE.warn, healthy: TONE.good, not_measured: TONE.neutral,
+  // The site refused our checks; the crawl's costing is still being added up.
+  blocked: TONE.risk, pending: TONE.neutral,
+};
 const SEVERITY_TONE = { error: TONE.risk, warning: TONE.warn, notice: TONE.neutral, info: TONE.neutral };
 const STATUS_TONE = { approved: TONE.good, shipped: TONE.good, proposed: TONE.warn, draft: TONE.neutral, rejected: TONE.risk };
 

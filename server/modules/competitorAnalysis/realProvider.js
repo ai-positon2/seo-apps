@@ -39,18 +39,63 @@ async function withRetry(fn, label, errors) {
   }
 }
 
+// The spellings a brand is searched under. A label with a space ("Foot
+// Locker") was used as the only phrase, so "footlocker shoes" — the joined
+// form people type, and the domain — was not counted as branded. A spaced
+// label also tries the joined form; any other label is one term. A label that
+// is a domain ("nike.com") is searched by its name ("nike"), never "nikecom".
+function brandVariants(brandName) {
+  let spaced = String(brandName || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!spaced) return [];
+  if (/^(https?:\/\/)?[\w-]+(\.[\w-]+)+\/?$/.test(spaced)) {
+    // Lazy: dataFetcher requires the provider that requires this file.
+    spaced = require('./dataFetcher').domainStem(spaced) || spaced;
+  }
+  if (!spaced.includes(' ')) return [spaced];
+  const joined = spaced.replace(/[^a-z0-9]+/g, '');
+  return joined && joined !== spaced ? [spaced, joined] : [spaced];
+}
+
+// Branded keywords across the spellings, unioned by phrase, within ONE row
+// budget (ROW_LIMITS.brandedKeywordCount, what unitCosts charges). The first
+// spelling gets the whole budget, so an exact 25 stays 25 rather than being
+// cut to a half page and shown as "20+". The joined spelling is asked only for
+// the rows left over, so the lines billed never exceed the budget. Rows filling
+// the budget mean "at least this many": reported as the budget, capped.
+//
+// Each request is retried on its own: retrying both together re-requested
+// (and re-billed) a spelling that had already succeeded. A spelling that still
+// fails leaves the count unknown (null), never an undercount.
+async function brandedKeywords(domain, database, brandName, errors = []) {
+  const limit = ROW_LIMITS.brandedKeywordCount;
+  const [first, joined] = brandVariants(brandName);
+  const label = 'brandedKeywordCount';
+  const firstList = await withRetry(() => semrush.getBrandedKeywordPhrases(domain, database, first, limit), label, errors);
+  if (!firstList) return null;
+  if (firstList.length >= limit) return { count: limit, capped: true };
+  const remaining = limit - firstList.length;
+  let joinedList = [];
+  if (joined) {
+    joinedList = await withRetry(() => semrush.getBrandedKeywordPhrases(domain, database, joined, remaining), label, errors);
+    if (!joinedList) return null;
+  }
+  if (joinedList.length >= remaining) return { count: limit, capped: true };
+  return { count: new Set([...firstList, ...joinedList]).size, capped: false };
+}
+
 async function fetchDomainData(domain, ctx, { database = 'us', brandName } = {}) {
   const fetchErrors = [];
 
-  const [domainRank, backlinksOverview, keywords, aio, brandedCount] = await Promise.all([
+  const [domainRank, backlinksOverview, keywords, aio, branded] = await Promise.all([
     withRetry(() => semrush.getDomainRank(domain, database), 'domainRank', fetchErrors),
     withRetry(() => semrush.getBacklinksOverview(domain), 'backlinksOverview', fetchErrors),
     withRetry(() => semrush.getKeywordsFull(domain, database, ROW_LIMITS.keywordsFull, 'nq_desc'), 'keywords', fetchErrors).then((r) => r || []),
     withRetry(() => semrush.getAIOKeywords(domain, database, ROW_LIMITS.aioKeywords), 'aioKeywords', fetchErrors).then((r) => r || { count: 0, keywords: [] }),
-    brandName
-      ? withRetry(() => semrush.getBrandedKeywordCount(domain, database, brandName, ROW_LIMITS.brandedKeywordCount), 'brandedKeywordCount', fetchErrors)
+    brandVariants(brandName).length
+      ? brandedKeywords(domain, database, brandName, fetchErrors)
       : Promise.resolve(null),
   ]);
+  const brandedCount = branded ? branded.count : null;
 
   const organicKeywords = domainRank?.organicKeywords || 0;
   // Unknown stays null (no brand term, or the call failed) — never a 0 the
@@ -61,7 +106,7 @@ async function fetchDomainData(domain, ctx, { database = 'us', brandName } = {})
   // no total-count field (a total means paying 10 units for every row), so a
   // full page means "at least this many" and the non-branded split is
   // unknown. The UI shows "40+" and no share for a capped domain.
-  const brandedKeywordCountCapped = brandedKeywordCount !== null && brandedKeywordCount >= ROW_LIMITS.brandedKeywordCount;
+  const brandedKeywordCountCapped = brandedKeywordCount !== null && Boolean(branded?.capped);
   // No backlinks answer (failed twice, or Semrush had nothing) is "not
   // measured", not a domain with 0 authority that ranks last.
   const bl = (field) => (backlinksOverview && Number.isFinite(backlinksOverview[field]) ? backlinksOverview[field] : null);
@@ -97,4 +142,4 @@ async function fetchDomainData(domain, ctx, { database = 'us', brandName } = {})
   };
 }
 
-module.exports = { createRunContext, fetchDomainData };
+module.exports = { createRunContext, fetchDomainData, brandVariants };

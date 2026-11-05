@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  uniqueByUrl, applyRuleRollup, reconcileFindings, crawledLine, ageInDays, shortDate, reportSearch,
+  uniqueByUrl, applyRuleRollup, reconcileFindings, crawledLine, ageInDays, shortDate, reportSearch, pageIssueCount,
 } from '../runReportData.js';
 import { inflateFindingTexts } from '../../../lib/crawlScopeApi.js';
 
@@ -110,4 +110,15 @@ test('shared rule text is put back on every finding', () => {
   assert.equal(out.capped, false);
   const plain = { findings: [{ id: 'a', recommendation: 'x' }] };
   assert.equal(inflateFindingTexts(plain), plain);
+});
+
+test('a capped run counts each page over every finding and marks a partial list (UX-192)', () => {
+  const counts = { 'https://x.test/a': [7, 9] };
+  assert.deepEqual(pageIssueCount('https://x.test/a', 2, counts, 'table'), { count: 7, partial: true });
+  assert.deepEqual(pageIssueCount('https://x.test/a', 2, counts, 'list'), { count: 9, partial: true });
+  // Everything loaded: nothing to mark.
+  assert.deepEqual(pageIssueCount('https://x.test/a', 7, counts, 'table'), { count: 7, partial: false });
+  // Not capped (no counts) or a page the counts do not name: the loaded number, as before.
+  assert.deepEqual(pageIssueCount('https://x.test/a', 2, null), { count: 2, partial: false });
+  assert.deepEqual(pageIssueCount('https://x.test/b', 1, counts), { count: 1, partial: false });
 });

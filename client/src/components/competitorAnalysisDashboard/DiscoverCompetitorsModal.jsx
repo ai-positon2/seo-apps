@@ -22,7 +22,9 @@ function CandidateCard({ candidate, onRemove }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{candidate.domain}</span>
-            <Badge variant={TYPE_BADGE_VARIANT[candidate.competitorType] || 'neutral'}>{candidate.competitorType}</Badge>
+            {candidate.verified === false
+              ? <Badge variant="warning">not verified</Badge>
+              : candidate.competitorType && <Badge variant={TYPE_BADGE_VARIANT[candidate.competitorType] || 'neutral'}>{candidate.competitorType}</Badge>}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, fontSize: 12, color: 'var(--text-2)', marginBottom: candidate.reason ? 8 : 0 }}>
             {candidate.authorityScore > 0 && <span>Authority <strong>{candidate.authorityScore}</strong></span>}

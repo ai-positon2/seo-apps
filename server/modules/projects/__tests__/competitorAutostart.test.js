@@ -231,5 +231,31 @@ test('every domain-mutating route re-asks whether the comparison can start', () 
   }
 });
 
+test('with no tracked competitor the run is priced as the discovery search only (UX-112)', () => {
+  const est = autostart.discoveryEstimate();
+  assert.strictEqual(est.estimate, require('../../competitorAnalysis/unitCosts').DISCOVERY_COST);
+  assert.strictEqual(est.domains, 0);
+  assert.strictEqual(est.discoveryOnly, true);
+});
+
+test('GET /api/projects reports which autostarts are on, from the same env flags', () => {
+  const { autostartsEnabled } = require('../routes');
+  const saved = { c: process.env.CRAWL_AUTOSTART, a: process.env.AI_VISIBILITY_LITE_AUTOSTART, r: process.env.COMPETITOR_RESEARCH_AUTOSTART };
+  try {
+    delete process.env.CRAWL_AUTOSTART;
+    delete process.env.AI_VISIBILITY_LITE_AUTOSTART;
+    delete process.env.COMPETITOR_RESEARCH_AUTOSTART;
+    assert.deepStrictEqual(autostartsEnabled(), { crawl: true, homepageAudits: true, aiVisibilityLite: true, competitorResearch: true });
+    process.env.CRAWL_AUTOSTART = 'off';
+    process.env.AI_VISIBILITY_LITE_AUTOSTART = 'off';
+    process.env.COMPETITOR_RESEARCH_AUTOSTART = 'off';
+    assert.deepStrictEqual(autostartsEnabled(), { crawl: false, homepageAudits: true, aiVisibilityLite: false, competitorResearch: false });
+  } finally {
+    for (const [k, v] of [['CRAWL_AUTOSTART', saved.c], ['AI_VISIBILITY_LITE_AUTOSTART', saved.a], ['COMPETITOR_RESEARCH_AUTOSTART', saved.r]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+});
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed ? 1 : 0);

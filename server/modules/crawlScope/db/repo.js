@@ -1127,7 +1127,14 @@ async function listRunFindingInstancesPage(client, runId, { offset = 0, limit = 
 // all of them.
 const FINDINGS_READ_CAP = 50_000;
 
-async function listAllRunFindingInstances(client, runId, { cap = FINDINGS_READ_CAP, meta = null } = {}) {
+async function listAllRunFindingInstances(client, runId, { cap = FINDINGS_READ_CAP, meta = null, signal = null } = {}) {
+  // `signal`: the request this read belongs to went away, so no further page is
+  // asked for (UX-054). Pages already in flight finish; nothing new starts.
+  const stopIfGone = () => {
+    if (signal?.aborted) {
+      throw Object.assign(new Error("The request was closed before this read finished."), { code: "ABORT_ERR", aborted: true });
+    }
+  };
   // Paged rather than one unbounded select, so a 20,000-row run cannot arrive as
   // one enormous result set.
   //
@@ -1219,6 +1226,7 @@ async function listAllRunFindingInstances(client, runId, { cap = FINDINGS_READ_C
   // The cap is now filled by severity (planCappedRead), and the caller gets the
   // per-rule totals over every finding so its counts do not shrink with it.
   if (runTotal > cap) {
+    stopIfGone();
     const rollup = await listRunFindingInstanceRollup(client, runId);
     if (meta) meta.rollup = rollup;
     const plan = planCappedRead(rollup, cap);
@@ -1233,6 +1241,7 @@ async function listAllRunFindingInstances(client, runId, { cap = FINDINGS_READ_C
         // Keyset pages within the rule, oldest first: the same rows every time.
         let after = 0;
         while (rows.length < limit) {
+          stopIfGone();
           // eslint-disable-next-line no-await-in-loop
           const page = await client.rows(
             `select id, ${PAGE_COLUMNS}
@@ -1264,6 +1273,7 @@ async function listAllRunFindingInstances(client, runId, { cap = FINDINGS_READ_C
     for (;;) {
       const i = next++;
       if (i >= starts.length) return;
+      stopIfGone();
       const following = starts[i + 1];
       // eslint-disable-next-line no-await-in-loop
       pages[i] = following
@@ -1363,6 +1373,58 @@ function planCappedRead(rollup, cap) {
 // The rule of each of these finding ids, if the run produced it. What a review
 // save checks against — one lookup of the ids being saved, rather than reading
 // the whole (capped) finding set to find them.
+// Per URL, over EVERY stored instance: how many page findings it carries. What
+// a capped report's All Pages "Issues" column and each page's own view count
+// with, since the loaded list holds only some of them (UX-192).
+//
+// Counted the way the report counts a page's issues: `page` scope, less any
+// rule a reviewer dismissed on that page, for the table
+// (crawlHelpers.withEffectiveIssues); `page` + `template`, less each dismissed
+// finding, for the page's own list (pageIssueCards). Returned as
+// { url: [tableCount, listCount] }.
+//
+// Grouped in the database, so a 200,000-finding run sends one row per page,
+// under a statement bound; `signal` cancels it when the request goes away.
+const URL_COUNTS_STATEMENT_MS = 15_000;
+const DISMISSED = ["False positive", "Resolved"];
+
+async function listRunFindingUrlCounts(client, runId, { signal = null, ms = URL_COUNTS_STATEMENT_MS } = {}) {
+  const sql = `with inst as (
+         select f.data->>'url' as url,
+                coalesce(f.data->>'ruleId', f.rule_id) as rule,
+                coalesce(f.data->>'scope', 'page') as scope,
+                coalesce(v.review_status, '') = any($2) as dismissed
+           from crawl_run_finding_instances f
+           left join crawl_finding_reviews v
+             on v.run_id = f.run_id and v.finding_id = f.finding_id
+          where f.run_id = $1
+       ),
+       -- The table drops a rule on a page when ANY finding of it there was
+       -- dismissed; the page's own list drops each dismissed finding alone.
+       pairs as (
+         select url, rule,
+                count(*) filter (where scope = 'page')::int as page_n,
+                count(*) filter (where scope in ('page', 'template') and not dismissed)::int as all_n,
+                bool_or(dismissed) as dismissed
+           from inst
+          where url is not null
+          group by url, rule
+       )
+       select url,
+              coalesce(sum(page_n) filter (where not dismissed), 0)::int as page_n,
+              sum(all_n)::int as all_n
+         from pairs
+        group by url
+       having coalesce(sum(page_n) filter (where not dismissed), 0) > 0 or sum(all_n) > 0`;
+  const read = (t) => t.rows(sql, [runId, DISMISSED]);
+  const rows = typeof client.boundedRead === "function"
+    ? await client.boundedRead(ms, read, { signal })
+    : await read(client);
+  const out = {};
+  for (const row of rows) out[row.url] = [Number(row.page_n) || 0, Number(row.all_n) || 0];
+  return out;
+}
+
 async function findRunFindingRules(client, runId, findingIds) {
   if (!findingIds.length) return new Map();
   const rows = await client.rows(
@@ -1699,6 +1761,7 @@ module.exports = {
   replaceRuleFindings,
   listAllRunFindingInstances,
   listRunFindingInstanceRollup,
+  listRunFindingUrlCounts,
   planCappedRead,
   findRunFindingRules,
   listAllResults,

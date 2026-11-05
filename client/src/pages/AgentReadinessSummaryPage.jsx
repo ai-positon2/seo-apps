@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { scoreBandColor } from '../lib/scoreVerdict';
-import { decodeSharePayload, isShareableSummary } from '../lib/agentReadinessReport';
+import { decodeSharePayload, isShareableSummary, sharedOlderRules } from '../lib/agentReadinessReport';
 
 // ── A shared executive summary ───────────────────────────────────────────────
 //
@@ -77,7 +77,8 @@ export default function AgentReadinessSummaryPage() {
 
   // The link also carries projectId, so whoever opens the full report can tell
   // which client it belongs to; the page itself opens through ?page=.
-  const { brief, url, score, level, date, pageRunId, olderRules } = data;
+  const { brief, url, score, level, date, pageRunId } = data;
+  const olderRules = sharedOlderRules(data);
   const hasScore = typeof score === 'number' && Number.isFinite(score);
   // Where the full report lives, for a reader who can sign in.
   const fullAuditPath = pageRunId
@@ -116,11 +117,19 @@ export default function AgentReadinessSummaryPage() {
           </div>
         </div>
 
-        {olderRules && (
+        {olderRules.length > 0 && (
           <div style={{ ...CARD, background: 'var(--warning-soft)', fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.55 }}>
             <strong style={{ color: 'var(--text)' }}>Scored with older rules.</strong>{' '}
-            This summary was written when the audit failed any robots.txt that did not name AI crawlers.
-            It does not show that AI crawlers are blocked; a fresh audit will update it.
+            {olderRules.includes('aibots')
+              ? 'This summary was written when the audit failed any robots.txt that did not name AI crawlers. It does not show that AI crawlers are blocked. '
+              : ''}
+            {olderRules.includes('webmcp')
+              ? 'WebMCP could not be detected when this was scored, so it failed on every site. '
+              : ''}
+            {olderRules.includes('unknown')
+              ? 'Some checks have changed since this summary was written, so the score may be low. '
+              : ''}
+            A fresh audit will update it.
           </div>
         )}
 

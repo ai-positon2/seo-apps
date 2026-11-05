@@ -643,10 +643,12 @@ async function computeCrawlHealth(runId, hasInstances) {
                          from inst i
                          left join scored_urls s on s.url = i.url
                         group by 1, 2) x) as site_rules,
-              -- costingRulePages: the scored pages each rule is on.
+              -- costingRulePages: HOW MANY scored pages each rule is on. The
+              -- URL lists themselves are only read by the fix list, so they
+              -- come from computeCostingUrls, on demand, not from every load.
               (select coalesce(json_agg(json_build_object(
-                        'rule', c.rule, 'severity', c.severity, 'urls', c.urls)), '[]'::json)
-                 from (select rule, severity, array_agg(distinct url) as urls
+                        'rule', c.rule, 'severity', c.severity, 'pages', c.pages)), '[]'::json)
+                 from (select rule, severity, count(distinct url)::int as pages
                          from on_pages
                         group by 1, 2) c) as costing
          from loss`,
@@ -670,27 +672,116 @@ async function computeCrawlHealth(runId, hasInstances) {
 }
 
 /**
+ * The scored pages each costing rule is on, as URLs, keyed `rule|severity` like
+ * the costing rows: what the fix list counts its "pages losing visibility" from
+ * (backlog pagesWithCostingErrors). The same rows and grouping as `on_pages` in
+ * computeCrawlHealth — page/template scope, scored pages, not dismissed, today's
+ * severity — so each list is exactly the pages its costing count describes.
+ *
+ * Only for rules the fix list can call an error (any instance stored or graded
+ * `error`): the backlog reads no other list. Run on demand (costingUrlsFor),
+ * not with every dashboard load.
+ */
+async function computeCostingUrls(runId) {
+  return db.boundedRead(CRAWL_HEALTH_STATEMENT_MS, async (t) => {
+    const rows = await t.rows(
+      `with ${SCORED_PAGES_CTE},
+       scored_urls as materialized (
+         select distinct url from scored
+       ),
+       wanted as (
+         select distinct coalesce(f.data->>'ruleId', '?') as rule
+           from crawl_run_finding_instances f
+          where f.run_id = $1
+            and (f.data->>'severity' = 'error'
+                 or coalesce(($4::jsonb)->>(f.data->>'ruleId'), f.data->>'severity') = 'error')
+       )
+       select i.rule, i.severity, array_agg(distinct i.url) as urls
+         from (select f.data->>'url' as url,
+                      coalesce(($4::jsonb)->>(f.data->>'ruleId'), f.data->>'severity') as severity,
+                      coalesce(f.data->>'ruleId', '?') as rule
+                 from crawl_run_finding_instances f
+                 left join crawl_finding_reviews v
+                   on v.run_id = f.run_id and v.finding_id = f.finding_id
+                where f.run_id = $1
+                  and coalesce(v.review_status, '') <> all($3)
+                  and coalesce(f.data->>'scope', 'page') = any($2)) i
+         join wanted w on w.rule = i.rule
+         join scored_urls s on s.url = i.url
+        group by 1, 2`,
+      [runId, [...PAGE_LEVEL_SCOPES], DISMISSED_REVIEW_STATUSES, SEVERITY_TABLE_JSON],
+    );
+    return new Map((rows || []).map((r) => [`${r.rule}|${r.severity}`, Array.isArray(r.urls) ? r.urls : []]));
+  });
+}
+
+/**
+ * computeCostingUrls for a run, kept on the run's crawl-health cache entry (so
+ * it is dropped with it, and recomputed when the fingerprint changes). A run
+ * still going is computed every time, like its aggregates.
+ *
+ * Single-flight and backed off exactly like the aggregates: a statement that ran
+ * out of time is not run again for CRAWL_HEALTH_RETRY_MS (every visitor
+ * re-running a minute-long query known to time out is the pile-up that exists
+ * to stop); any other error is dropped so the next caller retries.
+ */
+async function costingUrlsFor(runId) {
+  const id = String(runId);
+  const { entry, promise } = await crawlHealthLookup(id);
+  await promise;
+  if (!entry || crawlHealthCache.get(id) !== entry || entry.failedAt) return computeCostingUrls(id);
+  if (entry.urlsFailedAt) {
+    if (Date.now() - entry.urlsFailedAt < CRAWL_HEALTH_RETRY_MS) throw entry.urlsError;
+    entry.urlsFailedAt = null;
+    entry.urlsError = null;
+  }
+  if (!entry.urls) {
+    const urls = computeCostingUrls(id).catch((error) => {
+      if (crawlHealthCache.get(id) === entry && entry.urls === urls) {
+        entry.urls = null;
+        if (db.isStatementTimeout(error)) {
+          entry.urlsFailedAt = Date.now();
+          entry.urlsError = error;
+        }
+      }
+      throw error;
+    });
+    entry.urls = urls;
+  }
+  return entry.urls;
+}
+
+/**
  * Every crawl-health figure for one run, from the cache when the run is
  * finished and unchanged. Shared by every caller asking at the same time.
  * Rejects on a database error, including a statement timeout
  * (db.isStatementTimeout).
  */
 async function crawlHealthAggregates(runId) {
+  const { promise } = await crawlHealthLookup(runId);
+  return promise;
+}
+
+/**
+ * crawlHealthAggregates' cache step: the computation's promise, and the cache
+ * entry holding it (null for a run still going, which is never kept).
+ */
+async function crawlHealthLookup(runId) {
   const id = String(runId);
   const fingerprint = await crawlRunFingerprint(id);
   // A run still going changes under the reader: computed, never kept.
-  if (!fingerprint?.terminal) return computeCrawlHealth(id, Boolean(fingerprint?.hasInstances));
+  if (!fingerprint?.terminal) return { entry: null, promise: computeCrawlHealth(id, Boolean(fingerprint?.hasInstances)) };
 
   const hit = crawlHealthCache.get(id);
   if (hit && hit.key === fingerprint.key) {
     if (!hit.failedAt) {
       hit.at = Date.now();
-      return hit.promise;
+      return { entry: hit, promise: hit.promise };
     }
     if (Date.now() - hit.failedAt < CRAWL_HEALTH_RETRY_MS) throw hit.error;
   }
 
-  const entry = { key: fingerprint.key, at: Date.now(), promise: null, failedAt: null, error: null };
+  const entry = { key: fingerprint.key, at: Date.now(), promise: null, failedAt: null, error: null, urls: null };
   entry.promise = computeCrawlHealth(id, fingerprint.hasInstances).catch((error) => {
     if (crawlHealthCache.get(id) === entry) {
       if (db.isStatementTimeout(error)) {
@@ -709,10 +800,32 @@ async function crawlHealthAggregates(runId) {
     if (oldest) crawlHealthCache.delete(oldest[0]);
   }
   crawlHealthCache.set(id, entry);
-  return entry.promise;
+  return { entry, promise: entry.promise };
 }
 
 const CRAWL_HEALTH_SLOW = Symbol('crawlHealthSlow');
+
+/**
+ * Races `work` against `waitMs`. Resolves to work's value, or to
+ * CRAWL_HEALTH_SLOW when it is not done in time (it carries on regardless).
+ * A `waitMs` of null (or not finite) waits for `work` itself, which is bounded
+ * by its statement timeout.
+ */
+async function withinWait(work, waitMs) {
+  if (waitMs == null || !Number.isFinite(waitMs)) return work;
+  let timer = null;
+  const cap = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(CRAWL_HEALTH_SLOW), waitMs);
+    timer.unref?.();
+  });
+  // A rejection after the wait has given up must not become an unhandled one.
+  Promise.resolve(work).catch(() => {});
+  try {
+    return await Promise.race([work, cap]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * The aggregates for a dashboard request: waits at most `waitMs`.
@@ -723,20 +836,13 @@ const CRAWL_HEALTH_SLOW = Symbol('crawlHealthSlow');
  * is what the separate reads returned before and what the card already handles.
  */
 async function crawlHealthWithin(runId, waitMs = CRAWL_HEALTH_WAIT_MS) {
-  let timer = null;
-  const cap = new Promise((resolve) => {
-    timer = setTimeout(() => resolve(CRAWL_HEALTH_SLOW), waitMs);
-    timer.unref?.();
-  });
   try {
-    const out = await Promise.race([crawlHealthAggregates(runId), cap]);
+    const out = await withinWait(crawlHealthAggregates(runId), waitMs);
     return out === CRAWL_HEALTH_SLOW ? { unavailable: true } : out;
   } catch (error) {
     if (db.isStatementTimeout(error)) return { unavailable: true };
     console.error('[projects.overview.crawlHealth]', error.message);
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -762,10 +868,20 @@ function healthPendingCard(card) {
     healthPending: true,
     headline: 'Site health is still being worked out',
     detail: 'This crawl is large, so its score is taking longer than usual to add up. The other '
-      + 'cards are not affected. Reload in a minute to see it.'
+      + `cards are not affected. ${HEALTH_PENDING_RELOAD}`
       + (card.detail ? ` · ${card.detail}` : ''),
   };
 }
+
+// What a pending score tells the reader to do, in step with how the server
+// actually retries: a computation still running finishes within the statement
+// bound (a minute), but one that ran out of time is not tried again until
+// CRAWL_HEALTH_RETRY_MS has passed — so "in a minute" was wrong for exactly
+// the crawls that show this most.
+const HEALTH_PENDING_RELOAD_MINUTES = Math.max(1, Math.ceil(
+  Math.max(CRAWL_HEALTH_RETRY_MS, CRAWL_HEALTH_STATEMENT_MS) / 60_000,
+));
+const HEALTH_PENDING_RELOAD = `Reload in ${HEALTH_PENDING_RELOAD_MINUTES === 1 ? 'a minute' : `${HEALTH_PENDING_RELOAD_MINUTES} minutes`} to see it.`;
 
 /**
  * v7: the rules no scored page carries — site-wide ones, and page rules found
@@ -788,25 +904,78 @@ function siteRulesFrom(siteRows) {
  * rate-limited. Null when it cannot be read, so callers fall back rather than
  * call everything harmless.
  *
- * @returns {Promise<Map<string, {severity: string, pages: Set<string>}>|null>}
+ * Each entry's `pageCount` is how many scored pages the rule costs points on.
+ * `pages` holds their URLs only when asked for (`urls: true`), and then only for
+ * error rules — the one list anything reads (the fix list's pages losing
+ * visibility); otherwise it is an empty Set.
+ *
+ * Waits at most `waitMs`, like the Tech Audit card (crawlHealthWithin): a crawl
+ * too large to add up in time reads as null here, never as a held request.
+ *
+ * @returns {Promise<Map<string, {severity: string, pageCount: number, pages: Set<string>}>|null>}
  */
-async function costingRulePages(runId) {
+async function costingRulePages(runId, opts = {}) {
+  return (await costingRules(runId, opts)).byRule;
+}
+
+/**
+ * costingRulePages, saying why it has no answer: `{ byRule, pending }`, where
+ * `pending` is true when the figures are still being worked out (not ready in
+ * `waitMs`, or the statement ran out of time) rather than unreadable. With
+ * `urls: true`, `urlsPending` says the aggregates were ready but the URL lists
+ * were not: every rule is there with its pageCount, none `urlsListed`.
+ * `waitMs: null` waits for the statements themselves (the report download).
+ */
+async function costingRules(runId, { urls = false, waitMs = CRAWL_HEALTH_WAIT_MS } = {}) {
   try {
+    const startedAt = Date.now();
+    // `pending` depends on the aggregates alone — what the Tech Audit card is
+    // scored from — so the verdict is never "still being worked out" beside a
+    // scored card.
+    const agg = await withinWait(crawlHealthAggregates(runId), waitMs);
+    if (agg === CRAWL_HEALTH_SLOW) return { byRule: null, pending: true };
+    // The URL lists are extra: given whatever is left of the wait, and when they
+    // are not ready (or cannot be read) the rules come with their page counts
+    // only, flagged `urlsPending`. They carry on in the background for the next
+    // request, single-flight and backed off (costingUrlsFor).
+    let urlsByRule = null;
+    let urlsPending = false;
+    if (urls && agg.costingRows.length > 0) {
+      const left = waitMs == null || !Number.isFinite(waitMs) ? waitMs : Math.max(0, waitMs - (Date.now() - startedAt));
+      try {
+        const got = await withinWait(costingUrlsFor(runId), left);
+        if (got === CRAWL_HEALTH_SLOW) urlsPending = true;
+        else urlsByRule = got;
+      } catch (error) {
+        if (!db.isStatementTimeout(error)) console.error('[projects.overview.costingUrls]', error.message);
+        urlsPending = true;
+      }
+    }
     // Built fresh per call from the cached rows: callers own the Sets.
-    const agg = await crawlHealthAggregates(runId);
     const byRule = new Map();
     for (const row of agg.costingRows) {
       if (!(row.severity in HEALTH_WEIGHTS)) continue;
-      byRule.set(row.rule, { severity: row.severity, pages: new Set(row.urls || []) });
+      const listed = urlsByRule ? urlsByRule.get(`${row.rule}|${row.severity}`) : undefined;
+      byRule.set(row.rule, {
+        severity: row.severity,
+        pageCount: Number(row.pages) || 0,
+        pages: new Set(listed || []),
+        // Whether `pages` is the rule's list or just empty because nobody asked.
+        urlsListed: Boolean(listed),
+      });
     }
-    // v7: site-wide and off-page rules cost points once for the site.
+    // v7: site-wide and off-page rules cost points once for the site — on no
+    // page, so their (empty) page list is complete.
     for (const rule of siteRulesFrom(agg.siteRuleRows)) {
-      if (!byRule.has(rule.ruleId)) byRule.set(rule.ruleId, { severity: rule.severity, pages: new Set(), siteLevel: rule.kind });
+      if (!byRule.has(rule.ruleId)) {
+        byRule.set(rule.ruleId, { severity: rule.severity, pageCount: 0, pages: new Set(), urlsListed: true, siteLevel: rule.kind });
+      }
     }
-    return byRule;
+    return { byRule, pending: false, urlsPending };
   } catch (error) {
+    if (db.isStatementTimeout(error)) return { byRule: null, pending: true };
     console.error('[projects.overview.costingRulePages]', error.message);
-    return null;
+    return { byRule: null, pending: false };
   }
 }
 
@@ -824,20 +993,28 @@ async function costingRulePages(runId) {
  * exceeded, so the budgeted count is exactly min(internal results, maxUrls). That
  * keeps the index-only count (0043) instead of reading every row to find probes.
  */
+// The bound on the page count (UX-054): every dashboard visit, the module panel
+// and the fix list ask it, and on an 11,000-result crawl it reads every row's
+// JSON. Past this the caller gets null, which the card already reads as "count
+// not taken" and falls back to the run summary — the same graceful answer as
+// any other failure, instead of a held request and a held connection.
+const INTERNAL_COUNTS_STATEMENT_MS = Number(process.env.INTERNAL_COUNTS_STATEMENT_TIMEOUT_MS) || CRAWL_HEALTH_WAIT_MS;
+
 async function internalCounts(runId) {
   try {
-    const row = await db.maybeOne(
+    const row = await db.boundedRead(INTERNAL_COUNTS_STATEMENT_MS, (t) => t.maybeOne(
       `select (select count(*) from crawl_run_results
                 where run_id = $1 and data->>'scope' = 'Internal')::int as internal,
               (select case when options->>'maxUrls' ~ '^[0-9]+$' then (options->>'maxUrls')::int end
                  from crawl_runs where id = $1) as max_urls`,
       [runId]
-    );
+    ));
     const internal = Number(row?.internal) || 0;
     const pages = Number.isFinite(row?.max_urls) && row.max_urls > 0 ? Math.min(internal, row.max_urls) : internal;
     return { internal, pages, probes: internal - pages };
   } catch (error) {
-    console.error('[projects.overview.internalCounts]', error.message);
+    console.error('[projects.overview.internalCounts]', db.isStatementTimeout(error)
+      ? `timed out after ${INTERNAL_COUNTS_STATEMENT_MS}ms` : error.message);
     return null;
   }
 }
@@ -1564,9 +1741,18 @@ async function freshHubSpokeTerminal(projectId, terminal) {
  * second or two to build.
  */
 const liveAivCache = new Map();
-async function liveAiVisibilityTerminal(projectRow, terminal) {
+async function liveAiVisibilityTerminal(projectRow, terminal, { inFlight = null } = {}) {
   if (!terminal || terminal.status !== 'completed') return terminal;
-  const key = `${projectRow.id}:${terminal.id}`;
+  // Keyed by the newest finished run AND the project's live-report version
+  // (aiVisibilityLite/liveVersion.js: bumped when a run ends, a question or the
+  // setup changes, or stored answers are re-read), so the card never shows a
+  // figure older than the report beside it. And by the run in flight, if one
+  // is: a figure built while it measures is never served as the finished one.
+  // (buildLiveReport leaves an unfinished run's answers out either way, so
+  // mid-run the card shows the last finished figures.)
+  const liveVersion = require('../aiVisibilityLite/liveVersion');
+  const key = `${projectRow.id}:${terminal.id}:${terminal.finished_at || ''}:${liveVersion.current(projectRow.id)}`
+    + `:${inFlight?.id || ''}`;
   const hit = liveAivCache.get(key);
   let value = hit && Date.now() - hit.at < 5 * 60_000 ? hit.value : undefined;
   if (value === undefined) {
@@ -1584,8 +1770,12 @@ async function liveAiVisibilityTerminal(projectRow, terminal) {
       enginesMeasured: Number(live?.built?.meta?.enginesMeasured) || 0,
       enginesAsked: Number(live?.built?.meta?.enginesAsked) || 0,
       enginesUnavailable: live?.built?.meta?.enginesUnavailable || [],
+      latestRunFailed: live?.built?.meta?.latestRunFailed || [],
+      latestRunAt: live?.built?.meta?.latestRun?.at || null,
       stale: live?.profileStale || null,
     };
+    // One entry per project: an older key can never be read again.
+    for (const k of liveAivCache.keys()) if (k.startsWith(`${projectRow.id}:`)) liveAivCache.delete(k);
     liveAivCache.set(key, { at: Date.now(), value });
   }
   const out = { ...terminal };
@@ -1616,9 +1806,20 @@ async function liveAiVisibilityTerminal(projectRow, terminal) {
   }
   // What the figure rests on: how many answers, from how many engines.
   if (value.consulted && value.enginesAsked) {
+    // Silent all period and failed on the latest run are different claims,
+    // and a model is never both counted and called unavailable.
+    const latestFailed = value.latestRunFailed || [];
+    const latestT = value.latestRunAt ? Date.parse(value.latestRunAt) : NaN;
+    const latestDay = Number.isFinite(latestT)
+      ? new Date(latestT).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+      : null;
     out.coverage = `${value.answers} answer${value.answers === 1 ? '' : 's'} from `
       + `${value.enginesMeasured} of ${value.enginesAsked} AI engines`
-      + (value.enginesUnavailable.length ? ` · ${value.enginesUnavailable.join(', ')} failed` : '');
+      + (value.enginesUnavailable.length || latestFailed.length ? ' answered in this period' : '')
+      + (value.enginesUnavailable.length ? `; ${value.enginesUnavailable.join(', ')} answered nothing` : '')
+      + (latestFailed.length
+        ? `; ${latestFailed.join(', ')} failed on the latest run${latestDay ? ` (${latestDay})` : ''}`
+        : '');
   }
   // The dashboard shows this module as a percentage: the share of AI answers
   // that name the brand \u2014 the report's "Mentioned in AI answers" figure.
@@ -1629,6 +1830,27 @@ async function liveAiVisibilityTerminal(projectRow, terminal) {
     out.metric = { value: null, display: '—', unit: 'no AI answers in the last 30 days', tag: 'Re-run due' };
   }
   return out;
+}
+
+/**
+ * The AI Visibility card when its profile was built for the project's previous
+ * site (liveAiVisibilityTerminal set `profileStale`): the dashboard's own shape
+ * \u2014 the out-of-date metric in place of a score, no headline tally, no evidence
+ * \u2014 for the module panel, so the two screens agree (UX-108).
+ */
+function aivProfileStaleCard(card, terminal) {
+  if (!card || !terminal?.profileStale) return card;
+  return {
+    ...card,
+    scored: false,
+    score: null,
+    scoreBasis: null,
+    metric: terminal.metric || card.metric || null,
+    headline: null,
+    detail: null,
+    evidence: null,
+    profileStale: terminal.profileStale,
+  };
 }
 
 /** 5.4% under 10, 28% above \u2014 the precision a reader can use. */
@@ -2045,7 +2267,75 @@ async function competitorListDrift(project, card, runId) {
   return {
     pageCompetitors: toolHosts,
     projectCompetitors: cardHosts,
-    note: `The Competitor Analysis page compares a different list (${toolHosts.join(', ')}), so its rank differs from this card`,
+    note: `The Competitor Analysis page compares a different list (${toolHosts.join(', ')}) from this project's run (${cardHosts.join(', ')})`,
+  };
+}
+
+/**
+ * The competitor card once its rival list is known to differ from the
+ * Competitor Analysis page's (competitorListDrift).
+ */
+function withCompetitorDrift(card, drift) {
+  if (!drift) return card;
+  if (card.source === 'competitor_analysis_tool') {
+    // The card shows the page's own numbers, so its % already agrees with the
+    // page; only the rank against the project's list is withheld.
+    return {
+      ...card,
+      metric: card.metric ? { ...card.metric, rank: null } : card.metric,
+      competitorListDiffers: drift,
+      detail: [card.detail, drift.note].filter(Boolean).join(' · '),
+    };
+  }
+  // UX-221 residual: withholding only the rank still left two different
+  // percentages (30% here, 7.8% on the page). The card's figures come from the
+  // project's run against another rival set, so while the lists differ NO
+  // market figure is shown here (nor in the executive summary's Market chip,
+  // which reads this metric) — the page is the one place a number appears, and
+  // the card says how to make the two agree.
+  return {
+    ...card,
+    metric: {
+      ...(card.metric || {}), value: null, display: '—', unit: 'competitor lists differ', rank: null, withheld: true,
+    },
+    headline: 'Not shown: this project and the Competitor Analysis page compare different competitors',
+    competitorListDiffers: drift,
+    detail: `${drift.note}. Open Competitor Analysis and choose “Use the project’s competitors”, `
+      + 'then run it, to see one market figure on both screens.',
+  };
+}
+
+/**
+ * The competitor card when competitors await a decision (UX-112). With none
+ * tracked the card becomes the prompt; with some tracked, the card keeps its
+ * figures and the prompt is added to its detail. Unchanged when none wait.
+ */
+function withCompetitorReview(card, active = [], proposed = []) {
+  const n = proposed.length;
+  if (!card || !n) return card;
+  const s = n === 1 ? '' : 's';
+  const suggested = proposed.some((d) => d?.source === 'accepted');
+  const prompt = suggested ? `Review ${n} suggested competitor${s}` : `${n} proposed competitor${s} awaiting a decision`;
+  const hosts = proposed.map((d) => d.host).filter(Boolean).join(', ');
+  const review = { count: n, suggested, link: '/projects#competitors' };
+  // A card read from the Competitor Analysis page's own run is real evidence
+  // and keeps its figures too.
+  if (active.length || card.source === 'competitor_analysis_tool') {
+    return { ...card, competitorReview: review, detail: [card.detail, `${prompt} in project settings`].filter(Boolean).join(' · ') };
+  }
+  return {
+    ...card,
+    status: 'needs_setup',
+    scored: false,
+    score: null,
+    evidence: null,
+    partial: false,
+    metric: null,
+    headline: prompt,
+    detail: `${hosts}. Nothing is compared, or billed, until you accept them — accepting one starts the comparison.`,
+    competitorReview: review,
+    setupLink: '/projects#competitors',
+    setupLabel: suggested ? 'Review suggestions' : 'Review proposals',
   };
 }
 
@@ -2201,13 +2491,48 @@ async function moduleChanges(projectId, modules, evidenceByModule) {
 // pollers always build fresh (a poll exists to see what changed), and register
 // that build for the readers. The role and capabilities are the caller's own.
 const OVERVIEW_REUSE_MS = 60_000;
-const overviewBuilds = new Map();   // projectId -> { promise, settledAt }
+// How long an unfinished build may be joined by a caller that wants a fresh one.
+const OVERVIEW_JOIN_MS = 30_000;
+const overviewBuilds = new Map();   // projectId -> { promise, settledAt, startedAt, seq }
+
+// Per project, the sequence number of its last change (markProjectChanged). A
+// build records the sequence it started at, and one that started before the
+// project's last change is never joined or reused: the client forgets its
+// cache and reloads after starting a run or changing settings, and must see
+// the change, not a build already under way when it was made. A counter, not a
+// clock, so a change and a build in the same millisecond are still ordered.
+let changeSeq = 0;
+const projectChangeSeq = new Map();   // projectId -> seq of its last change
+
+/**
+ * Called by every route that changes a project (routes.js, on start and when
+ * the response is sent) and when a module run opens or closes (moduleEvidence).
+ */
+function markProjectChanged(projectId) {
+  if (projectId === null || projectId === undefined || projectId === '') return;
+  const key = String(projectId);
+  changeSeq += 1;
+  projectChangeSeq.delete(key);
+  if (projectChangeSeq.size >= 1024) projectChangeSeq.delete(projectChangeSeq.keys().next().value);
+  projectChangeSeq.set(key, changeSeq);
+}
 
 function overviewBuild({ access, reuse = false }) {
   const key = String(access.project.id);
-  const prev = overviewBuilds.get(key);
+  let prev = overviewBuilds.get(key);
+  // Started before the project's last change: answers a question that is no
+  // longer current, for anyone.
+  if (prev && (prev.seq ?? 0) < (projectChangeSeq.get(key) || 0)) prev = null;
   if (reuse && prev && (!prev.settledAt || Date.now() - prev.settledAt < OVERVIEW_REUSE_MS)) return prev.promise;
-  const entry = { promise: null, settledAt: null };
+  // A build still running is joined by every caller, /overview and the pollers
+  // included (UX-054): it started a moment ago, so it already answers "what is
+  // true now", and two identical requests (a second tab, a reload, the client
+  // retrying) used to rebuild everything side by side. Only a SETTLED build
+  // is refused to a fresh caller, so a poll still sees what changed. A build
+  // running longer than OVERVIEW_JOIN_MS is not joined: if one ever hangs, the
+  // next request builds its own instead of queueing behind it.
+  if (prev && !prev.settledAt && Date.now() - (prev.startedAt || 0) < OVERVIEW_JOIN_MS) return prev.promise;
+  const entry = { promise: null, settledAt: null, startedAt: Date.now(), seq: changeSeq };
   entry.promise = buildOverviewCore({ access }).then(
     (built) => { entry.settledAt = Date.now(); return built; },
     (error) => { if (overviewBuilds.get(key) === entry) overviewBuilds.delete(key); throw error; },
@@ -2286,10 +2611,13 @@ async function buildOverviewCore({ access }) {
   ]);
   const { htmlPages: internalHtmlPages, affected: affectedPageCounts, pending: healthPending } = healthInputs(latestHealth);
 
-  // AI Visibility shows the report's own score (see liveAiVisibilityTerminal).
+  // AI Visibility shows the report's own score (see liveAiVisibilityTerminal),
+  // during a run too: the report keeps showing the last finished figures while
+  // one is measuring, and moduleDetail.js does the same, so the card, the
+  // module panel and the report agree mid-run.
   const aivEntry = evidenceByModule.get('ai_visibility_lite');
-  if (aivEntry?.terminal && !aivEntry.inFlight) {
-    const live = await liveAiVisibilityTerminal(projectRow, aivEntry.terminal).catch((e) => {
+  if (aivEntry?.terminal) {
+    const live = await liveAiVisibilityTerminal(projectRow, aivEntry.terminal, { inFlight: aivEntry.inFlight || null }).catch((e) => {
       console.error('[projects.overview.aivLive]', e.message);
       return aivEntry.terminal;
     });
@@ -2424,14 +2752,7 @@ async function buildOverviewCore({ access }) {
       console.error('[projects.overview.competitorDrift]', e.message);
       return null;
     });
-    if (drift) {
-      modules[competitorIndex] = {
-        ...card,
-        metric: { ...card.metric, rank: null },
-        competitorListDiffers: drift,
-        detail: [card.detail, drift.note].filter(Boolean).join(' · '),
-      };
-    }
+    if (drift) modules[competitorIndex] = withCompetitorDrift(card, drift);
   }
 
   // No competitor at all — none tracked, none awaiting approval, nothing running.
@@ -2458,6 +2779,15 @@ async function buildOverviewCore({ access }) {
       setupLink: '/projects#competitors',
       setupLabel: 'Add competitor',
     };
+  }
+
+  // UX-112: AI-suggested (or contributor-proposed) competitors waiting for a
+  // decision. Nothing is compared against them until accepted, so the card
+  // says so and links to where they are accepted.
+  if (competitorAt >= 0 && !competitorEntry?.inFlight) {
+    modules[competitorAt] = withCompetitorReview(
+      modules[competitorAt], project.competitors || [], project.proposedCompetitors || [],
+    );
   }
 
   // D7: how each quality score moved since the previous measurement.
@@ -2522,8 +2852,12 @@ module.exports = {
   siteHealth,
   siteLevelLoss,
   competitorListDrift,
+  withCompetitorDrift,
+  withCompetitorReview,
   healthAffectedPages,
   costingRulePages,
+  costingRules,
+  HEALTH_PENDING_RELOAD,
   SITE_HEALTH_BASIS,
   cardLine,
   crawlLabel,
@@ -2536,10 +2870,12 @@ module.exports = {
   buildComposite,
   // moduleDetail.js gives the AI Visibility detail card the same live score.
   liveAiVisibilityTerminal,
+  aivProfileStaleCard,
   QUALITY_MODULES,
   changeOf,
   buildOverview,
   buildOverviewWithEvidence,
+  markProjectChanged,
   // The crawl-health aggregates (one statement, cached per finished crawl).
   crawlHealthAggregates,
   crawlHealthWithin,

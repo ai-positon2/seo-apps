@@ -549,6 +549,39 @@ async function capturesForRun(projectId, runId) {
 }
 
 /**
+ * The few fields run health needs, for several runs in one statement — which
+ * model each answer belonged to and whether it failed, without answer text.
+ * Runs saved before run.js stored health are read back from these.
+ *
+ * @returns {Promise<Map<string, object[]>>} runId -> [{engine, surfaceLabel, status, failureReason}]
+ */
+async function captureHealthRows(projectId, runIds) {
+  const out = new Map();
+  const ids = [...new Set((runIds || []).filter(Boolean).map(String))];
+  if (!ids.length) return out;
+  requireDb();
+  let rows;
+  try {
+    rows = await db.rows(
+      `select run_id, engine, surface_label, status, failure_reason from aiv_lite_captures
+        where project_id = $1 and run_id = any($2)`,
+      [projectId, ids],
+    );
+  } catch (error) {
+    if (isMissingTable(error)) return out;
+    return fail('captureHealthRows', error);
+  }
+  for (const r of rows) {
+    const key = String(r.run_id);
+    if (!out.has(key)) out.set(key, []);
+    out.get(key).push({
+      engine: r.engine, surfaceLabel: r.surface_label, status: r.status, failureReason: r.failure_reason,
+    });
+  }
+  return out;
+}
+
+/**
  * Every capture for a project, for the metric layer to scope.
  *
  * Deliberately unfiltered by date: metrics/period.js does the period split and
@@ -661,6 +694,7 @@ module.exports = {
   saveCaptures,
   capturesForRun,
   capturesForProject,
+  captureHealthRows,
   runBudget,
   promptView,
   captureRow,

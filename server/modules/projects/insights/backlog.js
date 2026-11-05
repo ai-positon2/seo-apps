@@ -295,10 +295,18 @@ function buildBacklog(index, { traffic = null, excludedKeys = null } = {}) {
       criticalCosting: actions.filter((i) => String(i.severity).toLowerCase() === 'error' && i.costsPoints !== false).length,
       // Their pages: only scored pages, so pages that refused our crawler are not
       // reported as pages losing visibility (thoughtworks read "7,850 pages").
-      pagesWithCostingErrors: new Set(
+      // Null while the crawl's URL lists are still being read (the costing
+      // itself is known): falling back to every page a finding was on would
+      // count the pages that refused us again.
+      pagesWithCostingErrors: index?.crawl?.costingPagesPending ? null : new Set(
         actions.filter((i) => String(i.severity).toLowerCase() === 'error' && i.costsPoints !== false)
           .flatMap((i) => i.costingPages || i.pages).map((u) => canonicalKey(u)).filter(Boolean),
       ).size,
+      costingPagesPending: Boolean(index?.crawl?.costingPagesPending),
+      // The crawl's costing was not ready within the dashboard's wait, so which
+      // crawl errors cost points is unknown (all counted above, as unknown
+      // always is). The executive summary says so instead of a verdict.
+      costingPending: Boolean(index?.crawl?.healthPending),
       // Error findings listed that cost no points — named, so nothing is hidden.
       errorsNotCosting: actions.filter((i) => String(i.severity).toLowerCase() === 'error' && i.costsPoints === false).length,
       unattributed: actions.filter((i) => i.pageCount === null).length,

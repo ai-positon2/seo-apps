@@ -98,15 +98,25 @@ test('failure to queue one module does not prevent the other; retry only fills t
   assert.equal(partial.scheduled, false);
   assert.equal(partial.errors[0].moduleKey, 'seo_geo');
   assert.deepEqual(partial.runs.map((r) => r.module_key), ['agent_readiness']);
+  // Per module, so the banner can say which one started.
+  assert.equal(partial.modules.agent_readiness.scheduled, true);
+  assert.ok(partial.modules.agent_readiness.runId);
+  assert.equal(partial.modules.seo_geo.scheduled, false);
+  assert.match(partial.modules.seo_geo.error, /Queue insert failed/);
   failModule = null;
   const retried = await autostart.scheduleHomepageAudits({ access });
   assert.equal(retried.scheduled, true);
+  assert.deepEqual(Object.values(retried.modules).map((m) => m.scheduled), [true, true]);
   assert.equal(tables.project_module_runs.length, 2);
 });
 
 test('a caller without run permission cannot schedule the audits', async () => {
   const result = await autostart.scheduleHomepageAudits({ access: { ...access, can: () => false } });
   assert.equal(result.reason, 'not_authorized');
+  assert.deepEqual(result.modules, {
+    seo_geo: { scheduled: false, runId: null, error: null },
+    agent_readiness: { scheduled: false, runId: null, error: null },
+  });
   assert.equal(tables.project_module_runs.length, 0);
 });
 
