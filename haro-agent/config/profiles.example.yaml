@@ -115,3 +115,66 @@ profiles:
       outlet_priority_list: ["Forbes", "Fortune", "SimplePractice Blog"]
 
     match_threshold: 70
+
+  - id: position2-growth-marketing
+    display_name: "Position2 — Growth Marketing & SEO Experts"
+    client: "Position2 (https://www.position2.com/)"
+    active: true
+    priority: high
+
+    expertise:
+      primary:
+        - SEO
+        - GEO (generative engine optimization / AI search visibility)
+        - paid media and PPC
+        - conversion rate optimization
+        - B2B growth marketing strategy
+      secondary:
+        - marketing automation
+        - analytics and attribution
+        - content marketing
+        - website and landing page strategy
+
+    spokespeople:
+      - name: "Position2 Team"
+        credentials: ""
+        title: "Growth Marketing & SEO Experts"
+        locations: ["US"]
+        available_for: ["written Q&A"]
+
+    geography:
+      country: "US"
+      accepts_national: true
+
+    keywords_include:
+      - SEO
+      - GEO
+      - generative engine optimization
+      - AI search
+      - ChatGPT search
+      - answer engine optimization
+      - PPC
+      - paid media
+      - CRO
+      - conversion rate optimization
+      - B2B marketing
+      - growth marketing
+      - marketing automation
+      - analytics
+      - attribution
+
+    keywords_exclude:
+      - veterinary
+      - crypto
+
+    categories_watch:
+      - "Business and Finance"
+      - "Technology"
+
+    hard_rules:
+      min_hours_to_deadline: 6
+      require_named_outlet: true
+      outlet_blocklist: []
+      outlet_priority_list: ["Forbes", "Search Engine Journal", "Search Engine Land", "Marketing Dive", "HubSpot", "Entrepreneur"]
+
+    match_threshold: 70
