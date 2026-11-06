@@ -29,6 +29,8 @@ import { InfoDot, Legend } from '../explain';
 import { hubWorking } from '../chat/screenWorking';
 import { scoreTone } from '../../lib/scoreVerdict';
 import { HIDE } from '../minimal/hide';
+import { ArchiveTopicButton, ArchivedTopicsSection } from './ArchiveTopic';
+import { archivedWorkKeys } from '../../lib/archivedTopics';
 
 /**
  * Health bands, shared with the page's donut so the two cannot disagree — and
@@ -424,7 +426,7 @@ function useClusterKeywordResearch(projectId, clusterId, open) {
   return { byTopic, remember };
 }
 
-function ClusterRow({ cluster, pageById, navigate, projectId, kbClient, suggestions, onSuggestions, actionStatus, workIndex, onWorkChanged }) {
+function ClusterRow({ cluster, pageById, navigate, projectId, kbClient, suggestions, onSuggestions, actionStatus, workIndex, onWorkChanged, archive = null, onArchive }) {
   const { enhancedUrls = {}, recommendedTopics = {} } = actionStatus || {};
   const [open, setOpen] = useState(false);
   const [hubOpen, setHubOpen] = useState(false);
@@ -525,6 +527,10 @@ function ClusterRow({ cluster, pageById, navigate, projectId, kbClient, suggesti
             >
               {state.action}
             </span>
+          )}
+          {/* Only for a client's analysis: archives belong to the client. */}
+          {archive?.supported && onArchive && (
+            <ArchiveTopicButton name={cluster.name} canArchive={Boolean(archive.canArchive)} onArchive={() => onArchive(cluster)} />
           )}
         </span>
       </div>
@@ -721,16 +727,25 @@ const SectionLabel = ({ children, color }) => (
 // Keyword Research and Content Writer only when the site really is one.
 // `work` is everything made from this report (GET /work); `onWorkChanged`
 // reloads it after a panel here saves something new.
-export default function HubSpokeReport({ analysis, pageById, navigate, projectId, kbClient = '', onSuggestions, actionStatus, work = null, onWorkChanged }) {
+// `onArchive(cluster)` / `onRestore(topic)` archive and restore a topic for the
+// client (analysis.archive says whether this reader may); archived topics are
+// already left out of `analysis` and listed in `analysis.archivedClusters`.
+export default function HubSpokeReport({ analysis, pageById, navigate, projectId, kbClient = '', onSuggestions, actionStatus, work = null, onWorkChanged, onArchive = null, onRestore = null }) {
   const workIndex = useMemo(() => indexWork(work), [work]);
   const clusters = analysis.clusters || [];
   const unassigned = analysis.unassignedPages || [];
   const spokeSuggestionsByCluster = analysis.spokeSuggestionsByCluster || {};
-  // Saved work whose topic or page this analysis no longer has (UX-159).
-  const earlierWork = useMemo(
-    () => workIndex.orphans(clusters.map((c) => c.id), (analysis.pages || []).map((p) => p.url)),
-    [workIndex, clusters, analysis.pages],
-  );
+  const archive = analysis.archive || null;
+  const archivedTopics = analysis.archivedClusters || [];
+  // Saved work whose topic or page this analysis no longer has (UX-159). Work
+  // on an archived topic is not "earlier": its topic is still here, set aside.
+  const earlierWork = useMemo(() => {
+    const kept = archivedWorkKeys(analysis);
+    return workIndex.orphans(
+      [...clusters.map((c) => c.id), ...kept.clusterIds],
+      [...(analysis.pages || []).map((p) => p.url), ...kept.pageUrls],
+    );
+  }, [workIndex, clusters, analysis]);
 
   const gaps = clusters.filter((c) => c.isGap);
   const unclear = clusters.filter((c) => !c.isGap && c.ambiguous);
@@ -763,6 +778,8 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
       actionStatus={actionStatus}
       workIndex={workIndex}
       onWorkChanged={onWorkChanged}
+      archive={archive}
+      onArchive={onArchive}
     />
   );
 
@@ -909,12 +926,16 @@ export default function HubSpokeReport({ analysis, pageById, navigate, projectId
         </p>
       )}
 
+      {/* Shown in the minimal view too: a topic the client archived must stay
+          visible as archived, not disappear from the report. */}
+      <ArchivedTopicsSection topics={archivedTopics} canArchive={Boolean(archive?.canArchive)} onRestore={onRestore} />
+
       <div {...HIDE} style={{ display: 'contents' }}>
         <EarlierWork orphans={earlierWork} earlierSuggestions={analysis.earlierSpokeSuggestions || []} navigate={navigate} />
       </div>
 
       <div {...HIDE} style={{ display: 'contents' }}>
-        <Legend screen="hub" ctx={explainCtx} working={() => hubWorking({ clusters, pageById })} />
+        <Legend screen="hub" ctx={explainCtx} working={() => hubWorking({ clusters, pageById, archivedClusters: archivedTopics })} />
       </div>
     </div>
   );

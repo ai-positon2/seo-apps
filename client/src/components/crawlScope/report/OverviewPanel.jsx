@@ -7,6 +7,7 @@ import { InfoDot, Legend } from '../../explain';
 import { techWorking } from '../../chat/screenWorking';
 import { useMinimalView } from '../../minimal/MinimalViewContext';
 import { HIDE } from '../../minimal/hide';
+import { hiddenChecksNote } from '../hiddenChecks';
 
 // ── The crawl report's Overview ─────────────────────────────────────────────
 //
@@ -40,6 +41,8 @@ import { HIDE } from '../../minimal/hide';
  * @param {Function?} props.issueHref  rule id → the report address of its page
  * @param {object?} props.coverage  { limit, partial, reasons } — the crawl's
  *   page budget and why it stopped short, if it did
+ * @param {Array?}  props.hiddenChecks  the checks hidden for this client
+ *   (hiddenCheckRows), already out of `metrics` and `groups`; the card says so
  */
 // The points chip on a loss bar. Never "−0 pts": a band that costs nothing by
 // design says so, and one whose share rounds below a point says "<1".
@@ -52,7 +55,7 @@ export function lossChip(band) {
 export default function OverviewPanel({
   metrics, counts, groups, catalogById, provisional = false, crawled = null,
   diagnostics = null, capped = null, coverage = null, comparison = null, onOpenIssue = null,
-  issueHref = null,
+  issueHref = null, hiddenChecks = [],
 }) {
   // Minimal (CMO) view: the HTML-pages tile is hidden, so the tile row closes up to two.
   const { minimal } = useMinimalView();
@@ -143,6 +146,17 @@ export default function OverviewPanel({
                 ? (provisional ? 'Scored when the crawl finishes.' : 'No HTML pages to score.')
                 : `Average across ${metrics.htmlCount.toLocaleString()} audited page${metrics.htmlCount === 1 ? '' : 's'}.`}
             </span>
+            {hiddenChecks.length > 0 && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-3)', lineHeight: 1.45 }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+                  <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" />
+                  <path d="M1 1l22 22" />
+                </svg>
+                {hiddenChecksNote(hiddenChecks.length)}
+              </span>
+            )}
           </div>
         </div>
 
@@ -490,7 +504,7 @@ export default function OverviewPanel({
           )}
         </Panel>
       </div>
-      <Legend screen="tech" ctx={explainCtx} working={() => techWorking({ metrics, breakdown, groups })} />
+      <Legend screen="tech" ctx={explainCtx} working={() => techWorking({ metrics, breakdown, groups, hiddenChecks })} />
     </div>
   );
 }

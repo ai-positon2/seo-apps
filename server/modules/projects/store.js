@@ -19,6 +19,7 @@ const adminLimits = require('../../services/adminLimits');
 const domainsLib = require('./domains');
 const cron = require('../crawlScope/shared/cron');
 const { staggerMinute } = require('../crawlScope/shared/schedule');
+const hiddenChecksLib = require('./hiddenChecks');
 
 // Weekly is the initial recurring schedule (PRD §3.1.3). A new project gets a
 // Sunday-night slot in the configured default zone, staggered across the hour so
@@ -123,6 +124,9 @@ function projectView(project, domains = []) {
     // A page with no keywords is still audited; the checks about keyword
     // placement stand down for it (see onPageAudit/auditor.js).
     pages: Array.isArray(project.settings?.pageKeywords) ? project.settings.pageKeywords : [],
+    // Tech Audit checks hidden for this client (hiddenChecks.js): left out of
+    // every crawl's score, counts, fix list and downloads.
+    hiddenChecks: hiddenChecksLib.hiddenChecksOf(project.settings),
     createdAt: project.created_at,
     updatedAt: project.updated_at,
   };
@@ -1153,6 +1157,214 @@ async function setRobotsOverride({ access, enabled, reason }) {
   return getProject(data);
 }
 
+// ── Hidden Tech Audit checks (settings.hiddenChecks) ────────────────────────
+//
+// Written with one UPDATE that rebuilds only the hiddenChecks key from the
+// row's CURRENT settings (`settings || jsonb_build_object(...)`), so a
+// concurrent write of another settings key (pageKeywords, archivedClusters…)
+// is never clobbered by a stale copy read earlier. The row lock the UPDATE
+// takes serialises two hides of the same project.
+
+// The stored array, or an empty one when the key is missing or malformed.
+const HIDDEN_ARRAY_SQL = `(case when jsonb_typeof(settings->'hiddenChecks') = 'array'
+                                then settings->'hiddenChecks' else '[]'::jsonb end)`;
+
+/** The project's hidden checks, as stored (cleaned). */
+function hiddenChecks(projectRow) {
+  return hiddenChecksLib.hiddenChecksOf(projectRow?.settings);
+}
+
+/**
+ * Hides one check for this project. Idempotent: hiding a check that is already
+ * hidden keeps the original entry (who hid it, and when) and reports
+ * `changed: false`.
+ *
+ * @returns {Promise<{ hiddenChecks: object[], changed: boolean, entry: object }>}
+ */
+async function hideCheck({ access, ruleId, reason = null }) {
+  if (!db.isDatabaseConfigured()) throw notConfigured();
+  const project = access.project;
+  const id = hiddenChecksLib.normalizeRuleId(ruleId);
+  if (!id) throw invalid('ruleId must name a Tech Audit check, such as "page-4xx".');
+
+  const current = hiddenChecks(project);
+  const existing = current.find((c) => c.ruleId === id);
+  if (existing) return { hiddenChecks: current, changed: false, entry: existing };
+  if (current.length >= hiddenChecksLib.MAX_HIDDEN_CHECKS) {
+    throw invalid(`A client can hide at most ${hiddenChecksLib.MAX_HIDDEN_CHECKS} checks.`);
+  }
+
+  const entry = {
+    ruleId: id,
+    hiddenBy: access.actorEmail || null,
+    hiddenAt: new Date().toISOString(),
+    reason: reason && String(reason).trim() ? String(reason).trim().slice(0, hiddenChecksLib.MAX_REASON) : null,
+  };
+  let row;
+  try {
+    row = await db.maybeOne(
+      `update crawl_projects
+          set settings = coalesce(settings, '{}'::jsonb) || jsonb_build_object('hiddenChecks',
+                case when exists (select 1 from jsonb_array_elements(${HIDDEN_ARRAY_SQL}) e
+                                   where e->>'ruleId' = $3)
+                     then ${HIDDEN_ARRAY_SQL}
+                     else ${HIDDEN_ARRAY_SQL} || jsonb_build_array($4::jsonb) end)
+        where id = $1 and workspace_id = $2
+        returning settings`,
+      [project.id, project.workspace_id, id, JSON.stringify(entry)],
+    );
+  } catch (error) {
+    fail('hideCheck', error);
+  }
+  if (!row) throw Object.assign(new Error('Project not found.'), { status: 404, code: 'not_found' });
+  const list = hiddenChecksLib.hiddenChecksOf(row.settings);
+  return { hiddenChecks: list, changed: true, entry: list.find((c) => c.ruleId === id) || entry };
+}
+
+/**
+ * Restores one hidden check. Idempotent: restoring a check that is not hidden
+ * reports `changed: false`.
+ *
+ * @returns {Promise<{ hiddenChecks: object[], changed: boolean, entry: object|null }>}
+ */
+async function unhideCheck({ access, ruleId }) {
+  if (!db.isDatabaseConfigured()) throw notConfigured();
+  const project = access.project;
+  const id = hiddenChecksLib.normalizeRuleId(ruleId);
+  if (!id) throw invalid('ruleId must name a Tech Audit check, such as "page-4xx".');
+
+  const current = hiddenChecks(project);
+  const existing = current.find((c) => c.ruleId === id) || null;
+  if (!existing) return { hiddenChecks: current, changed: false, entry: null };
+
+  let row;
+  try {
+    row = await db.maybeOne(
+      `update crawl_projects
+          set settings = coalesce(settings, '{}'::jsonb) || jsonb_build_object('hiddenChecks',
+                (select coalesce(jsonb_agg(e order by n), '[]'::jsonb)
+                   from jsonb_array_elements(${HIDDEN_ARRAY_SQL}) with ordinality as x(e, n)
+                  where coalesce(e->>'ruleId', '') <> $3))
+        where id = $1 and workspace_id = $2
+        returning settings`,
+      [project.id, project.workspace_id, id],
+    );
+  } catch (error) {
+    fail('unhideCheck', error);
+  }
+  if (!row) throw Object.assign(new Error('Project not found.'), { status: 404, code: 'not_found' });
+  return { hiddenChecks: hiddenChecksLib.hiddenChecksOf(row.settings), changed: true, entry: existing };
+}
+
+// ── Archived Hub and Spoke topics (settings.archivedClusters) ───────────────
+//
+// Topic clusters a client does not want to target, each named by a stable
+// anchor (contentArchitect/archivedClusters.js) rather than its positional
+// cluster id. Written the same way as hiddenChecks above: one UPDATE that
+// rebuilds only this key from the row's CURRENT settings, so no other settings
+// key is clobbered and two archives of one project are serialised by the row
+// lock.
+
+const MAX_ARCHIVED_CLUSTERS = 200;
+const ARCHIVED_ARRAY_SQL = `(case when jsonb_typeof(settings->'archivedClusters') = 'array'
+                                  then settings->'archivedClusters' else '[]'::jsonb end)`;
+
+function cleanArchivedClusters(settings) {
+  const list = settings?.archivedClusters;
+  return (Array.isArray(list) ? list : []).filter((e) => e && typeof e === 'object' && e.key && e.anchor);
+}
+
+/** The project's archived topics, as stored (entries without a key or anchor dropped). */
+function archivedClusters(projectRow) {
+  return cleanArchivedClusters(projectRow?.settings);
+}
+
+/**
+ * Archives one topic for this project. `entry` is { key, anchor, reason? };
+ * who and when are added here. Idempotent by key: archiving a topic already
+ * archived keeps the original entry and reports `changed: false`.
+ *
+ * @returns {Promise<{ archivedClusters: object[], changed: boolean, entry: object }>}
+ */
+async function archiveCluster({ access, entry }) {
+  if (!db.isDatabaseConfigured()) throw notConfigured();
+  const project = access.project;
+  if (!entry?.key || !entry?.anchor) throw invalid('An archived topic needs a key and an anchor.');
+
+  const current = archivedClusters(project);
+  const existing = current.find((e) => e.key === entry.key);
+  if (existing) return { archivedClusters: current, changed: false, entry: existing };
+  if (current.length >= MAX_ARCHIVED_CLUSTERS) {
+    throw invalid(`A client can archive at most ${MAX_ARCHIVED_CLUSTERS} topics.`);
+  }
+
+  const reason = entry.reason && String(entry.reason).trim() ? String(entry.reason).trim().slice(0, 500) : null;
+  const stored = {
+    key: String(entry.key),
+    anchor: {
+      memberUrls: (entry.anchor.memberUrls || []).map(String).slice(0, 500),
+      hubUrl: entry.anchor.hubUrl ? String(entry.anchor.hubUrl) : null,
+      name: entry.anchor.name ? String(entry.anchor.name).slice(0, 200) : null,
+    },
+    archivedBy: access.actorEmail || null,
+    archivedAt: new Date().toISOString(),
+    reason,
+  };
+  let row;
+  try {
+    row = await db.maybeOne(
+      `update crawl_projects
+          set settings = coalesce(settings, '{}'::jsonb) || jsonb_build_object('archivedClusters',
+                case when exists (select 1 from jsonb_array_elements(${ARCHIVED_ARRAY_SQL}) e
+                                   where e->>'key' = $3)
+                     then ${ARCHIVED_ARRAY_SQL}
+                     else ${ARCHIVED_ARRAY_SQL} || jsonb_build_array($4::jsonb) end)
+        where id = $1 and workspace_id = $2
+        returning settings`,
+      [project.id, project.workspace_id, stored.key, JSON.stringify(stored)],
+    );
+  } catch (error) {
+    fail('archiveCluster', error);
+  }
+  if (!row) throw Object.assign(new Error('Project not found.'), { status: 404, code: 'not_found' });
+  const list = cleanArchivedClusters(row.settings);
+  return { archivedClusters: list, changed: true, entry: list.find((e) => e.key === stored.key) || stored };
+}
+
+/**
+ * Restores one archived topic, by its key. Idempotent: restoring a topic that
+ * is not archived reports `changed: false`.
+ *
+ * @returns {Promise<{ archivedClusters: object[], changed: boolean, entry: object|null }>}
+ */
+async function unarchiveCluster({ access, key }) {
+  if (!db.isDatabaseConfigured()) throw notConfigured();
+  const project = access.project;
+  if (!key) throw invalid('Name the archived topic to restore.');
+
+  const current = archivedClusters(project);
+  const existing = current.find((e) => e.key === String(key)) || null;
+  if (!existing) return { archivedClusters: current, changed: false, entry: null };
+
+  let row;
+  try {
+    row = await db.maybeOne(
+      `update crawl_projects
+          set settings = coalesce(settings, '{}'::jsonb) || jsonb_build_object('archivedClusters',
+                (select coalesce(jsonb_agg(e order by n), '[]'::jsonb)
+                   from jsonb_array_elements(${ARCHIVED_ARRAY_SQL}) with ordinality as x(e, n)
+                  where coalesce(e->>'key', '') <> $3))
+        where id = $1 and workspace_id = $2
+        returning settings`,
+      [project.id, project.workspace_id, String(key)],
+    );
+  } catch (error) {
+    fail('unarchiveCluster', error);
+  }
+  if (!row) throw Object.assign(new Error('Project not found.'), { status: 404, code: 'not_found' });
+  return { archivedClusters: cleanArchivedClusters(row.settings), changed: true, entry: existing };
+}
+
 /**
  * Soft-deletes a project. Nothing is dropped: the crawl runs, results and
  * findings stay readable (§4.3.1), and the project can be restored.
@@ -1403,8 +1615,15 @@ module.exports = {
   isRejectedSuggestion,
   setPrimaryDomain,
   setRobotsOverride,
+  hiddenChecks,
+  hideCheck,
+  unhideCheck,
   deleteProject,
   restoreProject,
   purgeProject,
+  archivedClusters,
+  archiveCluster,
+  unarchiveCluster,
+  MAX_ARCHIVED_CLUSTERS,
   PROJECT_PURGE_ORDER,
 };

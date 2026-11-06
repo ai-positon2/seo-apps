@@ -524,6 +524,12 @@ async function buildFindingIndex({ access }) {
         // orphan counts, limitations) live in the full payload, so it is fetched
         // once, here, for the one module that has them.
         moduleStructure = await fullPayload(projectId, module.key);
+        // Topics archived for this client leave the structure too, as they
+        // left the run's findings above (archivedClusters.js).
+        if (run.archivedClusterCount) {
+          const archived = require('../archivedClusters');
+          moduleStructure = archived.applyToPayload(moduleStructure, await archived.archivedSummary(projectId));
+        }
       } else if (module.key === 'competitor') {
         const parsed = competitorKeywords(run);
         moduleKeywords = parsed.keywords;

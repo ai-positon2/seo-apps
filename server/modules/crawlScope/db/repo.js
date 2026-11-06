@@ -1388,7 +1388,9 @@ function planCappedRead(rollup, cap) {
 const URL_COUNTS_STATEMENT_MS = 15_000;
 const DISMISSED = ["False positive", "Resolved"];
 
-async function listRunFindingUrlCounts(client, runId, { signal = null, ms = URL_COUNTS_STATEMENT_MS } = {}) {
+// `hidden`: rule ids the run's client has hidden (projects/hiddenChecks.js),
+// which count on no page. Empty excludes nothing.
+async function listRunFindingUrlCounts(client, runId, { signal = null, ms = URL_COUNTS_STATEMENT_MS, hidden = [] } = {}) {
   const sql = `with inst as (
          select f.data->>'url' as url,
                 coalesce(f.data->>'ruleId', f.rule_id) as rule,
@@ -1398,6 +1400,7 @@ async function listRunFindingUrlCounts(client, runId, { signal = null, ms = URL_
            left join crawl_finding_reviews v
              on v.run_id = f.run_id and v.finding_id = f.finding_id
           where f.run_id = $1
+            and coalesce(f.data->>'ruleId', f.rule_id, '') <> all($3::text[])
        ),
        -- The table drops a rule on a page when ANY finding of it there was
        -- dismissed; the page's own list drops each dismissed finding alone.
@@ -1416,7 +1419,7 @@ async function listRunFindingUrlCounts(client, runId, { signal = null, ms = URL_
          from pairs
         group by url
        having coalesce(sum(page_n) filter (where not dismissed), 0) > 0 or sum(all_n) > 0`;
-  const read = (t) => t.rows(sql, [runId, DISMISSED]);
+  const read = (t) => t.rows(sql, [runId, DISMISSED, Array.isArray(hidden) ? hidden : []]);
   const rows = typeof client.boundedRead === "function"
     ? await client.boundedRead(ms, read, { signal })
     : await read(client);

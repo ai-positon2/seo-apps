@@ -52,7 +52,7 @@ const n = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
  * leaving it out of the working made the assistant price it itself and
  * conclude the score must be computed some other way.
  */
-export function techWorking({ metrics, breakdown = [], groups = [] }) {
+export function techWorking({ metrics, breakdown = [], groups = [], hiddenChecks = [] }) {
   if (!metrics) return null;
   const groupById = new Map(groups.map((g) => [g.id, g]));
   const lossById = new Map((metrics.ruleLoss || []).map((r) => [`${r.severity}|${r.ruleId}`, r]));
@@ -93,6 +93,13 @@ export function techWorking({ metrics, breakdown = [], groups = [] }) {
       siteLevel: r.siteLevel || null,
     })),
     rulesNotListed: Math.max(0, rules.length - MAX_RULES),
+    // Checks hidden for this client: already out of everything above. Only
+    // sent when there are some, so an unchanged report's working is unchanged.
+    ...(hiddenChecks.length ? {
+      hiddenChecks: hiddenChecks.map((h) => ({
+        ruleId: h.ruleId, rule: h.title || h.ruleId, occurrences: n(h.count),
+      })),
+    } : {}),
   };
 }
 
@@ -202,7 +209,7 @@ export function compWorking({ snapshot }) {
 }
 
 /** Hub and Spoke: every cluster with the inputs its health is built from. */
-export function hubWorking({ clusters = [], pageById }) {
+export function hubWorking({ clusters = [], pageById, archivedClusters = [] }) {
   const page = (id) => (pageById && id ? pageById.get(id) : null);
   return {
     clusters: clusters.map((c) => {
@@ -228,5 +235,11 @@ export function hubWorking({ clusters = [], pageById }) {
         buried: flags.filter((f) => f === 'buried').length,
       };
     }),
+    // Topics the client archived: already left out of `clusters` and the score.
+    ...(archivedClusters.length ? {
+      archivedClusters: archivedClusters.map((a) => ({
+        name: a.name, health: a.health ?? null, inThisAnalysis: Boolean(a.inAnalysis), archivedAt: a.archivedAt || null,
+      })),
+    } : {}),
   };
 }

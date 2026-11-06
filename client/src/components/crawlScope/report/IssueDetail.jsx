@@ -5,6 +5,7 @@ import {
 } from './reportPrimitives';
 import { REVIEW_STATUSES, findingEvidence, findingFix } from '../crawlHelpers';
 import { splitSentences } from '../../explain/ExplainPopover';
+import { HideCheckButton } from './HideCheck';
 
 // ── One problem's own page ──────────────────────────────────────────────────
 //
@@ -42,10 +43,15 @@ const PAGE_SIZE = 25;
  * @param {number?}  [props.readCap]      how many findings the report loaded when
  *   the run holds more (most serious first); a `group.partial` rule lists only
  *   `group.loaded` of its `group.count`
+ * @param {Function} [props.onHide]       hides this check for the client (../hiddenChecks.js);
+ *   no button without it (a standalone crawl has no client to keep it on)
+ * @param {boolean}  [props.canHide]      false: the button is disabled, with why
+ * @param {boolean}  [props.hiding]       a hide request is in flight
  */
 export default function IssueDetail({
   group, entry, findings, titleByUrl, metrics,
   next, backLabel, onBack, onOpenNext, onReview, onBulkReview = null, onExport, readCap = null,
+  onHide = null, canHide = false, hiding = false,
 }) {
   const [review, setReview] = useState('all');
   const [query, setQuery] = useState('');
@@ -103,6 +109,14 @@ export default function IssueDetail({
             {/* "Assign to the team" sat here in the design. There is no
                 assignment feature anywhere in the app, so it is not drawn — a
                 button that does nothing is worse than one absence. */}
+            {onHide && (
+              <HideCheckButton
+                title={entry?.title || group.label || group.id}
+                canHide={canHide}
+                busy={hiding}
+                onHide={onHide}
+              />
+            )}
             <OutlineButton
               onClick={() => onExport(filtered)}
               disabled={!filtered.length}

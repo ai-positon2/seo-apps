@@ -331,6 +331,8 @@ function structureContent(run, structure) {
       ['Pages not in any topic', structure.unassigned, 'Pages the analysis could not place in a cluster.'],
       ['Mean cluster health', structure.meanHealth === null ? 'Not scored' : `${structure.meanHealth}/100`,
         'The Hub and Spoke score: the average of every cluster’s health.'],
+      ...(structure.archivedClusterCount ? [['Archived topics', structure.archivedClusterCount,
+        'Topics archived for this client: left out of every figure above and the list below.']] : []),
     ],
     clusters: structure.clusterRows.map((c) => [
       c.name || 'Unnamed cluster',
@@ -725,10 +727,13 @@ async function gather({ access }) {
       return null;
     }),
     hubRun && hubRun.status !== 'insufficient_data'
-      ? hubSpokeStructure(access.project.id).catch((e) => {
-        console.error('[projects.report.structure]', e.message);
-        return null;
-      })
+      // Topics archived for this client are left out, as on the card (archivedClusters.js).
+      ? hubSpokeStructure(access.project.id)
+        .then((s) => require('./archivedClusters').structureFor(access.project.id, s, { cap: STRUCTURE_CLUSTER_CAP }))
+        .catch((e) => {
+          console.error('[projects.report.structure]', e.message);
+          return null;
+        })
       : Promise.resolve(null),
   ]);
 

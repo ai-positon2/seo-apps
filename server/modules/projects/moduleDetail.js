@@ -14,6 +14,7 @@
 // client points at two screens.
 
 const overview = require('./overview');
+const hiddenChecks = require('./hiddenChecks');
 const moduleEvidence = require('./moduleEvidence');
 const moduleRunners = require('./moduleRunners');
 const { isDatabaseConfigured } = require('../../services/db');
@@ -101,6 +102,11 @@ async function evidenceBackedDetail({
   // Its top findings too, when it was stored without them (UX-138).
   if (terminal && typeof moduleEvidence.withPageFindings === 'function') {
     terminal = (await moduleEvidence.withPageFindings([terminal])).get(terminal.id) || terminal;
+  }
+  // Hub and Spoke topics archived for this client are left out of the score,
+  // findings and payload, as on the dashboard card (archivedClusters.js).
+  if (module.key === 'hub_spoke' && terminal) {
+    terminal = await require('./archivedClusters').applyToRun(projectId, terminal);
   }
   const inFlight = runs.find((r) => !TERMINAL.includes(r.status)) || null;
 
@@ -253,9 +259,25 @@ async function technicalDetail({ module, projectId, access }) {
 
   const internalPages = crawlCounts ? crawlCounts.pages : null;
   const probes = crawlCounts ? crawlCounts.probes : 0;
-  const built = overview.technicalCard(crawlRuns, findings, internalPages, htmlPages, [], affectedPageCounts, probes);
+  const hidden = access?.project ? hiddenChecks.hiddenRuleIds(access.project) : [];
+  const built = overview.withHiddenChecks(
+    overview.technicalCard(crawlRuns, findings, internalPages, htmlPages, [], affectedPageCounts, probes),
+    hidden,
+  );
   const card = pending ? overview.healthPendingCard(built) : built;
-  const counts = terminal?.summary?.counts || {};
+  // The card's tallies, which leave the client's hidden checks out; the run's
+  // own summary counts every rule.
+  const counts = findings.hiddenRows?.length
+    ? hiddenChecks.subtractHidden(terminal?.summary?.counts || {}, findings.hiddenRows)
+    : terminal?.summary?.counts || {};
+  // The same for every crawl in the history list; not read at all when the
+  // project hides nothing.
+  const hiddenByRun = hidden.length
+    ? await hiddenChecks.hiddenCountsForRuns(crawlRuns.slice(0, HISTORY_LIMIT).map((r) => r.id)).catch((e) => {
+      console.error('[moduleDetail] hidden check counts:', e.message);
+      return new Map();
+    })
+    : new Map();
   const reportAccess = terminal ? await crawlReportAccess(terminal.id, access) : null;
   const resultCount = Number(terminal?.summary?.resultCount) || 0;
 
@@ -304,17 +326,22 @@ async function technicalDetail({ module, projectId, access }) {
       reportAccess,
     } : null,
     payloadTruncated: false,
-    history: crawlRuns.slice(0, HISTORY_LIMIT).map((r) => ({
-      id: r.id,
-      status: overview.displayRunStatus(r),
-      trigger: r.trigger,
-      score: null,
-      findingCount: Number(r.summary?.counts?.error || 0)
-        + Number(r.summary?.counts?.warning || 0)
-        + Number(r.summary?.counts?.notice || 0),
-      startedAt: r.started_at,
-      finishedAt: r.finished_at,
-    })),
+    history: crawlRuns.slice(0, HISTORY_LIMIT).map((r) => {
+      const runCounts = hiddenByRun.has(String(r.id))
+        ? hiddenChecks.subtractHidden(r.summary?.counts || {}, hiddenByRun.get(String(r.id)))
+        : r.summary?.counts;
+      return {
+        id: r.id,
+        status: overview.displayRunStatus(r),
+        trigger: r.trigger,
+        score: null,
+        findingCount: Number(runCounts?.error || 0)
+          + Number(runCounts?.warning || 0)
+          + Number(runCounts?.notice || 0),
+        startedAt: r.started_at,
+        finishedAt: r.finished_at,
+      };
+    }),
     // A crawl is queued through CrawlScope's worker, not billed to a provider.
     cost: null,
   };

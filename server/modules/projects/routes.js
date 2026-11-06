@@ -18,6 +18,11 @@
 //   POST   /api/projects/:projectId/pages/:pageId/exclude
 //   POST   /api/projects/:projectId/pages/:pageId/include
 //   GET    /api/projects/:projectId/pages/:pageId/history
+//   GET    /api/projects/:projectId/hidden-checks
+//   POST   /api/projects/:projectId/hidden-checks
+//   DELETE /api/projects/:projectId/hidden-checks/:ruleId
+//   POST   /api/projects/:projectId/archived-clusters
+//   DELETE /api/projects/:projectId/archived-clusters/:key
 //   GET    /api/projects/:projectId/insights
 //   GET    /api/projects/:projectId/executive-summary
 //   GET    /api/projects/:projectId/executive-summary/trend
@@ -1049,6 +1054,182 @@ router.post('/:projectId/pages/:pageId/include', async (req, res) => {
     }).catch(() => {});
     res.json({ page });
   } catch (e) { handleError(res, e, 'includePage'); }
+});
+
+// ── Hidden Tech Audit checks ────────────────────────────────────────────────
+//   GET    /api/projects/:projectId/hidden-checks
+//   POST   /api/projects/:projectId/hidden-checks            { ruleId, reason? }
+//   DELETE /api/projects/:projectId/hidden-checks/:ruleId
+//
+// Semrush's "Exclude check": a whole crawl rule taken out of this client's
+// score, counts, fix list and downloads, on every crawl (hiddenChecks.js).
+// Changing what a score counts is overriding the machine's outcome, so it is
+// gated on 'overrideMachineOutcome' (approver, admin, owner) — the closest
+// capability the role table has; a crawl finding's own review is open to any
+// viewer of the run, which is too wide for something that moves a client's score.
+const HIDE_CHECK_CAPABILITY = 'overrideMachineOutcome';
+
+function hiddenChecksBody(access, list) {
+  return {
+    hiddenChecks: list,
+    canEdit: Boolean(access.can?.(HIDE_CHECK_CAPABILITY)),
+  };
+}
+
+router.get('/:projectId/hidden-checks', async (req, res) => {
+  if (!requireConfigured(res)) return;
+  try {
+    const access = await projectAccess.requireProject(req, req.params.projectId, 'view');
+    res.json(hiddenChecksBody(access, store.hiddenChecks(access.project)));
+  } catch (e) { handleError(res, e, 'hiddenChecks'); }
+});
+
+router.post('/:projectId/hidden-checks', async (req, res) => {
+  if (!requireConfigured(res)) return;
+  try {
+    const access = await projectAccess.requireProject(req, req.params.projectId, HIDE_CHECK_CAPABILITY);
+    const result = await store.hideCheck({
+      access, ruleId: req.body?.ruleId, reason: req.body?.reason,
+    });
+    // The route middleware marks the project changed too; this is the write
+    // itself, so no Overview build that started before it is reused after it.
+    overview.markProjectChanged(access.project.id);
+    if (result.changed) {
+      await auditEvents.recordFor(req, {
+        action: auditEvents.ACTIONS.CHECK_HIDDEN,
+        workspaceId: access.workspaceId,
+        projectId: access.project.id,
+        actorRole: access.role,
+        entityType: 'crawl_rule',
+        entityId: result.entry.ruleId,
+        reason: result.entry.reason,
+        oldState: { hidden: false },
+        newState: { hidden: true, ruleId: result.entry.ruleId },
+      }).catch(() => {});
+    }
+    res.status(result.changed ? 201 : 200).json(hiddenChecksBody(access, result.hiddenChecks));
+  } catch (e) { handleError(res, e, 'hideCheck'); }
+});
+
+router.delete('/:projectId/hidden-checks/:ruleId', async (req, res) => {
+  if (!requireConfigured(res)) return;
+  try {
+    const access = await projectAccess.requireProject(req, req.params.projectId, HIDE_CHECK_CAPABILITY);
+    const result = await store.unhideCheck({ access, ruleId: req.params.ruleId });
+    overview.markProjectChanged(access.project.id);
+    if (result.changed) {
+      await auditEvents.recordFor(req, {
+        action: auditEvents.ACTIONS.CHECK_RESTORED,
+        workspaceId: access.workspaceId,
+        projectId: access.project.id,
+        actorRole: access.role,
+        entityType: 'crawl_rule',
+        entityId: result.entry.ruleId,
+        oldState: { hidden: true, hiddenBy: result.entry.hiddenBy, hiddenAt: result.entry.hiddenAt },
+        newState: { hidden: false, ruleId: result.entry.ruleId },
+      }).catch(() => {});
+    }
+    res.json(hiddenChecksBody(access, result.hiddenChecks));
+  } catch (e) { handleError(res, e, 'unhideCheck'); }
+});
+
+// ── Archived Hub and Spoke topics ───────────────────────────────────────────
+//   POST   /api/projects/:projectId/archived-clusters        { clusterId, reason? }
+//   DELETE /api/projects/:projectId/archived-clusters/:key
+//
+// A topic cluster the client does not want to target, taken out of the Hub and
+// Spoke score, counts, findings, lists and downloads — for this analysis and
+// every later one (contentArchitect/archivedClusters.js, applied on read by
+// projects/archivedClusters.js). The client names the cluster by its id in the
+// analysis on screen; the server resolves that id to a stable anchor (member
+// pages, hub, name) from the saved analysis, since cluster ids are positional
+// and change between analyses. Gated like hiding a Tech Audit check, since both
+// take something out of a client's score: 'overrideMachineOutcome' (approver,
+// admin, owner).
+const ARCHIVE_CLUSTER_CAPABILITY = HIDE_CHECK_CAPABILITY;
+
+function archivedClustersBody(access, list, extra = {}) {
+  return {
+    archivedClusters: list.map((e) => ({
+      key: e.key, name: e.anchor?.name || null, archivedBy: e.archivedBy || null,
+      archivedAt: e.archivedAt || null, reason: e.reason || null,
+    })),
+    canEdit: access.can?.(ARCHIVE_CLUSTER_CAPABILITY) === true,
+    ...extra,
+  };
+}
+
+router.post('/:projectId/archived-clusters', async (req, res) => {
+  if (!requireConfigured(res)) return;
+  try {
+    const access = await projectAccess.requireProject(req, req.params.projectId, ARCHIVE_CLUSTER_CAPABILITY);
+    const clusterId = typeof req.body?.clusterId === 'string' ? req.body.clusterId.trim() : '';
+    if (!clusterId) return res.status(400).json({ error: 'clusterId is required.', code: 'invalid_input' });
+
+    const archivedClusters = require('./archivedClusters');
+    const topics = require('../contentArchitect/archivedClusters');
+    const state = await archivedClusters.archiveState(access.project.id);
+    const analysis = state.caId
+      ? await require('../contentArchitect/store').getFullAnalysis(state.caId)
+      : null;
+    if (!analysis) {
+      return res.status(409).json({ error: 'This project has no Hub and Spoke analysis to archive a topic from.', code: 'no_analysis' });
+    }
+    const anchor = topics.anchorFor(analysis, clusterId);
+    if (!anchor) {
+      return res.status(404).json({ error: 'That topic is not in the current analysis. Reload the report and try again.', code: 'not_found' });
+    }
+    // Already archived under an earlier anchor that matches this cluster.
+    const current = store.archivedClusters(access.project);
+    const existing = topics.matchArchived(analysis, current).byCluster.get(clusterId);
+    if (existing) return res.json(archivedClustersBody(access, current, { changed: false, key: existing.key }));
+
+    const result = await store.archiveCluster({
+      access, entry: { key: topics.keyFor(anchor), anchor, reason: req.body?.reason },
+    });
+    archivedClusters.forget();
+    // The route middleware marks the project changed too; this is the write
+    // itself, so no Overview build that started before it is reused after it.
+    overview.markProjectChanged(access.project.id);
+    if (result.changed) {
+      await auditEvents.recordFor(req, {
+        action: auditEvents.ACTIONS.CLUSTER_ARCHIVED,
+        workspaceId: access.workspaceId,
+        projectId: access.project.id,
+        actorRole: access.role,
+        entityType: 'hub_spoke_topic',
+        entityId: result.entry.key,
+        reason: result.entry.reason,
+        oldState: { archived: false },
+        newState: { archived: true, name: anchor.name, clusterId, pages: anchor.memberUrls.length },
+      }).catch(() => {});
+    }
+    res.status(result.changed ? 201 : 200)
+      .json(archivedClustersBody(access, result.archivedClusters, { changed: result.changed, key: result.entry.key }));
+  } catch (e) { handleError(res, e, 'archiveCluster'); }
+});
+
+router.delete('/:projectId/archived-clusters/:key', async (req, res) => {
+  if (!requireConfigured(res)) return;
+  try {
+    const access = await projectAccess.requireProject(req, req.params.projectId, ARCHIVE_CLUSTER_CAPABILITY);
+    const result = await store.unarchiveCluster({ access, key: req.params.key });
+    require('./archivedClusters').forget();
+    overview.markProjectChanged(access.project.id);
+    if (result.changed) {
+      await auditEvents.recordFor(req, {
+        action: auditEvents.ACTIONS.CLUSTER_RESTORED,
+        workspaceId: access.workspaceId,
+        projectId: access.project.id,
+        actorRole: access.role,
+        entityType: 'hub_spoke_topic',
+        entityId: result.entry.key,
+        oldState: { archived: true, name: result.entry.anchor?.name || null, archivedBy: result.entry.archivedBy, archivedAt: result.entry.archivedAt },
+        newState: { archived: false },
+      }).catch(() => {});
+    }
+    res.json(archivedClustersBody(access, result.archivedClusters, { changed: result.changed, key: req.params.key }));
+  } catch (e) { handleError(res, e, 'unarchiveCluster'); }
 });
 
 // GET /api/projects/:projectId/insights

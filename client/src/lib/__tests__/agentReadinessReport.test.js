@@ -11,7 +11,7 @@ import assert from 'node:assert';
 
 import {
   encodeSharePayload, decodeSharePayload, isShareableSummary, sharePayload, sharedOlderRules,
-  reconcileStoredReport, glanceGroups, isBlockingCheck, OLD_AIBOTS_FAIL,
+  reconcileStoredReport, glanceGroups, isBlockingCheck, OLD_AIBOTS_FAIL, readinessScore, WEIGHTS,
 } from '../agentReadinessReport.js';
 import { scoreTone } from '../scoreVerdict.js';
 
@@ -67,7 +67,11 @@ test('a report from the old aibots rule is not shown as failing or blocking', ()
   const out = reconcileStoredReport(storedRun(OLD_AIBOTS_FAIL,
     [{ id: 'webmcp', cat: 'API / Auth / MCP', status: 'fail', tech: 'WebMCP not detectable via HTTP' }]));
   assert.deepStrictEqual(out.olderRules, ['aibots', 'webmcp']);
-  assert.strictEqual(out.olderRulesPoints, 17);
+  // By the current formula over these checks: core = robots 7 of (7 + 11),
+  // no now checks (its 20 points go to core and future: 87.5 and 12.5),
+  // future = content signals + WebMCP 0 of (9 + 6) → 34.03. Both re-read
+  // checks passing → 87.5 × 18 ÷ 18 + 12.5 × 6 ÷ 15 = 92.5. Up to 58.
+  assert.strictEqual(out.olderRulesPoints, 58);
   const aibots = out.checks.find((c) => c.id === 'aibots');
   assert.strictEqual(aibots.status, 'info');
   assert.strictEqual(isBlockingCheck(aibots), false);
@@ -111,4 +115,32 @@ test('a share link names which checks were re-read, and old links still decode',
   assert.strictEqual(sharePayload(result, { olderRules: true }).olderRules, true);
   assert.deepStrictEqual(sharedOlderRules({}), []);
   assert.deepStrictEqual(sharedOlderRules({ olderRules: 'yes' }), []);
+});
+
+test('the score: 70 core access, 20 other checks today, 10 emerging standards', () => {
+  const ids = Object.keys(WEIGHTS);
+  const future = [
+    'markdown', 'contentsignals', 'apicatalog', 'oauth', 'oauthresource',
+    'mcp', 'agentskills', 'webmcp', 'webbotauth',
+  ];
+  const http = (passing) => ids.map((id) => ({ id, status: passing.includes(id) ? 'pass' : 'fail' }));
+  assert.strictEqual(readinessScore({ httpChecks: http(ids.filter((id) => !future.includes(id))) }).score, 90);
+  assert.strictEqual(readinessScore({ httpChecks: http(ids) }).score, 100);
+  assert.strictEqual(readinessScore({ httpChecks: http([]) }).score, 0);
+  // Every core check (robots, sitemap, AI bots) passing, nothing else = 70.
+  assert.strictEqual(readinessScore({ httpChecks: http(['robots', 'sitemap', 'aibots']) }).score, 70);
+  // Only the future checks passing = 10.
+  assert.strictEqual(readinessScore({ httpChecks: http(future) }).score, 10);
+  // On-page checks join the now tier with Link headers.
+  const withOnPage = readinessScore({
+    httpChecks: http(['robots', 'sitemap', 'aibots']),
+    onPageChecks: [{ id: 'form_labels', status: 'pass', maxScore: 10, score: 10 }],
+  });
+  assert.strictEqual(withOnPage.score, 83); // 70 + 20 × 10 ÷ (6 + 10) = 82.5
+  assert.deepStrictEqual(withOnPage.now, { earned: 10, max: 16, points: 20 });
+  // No now checks at all: its 20 points go to core and future in proportion.
+  const noNow = readinessScore({ httpChecks: http(['robots', 'sitemap', 'aibots']).filter((c) => c.id !== 'linkheaders') });
+  assert.strictEqual(noNow.core.points, 87.5);
+  assert.strictEqual(noNow.future.points, 12.5);
+  assert.strictEqual(noNow.score, 88);
 });

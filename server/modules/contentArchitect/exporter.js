@@ -176,6 +176,13 @@ async function buildWorkbook(analysis, project) {
     : analysis.pages.filter((p) => (p.flags || []).includes('orphan')).length]);
   summary.addRow(['Unassigned pages (see "Unassigned" tab)', analysis.unassignedPages.length]);
   summary.addRow(['Mean cluster health', `${meanHealth}/100`]);
+  // Topics archived for this client (archivedClusters.js): already left out of
+  // every count above and every tab, named here so their absence is explained.
+  const archived = analysis.archivedClusters || [];
+  if (archived.length) {
+    summary.addRow(['Archived topics (left out of every figure and tab)',
+      archived.map((a) => a.name || 'Unnamed topic').join('; ')]);
+  }
   summary.addRow(['Crawl mode', analysis.crawlMeta.crawlMode + (analysis.crawlMeta.sampled ? ` (sampled ${analysis.crawlMeta.sampleSize} of ${analysis.pages.length}+ pages)` : '')]);
   summary.addRow([]);
   const findingsHeader = summary.addRow(['Top findings, most severe first']);
@@ -341,6 +348,12 @@ function buildMarkdownNarrative(analysis, project) {
   lines.push('');
   lines.push(buildNarrative(analysis, project));
   lines.push('');
+  if ((analysis.archivedClusters || []).length) {
+    lines.push('## Archived topics');
+    lines.push('Archived for this client, and left out of the figures and clusters below:');
+    for (const a of analysis.archivedClusters) lines.push(`- ${a.name || 'Unnamed topic'}`);
+    lines.push('');
+  }
   lines.push('## Clusters');
   for (const c of analysis.clusters.sort((a, b) => (a.health || 0) - (b.health || 0))) {
     lines.push('');

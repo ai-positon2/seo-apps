@@ -73,6 +73,11 @@ import {
 } from '../components/crawlScope/runReportData';
 import { useMinimalView } from '../components/minimal/MinimalViewContext';
 import { HIDE } from '../components/minimal/hide';
+import { HiddenChecksList } from '../components/crawlScope/report/HideCheck';
+import {
+  hiddenRuleSet, withoutHidden, hiddenCheckRows, addHidden, removeHidden, runWithoutHiddenComparison,
+} from '../components/crawlScope/hiddenChecks';
+import { projectsApi } from '../lib/projectsApi';
 
 // How long a crawl may go without a heartbeat before this page stops calling it
 // running. A CLIENT-SIDE heuristic, deliberately generous: it has to exceed the
@@ -103,6 +108,9 @@ const TABS = [
   // every URL while filtering two thirds of them out is the same species of
   // lie as a count of issues nothing has looked for.
   { id: 'urls', label: 'All Pages' },
+  // Checks hidden for this client (components/crawlScope/hiddenChecks.js).
+  // Only offered on a client's crawl while there are some (the tab row filters it).
+  { id: 'hidden', label: 'Hidden checks' },
 ];
 
 export default function CrawlScopeRunPage() {
@@ -161,6 +169,13 @@ export default function CrawlScopeRunPage() {
   // { action, at }: a pause/resume/stop the crawl has not confirmed yet. Held
   // so the button reacts the moment it is pressed rather than looking ignored.
   const [pendingControl, setPendingControl] = useState(null);
+  // The checks this run's client has hidden ([{ ruleId, hiddenBy, hiddenAt,
+  // reason }]), arriving with the run so the first score already leaves them
+  // out; whether this reader may hide or restore one (approver and up); and
+  // the rule ids with a hide/restore request in flight.
+  const [hiddenChecks, setHiddenChecks] = useState([]);
+  const [canHide, setCanHide] = useState(false);
+  const [hiding, setHiding] = useState(() => new Set());
   // Static reference data (id -> {title, category, description, recommendation,
   // priority, detection}), fetched once and never scoped to this run. It is what
   // lets an issue's page say what the check looks for and what to do about it.
@@ -292,10 +307,12 @@ export default function CrawlScopeRunPage() {
     setResultsError(null);
     seenUrls.current = new Set();
     pending.current = [];
+    setHiddenChecks([]);
     (async () => {
       try {
-        const { run: r } = await cs.run(id);
+        const { run: r, hiddenChecks: hidden } = await cs.run(id);
         if (cancelled) return;
+        setHiddenChecks(Array.isArray(hidden) ? hidden : []);
         setRun(r);
         setStatus(r.status);
         setProgress(r.progress || {});
@@ -316,6 +333,19 @@ export default function CrawlScopeRunPage() {
   useEffect(() => {
     cs.catalog().then(setCatalog).catch(() => {});
   }, []);
+
+  // Whether this reader may hide checks for the run's client. Read from the
+  // project (its role table), not the run; a failure leaves the buttons
+  // disabled rather than offering a write that will be refused.
+  useEffect(() => {
+    setCanHide(false);
+    if (!runProjectId) return undefined;
+    let cancelled = false;
+    projectsApi.hiddenChecks(runProjectId)
+      .then((body) => { if (!cancelled) setCanHide(Boolean(body?.canEdit)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [runProjectId]);
 
   useEffect(() => {
     if (!live) return undefined;
@@ -416,7 +446,16 @@ export default function CrawlScopeRunPage() {
   // stored to send. Migration 0023 chunk-inserts them into their own table, so
   // the array is available again and these helpers — which are tested and used
   // by the Excel report writer's sibling logic — do the work.
-  const effectivePages = useMemo(() => withEffectiveIssues(pages, findings), [pages, findings]);
+  //
+  // The client's hidden checks are taken out HERE, before anything is scored,
+  // grouped or counted: a hidden check is as if it never fired, so the score,
+  // its bars, the tab counts and the fix order all come from the rest, through
+  // crawlHelpers unchanged. `findings` itself keeps them, for the Hidden checks
+  // view. With nothing hidden, `scoredFindings` IS `findings`.
+  const hiddenSet = useMemo(() => hiddenRuleSet(hiddenChecks), [hiddenChecks]);
+  const scoredFindings = useMemo(() => withoutHidden(findings, hiddenSet), [findings, hiddenSet]);
+  const scoredRollup = useMemo(() => withoutHidden(ruleRollup, hiddenSet), [ruleRollup, hiddenSet]);
+  const effectivePages = useMemo(() => withEffectiveIssues(pages, scoredFindings), [pages, scoredFindings]);
 
   const htmlPages = useMemo(() => effectivePages.filter(isHtmlPage), [effectivePages]);
   const nonHtmlInternal = effectivePages.length - htmlPages.length;
@@ -425,7 +464,7 @@ export default function CrawlScopeRunPage() {
   // server over every finding: scoring only the first 50,000 read Eventgroove 86
   // here beside the dashboard's 58.
   const metrics = useMemo(() => {
-    const local = healthMetrics(effectivePages, findings);
+    const local = healthMetrics(effectivePages, scoredFindings);
     if (!serverHealth || !Number.isFinite(serverHealth.score)) return local;
     const pages = Number(serverHealth.pages) || local.htmlCount;
     return {
@@ -437,10 +476,10 @@ export default function CrawlScopeRunPage() {
       affectedNoticePages: serverHealth.affected?.notice ?? local.affectedNoticePages,
       bandLoss: serverHealth.loss || local.bandLoss,
     };
-  }, [effectivePages, findings, serverHealth]);
+  }, [effectivePages, scoredFindings, serverHealth]);
 
-  const pageGroups = useMemo(() => issueGroups(effectivePages, findings), [effectivePages, findings]);
-  const siteGroups = useMemo(() => siteScopedGroups(findings), [findings]);
+  const pageGroups = useMemo(() => issueGroups(effectivePages, scoredFindings), [effectivePages, scoredFindings]);
+  const siteGroups = useMemo(() => siteScopedGroups(scoredFindings), [scoredFindings]);
   const catalogById = useMemo(() => new Map(catalog.map((c) => [c.id, c])), [catalog]);
   const counts = useMemo(
     () => buildCountHierarchy(results, effectivePages, metrics, pageGroups, siteGroups),
@@ -470,9 +509,15 @@ export default function CrawlScopeRunPage() {
       count: g.urls.length,
       pages: new Set(g.urls).size,
     }));
-    const counted = ruleRollup ? applyRuleRollup(merged, ruleRollup, findings) : merged;
+    const counted = scoredRollup ? applyRuleRollup(merged, scoredRollup, scoredFindings) : merged;
     return orderIssueGroups(counted, run?.summary?.ruleOrder);
-  }, [pageGroups, siteGroups, ruleRollup, findings, run?.summary?.ruleOrder]);
+  }, [pageGroups, siteGroups, scoredRollup, scoredFindings, run?.summary?.ruleOrder]);
+
+  // The Hidden checks view: each hidden check and how often it fired here.
+  const hiddenRows = useMemo(
+    () => hiddenCheckRows(hiddenChecks, { catalogById, findings, rollup: ruleRollup }),
+    [hiddenChecks, catalogById, findings, ruleRollup],
+  );
 
   const findingsByRule = useMemo(() => {
     const map = new Map();
@@ -502,6 +547,13 @@ export default function CrawlScopeRunPage() {
     if (tab === 'all') return groups;
     return groups.filter((g) => g.severity === tab);
   }, [groups, tab]);
+
+  // Hidden checks that fired in this crawl, shown greyed in the list they
+  // belong to (after the counted ones) so the toggle visibly flips to Unhide.
+  const shownHiddenRows = useMemo(
+    () => hiddenRows.filter((r) => r.count > 0 && (tab === 'all' || r.severity === tab)),
+    [hiddenRows, tab],
+  );
 
   const running = !TERMINAL_STATUSES.includes(status);
 
@@ -631,7 +683,12 @@ export default function CrawlScopeRunPage() {
   // reached score 88". A crawl stopped at its page budget scores whatever part
   // it saw, and nothing on the page said so.
   // What changed since the previous crawl of the site, when there was one.
-  const comparison = useMemo(() => crawlComparison(run), [run?.summary]);
+  // Without the client's hidden checks, so both crawls count the same checks.
+  const comparison = useMemo(
+    () => crawlComparison(runWithoutHiddenComparison(run, hiddenSet)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [run?.summary, hiddenSet],
+  );
   const coverage = useMemo(
     () => crawlCoverageNotice(run, catalogById),
     [run?.summary, run?.status, run?.options?.maxUrls, run?.options?.maxDepth, run?.budget, catalogById],
@@ -650,7 +707,7 @@ export default function CrawlScopeRunPage() {
     urlsFetched: counts?.urlsFetched,
     pageLimit: coverage?.limit ?? null,
     indexable: metrics.indexable,
-  } : null, () => techWorking({ metrics, breakdown: chatBreakdown, groups }));
+  } : null, () => techWorking({ metrics, breakdown: chatBreakdown, groups, hiddenChecks: hiddenRows }));
 
   // ── Does this page show everything the analyser found? (admins only) ─────
   //
@@ -781,6 +838,68 @@ export default function CrawlScopeRunPage() {
     }
   }, [findings, id, toast]);
 
+  /**
+   * Hides a check for this run's client, or restores one.
+   *
+   * On screen at once (the score and lists recompute without it) and put back
+   * if the write fails, like a review decision. The server's list replaces the
+   * optimistic one when it answers. A capped run's score and per-page counts
+   * come from the server, so they are read again after the change.
+   */
+  const markHiding = useCallback((ruleId, on) => {
+    setHiding((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(ruleId); else next.delete(ruleId);
+      return next;
+    });
+  }, []);
+
+  const refreshCappedFindings = useCallback(() => {
+    if (!findingsCap) return;
+    cs.findings(id).then((f) => takeFindings(f)).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [findingsCap, id]);
+
+  const onHideCheck = useCallback(async (ruleId) => {
+    if (!runProjectId || !ruleId) return;
+    const wasHidden = hiddenSet.has(ruleId);
+    setHiddenChecks((prev) => addHidden(prev, { ruleId, hiddenBy: null, hiddenAt: new Date().toISOString(), reason: null }));
+    markHiding(ruleId, true);
+    // The problem's own page closes: the check it describes is no longer listed.
+    if (openIssueId === ruleId) navigate(hrefWith({ issue: null }), { replace: true, state: location.state });
+    try {
+      const body = await projectsApi.hideCheck(runProjectId, ruleId);
+      if (Array.isArray(body?.hiddenChecks)) setHiddenChecks(body.hiddenChecks);
+      const title = catalogById.get(ruleId)?.title || ruleId;
+      toast.add({ title: `“${title}” hidden`, description: 'It no longer counts in this client’s score, on any crawl.' });
+      refreshCappedFindings();
+    } catch (e) {
+      if (!wasHidden) setHiddenChecks((prev) => removeHidden(prev, ruleId));
+      toast.add({ title: 'Could not hide that check', description: e.message, variant: 'danger' });
+    } finally {
+      markHiding(ruleId, false);
+    }
+  }, [runProjectId, hiddenSet, markHiding, openIssueId, navigate, hrefWith, location.state, catalogById, toast, refreshCappedFindings]);
+
+  const onRestoreCheck = useCallback(async (ruleId) => {
+    if (!runProjectId || !ruleId) return;
+    const entry = hiddenChecks.find((h) => h.ruleId === ruleId) || null;
+    setHiddenChecks((prev) => removeHidden(prev, ruleId));
+    markHiding(ruleId, true);
+    try {
+      const body = await projectsApi.unhideCheck(runProjectId, ruleId);
+      if (Array.isArray(body?.hiddenChecks)) setHiddenChecks(body.hiddenChecks);
+      const title = catalogById.get(ruleId)?.title || ruleId;
+      toast.add({ title: `“${title}” restored`, description: 'It counts in this client’s score again.' });
+      refreshCappedFindings();
+    } catch (e) {
+      if (entry) setHiddenChecks((prev) => addHidden(prev, entry));
+      toast.add({ title: 'Could not restore that check', description: e.message, variant: 'danger' });
+    } finally {
+      markHiding(ruleId, false);
+    }
+  }, [runProjectId, hiddenChecks, markHiding, catalogById, toast, refreshCappedFindings]);
+
   /** The listed findings, as a CSV of the columns the table shows. */
   const exportFindings = useCallback((rows) => {
     if (!rows.length) return;
@@ -858,7 +977,10 @@ export default function CrawlScopeRunPage() {
   const openPage = !openGroup && openUrl
     ? effectivePages.find((p) => p.url === openUrl) || null
     : null;
-  const openPageIssues = openPage ? pageIssueCards(findings, openPage.url, catalogById, pagesByRule) : [];
+  const openPageIssues = openPage ? pageIssueCards(scoredFindings, openPage.url, catalogById, pagesByRule) : [];
+  // Hide check is offered only on a client's crawl: a standalone one has no
+  // project to keep the choice on.
+  const hideHandler = runProjectId ? onHideCheck : null;
   // On a capped run the loaded list can hold only some of a page's findings.
   const openPageCount = openPage
     ? pageIssueCount(openPage.url, openPageIssues.length, urlCounts, 'list')
@@ -867,7 +989,8 @@ export default function CrawlScopeRunPage() {
   const heading = openGroup || openPage ? null
     : tab === 'overview' ? 'Overview'
       : tab === 'urls' ? 'Every HTML page crawled'
-        : 'Every problem found';
+        : tab === 'hidden' ? 'Hidden checks'
+          : 'Every problem found';
 
   // On a capped list the findings are counted from the per-rule rollup, and
   // the "on N of M pages" part is left off: it would count the loaded part.
@@ -885,6 +1008,8 @@ export default function CrawlScopeRunPage() {
     ? 'Provisional — the full audit runs when the crawl finishes'
     : tab === 'overview'
       ? 'Site health, key metrics and what to fix first'
+      : tab === 'hidden'
+      ? 'Left out of this client’s score on every crawl'
       : tab === 'urls'
         ? (streamNote
           || `${htmlPages.length.toLocaleString()} HTML page${htmlPages.length === 1 ? '' : 's'} of this site`)
@@ -1202,6 +1327,9 @@ export default function CrawlScopeRunPage() {
           onReview={onReview}
           onBulkReview={onBulkReview}
           onExport={exportFindings}
+          onHide={hideHandler ? () => hideHandler(openGroup.id) : null}
+          canHide={canHide}
+          hiding={hiding.has(openGroup.id)}
         />
         </div>
       )}
@@ -1224,12 +1352,16 @@ export default function CrawlScopeRunPage() {
           <RuledHead title={heading} note={note} />
 
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {(minimal ? TABS.filter((t) => t.id === 'overview') : TABS).map((t) => (
+            {(minimal ? TABS.filter((t) => t.id === 'overview') : TABS)
+              // Hidden checks: only while the client has some (or it is open).
+              .filter((t) => t.id !== 'hidden' || (runProjectId && (hiddenChecks.length > 0 || tab === 'hidden')))
+              .map((t) => (
               <Pill key={t.id} active={tab === t.id} onClick={() => { if (t.id !== tab) setTab(t.id); }}>
                 {t.label}
                 {/* All Pages keeps its count throughout: a crawled page is a
                     crawled page, and that number is real the moment it lands. */}
                 {t.id === 'urls' ? ` (${htmlPages.length}${receiving ? '…' : ''})`
+                  : t.id === 'hidden' ? ` (${hiddenChecks.length})`
                   : provisional ? ''
                     : t.id === 'all' ? ` (${groups.length})`
                       : ['error', 'warning', 'notice'].includes(t.id) ? ` (${sevCount(t.id)})` : ''}
@@ -1265,6 +1397,7 @@ export default function CrawlScopeRunPage() {
               comparison={comparison}
               onOpenIssue={openIssue}
               issueHref={issueHref}
+              hiddenChecks={hiddenRows}
             />
           )}
 
@@ -1277,6 +1410,20 @@ export default function CrawlScopeRunPage() {
               provisional={provisional}
               crawled={crawledSoFar}
               comparison={comparison}
+              onHide={provisional ? null : hideHandler}
+              canHide={canHide}
+              hiding={hiding}
+              hiddenRows={provisional || !hideHandler ? [] : shownHiddenRows}
+              onUnhide={hideHandler ? onRestoreCheck : null}
+            />
+          )}
+
+          {!loadingAudit && tab === 'hidden' && runProjectId && (
+            <HiddenChecksList
+              rows={hiddenRows}
+              canHide={canHide}
+              onRestore={onRestoreCheck}
+              busy={hiding}
             />
           )}
 

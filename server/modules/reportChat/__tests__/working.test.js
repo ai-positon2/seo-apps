@@ -92,30 +92,39 @@ test('SEO & GEO: a check is priced with the scorer\'s own tier and points', () =
   assert.ok(!w.checksCostingPoints.some((c) => c.id === 'B1' || c.id === 'X1'), 'passes and skipped checks cost nothing');
 });
 
-test('Agent Readiness: a failed check costs its weight over 100 + on-page points', () => {
+test('Agent Readiness: a failed check costs its weight over its tier, times that tier share', () => {
   const w = buildWorking('agent', {
-    site: { score: 40, onPageMax: 20 },
-    httpChecks: [{ id: 'aibots', label: 'AI bots', cat: 'botaccess', status: 'fail' }, { id: 'robots', label: 'robots.txt', status: 'pass' }],
+    site: { score: 40 },
+    httpChecks: [
+      { id: 'aibots', label: 'AI bots', cat: 'botaccess', status: 'fail' },
+      { id: 'robots', label: 'robots.txt', status: 'pass' },
+      { id: 'mcp', label: 'MCP', status: 'fail' },
+    ],
     onPageChecks: [{ id: 'form_labels', label: 'Form labels', status: 'fail', maxScore: 10, score: 0 }],
   });
-  assert.equal(w.denominator, 120);
+  // CORE: robots 7 + aibots 11 = 18 available; NOW: form labels 10; FUTURE: mcp 10.
+  assert.deepEqual(w.coreGroup, { pointsEarned: 7, pointsAvailable: 18, shareOfTotal: 70 });
+  assert.deepEqual(w.nowGroup, { pointsEarned: 0, pointsAvailable: 10, shareOfTotal: 20 });
+  assert.deepEqual(w.futureGroup, { pointsEarned: 0, pointsAvailable: 10, shareOfTotal: 10 });
   const aibots = w.checks.find((c) => c.id === 'aibots');
   assert.equal(aibots.pointsLost, 11);
-  assert.equal(aibots.totalScoreEffect, 9.2); // 11 ÷ 120 × 100
+  assert.equal(aibots.group, 'CORE');
+  assert.equal(aibots.totalScoreEffect, 42.8); // 11 ÷ 18 × 70
+  assert.equal(w.checks.find((c) => c.id === 'form_labels').totalScoreEffect, 20); // 10 ÷ 10 × 20
+  assert.equal(w.checks.find((c) => c.id === 'mcp').totalScoreEffect, 10); // 10 ÷ 10 × 10
   assert.equal(w.checks.find((c) => c.id === 'robots').pointsLost, 0);
   assert.equal(w.checks.find((c) => c.id === 'form_labels').pointsLost, 10);
 });
 
-test('Agent Readiness: what-ifs start from HTTP + on-page points, not HTTP alone', () => {
-  // The real Soteri Skin shape: 36 HTTP points + 14 on-page of 119 = 42.
+test('Agent Readiness: what-ifs start from the whole score, HTTP and on-page together', () => {
   const w = buildWorking('agent', {
-    site: { score: 42, httpScore: 36, onPageMax: 19 },
-    httpChecks: [{ id: 'aibots', status: 'fail' }, { id: 'markdown', status: 'fail' }],
+    site: { score: 49 },
+    httpChecks: [{ id: 'aibots', status: 'fail' }, { id: 'markdown', status: 'fail' }, { id: 'robots', status: 'pass' }],
     onPageChecks: [{ id: 'form_labels', status: 'pass', maxScore: 10, score: 10 }, { id: 'captcha', status: 'fail', maxScore: 9, score: 4 }],
   });
-  assert.equal(w.totalPointsEarned, 50);
-  assert.equal(w.totalCalculation, 'round((36 HTTP + 14 on-page) ÷ 119 × 100) = 42');
-  assert.equal(w.checks.find((c) => c.id === 'aibots').scoreIfOnlyThisWereFixed, 51); // (50 + 11) ÷ 119
+  // CORE: robots, aibots, 7 of 18. NOW: the on-page checks, 14 of 19. FUTURE: markdown, 0 of 10.
+  assert.equal(w.totalCalculation, 'round(70 × 7 ÷ 18 + 20 × 14 ÷ 19 + 10 × 0 ÷ 10) = round(41.96) = 42');
+  assert.equal(w.checks.find((c) => c.id === 'aibots').scoreIfOnlyThisWereFixed, 85); // 41.96 + 11 ÷ 18 × 70 = 84.74
 });
 
 test('SEO & GEO: the overall comes from the areas, spelled out', () => {
@@ -230,14 +239,15 @@ test('reach a target: fewest fixes, costliest first, rounded only at the end', (
   assert.equal(w.fewestFixesToReach[60], undefined, 'targets already met are left out');
 });
 
-test('Agent Readiness: points to earn for a target, not score points', () => {
+test('Agent Readiness: score points to gain for a target, and the fewest fixes', () => {
   const w = buildWorking('agent', {
-    site: { score: 42, httpScore: 36, onPageMax: 19 },
-    httpChecks: [{ id: 'aibots', label: 'AI bot rules', status: 'fail' }, { id: 'markdown', label: 'Markdown', status: 'fail' }],
+    site: { score: 51 },
+    httpChecks: [{ id: 'aibots', label: 'AI bot rules', status: 'fail' }, { id: 'markdown', label: 'Markdown', status: 'fail' }, { id: 'robots', status: 'pass' }],
     onPageChecks: [{ id: 'form_labels', status: 'pass', maxScore: 10, score: 10 }, { id: 'captcha', status: 'fail', maxScore: 9, score: 4 }],
   });
-  assert.equal(w.pointsToEarnToReach[60], 'earn 21 more points (50 + 21 = 71 of 119 → round(59.66) = 60)');
-  assert.equal(w.fewestFixesToReach[60], '2 fixes (the fewest that reach 60): AI bot rules, Markdown → the score becomes 60 (exact 59.66)');
+  // CORE 7 of 18 (70 points), NOW 14 of 19 (20 points), FUTURE markdown 0 of 10 (10 points): exact 41.96.
+  assert.equal(w.pointsToEarnToReach[60], 'gain 17.54 more score points (exact 41.96 → 59.5 rounds to 60); fixes earn 3.89 per CORE point, 1.05 per NOW point, 1 per FUTURE point');
+  assert.equal(w.fewestFixesToReach[60], '1 fix (the fewest that reach 60): AI bot rules → the score becomes 85 (exact 84.74)');
 });
 
 test('AI Visibility: brand comparison names ties as ties', () => {

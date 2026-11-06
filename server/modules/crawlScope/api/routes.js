@@ -43,6 +43,7 @@ const projectAccess = require("../../../services/projectAccess");
 // crawl_projects directly through repo.createProject, which wrote no
 // project_domains row and no country — see the POST /projects handler.
 const projectStore = require("../../projects/store");
+const hiddenChecksLib = require("../../projects/hiddenChecks");
 const { parseCrawlRequest, resolveLimits, ValidationError } = require("../shared/options");
 const {
   isValidCron,
@@ -231,7 +232,18 @@ router.get(
   asyncRoute(async (req, res) => {
     const run = await repo.getRunForViewer(req.db, req.params.id, req.crawlViewer);
     if (!run) return res.status(404).json({ error: "Run not found." });
-    res.json({ run, active: manager.isActive(run.id) });
+    // The checks this run's client has hidden (projects/hiddenChecks.js), so
+    // the report scores without them from its first render. A standalone crawl
+    // has no project and nowhere to keep them: always empty.
+    let hiddenChecks = [];
+    if (run.project_id) {
+      try {
+        hiddenChecks = await hiddenChecksLib.hiddenChecksForProject(run.project_id);
+      } catch (error) {
+        console.error("[crawlScope.run.hiddenChecks]", error.message);
+      }
+    }
+    res.json({ run, active: manager.isActive(run.id), hiddenChecks });
   }),
 );
 
@@ -487,7 +499,11 @@ router.get(
     let urlCounts = null;
     if (capped) {
       try {
-        urlCounts = await repo.listRunFindingUrlCounts(req.db, run.id, { signal });
+        // Without the client's hidden checks, like the score beside it.
+        const hidden = run.project_id
+          ? await hiddenChecksLib.hiddenRulesForRun(run.id).catch(() => [])
+          : [];
+        urlCounts = await repo.listRunFindingUrlCounts(req.db, run.id, { signal, hidden });
       } catch (error) {
         if (isAborted(error)) return undefined;
         console.error("[crawlScope.findings.urlCounts]", error.message);
@@ -682,12 +698,21 @@ router.get(
     // what the Issue Review screen shows.
     const reviews = await repo.listFindingReviews(req.db, run.id);
     const reviewed = reviews.some((r) => r.review_status !== NEEDS_REVIEW || r.reviewer_notes);
+    // Checks the client has hidden (projects/hiddenChecks.js) are left out of
+    // the download as they are out of the report; the stored copy includes
+    // them, so it is rebuilt whenever any are hidden.
+    const hidden = run.project_id
+      ? await hiddenChecksLib.hiddenRulesForRun(run.id).catch((error) => {
+        console.error("[crawlScope.report.hiddenChecks]", error.message);
+        return [];
+      })
+      : [];
 
     // Served straight from the stored copy. This used to redirect to a signed
     // Storage URL; the caller is already authenticated here, so there is nothing
     // for a redirect to buy — and a missing file (an unmounted data root after a
     // deploy) simply falls through to the rebuild below.
-    if (run.report_path && !reviewed) {
+    if (run.report_path && !reviewed && !hidden.length) {
       const stored = await report.readReport(run.report_path);
       if (stored) {
         res.setHeader("Content-Type", report.XLSX_MIME);
@@ -701,7 +726,7 @@ router.get(
 
     // Fallback for manual runs, runs predating stored reports, and any run whose
     // findings have since been reviewed.
-    const findings = await loadRunFindings(req.db, run);
+    const findings = hiddenChecksLib.excludeHidden(await loadRunFindings(req.db, run), hidden);
     const buffer = await report.buildReportBuffer({
       findings: mergeReviews(findings, reviews),
       siteUrl: run.url,

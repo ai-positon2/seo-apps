@@ -193,7 +193,7 @@ export const EXPLAINERS = {
     s: 'Whether AI agents, assistants that browse and book on a customer’s behalf, can find and use the site.',
     why: 'Agents are a new route to customers. A site they can’t read is left off their shortlist.',
     good: '80+ means the site is ready for the agent protocols now emerging. Most sites score lower today, because few have adopted them yet.',
-    calc: '13 site checks (worth 100 points) and 10 checks on the audited page (worth 63 more), each worth points by importance. The score is the points earned out of the points possible.',
+    calc: 'Up to 23 checks: 13 on the site and 10 on the audited page. Core access (AI bot rules, robots.txt, sitemap) is worth 70 of the 100 points, the other checks you can do today 20, and emerging standards (MCP, agent skills, WebMCP, API catalogs, markdown) 10. Inside each tier a check earns points by importance when it passes. The card shows the average of the pages audited.',
     src: 'Live scan of the site',
     next: { label: 'Open Agent Readiness to see which checks failed.', screen: 'agent' },
   },
@@ -346,7 +346,7 @@ export const EXPLAINERS = {
     why: 'Agents are an emerging route to customers. If they can’t read or reach the site, it isn’t on their shortlist.',
     good: '80+ means the site is ready for the agent protocols now emerging. Most sites score lower today, because few have adopted them yet.',
     calc: (ctx) => {
-      const tail = 'The score is the points earned out of the points possible (100 from the site checks, up to 63 more from the page checks). The level, from Not started up to Agent native, says how future-ready the site is for AI agents.';
+      const tail = 'Core access (AI bot rules, robots.txt, sitemap) is worth 70 of the 100 points, the other checks you can do today (Link headers, page checks) 20, and emerging standards (MCP, agent skills, WebMCP, API catalogs, markdown) 10, since few sites can act on those yet. Inside each tier the score is the points earned out of the points possible. The level, from Not started up to Agent native, says how future-ready the site is for AI agents.';
       const cats = (ctx.cats || []).filter(Boolean);
       if (isNum(ctx.checkCount) && ctx.checkCount > 0 && cats.length) {
         return `${ctx.checkCount} automatic checks across ${cats.length} categories (${list(cats)}), each worth points by business impact. ${tail}`;
@@ -748,7 +748,7 @@ export const LEGEND_BY_SCREEN = {
   agent: [
     {
       term: 'Readiness score',
-      line: 'Every check is worth points by importance. The score is the points earned out of the points possible.',
+      line: 'Core access (AI bot rules, robots.txt, sitemap) is worth 70 points, other checks you can do today 20, emerging standards 10. Inside each tier a check is worth points by importance, and a pass earns them.',
       ex: (ctx) => (isNum(ctx.score) ? `${ctx.score} out of 100` : null),
     },
     {

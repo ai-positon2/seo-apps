@@ -605,7 +605,7 @@ textarea:focus-visible {
 .explain-toggle__switch.is-on .explain-toggle__knob { left: 16px; }
 
 /* The legend. Below ui-modal (1000), above page content. */
-/* Sits 8px left of the Ask Vimi launcher, which owns the corner and publishes
+/* Sits 8px left of the Ask SEO Studio launcher, which owns the corner and publishes
    its width as --chat-launcher-w (ChatBubble). With no launcher (no project
    selected) the fallback puts the legend in the corner itself. */
 .explain-legend-btn {
@@ -663,7 +663,7 @@ textarea:focus-visible {
   font-family: var(--font-mono); font-size: 11.5px;
 }
 
-/* Ask Vimi, the report assistant (components/chat). The launcher owns the
+/* Ask SEO Studio, the report assistant (components/chat). The launcher owns the
    bottom-right corner with the legend pill to its left; the panel opens above
    it and over the legend, which is the more recent thing the reader asked for.
    Below ui-modal (1000). Colours are the app's tokens, so dark mode follows. */
@@ -694,7 +694,7 @@ textarea:focus-visible {
   font-family: var(--font-sans);
 }
 
-/* Header: avatar, "Vimi" and what it is reading, then New and Close. */
+/* Header: avatar, "Ask SEO Studio" and what it is reading, then New and Close. */
 .report-chat__head {
   display: flex; align-items: center; gap: 12px;
   padding: 16px 16px 14px 18px; border-bottom: 1px solid var(--border);
@@ -797,7 +797,7 @@ textarea:focus-visible {
 .report-chat__typing > span:nth-child(3) { animation-delay: 0.4s; }
 .report-chat__error { margin: 0; font-size: 12.5px; color: var(--viz-neg); }
 
-/* Composer: the question, then what Vimi can see and the Ask button. */
+/* Composer: the question, then what the assistant can see and the Ask button. */
 .report-chat__form { padding: 12px 14px 14px; border-top: 1px solid var(--border); }
 .report-chat__composer {
   display: flex; flex-direction: column; gap: 10px;
@@ -1110,11 +1110,11 @@ html.embedded main  { padding-top: 0 !important; }
 /* ── Minimal version (CMO view) ──
    The header switch sets <html data-view="minimal">; anything marked
    data-minimal="hide" (components/minimal/hide.js) drops out. Hidden, not
-   unmounted, so polling, downloads and Ask Vimi's screen context carry on. */
+   unmounted, so polling, downloads and Ask SEO Studio's screen context carry on. */
 html[data-view='minimal'] [data-minimal='hide'] { display: none !important; }
 /* The Legend renders into document.body through a portal, so a hidden wrapper
    cannot reach it. Hidden by its own classes; it stays mounted, which is what
-   keeps each report registered with Ask Vimi. */
+   keeps each report registered with Ask SEO Studio. */
 html[data-view='minimal'] .explain-legend-btn,
 html[data-view='minimal'] .explain-legend { display: none !important; }
 

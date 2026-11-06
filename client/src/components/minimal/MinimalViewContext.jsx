@@ -6,7 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 // every element marked with HIDE (./hide.js) is hidden by one CSS rule in
 // index.css, keyed off <html data-view="minimal">. The header switch,
 // "Advanced mode", brings every section back. Nothing is unmounted either way:
-// polling, run tracking, downloads and the Legend's Ask Vimi registration keep
+// polling, run tracking, downloads and the Legend's Ask SEO Studio registration keep
 // working in both. The choice is remembered per browser, like Guided mode.
 
 // Stores the Advanced mode choice: '1' = advanced (everything shown). Absent

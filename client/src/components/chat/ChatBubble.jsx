@@ -6,7 +6,7 @@ import { useChatScreen } from './ChatContext';
 import ChatMessage from './ChatMessage';
 import { buildScreenCopy, screenName, starterQuestions } from './chatModel';
 
-// ── Ask Vimi ────────────────────────────────────────────────────────────────
+// ── Ask SEO Studio ────────────────────────────────────────────────────────────────
 //
 // A floating assistant for the header's project. On a report screen (one that
 // renders a Legend) it answers about that report and the project; anywhere
@@ -17,7 +17,7 @@ import { buildScreenCopy, screenName, starterQuestions } from './chatModel';
 // the panel is closed mid-way, and is there when it opens again.
 //
 // The launcher sits in the bottom-right corner with the Legend pill to its
-// left. Its width changes with its label ("Ask Vimi" / "Close"), so it
+// left. Its width changes with its label ("Ask SEO Studio" / "Close"), so it
 // publishes that width as --chat-launcher-w and the Legend positions itself
 // from it.
 
@@ -246,11 +246,11 @@ export default function ChatBubble() {
   return createPortal(
     <>
       {open && (
-        <div id={panelId} role="dialog" aria-label="Ask Vimi" className="report-chat">
+        <div id={panelId} role="dialog" aria-label="Ask SEO Studio" className="report-chat">
           <div className="report-chat__head">
             <span className="report-chat__avatar"><SparkleIcon /></span>
             <div className="report-chat__heading">
-              <span className="report-chat__title">Vimi</span>
+              <span className="report-chat__title">Ask SEO Studio</span>
               <span className="report-chat__scope"><span className="report-chat__dot" aria-hidden="true" />{reading}</span>
             </div>
             <button
@@ -333,11 +333,11 @@ export default function ChatBubble() {
         aria-expanded={open}
         aria-controls={panelId}
         aria-keyshortcuts="/"
-        aria-label={open ? 'Close Ask Vimi' : 'Ask Vimi'}
+        aria-label={open ? 'Close Ask SEO Studio' : 'Ask SEO Studio'}
         onClick={() => setOpen((o) => !o)}
       >
         {open ? <CloseIcon /> : <ChatIcon />}
-        <span>{open ? 'Close' : 'Ask Vimi'}</span>
+        <span>{open ? 'Close' : 'Ask SEO Studio'}</span>
         <span className="report-chat-btn__key" aria-hidden="true">/</span>
       </button>
     </>,

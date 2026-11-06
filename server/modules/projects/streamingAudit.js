@@ -469,8 +469,10 @@ async function followCrawl({
 const SCORE_BASIS = {
   seo_geo: 'the SEO & GEO audit v2 (rule-based bucket scores, weighted composite, capped by blocking issues; '
     + 'duplicate checks counted once, Tech Audit length limits)',
-  agent_readiness: 'the agent readiness audit v2 (weighted HTTP plus on-page checks; agent-relevant Link headers, '
-    + 'allow-all robots counts for AI bots, WebMCP detected in the page, no SearchAction)',
+  // v5: 70 points for core access, 20 for the other checks a site can do today,
+  // 10 for emerging standards. Stored older runs are re-scored on read
+  // (moduleEvidence.rescoreAgentRuns).
+  agent_readiness: require('../../checks/agentReadinessScore').SCORE_BASIS,
 };
 
 module.exports = {

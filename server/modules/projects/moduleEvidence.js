@@ -23,6 +23,7 @@
 
 const db = require('../../services/db');
 const auditEvents = require('../../services/auditEvents');
+const agentScore = require('../../checks/agentReadinessScore');
 
 // 'ai_visibility_prompts' is not a module with a card and a score — it is the
 // prompt-set GENERATION job (server/modules/aiVisibility/generate.js), which
@@ -514,6 +515,20 @@ async function latestByModule(projectId) {
     if (entry.terminal) entry.terminal = filled.get(entry.terminal.id) || entry.terminal;
   }
 
+  // An Agent Readiness score stored under an older formula is re-scored from
+  // its pages' stored checks (rescoreAgentRuns), so the card, the executive
+  // summary and the report downloads all read the current formula.
+  const agent = byModule.get('agent_readiness');
+  if (agent?.terminal) [agent.terminal] = await rescoreAgentRuns([agent.terminal]);
+
+  // Hub and Spoke topics archived for this client are left out of its score,
+  // counts and findings, on read (archivedClusters.js). The same row back when
+  // nothing archived applies.
+  const hubSpoke = byModule.get('hub_spoke');
+  if (hubSpoke?.terminal) {
+    hubSpoke.terminal = await require('./archivedClusters').applyToRun(projectId, hubSpoke.terminal);
+  }
+
   const setup = byModule.get('ai_visibility_lite_setup');
   if (!byModule.has('ai_visibility_lite') && setup && !setup.inFlight) {
     const failed = aiVisibilitySetupFailure(setup.terminal);
@@ -528,13 +543,15 @@ async function listRuns(projectId, moduleKey, { limit = 25 } = {}) {
   assertModuleKey(moduleKey);
 
   try {
-    return await db.rows(
+    const rows = await db.rows(
       `select * from project_module_runs
         where project_id = $1 and module_key = $2
         order by created_at desc
         limit $3`,
       [projectId, moduleKey, Math.min(Number(limit) || 25, 100)]
     );
+    // Agent Readiness scores stored under an older formula, re-scored on read.
+    return moduleKey === 'agent_readiness' ? await rescoreAgentRuns(rows) : rows;
   } catch (error) {
     fail('listRuns', error);
   }
@@ -544,10 +561,11 @@ async function getRun(projectId, runId) {
   if (!db.isDatabaseConfigured()) return null;
   try {
     // Scoped by project, not just by id: there is no RLS to fall back on.
-    return await db.maybeOne(
+    const row = await db.maybeOne(
       `select * from project_module_runs where project_id = $1 and id = $2`,
       [projectId, runId]
     );
+    return row?.module_key === 'agent_readiness' ? (await rescoreAgentRuns([row]))[0] : row;
   } catch (error) {
     fail('getRun', error);
   }
@@ -944,14 +962,16 @@ async function pageRunsForRun(runId, { withFindings = false } = {}) {
   try {
     // Findings only when asked: refreshRunAggregate merges them into the
     // parent, and a page picker does not need them.
-    return await db.rows(
+    const rows = await db.rows(
       `select id, url, ordinal, source, status, score, score_max, band, counts,
-              ${withFindings ? 'findings, ' : ''}error, finished_at, payload_truncated
+              ${withFindings ? 'findings, ' : ''}error, finished_at, payload_truncated, module_key
          from project_module_page_runs
         where run_id = $1
         order by ordinal asc`,
       [runId]
     );
+    // Agent Readiness pages are scored with the current formula.
+    return await rescoreAgentPages(rows);
   } catch (error) {
     if (isMissingTable(error)) {
       if (!warnedMissingPageRuns) {
@@ -1033,10 +1053,11 @@ async function followedCrawlRunId(runId) {
 async function getPageRun(projectId, pageRunId) {
   if (!db.isDatabaseConfigured()) return null;
   try {
-    return await db.maybeOne(
+    // An Agent Readiness report is scored with the current formula on read.
+    return rescoreAgentPageRow(await db.maybeOne(
       `select * from project_module_page_runs where project_id = $1 and id = $2`,
       [projectId, pageRunId]
-    );
+    ));
   } catch (error) {
     fail('getPageRun', error);
   }
@@ -1201,6 +1222,189 @@ function reconcilePageRun(row, rollup = null) {
   return out;
 }
 
+// ── Agent Readiness: stored scores re-scored on read ────────────────────────
+//
+// The overall Agent Readiness score changed formula (now v5: 70 points for core
+// access, 20 for the other checks a site can do today, 10 for emerging
+// standards — checks/agentReadinessScore.js).
+// Runs stored before that kept the old score, but every page's report keeps its
+// checks, so the score is worked out again when it is read instead of paying to
+// re-run the audit: each page from its stored checks, then the run's mean. A
+// page whose report lacks the checks (truncated, refused) keeps its stored score.
+
+// The checks of a stored page report, projected small: the dashboard reads
+// these for every page of a run and has no use for the rest of the payload.
+const agentChecksSql = (col) => `case when jsonb_typeof(${col}->'native'->'checks') = 'array' then jsonb_build_object(
+    'blocked', ${col}->'native'->'blocked',
+    'checks', (select jsonb_agg(jsonb_build_object('id', c->'id', 'status', c->'status',
+                 'effort', c->'effort', 'olderRule', c->'olderRule'))
+                 from jsonb_array_elements(${col}->'native'->'checks') c),
+    'onPageChecks', case when jsonb_typeof(${col}->'native'->'onPageChecks') = 'array' then (
+                 select jsonb_agg(jsonb_build_object('id', c->'id', 'status', c->'status', 'effort', c->'effort',
+                   'score', c->'score', 'maxScore', c->'maxScore'))
+                   from jsonb_array_elements(${col}->'native'->'onPageChecks') c) end
+  ) end`;
+
+const LEVEL_BAND = /^Level \d\b/;
+const isScoredValue = (v) => v !== null && v !== undefined && Number.isFinite(Number(v));
+
+/**
+ * One page's score under the current formula, from its stored checks
+ * ({ blocked, checks, onPageChecks }). An unscored page stays unscored; a page
+ * without the checks keeps its stored score (`rescored: false`).
+ */
+function agentPageScore(stored, storedChecks) {
+  if (!isScoredValue(stored)) return { score: stored ?? null, rescored: false };
+  const c = storedChecks;
+  if (!c || c.blocked || !Array.isArray(c.checks) || !c.checks.length) {
+    return { score: Number(stored), rescored: false };
+  }
+  const { score } = agentScore.readinessScore({ httpChecks: c.checks, onPageChecks: c.onPageChecks });
+  return score === null ? { score: Number(stored), rescored: false } : { score, rescored: true };
+}
+
+/** A stored page payload ({ native, site, cats }) with its report re-scored. */
+function rescoreAgentPayload(payload) {
+  if (!payload || typeof payload !== 'object' || !payload.native) return payload;
+  const native = agentScore.rescoreStoredReport(payload.native);
+  if (native === payload.native) return payload;
+  return { ...payload, native, ...(payload.site ? { site: native.site } : {}) };
+}
+
+/** A band that is a readiness level follows the score; any other wording is kept. */
+function agentBand(band, score) {
+  return typeof band === 'string' && LEVEL_BAND.test(band) && isScoredValue(score)
+    ? agentScore.levelFromScore(Number(score)) : band;
+}
+
+/** An Agent Readiness page row ({ score, band, payload? }) re-scored, on read. */
+function rescoreAgentPageRow(row, storedChecks = undefined) {
+  if (!row || row.module_key !== 'agent_readiness') return row;
+  const out = { ...row };
+  if (row.payload?.native) {
+    out.payload = rescoreAgentPayload(row.payload);
+    if (isScoredValue(row.score) && isScoredValue(out.payload.native?.site?.score)) {
+      out.score = Number(out.payload.native.site.score);
+    }
+  } else if (storedChecks !== undefined) {
+    out.score = agentPageScore(row.score, storedChecks).score;
+  }
+  out.band = agentBand(row.band, out.score);
+  return out;
+}
+
+/**
+ * Agent Readiness page rows ({ id, module_key, score, band }) with their scores
+ * worked out from their stored checks, read in one small query. On a failed
+ * read the rows are shown as stored.
+ */
+async function rescoreAgentPages(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const ids = list.filter((r) => r?.module_key === 'agent_readiness' && isScoredValue(r.score)).map((r) => r.id);
+  if (!ids.length) return list;
+  let stored;
+  try {
+    stored = await db.rows(
+      `select id, ${agentChecksSql('payload')} as "storedChecks"
+         from project_module_page_runs where id = any($1)`,
+      [ids],
+    );
+  } catch (error) {
+    console.error('[moduleEvidence.rescoreAgentPages]', String(error.message).split('\n')[0]);
+    return list;
+  }
+  const byId = new Map((stored || []).map((r) => [r.id, r.storedChecks ?? null]));
+  return list.map((r) => (byId.has(r.id) ? rescoreAgentPageRow(r, byId.get(r.id)) : r));
+}
+
+/** True for an Agent Readiness run whose stored score predates the current formula. */
+function needsAgentRescore(row) {
+  return Boolean(row) && row.module_key === 'agent_readiness' && isScoredValue(row.score)
+    && !String(row.score_basis || '').includes(agentScore.SCORE_BASIS_MARK);
+}
+
+/**
+ * Agent Readiness run rows with their scores worked out under the current
+ * formula: each page from its stored checks, then the mean (aggregatePages, the
+ * rollup a new run writes). The basis becomes the current one only when every
+ * scored page could be re-scored, so the dashboard's change indicator still
+ * says "scoring method updated" for a run it could not fully re-score. Rows of
+ * other modules, and current ones, are returned as they are; on a read
+ * failure every row is.
+ */
+async function rescoreAgentRuns(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const stale = list.filter(needsAgentRescore);
+  if (!stale.length || !db.isDatabaseConfigured()) return list;
+  const ids = stale.map((r) => r.id).filter(Boolean);
+  if (!ids.length) return list;
+
+  let pageRows = [];
+  let parentRows = [];
+  try {
+    pageRows = await db.rows(
+      `select run_id, id, status, score, ${agentChecksSql('payload')} as "storedChecks"
+         from project_module_page_runs
+        where run_id = any($1) and module_key = 'agent_readiness'`,
+      [ids],
+    );
+    const withPages = new Set(pageRows.map((p) => p.run_id));
+    const single = ids.filter((id) => !withPages.has(id));
+    if (single.length) {
+      parentRows = await db.rows(
+        `select id, ${agentChecksSql('payload')} as "storedChecks"
+           from project_module_runs where id = any($1)`,
+        [single],
+      );
+    }
+  } catch (error) {
+    if (!isMissingTable(error)) console.error('[moduleEvidence.rescoreAgentRuns]', String(error.message).split('\n')[0]);
+    return list;
+  }
+
+  return list.map((row) => {
+    if (!needsAgentRescore(row)) return row;
+    const pages = pageRows.filter((p) => p.run_id === row.id);
+
+    if (pages.length) {
+      let complete = true;
+      const rescored = pages.map((p) => {
+        const r = agentPageScore(p.score, p.storedChecks);
+        if (isScoredValue(p.score) && !r.rescored) complete = false;
+        return { id: p.id, status: p.status, score: r.score };
+      });
+      const rollup = aggregatePages(rescored);
+      if (rollup.mean === null) return row;
+      const out = { ...row, score: rollup.mean };
+      if (complete) {
+        out.score_basis = /^Mean of \d+ page score\(s\)/.test(String(row.score_basis || ''))
+          ? rollupBasis(rollup, agentScore.SCORE_BASIS) : agentScore.SCORE_BASIS;
+      }
+      if (Array.isArray(row.payload?.pages)) {
+        const byId = new Map(rescored.map((p) => [p.id, p.score]));
+        out.payload = {
+          ...row.payload,
+          pages: row.payload.pages.map((p) => (byId.has(p?.pageRunId)
+            ? { ...p, score: byId.get(p.pageRunId), band: agentBand(p.band, byId.get(p.pageRunId)) } : p)),
+        };
+      }
+      return out;
+    }
+
+    // A single-page run: the report is on the run row itself.
+    const parent = parentRows.find((p) => p.id === row.id);
+    const r = agentPageScore(row.score, parent?.storedChecks);
+    if (!r.rescored) return row;
+    return {
+      ...row,
+      score: r.score,
+      score_basis: agentScore.SCORE_BASIS,
+      band: agentBand(row.band, r.score),
+      ...(row.payload?.native ? { payload: rescoreAgentPayload(row.payload) } : {}),
+    };
+  });
+}
+
 /** A per-page parent stored with no findings: older code closed Soteri's that way (UX-138). */
 function lacksFindings(row) {
   return Boolean(row) && PAGE_MODULE_KEYS.includes(row.module_key)
@@ -1360,6 +1564,12 @@ module.exports = {
   basisTail,
   rollupFromPayloadPages,
   reconcilePageRun,
+  rescoreAgentRuns,
+  rescoreAgentPages,
+  rescoreAgentPageRow,
+  agentChecksSql,
+  rescoreAgentPayload,
+  agentPageScore,
   findingsFromPages,
   withPageFindings,
   hubSpokeReportMissing,

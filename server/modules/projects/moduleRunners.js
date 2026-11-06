@@ -1022,6 +1022,148 @@ function hubSpokeTooFewResult({ input, summary = {}, crawlRunId = null, aiMissin
   };
 }
 
+/**
+ * The figures a Hub and Spoke result is made of, read from one analysis.
+ * Shared by runHubSpoke and by archivedClusters.js, which recomputes them on
+ * read with the topics a client archived left out, so the two cannot disagree.
+ */
+function hubSpokeFacts(analysis) {
+  const clusters = analysis.clusters || [];
+  const pages = analysis.pages || [];
+  const unassigned = analysis.unassignedPages || [];
+
+  // Page flags are strings in the stored analysis and objects in the diagnostics
+  // pass that builds it, so both shapes are read rather than assuming one.
+  const hasFlag = (page, type) => (page.flags || [])
+    .some((f) => (typeof f === 'string' ? f === type : f?.type === type));
+
+  const gapClusters = clusters.filter((c) => c.isGap);
+  const orphans = pages.filter((p) => hasFlag(p, 'orphan'));
+  const buried = pages.filter((p) => hasFlag(p, 'buried'));
+  const thin = pages.filter((p) => hasFlag(p, 'thin-or-stale'));
+  const ambiguous = clusters.filter((c) => c.ambiguous);
+  const cannibalPairs = (analysis.cannibalization || [])
+    .reduce((sum, entry) => sum + (entry.pairs?.length || 0), 0);
+
+  // The module's own formula, copied from contentArchitect/exporter.js so the
+  // card and that tool's export cannot disagree about the same number.
+  const meanHealth = clusters.length
+    ? Math.round(clusters.reduce((sum, c) => sum + (c.health || 0), 0) / clusters.length)
+    : null;
+
+  return {
+    clusters, pages, unassigned, hasFlag, gapClusters, orphans, buried, thin, ambiguous,
+    cannibalPairs, cannibalClusters: (analysis.cannibalization || []).length, meanHealth,
+  };
+}
+
+/** The Hub and Spoke findings for one analysis's figures (hubSpokeFacts). */
+function hubSpokeFindings(facts, { capped = false } = {}) {
+  const {
+    gapClusters, orphans, unassigned, buried, thin, ambiguous, cannibalPairs, cannibalClusters,
+  } = facts;
+  const findings = [];
+
+  if (gapClusters.length) {
+    findings.push({
+      ruleId: 'architect-gap-hubs',
+      title: 'Topic clusters with no page broad enough to be the hub',
+      severity: 'warning',
+      category: 'Content architecture',
+      count: gapClusters.length,
+      detail: gapClusters.slice(0, 10)
+        .map((c) => `${c.name}${c.gapSuggestion?.title ? ` → suggested: ${c.gapSuggestion.title}` : ''}`)
+        .join('; '),
+      recommendation:
+        'These are the clearest content gaps: the spokes exist, the page that should tie them '
+        + 'together does not. Content Architect suggests a title for each.',
+    });
+  }
+
+  // Orphan detection needs a complete crawl. On a capped one, a page with no
+  // inbound link is almost always linked from a page that was never fetched —
+  // calling it an orphan would be a false claim about the site, so the finding is
+  // withheld and the reason is carried in `limitations`.
+  if (orphans.length && !capped) {
+    findings.push({
+      ruleId: 'architect-orphan-pages',
+      title: 'Pages with no internal links pointing to them',
+      severity: 'error',
+      category: 'Internal linking',
+      count: orphans.length,
+      detail: orphans.slice(0, 15).map((p) => p.url).join(', '),
+      recommendation: 'Link these from their cluster hub, or retire them.',
+    });
+  }
+
+  if (unassigned.length) {
+    findings.push({
+      ruleId: 'architect-unassigned-pages',
+      title: 'Pages that joined no topic cluster',
+      severity: 'notice',
+      category: 'Content architecture',
+      count: unassigned.length,
+      detail: unassigned.slice(0, 15).map((p) => p.url || p).join(', '),
+      recommendation:
+        'No cluster met the similarity bar for these. The threshold is deliberately strict — a '
+        + 'wrongly merged cluster costs more trust than an honestly unassigned page.',
+    });
+  }
+
+  if (buried.length) {
+    findings.push({
+      ruleId: 'architect-buried-pages',
+      title: 'Pages buried deep in the click path',
+      severity: 'warning',
+      category: 'Internal linking',
+      count: buried.length,
+      detail: buried.slice(0, 15).map((p) => p.url).join(', '),
+      recommendation: null,
+    });
+  }
+
+  if (thin.length) {
+    findings.push({
+      ruleId: 'architect-thin-pages',
+      // "Thin" only: staleness needs published/modified dates, which the crawl
+      // does not record. Claiming "thin or stale" would overstate what was checked.
+      title: 'Pages with thin content',
+      severity: 'notice',
+      category: 'Content quality',
+      count: thin.length,
+      detail: thin.slice(0, 15).map((p) => p.url).join(', '),
+      recommendation: null,
+    });
+  }
+
+  if (cannibalPairs) {
+    findings.push({
+      ruleId: 'architect-possible-cannibalization',
+      // "Possible", not "confirmed" — the module labels it that way deliberately,
+      // and hardening the claim here would misrepresent its own diagnostics.
+      title: 'Possible keyword cannibalization between pages in a cluster',
+      severity: 'notice',
+      category: 'Content architecture',
+      count: cannibalPairs,
+      detail: `${cannibalPairs} page pair(s) across ${cannibalClusters} cluster(s)`,
+      recommendation: 'Review each pair — similar pages are not always competing ones.',
+    });
+  }
+
+  if (ambiguous.length) {
+    findings.push({
+      ruleId: 'architect-ambiguous-hubs',
+      title: 'Clusters where the hub choice was ambiguous',
+      severity: 'notice',
+      category: 'Content architecture',
+      count: ambiguous.length,
+      detail: ambiguous.slice(0, 10).map((c) => c.name).join('; '),
+      recommendation: 'Two or more pages scored within a hair of each other — worth a human decision.',
+    });
+  }
+  return findings;
+}
+
 async function runHubSpoke({ project, domains }) {
   const crawlToArchitect = require('./crawlToArchitect');
   const { analyzeCrawledPages } = require('../contentArchitect/fullAnalysis');
@@ -1143,28 +1285,10 @@ async function runHubSpoke({ project, domains }) {
     console.error('[hub_spoke] analysis computed but not saved to Content Architect:', e.message);
   }
 
-  const clusters = analysis.clusters || [];
-  const pages = analysis.pages || [];
-  const unassigned = analysis.unassignedPages || [];
-
-  // Page flags are strings in the stored analysis and objects in the diagnostics
-  // pass that builds it, so both shapes are read rather than assuming one.
-  const hasFlag = (page, type) => (page.flags || [])
-    .some((f) => (typeof f === 'string' ? f === type : f?.type === type));
-
-  const gapClusters = clusters.filter((c) => c.isGap);
-  const orphans = pages.filter((p) => hasFlag(p, 'orphan'));
-  const buried = pages.filter((p) => hasFlag(p, 'buried'));
-  const thin = pages.filter((p) => hasFlag(p, 'thin-or-stale'));
-  const ambiguous = clusters.filter((c) => c.ambiguous);
-  const cannibalPairs = (analysis.cannibalization || [])
-    .reduce((sum, entry) => sum + (entry.pairs?.length || 0), 0);
-
-  // The module's own formula, copied from contentArchitect/exporter.js so the
-  // card and that tool's export cannot disagree about the same number.
-  const meanHealth = clusters.length
-    ? Math.round(clusters.reduce((sum, c) => sum + (c.health || 0), 0) / clusters.length)
-    : null;
+  const facts = hubSpokeFacts(analysis);
+  const {
+    clusters, pages, unassigned, hasFlag, gapClusters, orphans, meanHealth,
+  } = facts;
 
   // How the clustered pages were chosen from the crawl. Present whenever the
   // informational selection ran; every field below tolerates its absence.
@@ -1179,105 +1303,7 @@ async function runHubSpoke({ project, domains }) {
     links_truncated: 'That crawl stored only part of its link graph',
   }[input.meta.incompleteReason || 'url_cap'];
 
-  const findings = [];
-
-  if (gapClusters.length) {
-    findings.push({
-      ruleId: 'architect-gap-hubs',
-      title: 'Topic clusters with no page broad enough to be the hub',
-      severity: 'warning',
-      category: 'Content architecture',
-      count: gapClusters.length,
-      detail: gapClusters.slice(0, 10)
-        .map((c) => `${c.name}${c.gapSuggestion?.title ? ` → suggested: ${c.gapSuggestion.title}` : ''}`)
-        .join('; '),
-      recommendation:
-        'These are the clearest content gaps: the spokes exist, the page that should tie them '
-        + 'together does not. Content Architect suggests a title for each.',
-    });
-  }
-
-  // Orphan detection needs a complete crawl. On a capped one, a page with no
-  // inbound link is almost always linked from a page that was never fetched —
-  // calling it an orphan would be a false claim about the site, so the finding is
-  // withheld and the reason is carried in `limitations`.
-  if (orphans.length && !input.meta.capped) {
-    findings.push({
-      ruleId: 'architect-orphan-pages',
-      title: 'Pages with no internal links pointing to them',
-      severity: 'error',
-      category: 'Internal linking',
-      count: orphans.length,
-      detail: orphans.slice(0, 15).map((p) => p.url).join(', '),
-      recommendation: 'Link these from their cluster hub, or retire them.',
-    });
-  }
-
-  if (unassigned.length) {
-    findings.push({
-      ruleId: 'architect-unassigned-pages',
-      title: 'Pages that joined no topic cluster',
-      severity: 'notice',
-      category: 'Content architecture',
-      count: unassigned.length,
-      detail: unassigned.slice(0, 15).map((p) => p.url || p).join(', '),
-      recommendation:
-        'No cluster met the similarity bar for these. The threshold is deliberately strict — a '
-        + 'wrongly merged cluster costs more trust than an honestly unassigned page.',
-    });
-  }
-
-  if (buried.length) {
-    findings.push({
-      ruleId: 'architect-buried-pages',
-      title: 'Pages buried deep in the click path',
-      severity: 'warning',
-      category: 'Internal linking',
-      count: buried.length,
-      detail: buried.slice(0, 15).map((p) => p.url).join(', '),
-      recommendation: null,
-    });
-  }
-
-  if (thin.length) {
-    findings.push({
-      ruleId: 'architect-thin-pages',
-      // "Thin" only: staleness needs published/modified dates, which the crawl
-      // does not record. Claiming "thin or stale" would overstate what was checked.
-      title: 'Pages with thin content',
-      severity: 'notice',
-      category: 'Content quality',
-      count: thin.length,
-      detail: thin.slice(0, 15).map((p) => p.url).join(', '),
-      recommendation: null,
-    });
-  }
-
-  if (cannibalPairs) {
-    findings.push({
-      ruleId: 'architect-possible-cannibalization',
-      // "Possible", not "confirmed" — the module labels it that way deliberately,
-      // and hardening the claim here would misrepresent its own diagnostics.
-      title: 'Possible keyword cannibalization between pages in a cluster',
-      severity: 'notice',
-      category: 'Content architecture',
-      count: cannibalPairs,
-      detail: `${cannibalPairs} page pair(s) across ${(analysis.cannibalization || []).length} cluster(s)`,
-      recommendation: 'Review each pair — similar pages are not always competing ones.',
-    });
-  }
-
-  if (ambiguous.length) {
-    findings.push({
-      ruleId: 'architect-ambiguous-hubs',
-      title: 'Clusters where the hub choice was ambiguous',
-      severity: 'notice',
-      category: 'Content architecture',
-      count: ambiguous.length,
-      detail: ambiguous.slice(0, 10).map((c) => c.name).join('; '),
-      recommendation: 'Two or more pages scored within a hair of each other — worth a human decision.',
-    });
-  }
+  const findings = hubSpokeFindings(facts, { capped: input.meta.capped });
 
   return {
     score: meanHealth,
@@ -1723,8 +1749,10 @@ const SCORE_BASIS = {
   // labelled rather than read as the site improving or slipping.
   seo_geo: 'the SEO & GEO audit v2 (rule-based bucket scores, weighted composite, capped by blocking issues; '
     + 'duplicate checks counted once, Tech Audit length limits)',
-  agent_readiness: 'the agent readiness audit v2 (weighted HTTP plus on-page checks; agent-relevant Link headers, '
-    + 'allow-all robots counts for AI bots, WebMCP detected in the page, no SearchAction)',
+  // v5: 70 points for core access, 20 for the other checks a site can do today,
+  // 10 for emerging standards. Stored older runs are re-scored on read
+  // (moduleEvidence.rescoreAgentRuns).
+  agent_readiness: require('../../checks/agentReadinessScore').SCORE_BASIS,
   competitor: 'this site\'s estimated monthly organic traffic as a share of the tracked '
     + 'competitor with the most, from SEMrush',
 };
@@ -1963,5 +1991,7 @@ module.exports = {
   executeOpenRun,
   autoDiscoverCompetitors,
   hubSpokeTooFewResult,
+  hubSpokeFacts,
+  hubSpokeFindings,
   auditPageSeoGeo,
 };

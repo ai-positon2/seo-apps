@@ -29,50 +29,17 @@ function findLocalBrowser() {
   return candidates.find(p => fs.existsSync(p)) || null;
 }
 
-// ── Scoring weights (must sum to 100, webbotauth = 0 = informational) ────────
-const WEIGHTS = {
-  robots: 7, sitemap: 7, linkheaders: 6,
-  markdown: 10,
-  aibots: 11, contentsignals: 9, webbotauth: 0,
-  apicatalog: 8, oauth: 8, oauthresource: 8, mcp: 10, agentskills: 10, webmcp: 6,
-};
-
-// ── The quick-win projection ────────────────────────────────────────────────
+// ── Scoring ─────────────────────────────────────────────────────────────────
 //
-// "Fixing this week's quick wins would take you to N/100" — the one number in
-// the report a non-technical reader acts on. It lives here rather than in the
-// client because it needs the weights above AND the combined-score formula: an
-// audit with on-page checks scores (httpScore + onPageEarned) / (100 +
-// onPageMax), so projecting it is not a matter of adding up weights.
-//
-// Only status 'fail' counts. An 'info' check is an advisory flag, not a failure,
-// and webbotauth carries weight 0 — counting either would promise a gain that
-// fixing them cannot deliver.
-function quickWinProjection({ rawHttpChecks, httpScore, onPageChecks, onPageMax, onPageEarned }) {
-  let gain = 0;
-  let count = 0;
-
-  for (const [id, result] of Object.entries(rawHttpChecks || {})) {
-    if (result.status !== 'fail') continue;
-    if (CHECK_META[id]?.effort !== 'quick') continue;
-    gain += WEIGHTS[id] || 0;
-    count += 1;
-  }
-
-  for (const check of onPageChecks || []) {
-    if (check.status !== 'fail') continue;
-    if (check.effort !== 'quick') continue;
-    gain += (check.maxScore || 0) - (check.score || 0);
-    count += 1;
-  }
-
-  // httpMax is always 100, so totalMax is never 0 and this is the same
-  // expression totalScore uses.
-  const totalMax = 100 + (onPageMax || 0);
-  const projected = Math.round(((httpScore + gain) + (onPageEarned || 0)) / totalMax * 100);
-
-  return { quickWinScore: Math.min(100, projected), quickWinCount: count };
-}
+// The weights, the three tiers (READINESS_TIERS: 70 points for core access —
+// AI bot rules, robots.txt, sitemap — 20 for the other checks a site can do
+// today, 10 for emerging standards) and the one scoring function live in
+// checks/agentReadinessScore.js, a pure module the project read paths share to
+// re-score stored runs. Moving a check between tiers is a one-line change there.
+const {
+  WEIGHTS, READINESS_TIERS, CORE_POINTS, NOW_POINTS, FUTURE_POINTS,
+  readinessScore, quickWinProjection, levelFromScore, scoringSummary, rescoreStoredReport,
+} = require('../checks/agentReadinessScore');
 
 const CATEGORIES = {
   Discoverability:     ['robots', 'sitemap', 'linkheaders'],
@@ -91,18 +58,6 @@ const ONPAGE_WEIGHTS = {
   schema_action: 5, captcha: 8, cookie_banner: 6, js_rendering: 8,
   vague_buttons: 4, interactive_divs: 5,
 };
-
-// How future-ready the site is for AI agents. The protocols this measures are
-// new, so few sites score high yet; the names say where a site stands on that
-// path, not whether search engines can see it ("Not Indexed" was printed on
-// sites Google indexes fine). The steps sit on the platform's bands (80 / 60).
-function levelFromScore(score) {
-  if (score >= 90) return 'Level 4 — Agent native';
-  if (score >= 80) return 'Level 3 — Future-ready';
-  if (score >= 60) return 'Level 2 — Getting ready';
-  if (score >= 40) return 'Level 1 — Early steps';
-  return 'Level 0 — Not started';
-}
 
 async function safeFetch(url, opts = {}) {
   try {
@@ -979,6 +934,7 @@ function buildPdfHtml(data) {
     <div style="text-align:right;">
       <div style="font-size:36px;font-weight:600;color:${scoreColor};line-height:1;">${esc(site.score)}</div>
       <div style="font-size:11px;color:#9CA3AF;">out of 100</div>
+      <div style="font-size:9px;color:#9CA3AF;">${CORE_POINTS} pts core access · ${NOW_POINTS} other checks you can do today · ${FUTURE_POINTS} emerging standards</div>
       <div style="margin-top:6px;font-size:11px;">
         <span style="color:#3B6D11;">✓ ${pass} passed</span> &nbsp;
         <span style="color:#A32D2D;">✗ ${fail} failed</span>
@@ -1131,14 +1087,12 @@ async function runAgentReadiness({ url, url_homepage, url_action, url_form, skip
     // Build full HTTP check list with metadata
     const httpChecks = describeHttpChecks(rawHttpChecks);
 
-    // Combined scoring
-    const httpMax = 100;
+    // Overall score: 70 points for core access, 20 for the other checks a site
+    // can do today, 10 for emerging standards (checks/agentReadinessScore.js).
     const onPageMax = rawOnPageChecks.reduce((s, c) => s + (c.maxScore || 0), 0);
     const onPageEarned = rawOnPageChecks.reduce((s, c) => s + (c.score || 0), 0);
-    const totalMax = httpMax + onPageMax;
-    const totalScore = totalMax > 0
-      ? Math.round((httpScore + onPageEarned) / totalMax * 100)
-      : httpScore;
+    const breakdown = readinessScore({ httpChecks: rawHttpChecks, onPageChecks: rawOnPageChecks });
+    const totalScore = breakdown.score ?? httpScore;
 
     // Build categories — HTTP cats first
     const httpCats = Object.entries(CATEGORIES).map(([name, ids]) => {
@@ -1188,9 +1142,8 @@ async function runAgentReadiness({ url, url_homepage, url_action, url_form, skip
         httpScore,
         onPageScore: onPageMax > 0 ? Math.round((onPageEarned / onPageMax) * 100) : null,
         onPageMax,
-        ...quickWinProjection({
-          rawHttpChecks, httpScore, onPageChecks: rawOnPageChecks, onPageMax, onPageEarned,
-        }),
+        scoring: scoringSummary(breakdown),
+        ...quickWinProjection({ httpChecks, onPageChecks: rawOnPageChecks }),
       },
       cats: allCats,
       checks: httpChecks,
@@ -1303,14 +1256,12 @@ router.post('/stream', async (req, res) => {
     // Build full HTTP check list with metadata
     const httpChecks = describeHttpChecks(rawHttpChecks);
 
-    // Combined scoring
-    const httpMax = 100;
+    // Overall score: 70 points for core access, 20 for the other checks a site
+    // can do today, 10 for emerging standards (checks/agentReadinessScore.js).
     const onPageMax = rawOnPageChecks.reduce((s, c) => s + (c.maxScore || 0), 0);
     const onPageEarned = rawOnPageChecks.reduce((s, c) => s + (c.score || 0), 0);
-    const totalMax = httpMax + onPageMax;
-    const totalScore = totalMax > 0
-      ? Math.round((httpScore + onPageEarned) / totalMax * 100)
-      : httpScore;
+    const breakdown = readinessScore({ httpChecks: rawHttpChecks, onPageChecks: rawOnPageChecks });
+    const totalScore = breakdown.score ?? httpScore;
 
     // Build categories
     const httpCats = Object.entries(CATEGORIES).map(([name, ids]) => {
@@ -1358,9 +1309,8 @@ router.post('/stream', async (req, res) => {
         httpScore,
         onPageScore: onPageMax > 0 ? Math.round((onPageEarned / onPageMax) * 100) : null,
         onPageMax,
-        ...quickWinProjection({
-          rawHttpChecks, httpScore, onPageChecks: rawOnPageChecks, onPageMax, onPageEarned,
-        }),
+        scoring: scoringSummary(breakdown),
+        ...quickWinProjection({ httpChecks, onPageChecks: rawOnPageChecks }),
       },
       cats: allCats,
       checks: httpChecks,
@@ -1402,7 +1352,9 @@ router.post('/pdf', async (req, res) => {
       if (url.startsWith('data:') || url === 'about:blank') request.continue();
       else request.abort();
     });
-    const html = buildPdfHtml(data);
+    // The posted report may be one stored under the old formula; the PDF
+    // prints the score the current formula gives its checks.
+    const html = buildPdfHtml(rescoreStoredReport(data));
     await page.setContent(html, { waitUntil: 'networkidle0' });
     const pdf = await page.pdf({
       format: 'A4',
@@ -1433,6 +1385,12 @@ module.exports.runAgentReadiness = runAgentReadiness;
 module.exports.levelFromScore = levelFromScore;
 // The report assistant (modules/reportChat/working.js) prices each failed check with these.
 module.exports.WEIGHTS = WEIGHTS;
+module.exports.READINESS_TIERS = READINESS_TIERS;
+module.exports.CORE_POINTS = CORE_POINTS;
+module.exports.NOW_POINTS = NOW_POINTS;
+module.exports.FUTURE_POINTS = FUTURE_POINTS;
+module.exports.readinessScore = readinessScore;
+module.exports.rescoreStoredReport = rescoreStoredReport;
 // Exposed for routes/__tests__/egressWiring.test.js.
 module.exports._private = {
   safeFetch, buildPdfHtml, isJsonDocument, isSitemapDocument, auditBlocked, allowsEveryCrawler, agentLinkRels, siteOnce,

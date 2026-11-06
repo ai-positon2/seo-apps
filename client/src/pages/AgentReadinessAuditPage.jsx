@@ -9,6 +9,7 @@ import { useUrlState } from '../lib/useUrlState';
 import { useToast } from '../ui/Toast';
 import {
   encodeSharePayload, sharePayload, reconcileStoredReport, glanceGroups,
+  readinessScore, CORE_POINTS, NOW_POINTS, FUTURE_POINTS,
 } from '../lib/agentReadinessReport';
 import { scoreBandColor, scoreTone } from '../lib/scoreVerdict';
 import { InfoDot, Legend } from '../components/explain';
@@ -99,15 +100,35 @@ const LEVELS = [
   { score: '0–39', label: 'Not started', level: 0 },
 ];
 
-// Scoring weight table for explanation panel
-const SCORE_WEIGHTS_TABLE = [
-  { cat: 'Discoverability', checks: 3, weight: '20' },
-  { cat: 'Content', checks: 1, weight: '10' },
-  { cat: 'Bot Access', checks: 3, weight: '20' },
-  { cat: 'API / Auth / MCP', checks: 6, weight: '50' },
-  { cat: 'On-Page Signals', checks: 5, weight: '34 (when run)' },
-  { cat: 'Forms', checks: 5, weight: '29 (when run)' },
+// Which formula a score saved in this browser was made with, so the "since
+// the last audit" movement never compares scores from two formulas.
+const SCORE_FORMULA = 'core70-now20-future10';
+
+// The overall score's three tiers, for the explanation panels
+// (server/checks/agentReadinessScore.js READINESS_TIERS). Category bars are
+// unchanged: each is the share of its own checks' points earned.
+const SCORE_TIERS_TABLE = [
+  {
+    key: 'core', group: 'Core access', points: CORE_POINTS,
+    checks: 'AI bot rules, robots.txt, XML sitemap',
+  },
+  {
+    key: 'now', group: 'Other checks you can do today', points: NOW_POINTS,
+    checks: 'Link headers, and every on-page check that ran',
+  },
+  {
+    key: 'future', group: 'Emerging standards', points: FUTURE_POINTS,
+    checks: 'Markdown version, Content signals, API catalog, OAuth, OAuth protected resource, MCP server card, Agent skills, WebMCP, Web Bot Auth (informational)',
+  },
 ];
+
+// Why the emerging standards carry only 10 of the 100 points. Shown in the
+// "How is this scored?" panel and the score card's explainer.
+const FUTURE_WEIGHT_NOTE = 'Why future readiness counts for less: most agent standards (MCP, WebMCP, agent skills, API catalogs, '
+  + 'markdown versions of pages) are still drafts or barely adopted, so few sites can act on them yet. The score puts 90 of its '
+  + '100 points on what can be done today — 70 for letting AI tools reach and find your content (AI bot rules, robots.txt, '
+  + 'sitemap) and 20 for the rest of today\'s checks — and keeps 10 for emerging standards, so it shows how ready you are now '
+  + 'while still crediting early adopters.';
 
 // Agentic protocol check IDs
 const AGENTIC_PROTOCOL_IDS = ['apicatalog', 'oauth', 'oauthresource', 'mcp', 'agentskills', 'webmcp'];
@@ -259,13 +280,24 @@ function LevelLadder({ score }) {
   );
 }
 
-/** The "i": the formula, the weights, and this audit's own category scores. */
-function ReadinessExplainer({ score, cats = [], hasOnPage }) {
-  // Only the categories this audit actually scored (a Forms category with no
-  // form URL never ran); falls back to the always-run ones without that list.
-  const ran = new Set(cats.map((c) => c.id));
-  const weights = SCORE_WEIGHTS_TABLE.filter((w) => (ran.size ? ran.has(w.cat) : (hasOnPage || !/when run/.test(w.weight))));
-  const maxW = Math.max(...weights.map((w) => parseInt(w.weight, 10) || 0), 1);
+/**
+ * The three tiers' figures for a report: the server's (site.scoring), or
+ * worked out from the checks for a report saved before it carried them (or
+ * carried only the older two groups).
+ */
+function readinessScoring(result) {
+  if (result?.site?.scoring && result.site.scoring.coreMax !== undefined) return result.site.scoring;
+  const r = readinessScore({ httpChecks: result?.checks, onPageChecks: result?.onPageChecks });
+  if (r.score === null) return null;
+  return {
+    coreEarned: r.core.earned, coreMax: r.core.max, corePoints: r.core.points,
+    nowEarned: r.now.earned, nowMax: r.now.max, nowPoints: r.now.points,
+    futureEarned: r.future.earned, futureMax: r.future.max, futurePoints: r.future.points,
+  };
+}
+
+/** The "i": the formula, the three tiers, and this audit's own figures. */
+function ReadinessExplainer({ score, cats = [], scoring = null }) {
   const head = (t) => (
     <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-3)' }}>{t}</span>
   );
@@ -282,15 +314,34 @@ function ReadinessExplainer({ score, cats = [], hasOnPage }) {
     <>
       <strong style={{ color: 'var(--text)', fontSize: 13.5 }}>How the Agent Readiness score works</strong>
       <span>How easily AI agents can find, read and act on this site — from crawl access to protocols like MCP and OAuth.</span>
-      <span>Every check carries points for its business impact. A pass earns its points; the score is <strong>points earned ÷ points possible</strong>.</span>
+      <span>
+        <strong>Core access</strong> (AI bot rules, robots.txt, sitemap) is worth {CORE_POINTS} of the 100 points, the{' '}
+        <strong>other checks you can do today</strong> {NOW_POINTS}, and <strong>emerging standards</strong> {FUTURE_POINTS}.
+        Inside each tier a check earns points for its business impact when it passes: the score is{' '}
+        <strong>{CORE_POINTS} × core points earned ÷ possible + {NOW_POINTS} × today points earned ÷ possible + {FUTURE_POINTS} × emerging points earned ÷ possible</strong>.
+      </span>
       <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
-        13 web checks (100 pts) always run; 10 on-page checks add up to 63 pts when an action page or form URL is given.
+        Other checks today: Link headers, plus every on-page check that ran. Emerging: markdown version, content signals, API catalog, OAuth, MCP, agent skills, WebMCP and Web Bot Auth.
       </span>
-      {head('Points by category')}
+      <span style={{ fontSize: 11.5, color: 'var(--text-2)' }}>{FUTURE_WEIGHT_NOTE}</span>
+      {head('Points by tier')}
       <span style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-        {weights.map((w) => bar(w.cat, parseInt(w.weight, 10) || 0, maxW, parseInt(w.weight, 10) || 0))}
+        {SCORE_TIERS_TABLE.map((g) => bar(g.group, g.points, 100, g.points))}
       </span>
-      {cats.length > 0 && head('This audit')}
+      {scoring && head('This audit')}
+      {scoring && (
+        <span style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          {SCORE_TIERS_TABLE.map((t) => {
+            const earned = scoring[`${t.key}Earned`];
+            const max = scoring[`${t.key}Max`];
+            const points = scoring[`${t.key}Points`];
+            if (!(max > 0)) return null;
+            return bar(`${t.group}: ${Math.round(earned * 10) / 10} of ${max} pts`, earned, max,
+              Math.round((earned / max) * points * 10) / 10);
+          })}
+        </span>
+      )}
+      {cats.length > 0 && head('Categories')}
       {cats.length > 0 && (
         <span style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           {cats.map((c) => bar(c.id, c.score, 100, c.score,
@@ -428,8 +479,10 @@ function BriefCard({ tone, icon, label, title, text }) {
 // ─── The two halves of the score ────────────────────────────────────────────
 // HTTP readiness: the 13 site-level checks, points earned of 100. On-page
 // readiness: the 10 page-level checks run on the action page / form URL, points
-// earned of up to 63. The overall score pools both sets of points
-// (server/routes/agentReadinessAudit.js: (httpScore + onPageEarned) / (100 + onPageMax)).
+// earned of up to 63. The overall score is not their average: it is 70 points
+// for core access (AI bot rules, robots.txt, sitemap), 20 for the other checks
+// a site can do today (Link headers, every page-level check) and 10 for
+// emerging standards (server/checks/agentReadinessScore.js).
 const HALF = {
   http: {
     title: 'Site-level readiness',
@@ -567,7 +620,7 @@ function HalfExplainer({ kind, score, checks }) {
       </span>
       <span>Each check is worth points for its business impact; a pass earns them. This score is <strong>points earned ÷ points possible</strong> = <strong>{score}</strong>.</span>
       <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
-        The overall score pools both halves’ points — site-level checks are worth 100, page-level up to 63 — so site-level readiness weighs more.
+        The overall score is not an average of the two halves: core access (AI bot rules, robots.txt, sitemap) shares {CORE_POINTS} points; the other checks you can do today (Link headers and every page-level check) share {NOW_POINTS}; emerging standards (markdown version, content signals, API catalog, OAuth, MCP, agent skills, WebMCP, Web Bot Auth) share {FUTURE_POINTS}.
       </span>
     </>
   );
@@ -750,15 +803,20 @@ export default function AgentReadinessAuditPage() {
       const domain = new URL(data.site.full).hostname;
       const storageKey = `ara_last_${domain}`;
       const prev = localStorage.getItem(storageKey);
+      // A score saved under an older formula is not compared: the movement
+      // would be the method changing, not the site.
       if (prev) {
         const prevData = JSON.parse(prev);
-        const diff = data.site.score - prevData.score;
-        setDelta({ diff, prevScore: prevData.score, prevDate: prevData.date });
+        if (prevData.formula === SCORE_FORMULA) {
+          const diff = data.site.score - prevData.score;
+          setDelta({ diff, prevScore: prevData.score, prevDate: prevData.date });
+        }
       }
       localStorage.setItem(storageKey, JSON.stringify({
         score: data.site.score,
         level: data.site.level,
         date: data.site.date,
+        formula: SCORE_FORMULA,
       }));
     } catch {}
   }
@@ -1257,7 +1315,7 @@ export default function AgentReadinessAuditPage() {
                     {/* The "i": how the number is made, from this audit's own figures. */}
                     <span style={{ position: 'absolute', top: 12, right: 12 }}>
                       <InfoTip label="How the Agent Readiness score is calculated" align="left">
-                        <ReadinessExplainer score={result.site.score} cats={result.cats} hasOnPage={hasOnPage} />
+                        <ReadinessExplainer score={result.site.score} cats={result.cats} scoring={readinessScoring(result)} />
                       </InfoTip>
                     </span>
                     <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-3)' }}>
@@ -1267,7 +1325,8 @@ export default function AgentReadinessAuditPage() {
                     <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{result.site.level}</span>
                     <LevelLadder score={result.site.score} />
                     <span {...HIDE} style={{ fontSize: 11, color: 'var(--text-3)', textAlign: 'center' }}>
-                      Based on {hasOnPage ? '23 checks across 6 categories' : '13 HTTP checks across 4 categories'}
+                      Based on {hasOnPage ? '23 checks across 6 categories' : '13 HTTP checks across 4 categories'}.
+                      {' '}{CORE_POINTS} points for core access, {NOW_POINTS} for other checks you can do today, {FUTURE_POINTS} for emerging standards.
                     </span>
                     {/* Movement since the last audit of this host. */}
                     {delta && (
@@ -1372,7 +1431,7 @@ export default function AgentReadinessAuditPage() {
                 </div>
 
                 {/* The projection comes from the server, computed with the same
-                    weights and the same combined-score formula the score uses.
+                    weights and the same 90 now / 10 future formula the score uses.
                     It replaced a hard-coded "score + 16". */}
                 {result.site.quickWinCount > 0 && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '20px 24px', borderRadius: 14, background: 'var(--card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)', flexWrap: 'wrap' }}>
@@ -1441,23 +1500,24 @@ export default function AgentReadinessAuditPage() {
                   <div style={{ background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 10, padding: 14 }}>
                     <p style={{ fontSize: 12, color: 'var(--text)', margin: '0 0 10px', lineHeight: 1.7 }}>
                       <strong>How this score is calculated</strong><br />
-                      The overall score combines up to 23 checks across 6 categories. Each check carries a weight based on its business impact. HTTP checks (13 total) run on every audit and form the foundation score. On-page checks (10 additional) only run when an action page or form URL is provided.
+                      The score has three tiers. Letting AI tools reach and find your content (core access) is worth {CORE_POINTS} of the 100 points; the other checks you can do today are worth {NOW_POINTS}; emerging standards are worth {FUTURE_POINTS}. Inside each tier a check carries a weight based on its business impact, and a pass earns it. If a tier has nothing to score, its points go to the other tiers in proportion.
                     </p>
+                    <p style={{ fontSize: 12, color: 'var(--text-2)', margin: '0 0 10px', lineHeight: 1.6 }}>{FUTURE_WEIGHT_NOTE}</p>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, marginBottom: 10 }}>
                       <thead>
-                        <tr>{['Category', 'Checks', 'Total Weight'].map(h => <th key={h} style={{ textAlign: 'left', padding: '4px 8px', borderBottom: '1px solid var(--border)', color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>)}</tr>
+                        <tr>{['Tier', 'Points', 'Checks'].map(h => <th key={h} style={{ textAlign: 'left', padding: '4px 8px', borderBottom: '1px solid var(--border)', color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>)}</tr>
                       </thead>
                       <tbody>
-                        {SCORE_WEIGHTS_TABLE.map(row => (
-                          <tr key={row.cat}>
-                            <td style={{ padding: '4px 8px', color: 'var(--text)' }}>{row.cat}</td>
+                        {SCORE_TIERS_TABLE.map(row => (
+                          <tr key={row.group}>
+                            <td style={{ padding: '4px 8px', color: 'var(--text)', whiteSpace: 'nowrap' }}>{row.group}</td>
+                            <td style={{ padding: '4px 8px', color: 'var(--text)', fontWeight: 500 }}>{row.points}</td>
                             <td style={{ padding: '4px 8px', color: 'var(--text-2)' }}>{row.checks}</td>
-                            <td style={{ padding: '4px 8px', color: 'var(--text)', fontWeight: 500 }}>{row.weight}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
-                    <p style={{ fontSize: 11, color: 'var(--text-3)', margin: 0 }}>On-page checks add up to 63 points of possible additional signal. Add your action and form URLs to unlock the full audit.</p>
+                    <p style={{ fontSize: 11, color: 'var(--text-3)', margin: 0 }}>Each category bar above is the share of that category’s own points earned. On-page checks only run when an action page or form URL is given; add them to unlock the full audit.</p>
                   </div>
                 )}
 

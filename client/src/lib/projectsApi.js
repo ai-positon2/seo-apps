@@ -81,6 +81,15 @@ export const projectsApi = {
   get: (projectId) => req(`${BASE}/${projectId}`),
 
   contentArchitect: (projectId) => req(`${BASE}/${projectId}/content-architect`),
+
+  // Hub and Spoke topics the client does not target: left out of the score,
+  // counts, lists and downloads for this analysis and every later one.
+  archiveCluster: (projectId, clusterId, reason = null) =>
+    req(`${BASE}/${projectId}/archived-clusters`, {
+      method: 'POST', body: JSON.stringify({ clusterId, reason }),
+    }),
+  restoreCluster: (projectId, key) =>
+    req(`${BASE}/${projectId}/archived-clusters/${encodeURIComponent(key)}`, { method: 'DELETE' }),
   connectContentArchitect: (projectId, { retry = false } = {}) =>
     req(`${BASE}/${projectId}/content-architect`, {
       method: 'POST', body: JSON.stringify({ retry }),
@@ -187,6 +196,16 @@ export const projectsApi = {
     req(`${BASE}/${projectId}/domains/${domainId}`, {
       method: 'DELETE', body: JSON.stringify({ reason }),
     }),
+
+  // ── Hidden Tech Audit checks ("Exclude check") ────────────────────────────
+  // Each answers { hiddenChecks: [{ ruleId, hiddenBy, hiddenAt, reason }], canEdit }.
+  hiddenChecks: (projectId) => req(`${BASE}/${projectId}/hidden-checks`),
+  hideCheck: (projectId, ruleId, reason = null) =>
+    req(`${BASE}/${projectId}/hidden-checks`, {
+      method: 'POST', body: JSON.stringify({ ruleId, reason }),
+    }),
+  unhideCheck: (projectId, ruleId) =>
+    req(`${BASE}/${projectId}/hidden-checks/${encodeURIComponent(ruleId)}`, { method: 'DELETE' }),
 
   // ── Verification + robots policy ──────────────────────────────────────────
   verifySite: (projectId, reason) =>

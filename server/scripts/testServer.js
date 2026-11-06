@@ -38,6 +38,8 @@ const SUITES = [
   // The Agent Readiness PDF escapes caller fields and loads nothing.
   'routes/__tests__/agentReadinessPdf.test.js',
   'routes/__tests__/agentReadinessChecks.test.js',
+  // Agent Readiness: 70 core access, 20 other checks you can do today, 10 emerging standards.
+  'checks/__tests__/agentReadinessScore.test.js',
   // A bot-protection wall is not scored as the site's page.
   'checks/__tests__/challengePage.test.js',
   // A project audit only follows that project's own crawl.
@@ -99,6 +101,8 @@ const SUITES = [
   // Per-page runs agree with their pages; a missing Hub and Spoke analysis is
   // not a score; a refused site reads the same on every card.
   'modules/projects/__tests__/pageRollup.test.js',
+  // Stored Agent Readiness runs are re-scored on read with the current formula.
+  'modules/projects/__tests__/agentReadinessRescore.test.js',
   'modules/projects/__tests__/auditSpread.test.js',
   'modules/projects/__tests__/scoreChange.test.js',
   'modules/contentArchitect/__tests__/clusterHealth.test.js',
@@ -118,6 +122,10 @@ const SUITES = [
   'modules/contentArchitect/__tests__/work.test.js',
   // Saved work follows its topic across a re-run that renumbers the clusters.
   'modules/contentArchitect/__tests__/topicAnchors.test.js',
+  // Hub and Spoke topics a client archived: matched by anchor across analyses,
+  // and left out of the score, findings, lists and downloads on read.
+  'modules/contentArchitect/__tests__/archivedClusters.test.js',
+  'modules/projects/__tests__/archivedClusters.test.js',
   'modules/projects/__tests__/crawlToArchitect.test.js',
   'services/__tests__/llmProviders.test.js',
   'modules/projects/__tests__/moduleDetail.test.js',
@@ -187,6 +195,8 @@ const SUITES = [
   // Site Health's aggregates: computed once per finished crawl, shared by
   // concurrent callers, bounded in time, recomputed on a review.
   'modules/projects/__tests__/crawlHealthCache.test.js',
+  // Hidden Tech Audit checks: stored per client, out of every score and count.
+  'modules/projects/__tests__/hiddenChecks.test.js',
   // A dashboard read stops when its request goes away (UX-054).
   'services/__tests__/boundedRead.test.js',
   // The executive summary's blocked-site and still-being-worked-out verdicts,

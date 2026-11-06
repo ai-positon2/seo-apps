@@ -298,10 +298,13 @@ test('the orphan finding is gated on a complete crawl', () => {
   const fs = require('fs');
   const path = require('path');
   const source = fs.readFileSync(path.join(__dirname, '../moduleRunners.js'), 'utf8');
+  // The findings are built by hubSpokeFindings (shared with the archived-topic
+  // read path), which the runner hands the crawl's own capped flag.
   assert.match(
-    source, /orphans\.length && !input\.meta\.capped/,
+    source, /orphans\.length && !capped/,
     'measured: 40 of 50 pages had no in-set inbound link and none was an orphan',
   );
+  assert.match(source, /hubSpokeFindings\(facts, \{ capped: input\.meta\.capped \}\)/);
   assert.match(
     source, /input\.meta\.capped \? null : orphans\.length/,
     'orphanCount must be null, not 0, when it could not be determined',

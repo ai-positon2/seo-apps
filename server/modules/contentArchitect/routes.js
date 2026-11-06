@@ -37,6 +37,7 @@ const keywordResearchStore = require('./keywordResearchStore');
 const enhancementsStore = require('./enhancementsStore');
 const work = require('./work');
 const topicAnchors = require('./topicAnchors');
+const archivedTopics = require('./archivedClusters');
 const runStore = require('../../services/runStore');
 const { buildCorpusTermProfiles } = require('./termProfile');
 const { computeIdf } = require('./similarity');
@@ -414,9 +415,35 @@ router.get('/projects/:id/analyze/stream/:token', async (req, res) => {
   if (!isClosed) res.end();
 });
 
+// Topics the client archived (projects/store.js archiveCluster), and whether
+// this reader may archive or restore one. Archives belong to the platform
+// project, so a standalone analysis has none and offers no Archive control.
+async function archivedTopicsFor(req, project) {
+  if (!project?.platformProjectId) return { entries: [], archive: { supported: false, canArchive: false } };
+  const projectAccess = require('../../services/projectAccess');
+  const [state, access] = await Promise.all([
+    require('../projects/archivedClusters').archiveState(project.platformProjectId),
+    projectAccess.requireProject(req, project.platformProjectId, 'view').catch(() => null),
+  ]);
+  return {
+    entries: state.entries,
+    archive: {
+      supported: true,
+      canArchive: access?.can?.('overrideMachineOutcome') === true,
+      platformProjectId: project.platformProjectId,
+    },
+  };
+}
+
 router.get('/projects/:id/full-analysis', wrap(async (req, res) => {
-  const analysis = await store.getFullAnalysis(req.params.id);
-  if (!analysis) return res.status(404).json({ error: 'No analysis yet.' });
+  const stored = await store.getFullAnalysis(req.params.id);
+  if (!stored) return res.status(404).json({ error: 'No analysis yet.' });
+  // Archived topics are left out of everything the report shows (clusters,
+  // their pages, the health figure) and listed apart for Restore. With none,
+  // the stored analysis itself (archivedClusters.excludeArchived).
+  const caProject = await store.getProject(req.params.id);
+  const topics = await archivedTopicsFor(req, caProject);
+  const analysis = archivedTopics.excludeArchived(stored, topics.entries).analysis;
   // The database copy of spokeSuggestionsByCluster wins over the file-store's
   // own — it is the durable one, so a stale or missing file-store value must
   // not shadow a suggestion that genuinely exists.
@@ -424,13 +451,16 @@ router.get('/projects/:id/full-analysis', wrap(async (req, res) => {
   // Placed by the topic each was made for, not by its stored cluster id, which
   // a re-run reassigns (UX-159). Those whose topic is gone are listed apart.
   const dbSuggestions = await spokeSuggestionsStore.getSpokeSuggestions(req.params.id);
+  // Placed against the whole stored analysis, so an archived topic's
+  // suggestions stay with it rather than turning up as earlier work.
   const placement = Object.keys(dbSuggestions || {}).length
-    ? await placementOptions(await store.getProject(req.params.id), analysis)
+    ? await placementOptions(caProject, stored)
     : {};
-  const { byCluster, earlier } = topicAnchors.remapSuggestions(dbSuggestions, analysis, placement);
+  const { byCluster, earlier } = topicAnchors.remapSuggestions(dbSuggestions, stored, placement);
   res.json({
     ...spokeSuggestionsStore.mergeInto(analysis, byCluster),
     earlierSpokeSuggestions: earlier,
+    archive: topics.archive,
   });
 }));
 
@@ -640,8 +670,12 @@ router.get('/projects/:id/export', async (req, res) => {
   try {
     const stored = await store.getProject(req.params.id);
     if (!stored) return res.status(404).json({ error: 'Project not found' });
-    const analysis = await store.getFullAnalysis(req.params.id);
-    if (!analysis) return res.status(404).json({ error: 'Run analysis first.' });
+    const full = await store.getFullAnalysis(req.params.id);
+    if (!full) return res.status(404).json({ error: 'Run analysis first.' });
+    // Archived topics are left out of the files as they are of the report
+    // (archivedClusters.js); the Summary lists them. With none, the stored analysis.
+    const { entries } = await archivedTopicsFor(req, stored);
+    const analysis = archivedTopics.excludeArchived(full, entries).analysis;
     // Titled by the platform project and its current site, not the name the
     // record was created with — Soteri Skin's files were named www-position2-com
     // (UX-108).

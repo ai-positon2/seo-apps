@@ -110,8 +110,81 @@ const INTERIM_AIBOTS_FAIL = /^No AI-specific bot rules found in robots\.txt, and
 const OLD_WEBMCP = /not detectable via HTTP/i;
 export const BLOCKS_AI = /^robots\.txt blocks AI crawlers/i;
 
-// Weights of the checks re-read here (server/routes/agentReadinessAudit.js).
-const RECHECK_WEIGHTS = { aibots: 11, webmcp: 6 };
+// ── The overall score ───────────────────────────────────────────────────────
+//
+// The client's one mirror of server/checks/agentReadinessScore.js (kept equal
+// by a server test that loads this file). Three tiers: 70 points for core
+// access (AI bot rules, robots.txt, sitemap), 20 for the other checks a site
+// can do today, 10 for emerging standards; within a tier a check keeps its
+// relative weight. A tier with nothing to score gives its points to the others
+// in proportion. Reports reach the page already scored by the server (stored
+// ones are re-scored on read); this is used for what-ifs on them.
+
+export const WEIGHTS = {
+  robots: 7, sitemap: 7, linkheaders: 6,
+  markdown: 10,
+  aibots: 11, contentsignals: 9, webbotauth: 0,
+  apicatalog: 8, oauth: 8, oauthresource: 8, mcp: 10, agentskills: 10, webmcp: 6,
+};
+export const READINESS_TIERS = [
+  { key: 'core', label: 'Core access', points: 70, ids: ['aibots', 'robots', 'sitemap'] },
+  {
+    key: 'now', label: 'Other checks you can do today', points: 20,
+    ids: [
+      'linkheaders',
+      'captcha', 'cookie_banner', 'js_rendering', 'form_labels', 'input_type',
+      'autocomplete', 'vague_buttons', 'interactive_divs', 'schema_action', 'schema_search',
+    ],
+  },
+  {
+    key: 'future', label: 'Emerging standards', points: 10,
+    ids: [
+      'markdown', 'contentsignals', 'apicatalog', 'oauth', 'oauthresource',
+      'mcp', 'agentskills', 'webmcp', 'webbotauth',
+    ],
+  },
+];
+export const CORE_POINTS = 70;
+export const NOW_POINTS = 20;
+export const FUTURE_POINTS = 10;
+
+export const tierOf = (id) => (READINESS_TIERS.find((t) => t.ids.includes(id)) || { key: 'now' }).key;
+
+/**
+ * { score, exact, core, now, future } (each { earned, max, points }) for a
+ * report's checks. A check absent or marked `olderRule` counts in neither
+ * earned nor max.
+ */
+export function readinessScore({ httpChecks = [], onPageChecks = [] } = {}) {
+  const tiers = Object.fromEntries(READINESS_TIERS.map((t) => [t.key, { earned: 0, max: 0 }]));
+  for (const c of Array.isArray(httpChecks) ? httpChecks : []) {
+    if (!c || !c.id || c.olderRule) continue;
+    const weight = WEIGHTS[c.id];
+    if (!Number.isFinite(weight)) continue;
+    const g = tiers[tierOf(c.id)];
+    g.max += weight;
+    if (c.status === 'pass') g.earned += weight;
+  }
+  for (const c of Array.isArray(onPageChecks) ? onPageChecks : []) {
+    if (!c || c.olderRule) continue;
+    const max = Number(c.maxScore);
+    if (!Number.isFinite(max) || max <= 0) continue;
+    const g = tiers[tierOf(c.id)];
+    g.max += max;
+    g.earned += Math.max(0, Math.min(max, Number(c.score) || 0));
+  }
+  const activePoints = READINESS_TIERS.reduce((sum, t) => sum + (tiers[t.key].max > 0 ? t.points : 0), 0);
+  const out = {};
+  let exact = 0;
+  for (const t of READINESS_TIERS) {
+    const g = tiers[t.key];
+    const points = g.max > 0 ? (t.points * 100) / activePoints : 0;
+    out[t.key] = { ...g, points };
+    if (g.max > 0) exact += points * (g.earned / g.max);
+  }
+  if (!activePoints) return { score: null, exact: null, ...out };
+  return { score: Math.round(exact), exact, ...out };
+}
 
 /** True when a check records a real refusal of AI crawlers. */
 export function isBlockingCheck(check) {
@@ -167,13 +240,19 @@ export function reconcileStoredReport(result) {
   });
 
   if (!changed) return result;
-  const totalMax = 100 + (result.site?.onPageMax || 0);
-  const points = olderRules.reduce((s, id) => s + (RECHECK_WEIGHTS[id] || 0), 0);
+  // What the score would be if every check not re-checked passed, by the
+  // current formula, over the report's own checks as scored.
+  const scored = readinessScore({ httpChecks: result.checks, onPageChecks: result.onPageChecks });
+  const best = readinessScore({
+    httpChecks: result.checks.map((c) => (olderRules.includes(c.id) ? { ...c, status: 'pass' } : c)),
+    onPageChecks: result.onPageChecks,
+  });
+  const points = olderRules.length && scored.exact !== null ? Math.round(best.exact - scored.exact) : 0;
   return {
     ...result,
     checks,
     olderRules,
-    olderRulesPoints: points ? Math.round((points / totalMax) * 100) : 0,
+    olderRulesPoints: Math.max(0, points),
   };
 }
 

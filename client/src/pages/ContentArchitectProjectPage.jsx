@@ -18,6 +18,7 @@ import { useActiveProject } from '../lib/useActiveProject';
 import { projectsApi } from '../lib/projectsApi';
 import { matchClientSlug, KB_CLIENT_SLUGS } from '../lib/clientMatch';
 import { HIDE } from '../components/minimal/hide';
+import { withClusterArchived, withTopicRestored, archivedScoreNote } from '../lib/archivedTopics';
 
 const DISCOVER_STEPS = [
   { id: 'sitemap', label: 'Find sitemap' },
@@ -318,6 +319,37 @@ export default function ContentArchitectProjectPage() {
     }
   }
 
+  // Archive / restore a topic for this client. The report changes at once and
+  // is reloaded from the server once it answers; on an error it goes back to
+  // exactly what it was.
+  async function archiveTopic(cluster) {
+    const before = analysis;
+    setAnalysis((prev) => withClusterArchived(prev, cluster));
+    try {
+      await projectsApi.archiveCluster(project.platformProjectId, cluster.id);
+      const full = await ca.getFullAnalysis(id).catch(() => null);
+      if (full) setAnalysis(full);
+      toast.add({ title: 'Topic archived', description: `“${cluster.name}” is left out of the Hub & Spoke score and lists.` });
+    } catch (e) {
+      setAnalysis(before);
+      toast.add({ title: 'Could not archive topic', description: friendlyError(e), variant: 'danger' });
+    }
+  }
+
+  async function restoreTopic(topic) {
+    const before = analysis;
+    setAnalysis((prev) => withTopicRestored(prev, topic.key));
+    try {
+      await projectsApi.restoreCluster(project.platformProjectId, topic.key);
+      const full = await ca.getFullAnalysis(id).catch(() => null);
+      if (full) setAnalysis(full);
+      toast.add({ title: 'Topic restored', description: `“${topic.name || 'The topic'}” counts in the Hub & Spoke score again.` });
+    } catch (e) {
+      setAnalysis(before);
+      toast.add({ title: 'Could not restore topic', description: friendlyError(e), variant: 'danger' });
+    }
+  }
+
   async function downloadExport(format) {
     setExportingFormat(format);
     try {
@@ -367,6 +399,8 @@ export default function ContentArchitectProjectPage() {
   // records what it left out. Said next to the page count, because "12 pages
   // analysed" on a 590-page site reads as a broken crawl unless it says why.
   const selectionSummary = analysis?.selection?.summary || null;
+  // "2 topics archived — excluded from this score", when the client archived any.
+  const archivedNote = archivedScoreNote(analysis);
 
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto' }}>
@@ -511,7 +545,7 @@ export default function ContentArchitectProjectPage() {
                         Hub &amp; spoke health
                       </span>
                       <InfoTip label="How hub and spoke health is scored">
-                        <HealthExplainer meanHealth={meanHealth} clusterCount={analysis.clusters.length} unassigned={analysis.unassignedPages.length} />
+                        <HealthExplainer meanHealth={meanHealth} clusterCount={analysis.clusters.length} unassigned={analysis.unassignedPages.length} archivedNote={archivedNote} />
                       </InfoTip>
                     </span>
                     <span
@@ -527,6 +561,9 @@ export default function ContentArchitectProjectPage() {
                       Average of {analysis.clusters.length} clusters
                       {analysis.unassignedPages.length > 0 && ` · ${analysis.unassignedPages.length} pages not in any topic, not counted`}
                     </span>
+                    {archivedNote && (
+                      <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{archivedNote}</span>
+                    )}
                   </div>
                 </div>
 
@@ -612,6 +649,8 @@ export default function ContentArchitectProjectPage() {
             actionStatus={actionStatus}
             work={work}
             onWorkChanged={loadWork}
+            onArchive={project?.platformProjectId ? archiveTopic : null}
+            onRestore={project?.platformProjectId ? restoreTopic : null}
             onSuggestions={(clusterId, result) => setAnalysis((prev) => ({
               ...prev,
               spokeSuggestionsByCluster: { ...(prev.spokeSuggestionsByCluster || {}), [clusterId]: result },
@@ -642,7 +681,7 @@ const HEALTH_LABEL = { success: 'Healthy', warning: 'Needs work', danger: 'Weak'
 // The "i" for hub & spoke health: what one cluster is scored on, and how the
 // site figure is made from them. Weights are contentArchitect/config.js's
 // CLUSTER_HEALTH_WEIGHTS (v2); bands are healthVariant's.
-function HealthExplainer({ meanHealth, clusterCount, unassigned = 0 }) {
+function HealthExplainer({ meanHealth, clusterCount, unassigned = 0, archivedNote = null }) {
   const rows = [
     ['Has a hub page', 30],
     ['Hub covers the cluster’s topic', 20],
@@ -683,6 +722,12 @@ function HealthExplainer({ meanHealth, clusterCount, unassigned = 0 }) {
         <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
           {unassigned} page{unassigned === 1 ? '' : 's'} joined no cluster. They don’t lower the figure, which only
           averages clusters; they’re listed under Unassigned.
+        </span>
+      )}
+      {archivedNote && (
+        <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
+          {archivedNote}: the client doesn’t target them, so they are left out as if they didn’t exist.
+          They’re listed under Archived topics.
         </span>
       )}
       <span style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 11.5 }}>

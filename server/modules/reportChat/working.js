@@ -16,7 +16,7 @@
 // but it arrives from the browser.
 
 const seoGeo = require('../../checks/seoGeoChecks');
-const agentReadiness = require('../../routes/agentReadinessAudit');
+const agentScore = require('../../checks/agentReadinessScore');
 const { CLUSTER_HEALTH_WEIGHTS, UNVERIFIED_HUB_CREDIT } = require('../contentArchitect/config');
 
 const LIMITS = { string: 300, array: 250, depth: 6 };
@@ -68,6 +68,27 @@ function fewestFixesToReach(items, start, gain, scoreOf) {
     out[target] = `${picked.length} fix${picked.length === 1 ? '' : 'es'} (the fewest that reach ${target}): ${picked.join(', ')} → the score becomes ${Math.round(scoreOf(total))} (exact ${r2(scoreOf(total))})`;
   }
   return out;
+}
+
+// The checks the client hid, as the working lists them: each rule's id and
+// name, with an explicit statement of what hiding does to the score.
+function hiddenChecksWorking(raw) {
+  const list = (Array.isArray(raw) ? raw : [])
+    .map((h) => (typeof h === 'string' ? { ruleId: h } : h))
+    .filter((h) => h && typeof h === 'object' && typeof h.ruleId === 'string' && h.ruleId)
+    .map((h) => ({
+      ruleId: h.ruleId,
+      rule: typeof h.rule === 'string' && h.rule ? h.rule : h.ruleId,
+      occurrencesInThisCrawl: num(h.occurrences),
+    }));
+  if (!list.length) return {};
+  return {
+    hiddenChecks: list,
+    hiddenChecksNote: `${list.length} check${list.length === 1 ? ' is' : 's are'} hidden for this client and excluded from this score: `
+      + `${list.map((h) => h.rule).join(', ')}. A hidden check costs no points, is not counted in the errors, warnings `
+      + 'or notices, and is not in the rule list, on every crawl of this client (the previous crawl in the change '
+      + 'indicator is scored without it too). Restoring it puts it back into every figure.',
+  };
 }
 
 function tech(w) {
@@ -175,6 +196,9 @@ function tech(w) {
     rulesOrder: 'most points lost first',
     rules: sortedRules,
     rulesNotListed: num(w.rulesNotListed) || 0,
+    // Checks this client hid (Semrush's "exclude check"): out of the score, the
+    // counts and the rule list above, on every crawl. Omitted when none are.
+    ...hiddenChecksWorking(w.hiddenChecks),
     note: 'This lists EVERY rule the report shows. Each rule\'s points = weight × scored pages it is on (scaled on pages whose loss hit the 100 cap) ÷ pages scored. Rules with a siteLevel are charged once for the site instead (site-wide problems, or ones found only on redirects, error pages or files) and make up the Site-wide bar. Notices cost 0. A severity\'s rules sum to its exact points; the bars round those so they add up to 100 − score. For what-ifs use scoreIfOnlyThisWereFixed and fewestFixesToReach and never subtract points yourself: on a page at the 100-point cap a fix wins back less than its points (gainIfFixed).',
   };
 }
@@ -309,49 +333,74 @@ function seogeo(w) {
 
 function agent(w) {
   const site = w.site || {};
-  const onPageMax = num(site.onPageMax) || 0;
-  const denom = 100 + onPageMax;
-  const http = arr(w.httpChecks).map((c) => {
-    const weight = agentReadiness.WEIGHTS[c.id];
+  const httpChecks = arr(w.httpChecks);
+  const onPageChecks = arr(w.onPageChecks);
+  // The scorer's own function, on the checks on screen: 70 points for core
+  // access, 20 for the other checks a site can do today, 10 for emerging
+  // standards.
+  const base = agentScore.readinessScore({ httpChecks, onPageChecks });
+  const exact = base.exact;
+  const groupName = (id) => agentScore.tierOf(id).toUpperCase();
+  // Fixing a check adds to its tier's earned points only, so its effect on
+  // the total is fixed: its points ÷ the tier's points available × the
+  // tier's share.
+  const costed = (c, available, lost) => {
+    const g = base[agentScore.tierOf(c.id)];
+    const effect = lost ? agentScore.scorePointsFor(base, c.id, lost) : 0;
+    return {
+      id: c.id, check: c.label, category: c.cat, status: c.status,
+      group: groupName(c.id),
+      pointsAvailable: available, pointsLost: lost,
+      totalScoreEffect: lost === null ? null : r1(effect),
+      exactEffect: lost === null ? null : effect,
+      calculation: lost ? `${lost} ÷ ${g.max} ${groupName(c.id)} points × ${r2(g.points)} =${r2(effect)} points of the total` : null,
+    };
+  };
+  const http = httpChecks.map((c) => {
+    const weight = agentScore.WEIGHTS[c.id];
     const lost = c.status === 'pass' ? 0 : (Number.isFinite(weight) ? weight : null);
-    return { id: c.id, check: c.label, category: c.cat, status: c.status, pointsAvailable: weight ?? null, pointsLost: lost, totalScoreEffect: lost === null ? null : r1((lost / denom) * 100), calculation: lost ? `${lost} ÷ ${denom} × 100 = ${r1((lost / denom) * 100)} points of the total` : null };
+    return costed(c, weight ?? null, lost);
   });
-  const onPage = arr(w.onPageChecks).map((c) => {
+  const onPage = onPageChecks.map((c) => {
     const lost = num(c.maxScore) !== null && num(c.score) !== null ? c.maxScore - c.score : null;
-    return { id: c.id, check: c.label, category: c.cat, status: c.status, pointsAvailable: num(c.maxScore), pointsLost: lost, totalScoreEffect: lost === null ? null : r1((lost / denom) * 100), calculation: lost ? `${lost} ÷ ${denom} × 100 = ${r1((lost / denom) * 100)} points of the total` : null };
+    return costed(c, num(c.maxScore), lost);
   });
   const all = [...http, ...onPage];
-  // Points earned in total — HTTP AND on-page. Answering a what-if from the
-  // HTTP points alone (36 of 119 instead of 50) is the mistake this prevents.
-  const onPageEarned = arr(w.onPageChecks).reduce((s, c) => s + (num(c.score) || 0), 0);
-  const httpEarned = num(site.httpScore);
-  const earned = httpEarned === null ? null : httpEarned + onPageEarned;
-  const scoreWith = (extra) => (earned === null ? null : Math.min(100, Math.round(((earned + extra) / denom) * 100)));
+  const scoreWith = (extra) => (exact === null ? null : Math.min(100, Math.round(exact + extra)));
   for (const c of all) {
-    if (c.pointsLost) c.scoreIfOnlyThisWereFixed = scoreWith(c.pointsLost);
+    if (c.pointsLost) c.scoreIfOnlyThisWereFixed = scoreWith(c.exactEffect);
   }
+  const g = (key) => ({ pointsEarned: base[key].earned, pointsAvailable: base[key].max, shareOfTotal: r2(base[key].points) });
+  const term = (key) => `${r2(base[key].points)} × ${base[key].earned} ÷ ${base[key].max}`;
+  const terms = ['core', 'now', 'future'].filter((k) => base[k].max > 0).map(term);
   return {
     score: num(site.score),
     level: site.level || null,
-    httpPointsEarned: httpEarned,
-    onPagePointsEarned: onPageEarned,
-    totalPointsEarned: earned,
-    totalCalculation: earned === null ? null : `round((${httpEarned} HTTP + ${onPageEarned} on-page) ÷ ${denom} × 100) = ${scoreWith(0)}`,
-    whatIfRule: `Score if checks were fixed = round((${earned ?? 'total points earned'} + their points lost) ÷ ${denom} × 100). Always start from totalPointsEarned, never from HTTP points alone.`,
-    // Points to EARN (not score points) for each target, and the fewest fixes.
-    pointsToEarnToReach: earned === null ? null : Object.fromEntries(TARGETS.filter((t) => scoreWith(0) < t).map((t) => {
-      const need = Math.max(0, Math.ceil(((t - 0.5) * denom) / 100) - earned);
-      return [t, `earn ${need} more points (${earned} + ${need} = ${earned + need} of ${denom} → round(${r2(((earned + need) / denom) * 100)}) = ${scoreWith(need)})`];
+    coreGroup: g('core'),
+    nowGroup: g('now'),
+    futureGroup: g('future'),
+    exactScoreBeforeRounding: exact === null ? null : r2(exact),
+    totalCalculation: exact === null ? null : `round(${terms.join(' + ')}) = round(${r2(exact)}) = ${scoreWith(0)}`,
+    whatIfRule: 'Score if checks were fixed = round(exact score now + the sum of their effects on the total). '
+      + 'A check\'s effect = its points ÷ its tier\'s points available × the tier\'s share (70 CORE, 20 NOW, 10 FUTURE).',
+    // Score points to gain for each target, and the fewest fixes.
+    pointsToEarnToReach: exact === null ? null : Object.fromEntries(TARGETS.filter((t) => scoreWith(0) < t).map((t) => {
+      const need = Math.max(0, (t - 0.5) - exact);
+      const rate = (key) => (base[key].max ? `${r2(base[key].points / base[key].max)} per ${key.toUpperCase()} point` : null);
+      return [t, `gain ${r2(need)} more score points (exact ${r2(exact)} → ${r2(exact + need)} rounds to ${t}); `
+        + `fixes earn ${[rate('core'), rate('now'), rate('future')].filter(Boolean).join(', ')}`];
     })),
-    fewestFixesToReach: earned === null ? null : fewestFixesToReach(
-      all.filter((c) => c.pointsLost > 0).sort((a, b) => b.pointsLost - a.pointsLost).map((c) => ({ name: c.check, points: c.pointsLost })),
-      earned, (it) => it.points, (x) => Math.min(100, (x / denom) * 100),
+    fewestFixesToReach: exact === null ? null : fewestFixesToReach(
+      all.filter((c) => c.pointsLost > 0).sort((a, b) => b.exactEffect - a.exactEffect).map((c) => ({ name: c.check, effect: c.exactEffect })),
+      exact, (it) => it.effect, (x) => Math.min(100, x),
     ),
-    onPagePointsAvailable: onPageMax,
-    denominator: denom,
     categories: arr(w.cats).map((c) => ({ id: c.id, score: num(c.score), passed: num(c.passed), total: num(c.total) })),
-    checks: all.sort((a, b) => (b.pointsLost || 0) - (a.pointsLost || 0)),
-    note: `Total = round(points earned ÷ ${denom} × 100). A failed check's effect on the total = its points ÷ ${denom} × 100.`,
+    checks: all.map(({ exactEffect, ...c }) => c).sort((a, b) => (b.totalScoreEffect || 0) - (a.totalScoreEffect || 0)),
+    note: 'Total = round(70 × CORE points earned ÷ CORE points available + 20 × NOW points earned ÷ NOW points available '
+      + '+ 10 × FUTURE points earned ÷ FUTURE points available); a tier with nothing to score gives its share to the others '
+      + 'in proportion to their points. CORE = AI bot rules, robots.txt, sitemap; NOW = the other checks a site can do today '
+      + '(Link headers, every on-page check that ran); FUTURE = emerging standards (markdown, content signals, API catalog, '
+      + 'OAuth, MCP, agent skills, WebMCP, web bot auth).',
   };
 }
 
@@ -481,6 +530,11 @@ function hub(w) {
     clustersOrder: 'weakest health first',
     clusters: clusters.slice(0, 120),
     clustersNotListed: Math.max(0, clusters.length - 120),
+    // Topics the client archived: not in `clusters`, not in averageHealth.
+    ...(arr(w.archivedClusters).length ? {
+      archivedClusters: arr(w.archivedClusters).slice(0, 120),
+      archivedNote: 'Archived for this client: excluded from averageHealth, the cluster list and every count, as if they did not exist. Name them only when asked what was left out; never add them back into a figure.',
+    } : {}),
     note: 'healthParts are rebuilt from the cluster\'s hub status and click depths. Hub vocabulary breadth (max 20) and hub ↔ spoke linking (max 30) are not stored separately, so only their sum is known; never split it into two figures (± rounding).',
   };
 }

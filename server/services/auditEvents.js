@@ -57,6 +57,14 @@ const ACTIONS = {
   PAGES_SYNCED:            'project_pages.synced',
   PAGE_EXCLUDED:           'project_page.excluded',
   PAGE_INCLUDED:           'project_page.included',
+  // A Tech Audit check hidden for a client (settings.hiddenChecks): it stops
+  // counting in every crawl's score, so who hid it and why is worth a record.
+  CHECK_HIDDEN:            'project_check.hidden',
+  CHECK_RESTORED:          'project_check.restored',
+  // A Hub and Spoke topic archived for a client (settings.archivedClusters): it
+  // leaves the Hub and Spoke score and lists, so who archived it is recorded.
+  CLUSTER_ARCHIVED:        'project_cluster.archived',
+  CLUSTER_RESTORED:        'project_cluster.restored',
   MODULE_RUN_STARTED:      'project_module.run_started',
   MODULE_RUN_COMPLETED:    'project_module.run_completed',
   MODULE_RUN_FAILED:       'project_module.run_failed',

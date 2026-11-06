@@ -25,6 +25,7 @@
 
 const moduleEvidence = require('../moduleEvidence');
 const overview = require('../overview');
+const hiddenChecks = require('../hiddenChecks');
 const db = require('../../../services/db');
 const { normalizeRuleId } = require('./findingIndex');
 
@@ -289,7 +290,14 @@ async function buildChanges({ access }) {
   let crawl = null;
   if (done.length >= 2) {
     const [now, then] = done;
-    const counts = (r) => r.summary?.counts || {};
+    // Both crawls without the client's hidden checks (hiddenChecks.js), so the
+    // comparison is like for like. Not read when nothing is hidden.
+    const hiddenByRun = hiddenChecks.hiddenRuleIds(access.project).length
+      ? await hiddenChecks.hiddenCountsForRuns([now.id, then.id]).catch(() => new Map())
+      : new Map();
+    const counts = (r) => (hiddenByRun.has(String(r.id))
+      ? hiddenChecks.subtractHidden(r.summary?.counts || {}, hiddenByRun.get(String(r.id)))
+      : r.summary?.counts || {});
     const pageCount = async (id) => overview.internalPageCount(id);
     const [pagesNow, pagesThen] = await Promise.all([pageCount(now.id), pageCount(then.id)]);
     crawl = {

@@ -20,6 +20,7 @@ const db = require('../../services/db');
 const { SEVERITY_TABLE_JSON, currentSeverity } = require('../crawlScope/currentSeverity');
 const moduleEvidence = require('./moduleEvidence');
 const store = require('./store');
+const hiddenChecks = require('./hiddenChecks');
 
 // The six modules the audit profile covers (PRD §11.1 families + the design's
 // six-axis profile). `evidenceSource` documents where a real reading will come
@@ -320,11 +321,26 @@ function cacheInstances(key, rows) {
  * falls back there rather than reporting a false "no errors" for every run
  * that predates the migration.
  *
+ * The project's hidden checks (hiddenChecks.js) are left out. They are read
+ * fresh on every call, after the cache, so hiding a check takes effect on the
+ * next request rather than when the cached rows expire.
+ *
  * @param {string}  runId
  * @param {object} [opts]
  * @param {boolean} [opts.cache=true]  read and write the terminal-run cache
  */
-async function findingInstancesForRun(runId, { cache = true } = {}) {
+async function findingInstancesForRun(runId, opts = {}) {
+  const [rows, hidden] = await Promise.all([
+    allFindingInstancesForRun(runId, opts),
+    hiddenChecks.hiddenRulesForRun(runId).catch((error) => {
+      throw new Error(`[projects.overview.findingInstancesForRun] ${error.message}`);
+    }),
+  ]);
+  return hiddenChecks.excludeHidden(rows, hidden);
+}
+
+/** findingInstancesForRun, hidden checks included. */
+async function allFindingInstancesForRun(runId, { cache = true } = {}) {
   const select = INSTANCE_SELECT;
   const cacheKey = String(runId);
   if (cache) {
@@ -417,11 +433,19 @@ async function findingInstancesForRun(runId, { cache = true } = {}) {
   return stored;
 }
 
-/** Per-rule findings for one run — the rollup crawl_run_findings already holds. */
+/**
+ * Per-rule findings for one run — the rollup crawl_run_findings already holds —
+ * without the project's hidden checks (hiddenChecks.js).
+ *
+ * The hidden rules' own rows ride along on the returned array as `hiddenRows`
+ * (not enumerable, so a spread or a JSON body never carries them): technicalCard
+ * takes their findings out of the run's summary counts with them.
+ */
 async function findingsForRun(runId) {
   try {
     const rows = await db.rows(
-      `select rule_id, severity, category, count, detail
+      `select rule_id, severity, severity as stored_severity, category, count, detail,
+              rule_id = any(${hiddenChecks.HIDDEN_RULES_FOR_RUN('$1')}) as hidden
          from crawl_run_findings
         where run_id = $1
         order by count desc
@@ -429,7 +453,13 @@ async function findingsForRun(runId) {
       [runId]
     );
     // Graded by today's catalog, like the score (currentSeverity.js).
-    return rows.map((row) => ({ ...row, severity: currentSeverity(row.rule_id, row.severity) }));
+    const graded = rows.map(({ hidden, ...row }) => ({ ...row, severity: currentSeverity(row.rule_id, row.severity), hidden: Boolean(hidden) }));
+    const visible = graded.filter((r) => !r.hidden).map(({ hidden, ...row }) => row);
+    Object.defineProperty(visible, 'hiddenRows', {
+      value: graded.filter((r) => r.hidden).map(({ hidden, ...row }) => row),
+      enumerable: false,
+    });
+    return visible;
   } catch (error) {
     throw new Error(`[projects.overview.findingsForRun] ${error.message}`);
   }
@@ -560,28 +590,41 @@ const SCORED_PAGES_CTE = `scored as materialized (
             and coalesce(d."javascriptRedirectUrl", '') = ''
        )`;
 
-/** The cache key for one run, or null when the run does not exist. */
+/**
+ * The cache key for one run, or null when the run does not exist.
+ *
+ * It carries the run's project's hidden checks (hiddenChecks.js) too: they
+ * change what the aggregates count, so hiding or restoring a check makes the
+ * next request recompute, in any process. `hidden` is that sorted list, which
+ * the statements below exclude.
+ */
 async function crawlRunFingerprint(runId, client = db) {
   const row = await client.maybeOne(
     `select r.status, r.finished_at,
             (select count(*) from crawl_run_finding_instances f where f.run_id = r.id)::int as instances,
             (select max(f.id) from crawl_run_finding_instances f where f.run_id = r.id) as last_instance,
             (select count(*) from crawl_finding_reviews v where v.run_id = r.id)::int as reviews,
-            (select max(v.updated_at) from crawl_finding_reviews v where v.run_id = r.id) as reviewed_at
+            (select max(v.updated_at) from crawl_finding_reviews v where v.run_id = r.id) as reviewed_at,
+            ${hiddenChecks.HIDDEN_RULES_FOR_RUN('r.id')} as hidden
        from crawl_runs r
       where r.id = $1`,
     [runId],
   );
   if (!row) return null;
+  const hidden = hiddenChecks.hiddenRuleIds(Array.isArray(row.hidden) ? row.hidden : []);
   return {
     terminal: TERMINAL_CRAWL_STATUSES.has(row.status),
     hasInstances: Number(row.instances) > 0,
-    key: [row.status, row.finished_at, row.instances, row.last_instance, row.reviews, row.reviewed_at].join('|'),
+    hidden,
+    key: [row.status, row.finished_at, row.instances, row.last_instance, row.reviews, row.reviewed_at, hidden.join(',')].join('|'),
   };
 }
 
-/** One statement, every crawl-health figure. Plain data, so it can be cached. */
-async function computeCrawlHealth(runId, hasInstances) {
+/**
+ * One statement, every crawl-health figure. Plain data, so it can be cached.
+ * `hidden` (the project's hidden rule ids) are left out as if never found.
+ */
+async function computeCrawlHealth(runId, hasInstances, hidden = []) {
   return db.boundedRead(CRAWL_HEALTH_STATEMENT_MS, async (t) => {
     const row = await t.maybeOne(
       `with ${SCORED_PAGES_CTE},
@@ -600,6 +643,9 @@ async function computeCrawlHealth(runId, hasInstances) {
              on v.run_id = f.run_id and v.finding_id = f.finding_id
           where f.run_id = $1
             and coalesce(v.review_status, '') <> all($3)
+            -- Hidden checks (hiddenChecks.js) count nowhere. Empty for a
+            -- project with nothing hidden, which excludes nothing.
+            and coalesce(f.data->>'ruleId', '?') <> all($8::text[])
        ),
        -- What healthAffectedPages and costingRulePages count: page- and
        -- template-scoped findings on scored pages.
@@ -652,10 +698,11 @@ async function computeCrawlHealth(runId, hasInstances) {
                          from on_pages
                         group by 1, 2) c) as costing
          from loss`,
-      [runId, [...PAGE_LEVEL_SCOPES], DISMISSED_REVIEW_STATUSES, HEALTH_WEIGHTS.error, HEALTH_WEIGHTS.warning, HEALTH_WEIGHTS.notice, SEVERITY_TABLE_JSON],
+      [runId, [...PAGE_LEVEL_SCOPES], DISMISSED_REVIEW_STATUSES, HEALTH_WEIGHTS.error, HEALTH_WEIGHTS.warning, HEALTH_WEIGHTS.notice, SEVERITY_TABLE_JSON, hidden || []],
     );
     return {
       hasInstances,
+      hidden: hidden || [],
       htmlPages: Number(row?.html_pages) || 0,
       loss: row ? {
         error_pages: row.error_pages,
@@ -682,7 +729,7 @@ async function computeCrawlHealth(runId, hasInstances) {
  * `error`): the backlog reads no other list. Run on demand (costingUrlsFor),
  * not with every dashboard load.
  */
-async function computeCostingUrls(runId) {
+async function computeCostingUrls(runId, hidden = []) {
   return db.boundedRead(CRAWL_HEALTH_STATEMENT_MS, async (t) => {
     const rows = await t.rows(
       `with ${SCORED_PAGES_CTE},
@@ -693,6 +740,7 @@ async function computeCostingUrls(runId) {
          select distinct coalesce(f.data->>'ruleId', '?') as rule
            from crawl_run_finding_instances f
           where f.run_id = $1
+            and coalesce(f.data->>'ruleId', '?') <> all($5::text[])
             and (f.data->>'severity' = 'error'
                  or coalesce(($4::jsonb)->>(f.data->>'ruleId'), f.data->>'severity') = 'error')
        )
@@ -709,7 +757,7 @@ async function computeCostingUrls(runId) {
          join wanted w on w.rule = i.rule
          join scored_urls s on s.url = i.url
         group by 1, 2`,
-      [runId, [...PAGE_LEVEL_SCOPES], DISMISSED_REVIEW_STATUSES, SEVERITY_TABLE_JSON],
+      [runId, [...PAGE_LEVEL_SCOPES], DISMISSED_REVIEW_STATUSES, SEVERITY_TABLE_JSON, hidden || []],
     );
     return new Map((rows || []).map((r) => [`${r.rule}|${r.severity}`, Array.isArray(r.urls) ? r.urls : []]));
   });
@@ -727,16 +775,16 @@ async function computeCostingUrls(runId) {
  */
 async function costingUrlsFor(runId) {
   const id = String(runId);
-  const { entry, promise } = await crawlHealthLookup(id);
+  const { entry, promise, hidden } = await crawlHealthLookup(id);
   await promise;
-  if (!entry || crawlHealthCache.get(id) !== entry || entry.failedAt) return computeCostingUrls(id);
+  if (!entry || crawlHealthCache.get(id) !== entry || entry.failedAt) return computeCostingUrls(id, hidden);
   if (entry.urlsFailedAt) {
     if (Date.now() - entry.urlsFailedAt < CRAWL_HEALTH_RETRY_MS) throw entry.urlsError;
     entry.urlsFailedAt = null;
     entry.urlsError = null;
   }
   if (!entry.urls) {
-    const urls = computeCostingUrls(id).catch((error) => {
+    const urls = computeCostingUrls(id, entry.hidden).catch((error) => {
       if (crawlHealthCache.get(id) === entry && entry.urls === urls) {
         entry.urls = null;
         if (db.isStatementTimeout(error)) {
@@ -769,20 +817,21 @@ async function crawlHealthAggregates(runId) {
 async function crawlHealthLookup(runId) {
   const id = String(runId);
   const fingerprint = await crawlRunFingerprint(id);
+  const hidden = fingerprint?.hidden || [];
   // A run still going changes under the reader: computed, never kept.
-  if (!fingerprint?.terminal) return { entry: null, promise: computeCrawlHealth(id, Boolean(fingerprint?.hasInstances)) };
+  if (!fingerprint?.terminal) return { entry: null, hidden, promise: computeCrawlHealth(id, Boolean(fingerprint?.hasInstances), hidden) };
 
   const hit = crawlHealthCache.get(id);
   if (hit && hit.key === fingerprint.key) {
     if (!hit.failedAt) {
       hit.at = Date.now();
-      return { entry: hit, promise: hit.promise };
+      return { entry: hit, hidden, promise: hit.promise };
     }
     if (Date.now() - hit.failedAt < CRAWL_HEALTH_RETRY_MS) throw hit.error;
   }
 
-  const entry = { key: fingerprint.key, at: Date.now(), promise: null, failedAt: null, error: null, urls: null };
-  entry.promise = computeCrawlHealth(id, fingerprint.hasInstances).catch((error) => {
+  const entry = { key: fingerprint.key, hidden, at: Date.now(), promise: null, failedAt: null, error: null, urls: null };
+  entry.promise = computeCrawlHealth(id, fingerprint.hasInstances, hidden).catch((error) => {
     if (crawlHealthCache.get(id) === entry) {
       if (db.isStatementTimeout(error)) {
         entry.failedAt = Date.now();
@@ -800,7 +849,7 @@ async function crawlHealthLookup(runId) {
     if (oldest) crawlHealthCache.delete(oldest[0]);
   }
   crawlHealthCache.set(id, entry);
-  return { entry, promise: entry.promise };
+  return { entry, hidden, promise: entry.promise };
 }
 
 const CRAWL_HEALTH_SLOW = Symbol('crawlHealthSlow');
@@ -1477,7 +1526,13 @@ function technicalCard(runs, findings, internalPages = null, internalHtmlPages =
     };
   }
 
-  const counts = terminal.summary?.counts || {};
+  // The project's hidden checks count nowhere (hiddenChecks.js): their findings
+  // come out of the run's tallies here, as they are out of `findings` and the
+  // score. findingsForRun carries their rows as `hiddenRows`.
+  const hiddenRows = Array.isArray(findings?.hiddenRows) ? findings.hiddenRows : [];
+  const counts = hiddenRows.length
+    ? hiddenChecks.subtractHidden(terminal.summary?.counts || {}, hiddenRows)
+    : terminal.summary?.counts || {};
   const errors = Number(counts.error) || 0;
   const warnings = Number(counts.warning) || 0;
   const notices = Number(counts.notice) || 0;
@@ -1569,6 +1624,24 @@ function technicalCard(runs, findings, internalPages = null, internalHtmlPages =
       robotsStatus: terminal.summary?.robotsStatus || null,
       topFindings: top,
     },
+  };
+}
+
+/**
+ * The Tech Audit card, saying which checks this client has hidden: they are
+ * out of its score and counts (hiddenChecks.js), and a reader comparing it with
+ * an unfiltered export has to be told why the numbers differ. Unchanged when
+ * nothing is hidden.
+ */
+function withHiddenChecks(card, hidden) {
+  const ids = hiddenChecks.hiddenRuleIds(hidden);
+  if (!card || !ids.length) return card;
+  const note = `${ids.length} check${ids.length === 1 ? '' : 's'} hidden — excluded from this score`;
+  return {
+    ...card,
+    hiddenChecks: ids,
+    hiddenChecksNote: note,
+    detail: card.detail ? `${card.detail} · ${note}` : note,
   };
 }
 
@@ -2465,9 +2538,13 @@ async function moduleChanges(projectId, modules, evidenceByModule) {
     const terminal = evidenceByModule.get(key)?.terminal;
     if (!card || !Number.isFinite(card.score) || !terminal) continue;
     const at = Date.parse(terminal.created_at || terminal.finished_at || '');
-    const prev = rows.find((r) => r.module_key === key && r.id !== terminal.id
+    let prev = rows.find((r) => r.module_key === key && r.id !== terminal.id
       && (!Number.isFinite(at) || Date.parse(r.created_at) < at));
     if (!prev) continue;
+    // The card's Agent Readiness score is re-scored on read with the current
+    // formula; the previous run is too, so the two are compared like for like.
+    // One it cannot re-score keeps its old basis and reads as a method change.
+    if (key === 'agent_readiness') [prev] = await moduleEvidence.rescoreAgentRuns([prev]);
     const change = changeOf(card.score, Number(prev.score), prev.finished_at || prev.created_at);
     if (!change) continue;
     const basisNow = terminal.score_basis || card.scoreBasis || null;
@@ -2633,7 +2710,12 @@ async function buildOverviewCore({ access }) {
       return hubSpokeEntry?.terminal || null;
     });
     if (fresh && fresh !== hubSpokeEntry?.terminal) {
-      evidenceByModule.set('hub_spoke', { ...(hubSpokeEntry || {}), terminal: fresh });
+      // Its figures cover every cluster; topics archived for this client are
+      // left out again (archivedClusters.js, a no-op when none are).
+      const terminal = await require('./archivedClusters')
+        .applyToRun(projectRow.id, { ...fresh, module_key: 'hub_spoke' })
+        .catch(() => fresh);
+      evidenceByModule.set('hub_spoke', { ...(hubSpokeEntry || {}), terminal });
     }
   }
 
@@ -2661,7 +2743,10 @@ async function buildOverviewCore({ access }) {
       }),
   );
 
-  const techCard = technicalCard(crawlRuns, findings, crawlCounts?.pages ?? null, internalHtmlPages, [], affectedPageCounts, crawlCounts?.probes || 0);
+  const techCard = withHiddenChecks(
+    technicalCard(crawlRuns, findings, crawlCounts?.pages ?? null, internalHtmlPages, [], affectedPageCounts, crawlCounts?.probes || 0),
+    project.hiddenChecks,
+  );
   const modules = [
     healthPending ? healthPendingCard(techCard) : techCard,
     ...MODULES.slice(1).map((module) => {
@@ -2849,6 +2934,7 @@ module.exports = {
   seoGeoSideScores,
   internalHtmlPageCount,
   technicalCard,
+  withHiddenChecks,
   siteHealth,
   siteLevelLoss,
   competitorListDrift,

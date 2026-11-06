@@ -560,9 +560,11 @@ async function pageHistory(projectId, pageId) {
     matchedBy,
   });
 
+  // Agent Readiness scores in the current formula, from each page's stored checks.
+  const { rescoreAgentPages } = require('./moduleEvidence');
   const audits = [
-    ...byId.map((r) => shape(r, 'page_id')),
-    ...byUrl.map((r) => shape(r, 'url')),
+    ...(await rescoreAgentPages(byId)).map((r) => shape(r, 'page_id')),
+    ...(await rescoreAgentPages(byUrl)).map((r) => shape(r, 'url')),
   ].sort((a, b) => String(b.at).localeCompare(String(a.at)));
 
   return {
